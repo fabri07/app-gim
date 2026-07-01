@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Entorno virtual
+.venv/
+venv/
+env/
+
+# Base de datos local (SQLite). El esquema vive en las migraciones, no acá.
+db.sqlite3
+db.sqlite3-journal
+
+# Django
+*.log
+local_settings.py
+
+# Logs de la app (canal de auditoría, no se versiona)
+logs/*.log
+
+# Variables de entorno / secretos
+.env
+
+# Editores / SO
+.DS_Store
+.idea/
+.vscode/

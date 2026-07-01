@@ -1,0 +1,28 @@
+{% load static %}<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}App Gimnasios{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+  <header class="topbar">
+    <span class="topbar__marca">App Gimnasios</span>
+    {% if user.is_authenticated %}
+      <form method="post" action="{% url 'logout' %}" class="topbar__salir">
+        {% csrf_token %}
+        <button type="submit">Salir</button>
+      </form>
+    {% endif %}
+  </header>
+  {% if messages %}
+    <ul class="mensajes">
+      {% for message in messages %}<li class="mensaje">{{ message }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+  <main class="contenido">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

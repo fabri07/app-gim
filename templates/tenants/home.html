@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Inicio · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>{{ perfil.gimnasio.nombre }}</h1>
+  <p>Sesión iniciada como <strong>{{ user.username }}</strong> ({{ perfil.get_rol_display }}).</p>
+  <p class="texto-suave">
+    El dashboard real (alumnos activos, pagos pendientes, rutinas, novedades)
+    llega en Fase 2 del ROADMAP. Esta pantalla solo confirma que el login y el
+    scoping por gimnasio funcionan de punta a punta.
+  </p>
+</div>
+{% endblock %}
