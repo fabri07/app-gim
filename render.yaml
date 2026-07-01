@@ -1,0 +1,84 @@
+# Blueprint de Render (Fase 5 del ROADMAP). Se aplica desde el dashboard de
+# Render: "New" -> "Blueprint" -> conectar este repo -> Render lee este
+# archivo y propone crear los recursos de abajo.
+#
+# Arranca todo en el plan FREE (decisión del 2026-07-01, ver ISSUES.md): el
+# Postgres free expira a los 90 días y el web service se "duerme" sin
+# tráfico. El cron job de autogeneración de pagos NO tiene plan free en
+# Render (ver nota en `services` más abajo) — queda comentado hasta upgradear.
+#
+# No corre `npm`/Tailwind en el build: static/css/app.css ya viene compilado
+# y versionado en el repo (ver CLAUDE.md, sección "UI y white-label").
+
+databases:
+  - name: app-gim-db
+    plan: free
+    databaseName: app_gim
+    user: app_gim
+
+services:
+  - type: web
+    name: app-gim
+    runtime: python
+    plan: free
+    buildCommand: >-
+      pip install -r requirements.txt &&
+      python manage.py collectstatic --noinput &&
+      python manage.py migrate
+    startCommand: gunicorn config.wsgi:application
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.14.3"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      # Completar a mano en el dashboard con la URL real que Render asigna
+      # (algo como app-gim-xxxx.onrender.com) recién visible después del
+      # primer deploy -- no se puede predecir de antemano si el nombre
+      # exacto "app-gim" ya está tomado por otra cuenta.
+      - key: DJANGO_ALLOWED_HOSTS
+        sync: false
+      - key: DJANGO_CSRF_TRUSTED_ORIGINS
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: app-gim-db
+          property: connectionString
+      # Credenciales de Cloudflare R2 (bucket + token creados a mano en el
+      # dashboard de Cloudflare -- ver CLAUDE.md). Sin esto, Django usa
+      # FileSystemStorage local, que en Render se borra en cada deploy.
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_ENDPOINT_URL
+        sync: false
+
+  # Cron de autogeneración de pagos (pagos.generar_pagos_pendientes +
+  # marcar_vencidos, ver pagos/management/commands/generar_pagos.py).
+  # DESHABILITADO por ahora: Render no ofrece plan "free" para cron jobs
+  # (ver ISSUES.md 2026-07-01) -- el plan free de arriba es solo para el web
+  # service y la base. Para activarlo: descomentar, poner `plan: starter` (o
+  # superior) y volver a aplicar el Blueprint. Mientras tanto, correr
+  # `python manage.py generar_pagos` a mano desde la Shell de Render, o
+  # esperar al upgrade de plan del primer gimnasio pago.
+  #
+  # - type: cron
+  #   name: app-gim-generar-pagos
+  #   runtime: python
+  #   plan: starter
+  #   schedule: "0 6 * * *"  # todos los días 06:00 UTC (03:00 ART)
+  #   buildCommand: pip install -r requirements.txt
+  #   startCommand: python manage.py generar_pagos
+  #   envVars:
+  #     - key: DJANGO_SECRET_KEY
+  #       sync: false
+  #     - key: DJANGO_DEBUG
+  #       value: "False"
+  #     - key: DATABASE_URL
+  #       fromDatabase:
+  #         name: app-gim-db
+  #         property: connectionString

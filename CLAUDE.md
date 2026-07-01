@@ -13,14 +13,14 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: Fase 4 completa** (UX/UI y white-label). Ver `REUSO.md` para el
-detalle de qué se copió de dónde en Fase 0. Un dueño puede usar el sistema de
-punta a punta desde el panel web (registro → alumnos → ejercicios → rutinas →
-asignación → pagos → novedades → dashboard → crear acceso de alumno →
-personalizar su gimnasio) sin tocar `/admin/`, y el alumno entra con ese
-usuario/contraseña a ver su propia rutina, cuota del mes y novedades — todo
-con un diseño que no parece un prototipo interno. Próximo paso: Fase 5
-(deploy a Render + Cloudflare R2).
+**Fase actual: Fase 5 en curso** (deploy a Render + Cloudflare R2). El código
+de producción ya está listo (Postgres, WhiteNoise, R2, `render.yaml`) — falta
+la parte que no puedo hacer yo: crear el bucket de R2 en Cloudflare y aplicar
+el Blueprint en el dashboard de Render (cuentas/pagos de terceros). Ver
+"Deploy (Fase 5)" más abajo para el estado exacto y los pasos manuales que
+quedan. Fases 0-4 (esqueleto, modelos, vistas de staff, portal del alumno,
+UX/white-label) completas — un dueño puede usar el sistema de punta a punta
+desde el panel web sin tocar `/admin/`.
 
 **Nota:** el acceso del alumno NO es magic-link como decía la primera versión
 del ROADMAP — el dueño del producto pidió que el staff asigne usuario y
@@ -45,11 +45,12 @@ ya actualizados.
 ## Stack
 
 - Django 5.2 (templates + vistas basadas en clases, sin DRF).
-- SQLite en dev, Postgres en producción (Fase 5).
+- SQLite en dev; Postgres en producción vía `DATABASE_URL` (Render la inyecta).
 - Tailwind CSS (build local con Node, ver "UI y white-label" abajo) + HTMX
   (`hx-boost`) + Alpine.js (CDN, solo el toggle de nav mobile). **Nada de
   React/Next** en el MVP.
-- Deploy objetivo: Render (Fase 5) + Cloudflare R2 para media.
+- Deploy: Render (`render.yaml`, ver "Deploy (Fase 5)") + Cloudflare R2 para
+  media (comprobantes, logos) vía `django-storages`.
 
 ## Arquitectura multi-tenant
 
@@ -145,11 +146,16 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
   plantillas existentes a clases utilitarias, se redefinieron los mismos
   nombres de clase que ya usaban (`.tarjeta`, `.boton`, `.badge--ok`,
   `.tabla`, `.contenido--ancho`, etc.) como clases de componente con `@apply`
-  en `static/css/input.css` (`@layer components` — patrón que la propia
+  en `styles/input.css` (`@layer components` — patrón que la propia
   documentación de Tailwind recomienda). Si agregás una plantilla nueva,
   reusá estas clases en vez de escribir utilidades sueltas repetidas; si te
   hace falta una nueva, defínila ahí, no inline en el HTML.
-- **Build**: `npm run build:css` compila `static/css/input.css` →
+- **`styles/input.css` (fuente) vive fuera de `static/`** a propósito: si
+  quedara dentro de `STATICFILES_DIRS`, Django lo recolecta como si fuera un
+  asset servible y WhiteNoise intenta parsear sus `@import`/`@source` como
+  URLs de CSS, rompiendo `collectstatic` (pasó en Fase 5, ver `ISSUES.md`).
+  Solo `static/css/app.css` (el output compilado) se sirve.
+- **Build**: `npm run build:css` compila `styles/input.css` →
   `static/css/app.css` (el que de verdad se sirve). `npm run watch:css`
   durante desarrollo. El output SÍ se versiona en git (`node_modules/` no) —
   Render no corre `npm`, así que el CSS compilado tiene que estar en el repo.
@@ -177,6 +183,46 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
   MISMO scope de `x-data`, si no el toggle no hace nada). No se usó para
   nada más ("solo si hace falta", ROADMAP Fase 4).
 
+## Deploy (Fase 5)
+
+**Estado (2026-07-01): código listo, falta la parte manual en Render y
+Cloudflare** (cuentas/pagos de terceros — eso no lo puedo hacer yo). Repo en
+`https://github.com/fabri07/app-gim` (privado).
+
+- **Plan elegido: arrancar en el free tier de Render, upgradear cuando entre
+  el primer gimnasio pago** (decisión del usuario, coincide con "primero se
+  cobra, después se sofistica"). El Postgres free expira a los 90 días y el
+  web service se duerme sin tráfico — aceptado a propósito, ver `ISSUES.md`.
+- **`render.yaml`** define el Blueprint: web service (free) + Postgres
+  (free). El cron de `generar_pagos` queda comentado en el archivo — **Render
+  no tiene plan free para cron jobs**, hace falta upgradear a Starter (o
+  correr el comando a mano desde la Shell de Render) hasta entonces.
+- **Pasos manuales que quedan** (no los puedo hacer yo — cuentas de
+  terceros):
+  1. En Cloudflare: crear un bucket R2 + un token de API (Account API Token
+     con permiso de Object Read & Write sobre ese bucket). Anotar: nombre
+     del bucket, Access Key ID, Secret Access Key, y el endpoint S3
+     (`https://<account_id>.r2.cloudflarestorage.com`).
+  2. En Render: "New" → "Blueprint" → conectar `fabri07/app-gim` → aplicar
+     `render.yaml`. Después del primer deploy, completar a mano en el
+     dashboard las env vars marcadas `sync: false` en el Blueprint:
+     `DJANGO_ALLOWED_HOSTS`/`DJANGO_CSRF_TRUSTED_ORIGINS` (con la URL real
+     que Render asigna) y las 4 `R2_*` (con lo del paso 1).
+  3. Verificar: la app levanta, el login funciona, un logo/comprobante
+     subido efectivamente aparece en el bucket de R2 (no en el filesystem
+     de Render).
+- **Settings de producción** (`config/settings.py`): `DATABASE_URL` (Postgres
+  si está seteada, SQLite si no — mismo criterio que el resto del archivo),
+  `STORAGES["default"]` cambia a `storages.backends.s3.S3Storage` solo si
+  `R2_BUCKET_NAME` está seteada (si no, sigue en `FileSystemStorage` como en
+  dev), `STORAGES["staticfiles"]` usa el manifest comprimido de WhiteNoise
+  SOLO fuera de `DEBUG` (con `DEBUG=True` no hay `collectstatic` corrido, así
+  que exigir el manifest rompe `{% static %}` en dev/tests — pasó durante
+  esta fase, quedó cubierto por un test). `CSRF_TRUSTED_ORIGINS` nuevo,
+  mismo patrón CSV-por-entorno que `ALLOWED_HOSTS`.
+- **`WhiteNoiseMiddleware`** va justo después de `SecurityMiddleware` (sirve
+  los estáticos sin depender de Nginx/CDN aparte).
+
 ## Comandos
 
 ```bash
@@ -189,6 +235,7 @@ python manage.py runserver
 python manage.py test -v 2           # suite completa
 python manage.py createsuperuser     # acceso a /admin/
 python manage.py generar_pagos       # autogenera pendientes del mes + vence atrasados
+python manage.py collectstatic       # solo hace falta simulando producción (DEBUG=False)
 
 npm install                          # una vez, para compilar Tailwind
 npm run build:css                    # compila static/css/input.css -> app.css

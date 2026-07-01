@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@source "../../templates";
+@source "../templates";
 
 /*
   Fase 4: se migra a Tailwind, pero SIN reescribir el markup de las ~25

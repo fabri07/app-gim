@@ -26,6 +26,10 @@ logs/*.log
 # Uploads locales de dev (logo, comprobantes). En producción van a R2, no acá.
 media/
 
+# Output de `collectstatic` (Fase 5) -- se genera en el build de Render, no
+# se versiona (deriva de static/, que sí está en git).
+staticfiles/
+
 # Node (solo se usa para compilar Tailwind -- ver package.json). El output
 # compilado (static/css/app.css) SÍ se versiona: Render no corre npm.
 node_modules/

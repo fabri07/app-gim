@@ -14,6 +14,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+import dj_database_url
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -81,6 +82,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # WhiteNoise sirve los estáticos directamente desde el proceso Django en
+    # Render (sin Nginx/CDN aparte) -- va justo después de SecurityMiddleware
+    # por indicación de la propia documentación de WhiteNoise.
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -112,12 +117,22 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+# SQLite en dev (sin DATABASE_URL seteado); Postgres en producción (Render la
+# inyecta automáticamente vía Blueprint -- ver render.yaml). `conn_max_age`
+# reusa conexiones entre requests (evita el costo de abrir una nueva conexión
+# TCP+TLS a Postgres en cada request, importante en un plan free con recursos
+# limitados). `ssl_require=not DEBUG`: Postgres de Render exige TLS.
+if os.environ.get("DATABASE_URL"):
+    DATABASES = {
+        "default": dj_database_url.config(conn_max_age=600, ssl_require=not DEBUG)
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
@@ -159,12 +174,51 @@ STATIC_URL = 'static/'
 # Assets propios del proyecto (CSS/JS/fuentes), no atados a una app concreta.
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
+# Destino de `collectstatic` en producción (WhiteNoise sirve desde acá; en
+# dev no se usa, Django sirve directo desde STATICFILES_DIRS).
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
 # Media (uploads de usuario: logo del gimnasio, comprobantes de pago).
-# Storage local en dev vía FileSystemStorage (default). Fase 5 cambia a
-# Cloudflare R2 con django-storages sin tocar los campos de los modelos —
-# el filesystem de Render es efímero, nunca debe recibir uploads reales.
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# `staticfiles`: WhiteNoise con manifest + compresión SOLO fuera de DEBUG.
+# El manifest lo genera `collectstatic` en el build de Render; en dev/tests
+# no se corre `collectstatic`, así que exigir el manifest ahí rompe el
+# `{% static %}` de cada template (no encuentra la entrada). En dev, Django
+# ya sirve estáticos directo desde STATICFILES_DIRS sin manifest.
+#
+# `default` (media): FileSystemStorage en dev. En producción, si están
+# seteadas las credenciales de R2, cambia a S3Storage (R2 es compatible con
+# S3) SIN tocar los campos `ImageField`/`FileField` de los modelos — el
+# filesystem de Render es efímero, nunca debe recibir un upload real.
+STORAGES = {
+    "staticfiles": {
+        "BACKEND": (
+            "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            if not DEBUG
+            else "django.contrib.staticfiles.storage.StaticFilesStorage"
+        ),
+    },
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+}
+
+if os.environ.get("R2_BUCKET_NAME"):
+    STORAGES["default"] = {"BACKEND": "storages.backends.s3.S3Storage"}
+    AWS_STORAGE_BUCKET_NAME = os.environ["R2_BUCKET_NAME"]
+    AWS_ACCESS_KEY_ID = os.environ["R2_ACCESS_KEY_ID"]
+    AWS_SECRET_ACCESS_KEY = os.environ["R2_SECRET_ACCESS_KEY"]
+    AWS_S3_ENDPOINT_URL = os.environ["R2_ENDPOINT_URL"]
+    AWS_S3_REGION_NAME = "auto"
+    AWS_S3_ADDRESSING_STYLE = "virtual"
+    AWS_DEFAULT_ACL = None
+    # El bucket queda privado; las URLs que Django genera van firmadas
+    # (query-string) y expiran -- comprobantes de pago son datos sensibles,
+    # no tiene sentido que sean públicos aunque el logo sí podría serlo.
+    AWS_QUERYSTRING_AUTH = True
+    AWS_QUERYSTRING_EXPIRE = 3600
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -222,6 +276,16 @@ LOGGING = {
     },
 }
 
+
+# Orígenes de confianza para CSRF (Django exige esquema+host completo, a
+# diferencia de ALLOWED_HOSTS que solo pide el hostname). En Render:
+# https://<nombre-del-servicio>.onrender.com, o el dominio propio si se
+# configura uno más adelante.
+CSRF_TRUSTED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if o.strip()
+]
 
 # Endurecimiento mínimo para producción. Se activa solo con DEBUG apagado para
 # no entorpecer el desarrollo local (HTTP, sin TLS). Cookies sobre HTTPS, HSTS

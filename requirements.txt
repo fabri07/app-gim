@@ -1,3 +1,11 @@
 Django==5.2.15
 pillow==12.3.0
 python-dotenv==1.2.2
+
+# Fase 5 (producción / Render + Cloudflare R2)
+boto3==1.43.38
+dj-database-url==3.1.2
+django-storages==1.14.6
+gunicorn==26.0.0
+psycopg[binary]==3.3.4
+whitenoise==6.12.0

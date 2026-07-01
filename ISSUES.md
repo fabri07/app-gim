@@ -137,3 +137,64 @@ navegador real (no solo `curl`) para las partes con JS (hx-boost, Alpine,
 upload de logo). Si en el futuro alguna app necesita una interacción HTMX
 más fina que un boost genérico (p.ej. swap parcial de una fila sin
 navegación), evaluarlo puntualmente ahí — no hace falta un rediseño general.
+
+## [2026-07-01] Fase 5: se arranca en el free tier de Render (Postgres expira, sin cron)
+
+**Estado:** aceptado (decisión de producto, riesgo conocido)
+
+**Impacto:** el ROADMAP pide Postgres pago (con backups + PITR) y un Web
+Service Starter "siempre prendido". El usuario solo tiene cuenta gratuita de
+Render (agregar tarjeta es algo que Claude no puede hacer por políticas de
+seguridad — entrar datos de pago de terceros). Arrancando en el plan free:
+- **Postgres free expira a los 90 días** (Render borra la base). Hay que
+  upgradear o migrar los datos antes de esa fecha si el gimnasio piloto ya
+  está cargando datos reales.
+- **El web service free se "duerme"** sin tráfico — el primer request
+  después de inactividad tarda más (cold start), y no hay garantía de
+  "siempre prendido" para una demo en vivo.
+- **Render no ofrece plan free para cron jobs.** La autogeneración mensual
+  de pagos (`pagos.generar_pagos_pendientes`/`marcar_vencidos`, expuesta por
+  `python manage.py generar_pagos`) NO puede programarse automáticamente en
+  el free tier.
+
+**Resolución / próximo paso:** `render.yaml` deja el servicio de cron
+comentado con instrucciones de cómo activarlo (cambiar a `plan: starter`).
+Mientras tanto, correr `python manage.py generar_pagos` a mano (Shell de
+Render) o aceptar que los pagos del mes no se autogeneran solos hasta el
+upgrade. Cuando el primer gimnasio pague la seña de setup (Fase 6), es el
+momento natural de upgradear Postgres y el web service, y activar el cron.
+
+## [2026-07-01] Fase 5: `input.css` dentro de `static/` rompía `collectstatic`
+
+**Estado:** resuelto
+
+**Impacto:** `static/css/input.css` (la fuente de Tailwind, con
+`@import "tailwindcss"` y `@source "../../templates"`) vivía dentro de
+`STATICFILES_DIRS`. Al correr `collectstatic` con WhiteNoise, el
+post-procesador de WhiteNoise intenta parsear TODO archivo `.css` recolectado
+buscando referencias tipo `url(...)`, interpretó el `@import` de Tailwind
+como una referencia a un archivo literal llamado `tailwindcss`, y
+`collectstatic` falló con `MissingFileError`.
+
+**Resolución:** se movió el archivo fuente a `styles/input.css` (fuera de
+`static/`), y se actualizaron `package.json` (`build:css`/`watch:css`) y el
+`@source` relativo dentro del propio archivo. Solo `static/css/app.css` (el
+output compilado) queda dentro del árbol que Django recolecta.
+
+## [2026-07-01] Fase 5: el manifest de WhiteNoise rompía `{% static %}` en dev/tests
+
+**Estado:** resuelto
+
+**Impacto:** al configurar `STORAGES["staticfiles"]` con
+`whitenoise.storage.CompressedManifestStaticFilesStorage` sin condicionarlo,
+la suite de tests completa empezó a fallar (33 errores) con
+`Missing staticfiles manifest entry for 'css/app.css'`. Esa storage exige un
+manifest (`staticfiles.json`) que solo genera `collectstatic` — algo que no
+se corre en dev ni en tests, solo en el build de Render.
+
+**Resolución:** el backend de `staticfiles` ahora es condicional a `DEBUG`
+(igual criterio que el resto de `config/settings.py`): manifest de WhiteNoise
+solo con `DEBUG=False`; en dev/tests usa la `StaticFilesStorage` simple de
+Django, que no necesita manifest. Verificado corriendo la suite completa
+(105/105) y simulando producción a mano (`DJANGO_DEBUG=False` +
+`collectstatic` + resolución de la URL hasheada) antes de commitear.
