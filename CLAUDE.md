@@ -13,13 +13,14 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: Fase 3 completa** (portal del alumno). Ver `REUSO.md` para el
+**Fase actual: Fase 4 completa** (UX/UI y white-label). Ver `REUSO.md` para el
 detalle de qué se copió de dónde en Fase 0. Un dueño puede usar el sistema de
 punta a punta desde el panel web (registro → alumnos → ejercicios → rutinas →
-asignación → pagos → novedades → dashboard → crear acceso de alumno) sin
-tocar `/admin/`, y el alumno entra con ese usuario/contraseña a ver su propia
-rutina, cuota del mes y novedades. Próximo paso: Fase 4 (UX/UI y white-label
-— Tailwind + HTMX + Alpine).
+asignación → pagos → novedades → dashboard → crear acceso de alumno →
+personalizar su gimnasio) sin tocar `/admin/`, y el alumno entra con ese
+usuario/contraseña a ver su propia rutina, cuota del mes y novedades — todo
+con un diseño que no parece un prototipo interno. Próximo paso: Fase 5
+(deploy a Render + Cloudflare R2).
 
 **Nota:** el acceso del alumno NO es magic-link como decía la primera versión
 del ROADMAP — el dueño del producto pidió que el staff asigne usuario y
@@ -45,8 +46,9 @@ ya actualizados.
 
 - Django 5.2 (templates + vistas basadas en clases, sin DRF).
 - SQLite en dev, Postgres en producción (Fase 5).
-- Fase 4 en adelante: HTMX + Tailwind CSS + Alpine.js. **Nada de React/Next**
-  en el MVP — Fase 0 usa HTML mínimo sin esas libs todavía (llegan en Fase 4).
+- Tailwind CSS (build local con Node, ver "UI y white-label" abajo) + HTMX
+  (`hx-boost`) + Alpine.js (CDN, solo el toggle de nav mobile). **Nada de
+  React/Next** en el MVP.
 - Deploy objetivo: Render (Fase 5) + Cloudflare R2 para media.
 
 ## Arquitectura multi-tenant
@@ -137,6 +139,44 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
   rol `alumno` todavía no está vinculado a un `Alumno`, se muestra un estado
   vacío, no un error 500.
 
+## UI y white-label (Fase 4)
+
+- **Tailwind sin reescribir plantillas**: en vez de convertir las ~25
+  plantillas existentes a clases utilitarias, se redefinieron los mismos
+  nombres de clase que ya usaban (`.tarjeta`, `.boton`, `.badge--ok`,
+  `.tabla`, `.contenido--ancho`, etc.) como clases de componente con `@apply`
+  en `static/css/input.css` (`@layer components` — patrón que la propia
+  documentación de Tailwind recomienda). Si agregás una plantilla nueva,
+  reusá estas clases en vez de escribir utilidades sueltas repetidas; si te
+  hace falta una nueva, defínila ahí, no inline en el HTML.
+- **Build**: `npm run build:css` compila `static/css/input.css` →
+  `static/css/app.css` (el que de verdad se sirve). `npm run watch:css`
+  durante desarrollo. El output SÍ se versiona en git (`node_modules/` no) —
+  Render no corre `npm`, así que el CSS compilado tiene que estar en el repo.
+  **Si tocás `input.css`, corré `npm run build:css` antes de commitear.**
+- **Colores por gimnasio**: `Gimnasio.color_primario`/`color_secundario` son
+  datos de runtime, no algo que Tailwind conozca en build-time. Se definen
+  como variables CSS (`--color-primario`/`--color-secundario`, default en
+  `input.css`) y `base.html` las sobreescribe inline por request si el
+  gimnasio logueado tiene colores propios. El resto de la UI los referencia
+  vía `bg-[var(--color-primario)]` (clases arbitrarias) o, para lo ya
+  existente, a través de `.boton`/`.tabla th`/etc.
+- **`tenants:gimnasio_editar`** (`GimnasioUpdateView`, sin pk en la URL —
+  siempre edita el gimnasio del `Perfil` logueado): logo, colores, texto de
+  bienvenida, contacto, redes. Es lo que le faltaba a Fase 1/2: el modelo
+  tenía estos campos desde Fase 1 pero no había ninguna vista para editarlos
+  fuera de `/admin/`.
+- **HTMX**: `hx-boost="true"` en `<body>` (`base.html`) — convierte toda
+  navegación por `<a>`/`<form>` normal en transiciones AJAX sin reescribir
+  ninguna vista (siguen devolviendo la página completa; htmx solo evita el
+  reload duro). Excluido explícitamente (`hx-boost="false"`) en los dos
+  forms con upload de archivo (`pagos/pago_confirmar.html`,
+  `tenants/gimnasio_form.html`) para no arriesgar el envío de multipart.
+- **Alpine.js**: solo para el toggle del nav en mobile (`x-data` en `<body>`,
+  compartido entre el botón ☰ del header y el `<nav>` — deben estar en el
+  MISMO scope de `x-data`, si no el toggle no hace nada). No se usó para
+  nada más ("solo si hace falta", ROADMAP Fase 4).
+
 ## Comandos
 
 ```bash
@@ -149,6 +189,10 @@ python manage.py runserver
 python manage.py test -v 2           # suite completa
 python manage.py createsuperuser     # acceso a /admin/
 python manage.py generar_pagos       # autogenera pendientes del mes + vence atrasados
+
+npm install                          # una vez, para compilar Tailwind
+npm run build:css                    # compila static/css/input.css -> app.css
+npm run watch:css                    # lo mismo, en watch mode durante desarrollo
 ```
 
 ## Canales de auditoría (fallas y problemas)

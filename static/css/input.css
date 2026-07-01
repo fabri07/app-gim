@@ -1,0 +1,228 @@
+@import "tailwindcss";
+@source "../../templates";
+
+/*
+  Fase 4: se migra a Tailwind, pero SIN reescribir el markup de las ~25
+  plantillas ya existentes. En vez de eso, se redefinen los mismos nombres de
+  clase que ya usan esas plantillas (.tarjeta, .boton, .badge, .tabla, etc.)
+  como clases de componente compuestas con @apply -- el patrón que la propia
+  documentación de Tailwind recomienda para evitar "sopa de utilidades" en
+  elementos que se repiten mucho. Las plantillas no cambian una sola clase;
+  solo cambia lo que esa clase significa.
+
+  Colores por gimnasio: son datos de runtime (Gimnasio.color_primario/
+  secundario), no algo que Tailwind pueda conocer en build-time. Se definen
+  acá los defaults como variables CSS; `base.html` las sobreescribe inline
+  por request cuando el gimnasio logueado tiene colores propios.
+*/
+:root {
+  --color-primario: #2563eb;
+  --color-secundario: #1e40af;
+}
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+
+  h1 {
+    @apply text-xl font-semibold text-gray-900;
+  }
+
+  h2 {
+    @apply text-lg font-semibold text-gray-900 mb-3;
+  }
+
+  p {
+    @apply mb-2 text-gray-700;
+  }
+
+  a {
+    @apply text-[var(--color-primario)] hover:underline;
+  }
+
+  label {
+    @apply block text-sm font-medium text-gray-700 mb-1;
+  }
+
+  input,
+  select,
+  textarea {
+    @apply w-full rounded-md border border-gray-300 px-3 py-2 text-sm mb-3
+      focus:outline-none focus:ring-2 focus:ring-[var(--color-primario)]
+      focus:border-transparent;
+  }
+
+  input[type="color"] {
+    @apply w-16 h-10 p-1;
+  }
+
+  textarea {
+    @apply resize-y;
+  }
+
+  form p {
+    @apply mb-3;
+  }
+
+  button[type="submit"] {
+    @apply inline-flex items-center justify-center rounded-md
+      bg-[var(--color-primario)] text-white px-4 py-2 text-sm font-medium
+      hover:opacity-90 transition cursor-pointer;
+  }
+}
+
+@layer components {
+  /* Layout */
+  .contenido {
+    @apply max-w-md mx-auto px-4 py-8;
+  }
+
+  .contenido--ancho {
+    @apply max-w-5xl mx-auto px-4 py-8;
+  }
+
+  /* Header / nav */
+  .topbar {
+    @apply flex items-center justify-between px-4 sm:px-6 py-3 bg-white
+      border-b border-gray-200 sticky top-0 z-20;
+  }
+
+  .topbar__marca {
+    @apply font-semibold text-gray-900 flex items-center gap-2 no-underline;
+  }
+
+  .topbar__marca img {
+    @apply h-8 w-auto rounded;
+  }
+
+  .topbar__salir button {
+    @apply text-sm text-gray-500 bg-transparent border-none px-0 py-0
+      hover:text-gray-800 hover:underline cursor-pointer;
+  }
+
+  .nav-staff {
+    @apply flex flex-wrap gap-1 px-4 sm:px-6 py-2 bg-white border-b
+      border-gray-200 text-sm;
+  }
+
+  .nav-staff a {
+    @apply px-3 py-1.5 rounded-md text-gray-600 no-underline
+      hover:bg-gray-100 hover:text-gray-900 transition;
+  }
+
+  /* Messages */
+  .mensajes {
+    @apply max-w-5xl mx-auto px-4 pt-4 space-y-2;
+  }
+
+  .mensaje {
+    @apply rounded-md bg-amber-50 border border-amber-200 text-amber-800
+      text-sm px-3 py-2;
+  }
+
+  /* Cards */
+  .tarjeta {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6;
+  }
+
+  .tarjeta:last-child {
+    @apply mb-0;
+  }
+
+  /* Buttons (as <a> or <button>) */
+  .boton {
+    @apply inline-flex items-center justify-center rounded-md
+      bg-[var(--color-primario)] text-white px-4 py-2 text-sm font-medium
+      no-underline hover:opacity-90 transition cursor-pointer border-none;
+  }
+
+  .boton-secundario {
+    @apply inline-flex items-center justify-center rounded-md border
+      border-gray-300 text-gray-700 bg-white px-4 py-2 text-sm font-medium
+      no-underline hover:bg-gray-50 transition cursor-pointer;
+  }
+
+  .boton-peligro {
+    @apply inline-flex items-center justify-center rounded-md bg-red-600
+      text-white px-4 py-2 text-sm font-medium no-underline hover:bg-red-700
+      transition cursor-pointer border-none;
+  }
+
+  .texto-suave {
+    @apply text-sm text-gray-500;
+  }
+
+  /* Tables */
+  .tabla {
+    @apply w-full text-sm bg-white rounded-xl border border-gray-200
+      shadow-sm overflow-hidden border-separate border-spacing-0;
+  }
+
+  .tabla th {
+    @apply text-left font-semibold text-gray-600 bg-gray-50 px-4 py-2.5
+      border-b border-gray-200;
+  }
+
+  .tabla td {
+    @apply px-4 py-2.5 border-b border-gray-100 text-gray-700;
+  }
+
+  .tabla tr:last-child td {
+    @apply border-b-0;
+  }
+
+  /* List page header + filters */
+  .acciones-lista {
+    @apply flex items-center justify-between mb-4 flex-wrap gap-2;
+  }
+
+  .filtros {
+    @apply flex flex-wrap items-end gap-3 mb-4 bg-white rounded-lg border
+      border-gray-200 p-3;
+  }
+
+  .filtros label {
+    @apply mb-1;
+  }
+
+  .filtros select,
+  .filtros input {
+    @apply mb-0;
+  }
+
+  /* Dashboard metrics */
+  .dashboard-grid {
+    @apply grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6;
+  }
+
+  .metrica {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm p-4;
+  }
+
+  .metrica__valor {
+    @apply block text-3xl font-bold text-gray-900;
+  }
+
+  .metrica__etiqueta {
+    @apply text-sm text-gray-500;
+  }
+
+  /* Estado (activo/pagado/visible vs. riesgo) */
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs
+      font-medium;
+  }
+
+  .badge--ok {
+    @apply bg-green-100 text-green-800;
+  }
+
+  .badge--alerta {
+    @apply bg-amber-100 text-amber-800;
+  }
+
+  .badge--riesgo {
+    @apply bg-red-100 text-red-800;
+  }
+}

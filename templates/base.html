@@ -5,25 +5,50 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}App Gimnasios{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  {% if user.is_authenticated and user.perfil.gimnasio %}
+    {% with gimnasio=user.perfil.gimnasio %}
+      {% if gimnasio.color_primario or gimnasio.color_secundario %}
+        <style>
+          :root {
+            {% if gimnasio.color_primario %}--color-primario: {{ gimnasio.color_primario }};{% endif %}
+            {% if gimnasio.color_secundario %}--color-secundario: {{ gimnasio.color_secundario }};{% endif %}
+          }
+        </style>
+      {% endif %}
+    {% endwith %}
+  {% endif %}
+  <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
 </head>
-<body>
+<body hx-boost="true" {% if user.is_authenticated and user.perfil.rol == "staff" %}x-data="{ navAbierto: false }"{% endif %}>
   <header class="topbar">
-    <span class="topbar__marca">App Gimnasios</span>
-    {% if user.is_authenticated %}
-      <form method="post" action="{% url 'logout' %}" class="topbar__salir">
-        {% csrf_token %}
-        <button type="submit">Salir</button>
-      </form>
-    {% endif %}
+    <a href="{% if user.is_authenticated %}{% url 'home' %}{% else %}{% url 'login' %}{% endif %}" class="topbar__marca">
+      {% if user.is_authenticated and user.perfil.gimnasio.logo %}
+        <img src="{{ user.perfil.gimnasio.logo.url }}" alt="{{ user.perfil.gimnasio.nombre }}">
+      {% endif %}
+      <span>{{ user.perfil.gimnasio.nombre|default:"App Gimnasios" }}</span>
+    </a>
+    <div class="flex items-center gap-3">
+      {% if user.is_authenticated and user.perfil.rol == "staff" %}
+        <button type="button" class="sm:hidden text-gray-600" @click="navAbierto = !navAbierto" aria-label="Abrir menú">☰</button>
+      {% endif %}
+      {% if user.is_authenticated %}
+        <form method="post" action="{% url 'logout' %}" class="topbar__salir">
+          {% csrf_token %}
+          <button type="submit">Salir</button>
+        </form>
+      {% endif %}
+    </div>
   </header>
   {% if user.is_authenticated and user.perfil.rol == "staff" %}
-    <nav class="nav-staff">
+    <nav class="nav-staff" :class="{ 'hidden sm:flex': !navAbierto }">
       <a href="{% url 'home' %}">Dashboard</a>
       <a href="{% url 'alumnos:listado' %}">Alumnos</a>
       <a href="{% url 'ejercicios:listado' %}">Ejercicios</a>
       <a href="{% url 'rutinas:plantilla_listado' %}">Rutinas</a>
       <a href="{% url 'pagos:listado' %}">Pagos</a>
       <a href="{% url 'novedades:listado' %}">Novedades</a>
+      <a href="{% url 'gimnasio_editar' %}">Mi gimnasio</a>
     </nav>
   {% endif %}
   {% if messages %}

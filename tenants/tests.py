@@ -275,3 +275,51 @@ class HomeViewAlumnoTests(TestCase):
             response,
             "Todavía no está vinculada tu cuenta a una ficha de alumno.",
         )
+
+
+class GimnasioUpdateViewTests(TestCase):
+    """Fase 4: personalización white-label. Sin pk en la URL -- get_object
+    siempre devuelve el gimnasio del Perfil logueado."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio Central", slug="central")
+        self.staff = User.objects.create_user("dueno", password="clave-123456")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+
+    def test_anonimo_redirige_a_login(self):
+        response = self.client.get(reverse("gimnasio_editar"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_alumno_recibe_403(self):
+        alumno_user = User.objects.create_user("alumno-1", password="clave-123456")
+        Perfil.objects.create(usuario=alumno_user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
+        self.client.login(username="alumno-1", password="clave-123456")
+        response = self.client.get(reverse("gimnasio_editar"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_actualiza_los_datos_de_su_gimnasio(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Gimnasio Central",
+                "color_primario": "#112233",
+                "color_secundario": "#445566",
+                "texto_bienvenida": "¡Bienvenido!",
+                "contacto": "011-1234-5678",
+                "link_instagram": "https://instagram.com/gimnasiocentral",
+                "link_whatsapp": "https://wa.me/5491112345678",
+            },
+        )
+        self.assertRedirects(response, reverse("gimnasio_editar"))
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.color_primario, "#112233")
+        self.assertEqual(self.gimnasio.texto_bienvenida, "¡Bienvenido!")
+
+    def test_los_colores_actualizados_se_reflejan_en_el_home(self):
+        self.gimnasio.color_primario = "#abcdef"
+        self.gimnasio.save()
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "#abcdef")

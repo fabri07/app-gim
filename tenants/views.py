@@ -7,6 +7,7 @@ queda un usuario sin gimnasio ni un gimnasio huérfano) y deja al usuario
 logueado. Adaptado de ~/gestor-pedidos/tenants/views.py.
 """
 
+from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
@@ -14,9 +15,10 @@ from django.db import transaction
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.utils.text import slugify
-from django.views.generic import FormView, TemplateView
+from django.views.generic import FormView, TemplateView, UpdateView
 
-from tenants.forms import RegistroForm
+from tenants.forms import GimnasioForm, RegistroForm
+from tenants.mixins import StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil
 
 
@@ -149,3 +151,24 @@ class HomeView(LoginRequiredMixin, TemplateView):
             .count(),
             "ultimas_novedades": Novedad.objects.for_gimnasio(gimnasio).visibles()[:5],
         }
+
+
+class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
+    """Personalización white-label (Fase 4): logo, colores, texto de
+    bienvenida, contacto y redes. Sin pk en la URL a propósito -- no es
+    "editar el gimnasio <pk>", es "editar MI gimnasio"; `get_object` ignora
+    cualquier pk y siempre devuelve el del `Perfil` logueado, así que no
+    hace falta `TenantScopedMixin` (no hay otro gimnasio que se pueda
+    alcanzar por esta vista)."""
+
+    form_class = GimnasioForm
+    template_name = "tenants/gimnasio_form.html"
+    success_url = reverse_lazy("gimnasio_editar")
+
+    def get_object(self, queryset=None):
+        return self.request.user.perfil.gimnasio
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, "Datos del gimnasio actualizados.")
+        return response

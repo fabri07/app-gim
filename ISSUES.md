@@ -110,3 +110,30 @@ en este contexto (gimnasios chicos, dueño con trato directo). Implementación:
 su login; el staff crea/resetea la contraseña desde la ficha del alumno;
 `fecha_activacion` se registra en el primer login exitoso (señal), no al
 crear el acceso — sigue midiendo adopción real, no alta administrativa.
+
+## [2026-07-01] Fase 4: se descartó repartir el rediseño entre 5 agentes en paralelo
+
+**Estado:** resuelto (decisión de alcance, no un problema)
+
+**Impacto:** el plan inicial de Fase 4 era el mismo patrón de Fase 2/3 (un
+agente por app de dominio, cada uno reescribiendo sus plantillas a clases
+utilitarias de Tailwind). A mitad de camino se encontró un atajo legítimo:
+Tailwind v4 permite redefinir clases de componente con `@apply` (`@layer
+components`), así que en vez de reescribir el markup de las ~25 plantillas
+ya existentes, se redefinieron los MISMOS nombres de clase que ya usaban
+(`.tarjeta`, `.boton`, `.badge--ok`, `.tabla`, etc.) en
+`static/css/input.css`. Ningún template cambió una sola clase; solo cambió
+lo que esa clase significa. Sumado a `hx-boost="true"` en `base.html`
+(mejora la navegación de toda la app sin tocar ninguna vista), el 90% del
+objetivo de Fase 4 ("no parecer prototipo interno", "pocos clicks") quedó
+resuelto sin necesidad de los 5 agentes.
+
+**Resolución:** se canceló el plan de 5 agentes paralelos. El trabajo real
+de Fase 4 terminó siendo: el layer de componentes en `input.css`, el rediseño
+de `base.html`/`login.html`/`register.html`/`tenants/home.html`, la vista
+`GimnasioUpdateView` (faltaba desde Fase 1 — el modelo tenía los campos
+white-label pero ninguna UI para editarlos), y una verificación visual en
+navegador real (no solo `curl`) para las partes con JS (hx-boost, Alpine,
+upload de logo). Si en el futuro alguna app necesita una interacción HTMX
+más fina que un boost genérico (p.ej. swap parcial de una fila sin
+navegación), evaluarlo puntualmente ahí — no hace falta un rediseño general.

@@ -71,6 +71,22 @@
   <div class="tarjeta">
     <h1>Hola, {{ user.username }}</h1>
     <p class="texto-suave">{{ perfil.gimnasio.nombre }}</p>
+    {% if perfil.gimnasio.texto_bienvenida %}
+      <p>{{ perfil.gimnasio.texto_bienvenida }}</p>
+    {% endif %}
+    {% if perfil.gimnasio.contacto or perfil.gimnasio.link_instagram or perfil.gimnasio.link_whatsapp %}
+      <p class="texto-suave">
+        {% if perfil.gimnasio.contacto %}{{ perfil.gimnasio.contacto }}{% endif %}
+        {% if perfil.gimnasio.link_instagram %}
+          {% if perfil.gimnasio.contacto %}&middot;{% endif %}
+          <a href="{{ perfil.gimnasio.link_instagram }}" target="_blank" rel="noopener">Instagram</a>
+        {% endif %}
+        {% if perfil.gimnasio.link_whatsapp %}
+          {% if perfil.gimnasio.contacto or perfil.gimnasio.link_instagram %}&middot;{% endif %}
+          <a href="{{ perfil.gimnasio.link_whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>
+        {% endif %}
+      </p>
+    {% endif %}
   </div>
 
   {% if not alumno %}

@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}Mi gimnasio · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Personalizar mi gimnasio</h1>
+  <p class="texto-suave">
+    Estos datos se ven en el portal del alumno y en la barra superior:
+    nombre, logo, colores, mensaje de bienvenida, contacto y redes.
+  </p>
+  <form method="post" enctype="multipart/form-data" novalidate hx-boost="false">
+    {% csrf_token %}
+    {% if object.logo %}
+      <p><img src="{{ object.logo.url }}" alt="{{ object.nombre }}" class="h-16 w-auto rounded mb-3"></p>
+    {% endif %}
+    {{ form.as_p }}
+    <button type="submit" class="boton">Guardar</button>
+  </form>
+</div>
+{% endblock %}
