@@ -23,6 +23,9 @@ logs/*.log
 # Variables de entorno / secretos
 .env
 
+# Uploads locales de dev (logo, comprobantes). En producción van a R2, no acá.
+media/
+
 # Editores / SO
 .DS_Store
 .idea/

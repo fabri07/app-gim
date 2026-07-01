@@ -6,9 +6,8 @@ Django con su Gimnasio y su rol, sin contaminar el modelo de auth (composición
 sobre herencia: no extendemos ni reemplazamos User, lo enlazamos).
 
 Adaptado de ~/gestor-pedidos/tenants/models.py (Negocio -> Gimnasio). Los
-campos de Gimnasio se mantienen mínimos a propósito: logo, colores, texto de
-bienvenida, contacto y links de redes son de Fase 1 del ROADMAP, no de esta
-extracción del esqueleto (Fase 0).
+campos de white-label (logo, colores, texto de bienvenida, contacto, links)
+se agregaron en Fase 1, según el modelo de datos del ROADMAP.
 """
 
 from django.conf import settings
@@ -23,11 +22,27 @@ class Gimnasio(TimeStampedModel):
 
     `creado` (heredado de TimeStampedModel) hace de fecha de alta; no se
     duplica un campo `fecha_alta` aparte.
+
+    `logo`: en dev queda en el filesystem local (`MEDIA_ROOT`). Fase 5 cambia
+    el storage a Cloudflare R2 vía `django-storages` sin tocar este campo —
+    el filesystem de Render es efímero y nunca debe recibir uploads reales.
     """
 
     nombre = models.CharField(max_length=120)
     slug = models.SlugField(max_length=140, unique=True)
     activo = models.BooleanField(default=True)
+
+    logo = models.ImageField(upload_to="logos/", blank=True)
+    color_primario = models.CharField(
+        max_length=7, blank=True, help_text="Hex, p.ej. #2563eb"
+    )
+    color_secundario = models.CharField(
+        max_length=7, blank=True, help_text="Hex, p.ej. #1e40af"
+    )
+    texto_bienvenida = models.CharField(max_length=280, blank=True)
+    contacto = models.CharField(max_length=120, blank=True)
+    link_instagram = models.URLField(blank=True)
+    link_whatsapp = models.URLField(blank=True)
 
     class Meta:
         verbose_name = "gimnasio"

@@ -63,11 +63,20 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Apps del proyecto. Orden por dependencia:
-    #   core    -> abstracciones (sin tablas)
-    #   tenants -> Gimnasio / Perfil (núcleo multi-tenant)
-    #   (Fase 1 agrega la app de dominio: alumnos, rutinas, pagos, novedades)
+    #   core       -> abstracciones (sin tablas)
+    #   tenants    -> Gimnasio / Perfil (núcleo multi-tenant)
+    #   ejercicios -> Ejercicio (sin dependencias de dominio)
+    #   alumnos    -> Alumno (sin dependencias de dominio)
+    #   rutinas    -> RutinaPlantilla/Item, RutinaAsignada/Item (FK a ejercicios y alumnos)
+    #   pagos      -> PagoMensual (FK a alumnos)
+    #   novedades  -> Novedad (sin dependencias de dominio)
     'core',
     'tenants',
+    'ejercicios',
+    'alumnos',
+    'rutinas',
+    'pagos',
+    'novedades',
 ]
 
 MIDDLEWARE = [
@@ -149,6 +158,13 @@ STATIC_URL = 'static/'
 
 # Assets propios del proyecto (CSS/JS/fuentes), no atados a una app concreta.
 STATICFILES_DIRS = [BASE_DIR / 'static']
+
+# Media (uploads de usuario: logo del gimnasio, comprobantes de pago).
+# Storage local en dev vía FileSystemStorage (default). Fase 5 cambia a
+# Cloudflare R2 con django-storages sin tocar los campos de los modelos —
+# el filesystem de Render es efímero, nunca debe recibir uploads reales.
+MEDIA_URL = 'media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

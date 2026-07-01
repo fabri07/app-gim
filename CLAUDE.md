@@ -13,10 +13,13 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: Fase 0 completa** (esqueleto reutilizable). Ver `REUSO.md` para
-el detalle de qué se copió de dónde y qué queda pendiente. Próximo paso:
-Fase 1 (modelo de datos: Alumno, Ejercicio, RutinaPlantilla, RutinaAsignada,
-PagoMensual, Novedad).
+**Fase actual: Fase 1 completa** (modelo de datos). Ver `REUSO.md` para el
+detalle de qué se copió de dónde en Fase 0. Apps de dominio agregadas:
+`alumnos` (Alumno), `ejercicios` (Ejercicio), `rutinas` (RutinaPlantilla/Item,
+RutinaAsignada/Item con snapshot), `pagos` (PagoMensual + autogeneración),
+`novedades` (Novedad). Próximo paso: Fase 2 (vistas del staff — dashboard,
+CRUD de alumnos/ejercicios/rutinas, asignación, confirmación de pagos,
+novedades).
 
 ## Principios no negociables (resumen — el detalle está en ROADMAP.md)
 
@@ -66,6 +69,23 @@ KISS/YAGNI para esta etapa). El patrón viene de `~/gestor-pedidos` (ver
 heredar de `TenantScopedModelForm`. Las vistas de gestión van con
 `TenantScopedMixin`.
 
+## Apps de dominio (Fase 1)
+
+- **`alumnos`** — `Alumno(TenantOwnedModel)`.
+- **`ejercicios`** — `Ejercicio(TenantOwnedModel)`, biblioteca por gimnasio
+  (no global; ver docstring del módulo).
+- **`rutinas`** — `RutinaPlantilla`/`RutinaPlantillaItem` (editable) y
+  `RutinaAsignada`/`RutinaAsignadaItem` (snapshot congelado). La copia se
+  hace con `RutinaAsignada.crear_desde_plantilla(...)` y
+  `RutinaPlantilla.duplicar()` — ambas transaccionales. Los modelos "Item" NO
+  son `TenantOwnedModel` (se acceden vía su padre, que ya está scopeado).
+- **`pagos`** — `PagoMensual(TenantOwnedModel)`. `pagos/models.py` expone
+  `generar_pagos_pendientes(mes, anio)` y `marcar_vencidos(mes, anio)`;
+  `python manage.py generar_pagos` corre ambas para el mes actual — es el
+  comando que Fase 5 programa como Render Cron Job.
+- **`novedades`** — `Novedad(TenantOwnedModel)` con `NovedadQuerySet.visibles()`
+  (activa + publicada + no vencida).
+
 ## Comandos
 
 ```bash
@@ -77,6 +97,7 @@ python manage.py migrate
 python manage.py runserver
 python manage.py test -v 2           # suite completa
 python manage.py createsuperuser     # acceso a /admin/
+python manage.py generar_pagos       # autogenera pendientes del mes + vence atrasados
 ```
 
 ## Canales de auditoría (fallas y problemas)
