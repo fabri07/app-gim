@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -205,7 +206,22 @@ STORAGES = {
     },
 }
 
-if os.environ.get("R2_BUCKET_NAME"):
+# Las 4 variables de R2 son todo-o-nada: si se seteó alguna pero no las
+# otras (p.ej. se completó a mano en el dashboard de Render de una en una),
+# preferimos fallar fuerte y claro al arrancar en vez de un KeyError críptico
+# más abajo -- o peor, silenciosamente quedar en FileSystemStorage.
+_R2_VARS = ["R2_BUCKET_NAME", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT_URL"]
+_r2_seteadas = [v for v in _R2_VARS if os.environ.get(v)]
+
+if _r2_seteadas and len(_r2_seteadas) < len(_R2_VARS):
+    _r2_faltantes = ", ".join(v for v in _R2_VARS if v not in _r2_seteadas)
+    raise ImproperlyConfigured(
+        f"Configuración de R2 incompleta: falta(n) {_r2_faltantes}. "
+        "Las 4 variables R2_* deben estar todas seteadas (o ninguna, para "
+        "usar FileSystemStorage local) -- ver .env.example."
+    )
+
+if _r2_seteadas:
     STORAGES["default"] = {"BACKEND": "storages.backends.s3.S3Storage"}
     AWS_STORAGE_BUCKET_NAME = os.environ["R2_BUCKET_NAME"]
     AWS_ACCESS_KEY_ID = os.environ["R2_ACCESS_KEY_ID"]
@@ -214,6 +230,12 @@ if os.environ.get("R2_BUCKET_NAME"):
     AWS_S3_REGION_NAME = "auto"
     AWS_S3_ADDRESSING_STYLE = "virtual"
     AWS_DEFAULT_ACL = None
+    # `Gimnasio.logo`/`PagoMensual.comprobante` no tienen namespacing por
+    # gimnasio en el nombre de archivo -- S3Storage sobreescribe por default
+    # ante una colisión de nombre (a diferencia de FileSystemStorage, que
+    # auto-renombra). Sin esto, dos gimnasios subiendo un "logo.png" pisarían
+    # el archivo del otro en el mismo bucket compartido.
+    AWS_S3_FILE_OVERWRITE = False
     # El bucket queda privado; las URLs que Django genera van firmadas
     # (query-string) y expiran -- comprobantes de pago son datos sensibles,
     # no tiene sentido que sean públicos aunque el logo sí podría serlo.
