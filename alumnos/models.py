@@ -5,6 +5,13 @@ Modelo de dominio: el alumno de un gimnasio.
 de `core.models.TenantOwnedModel` el FK `gimnasio` (aislamiento por fila) y los
 timestamps de `TimeStampedModel` (`creado` hace de fecha de alta; ver mismo
 criterio en `Gimnasio`, no se duplica un campo `fecha_alta` aparte).
+
+`perfil` (Fase 3) es el vínculo al login del alumno. Vive acá, no en
+`tenants.Perfil`, para no invertir el orden de dependencia del proyecto
+(core -> tenants -> alumnos/...; `tenants` no debe conocer `alumnos`). Un
+`Perfil` con `rol=ALUMNO` sin `Alumno.perfil` apuntándolo no debería existir
+en la práctica (se crean siempre juntos, ver `alumnos/views.py`), pero el
+campo es `null=True` porque no todo alumno tiene acceso creado todavía.
 """
 
 from django.db import models
@@ -41,7 +48,15 @@ class Alumno(TenantOwnedModel):
     fecha_activacion = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="Cuándo entró por primera vez con su magic-link (Fase 3).",
+        help_text="Cuándo entró por primera vez con su usuario/contraseña (Fase 3).",
+    )
+    perfil = models.OneToOneField(
+        "tenants.Perfil",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="alumno",
+        help_text="Login del alumno (usuario/contraseña asignados por el staff).",
     )
 
     class Meta:

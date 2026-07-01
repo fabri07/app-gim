@@ -55,9 +55,9 @@ class HomeView(LoginRequiredMixin, TemplateView):
 
     Para `staff` es el dashboard de Fase 2 §1 (alumnos activos, alumnos con
     pago pendiente, pagos del mes, rutinas activas, últimas novedades). Para
-    `alumno` sigue siendo la pantalla mínima de Fase 0 — su portal real es
-    Fase 3, todavía no existe, así que no tiene sentido calcular métricas de
-    gestión que no va a poder ver ni usar.
+    `alumno` es el portal de Fase 3 (su rutina activa, el estado de su
+    mensualidad del mes y las últimas novedades del gimnasio) — no calcula
+    métricas de gestión, solo su propia información.
 
     Import tardío (dentro del método, no a nivel de módulo) de los modelos de
     `alumnos`/`ejercicios`/`rutinas`/`pagos`/`novedades`: `tenants` es una app
@@ -80,7 +80,49 @@ class HomeView(LoginRequiredMixin, TemplateView):
 
         if perfil.rol == Perfil.Rol.STAFF:
             context.update(self._metricas_dashboard(perfil.gimnasio))
+        elif perfil.rol == Perfil.Rol.ALUMNO:
+            context.update(self._portal_alumno(perfil))
         return context
+
+    @staticmethod
+    def _portal_alumno(perfil):
+        """Datos del portal de Fase 3: rutina activa, cuota del mes y novedades.
+
+        `perfil.alumno` puede no existir todavía (un `Perfil` ALUMNO se puede
+        crear antes de vincularlo a un `Alumno` concreto, o el vínculo se
+        pudo perder por `on_delete=SET_NULL`); en ese caso no hay nada de
+        dominio que mostrar, así que devolvemos `alumno=None` y el template
+        renderiza un estado vacío en vez de 500.
+        """
+        from novedades.models import Novedad
+
+        try:
+            alumno = perfil.alumno
+        except ObjectDoesNotExist:
+            alumno = None
+
+        if alumno is None:
+            return {
+                "alumno": None,
+                "rutina_actual": None,
+                "mensualidad_actual": None,
+                "ultimas_novedades": Novedad.objects.for_gimnasio(
+                    perfil.gimnasio
+                ).visibles()[:5],
+            }
+
+        hoy = timezone.now().date()
+
+        return {
+            "alumno": alumno,
+            "rutina_actual": alumno.rutinas_asignadas.filter(activa=True).first(),
+            "mensualidad_actual": alumno.pagos.filter(
+                mes=hoy.month, anio=hoy.year
+            ).first(),
+            "ultimas_novedades": Novedad.objects.for_gimnasio(
+                perfil.gimnasio
+            ).visibles()[:5],
+        }
 
     @staticmethod
     def _metricas_dashboard(gimnasio):

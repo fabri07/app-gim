@@ -87,3 +87,26 @@ prueba ad-hoc. (2) se agregó `{% block main_class %}` en `base.html` (default
 Verificado con la suite completa (85/85) y un recorrido manual de punta a
 punta (registro → alumno → ejercicio → rutina → asignación → pago →
 novedad → dashboard) sin tocar `/admin/`.
+
+## [2026-07-01] Fase 3: se reemplaza magic-link por usuario/contraseña asignado por el staff
+
+**Estado:** aceptado (decisión de producto, no un bug)
+
+**Impacto:** el ROADMAP original decía, en dos lugares ("Cambios en esta
+versión" §3 y Fase 3), que el acceso del alumno sería sin contraseña
+(magic-link/código), explícitamente para evitar que el dueño gestione
+resets de contraseña ("usuario+contraseña = call center de reseteos"). El
+dueño del producto pidió lo contrario: que el staff le asigne usuario y
+contraseña al alumno directamente.
+
+**Resolución:** se actualizó `ROADMAP.md` (los 6 lugares que mencionaban
+magic-link/sin-contraseña) para reflejar la decisión real, en vez de dejar
+el documento contradiciendo la implementación. El riesgo original (soporte
+de resets) se acepta con este matiz: el reset también lo hace el staff a
+mano, cara a cara o por WhatsApp con el alumno — no es un flujo self-serve
+remoto, así que el "call center" que motivaba el magic-link no aplica igual
+en este contexto (gimnasios chicos, dueño con trato directo). Implementación:
+`Alumno.perfil` (OneToOne a `tenants.Perfil`, nullable) vincula el alumno con
+su login; el staff crea/resetea la contraseña desde la ficha del alumno;
+`fecha_activacion` se registra en el primer login exitoso (señal), no al
+crear el acceso — sigue midiendo adopción real, no alta administrativa.

@@ -5,20 +5,31 @@ Solo staff (`StaffRequiredMixin`) y siempre acotado al gimnasio del usuario
 separada (nunca una vista de borrado): un `Alumno` nunca se borra, solo
 cambia de estado (queda como historial para pagos y rutinas ya emitidos).
 
-No hay vista para "enviar invitación / magic-link": eso es Fase 3, donde se
-diseña el mecanismo de acceso sin contraseña del alumno.
+`CrearAccesoView`/`CambiarPasswordAlumnoView` (Fase 3) reemplazan el
+magic-link original del ROADMAP: el staff asigna usuario/contraseña a mano
+desde la ficha del alumno (ver ISSUES.md 2026-07-01). Ninguna usa los hooks
+de form de `TenantScopedMixin` (`get_form_kwargs`/`form_valid` esperan un
+`ModelForm` con `.instance`; `CrearAccesoForm`/`CambiarPasswordAlumnoForm`
+son `forms.Form` planos) — se maneja el form a mano, como
+`AlumnoToggleEstadoView`, y se reutiliza `TenantScopedMixin` solo por
+`get_queryset`/`self.gimnasio` (aislamiento de tenant vía `SingleObjectMixin.
+get_object`).
 """
 
 from django.contrib import messages
-from django.shortcuts import redirect
+from django.contrib.auth import get_user_model
+from django.db import transaction
+from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.text import slugify
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
 from tenants.mixins import StaffRequiredMixin
-from alumnos.forms import AlumnoForm
+from tenants.models import Perfil
+from alumnos.forms import AlumnoForm, CambiarPasswordAlumnoForm, CrearAccesoForm
 from alumnos.models import Alumno
 
 
@@ -105,3 +116,113 @@ class AlumnoToggleEstadoView(
             request, f"{alumno} ahora está {alumno.get_estado_display().lower()}."
         )
         return redirect("alumnos:detalle", pk=alumno.pk)
+
+
+class CrearAccesoView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):
+    """Alta del login del alumno: solo para alumnos SIN `Alumno.perfil`
+    todavía. Si ya tiene uno, redirige a la ficha sin tocar nada — para
+    resetear una contraseña existente está `CambiarPasswordAlumnoView`."""
+
+    model = Alumno
+    template_name = "alumnos/acceso_form.html"
+
+    def get(self, request, *args, **kwargs):
+        alumno = self.get_object()
+        if alumno.perfil is not None:
+            messages.error(request, "Este alumno ya tiene un acceso creado.")
+            return redirect("alumnos:detalle", pk=alumno.pk)
+        form = CrearAccesoForm(initial={"username": self._sugerir_username(alumno)})
+        return self._render(request, alumno, form)
+
+    def post(self, request, *args, **kwargs):
+        alumno = self.get_object()
+        if alumno.perfil is not None:
+            messages.error(request, "Este alumno ya tiene un acceso creado.")
+            return redirect("alumnos:detalle", pk=alumno.pk)
+        form = CrearAccesoForm(request.POST)
+        if form.is_valid():
+            username = form.cleaned_data["username"]
+            password = form.cleaned_data["password"]
+            with transaction.atomic():
+                user = get_user_model().objects.create_user(
+                    username=username, password=password
+                )
+                perfil = Perfil.objects.create(
+                    usuario=user, gimnasio=alumno.gimnasio, rol=Perfil.Rol.ALUMNO
+                )
+                alumno.perfil = perfil
+                alumno.save(update_fields=["perfil"])
+            messages.success(
+                request,
+                f"Acceso creado. Usuario: {username} — Contraseña: {password}. "
+                "Comunicáselo a tu alumno; no vas a poder ver la contraseña de "
+                "nuevo.",
+            )
+            return redirect("alumnos:detalle", pk=alumno.pk)
+        return self._render(request, alumno, form)
+
+    def _render(self, request, alumno, form):
+        return render(
+            request,
+            self.template_name,
+            {"form": form, "alumno": alumno, "modo": "crear"},
+        )
+
+    @staticmethod
+    def _sugerir_username(alumno):
+        """Mismo patrón que `tenants/views.py::RegisterView._slug_disponible`,
+        adaptado a `User.username` (único global, no por gimnasio -- ver
+        `CrearAccesoForm.clean_username`)."""
+        base = slugify(f"{alumno.nombre}.{alumno.apellido}") or "alumno"
+        User = get_user_model()
+        username = base
+        sufijo = 1
+        while User.objects.filter(username=username).exists():
+            sufijo += 1
+            username = f"{base}{sufijo}"
+        return username
+
+
+class CambiarPasswordAlumnoView(
+    StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View
+):
+    """Reseteo de contraseña: solo alcanzable si el alumno YA tiene
+    `Alumno.perfil` (si no, no hay nada para resetear; usar
+    `CrearAccesoView`)."""
+
+    model = Alumno
+    template_name = "alumnos/acceso_form.html"
+
+    def get(self, request, *args, **kwargs):
+        alumno = self.get_object()
+        if alumno.perfil is None:
+            messages.error(request, "Este alumno todavía no tiene un acceso creado.")
+            return redirect("alumnos:detalle", pk=alumno.pk)
+        return self._render(request, alumno, CambiarPasswordAlumnoForm())
+
+    def post(self, request, *args, **kwargs):
+        alumno = self.get_object()
+        if alumno.perfil is None:
+            messages.error(request, "Este alumno todavía no tiene un acceso creado.")
+            return redirect("alumnos:detalle", pk=alumno.pk)
+        form = CambiarPasswordAlumnoForm(request.POST)
+        if form.is_valid():
+            password = form.cleaned_data["password"]
+            usuario = alumno.perfil.usuario
+            usuario.set_password(password)
+            usuario.save()
+            messages.success(
+                request,
+                f"Contraseña actualizada. Nueva contraseña: {password}. "
+                "Comunicáselo a tu alumno; no vas a poder ver la contraseña de "
+                "nuevo.",
+            )
+            return redirect("alumnos:detalle", pk=alumno.pk)
+        return self._render(request, alumno, form)
+
+    def _render(self, request, alumno, form):
+        return render(
+            request,
+            self.template_name,
+            {"form": form, "alumno": alumno, "modo": "cambiar"},
+        )

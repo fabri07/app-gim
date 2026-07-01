@@ -13,12 +13,18 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: Fase 2 completa** (vistas del staff). Ver `REUSO.md` para el
+**Fase actual: Fase 3 completa** (portal del alumno). Ver `REUSO.md` para el
 detalle de qué se copió de dónde en Fase 0. Un dueño puede usar el sistema de
 punta a punta desde el panel web (registro → alumnos → ejercicios → rutinas →
-asignación → pagos → novedades → dashboard) sin tocar `/admin/`. Próximo
-paso: Fase 3 (portal del alumno — activación sin contraseña vía magic-link,
-que Fase 2 dejó explícitamente afuera de "Gestión de alumnos").
+asignación → pagos → novedades → dashboard → crear acceso de alumno) sin
+tocar `/admin/`, y el alumno entra con ese usuario/contraseña a ver su propia
+rutina, cuota del mes y novedades. Próximo paso: Fase 4 (UX/UI y white-label
+— Tailwind + HTMX + Alpine).
+
+**Nota:** el acceso del alumno NO es magic-link como decía la primera versión
+del ROADMAP — el dueño del producto pidió que el staff asigne usuario y
+contraseña directamente. Ver `ISSUES.md` (2026-07-01) y `ROADMAP.md` Fase 3,
+ya actualizados.
 
 ## Principios no negociables (resumen — el detalle está en ROADMAP.md)
 
@@ -96,19 +102,40 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
 
 - **Nav**: `templates/base.html` muestra el menú de secciones solo si
   `user.perfil.rol == "staff"`.
-- **Dashboard**: `tenants.views.HomeView` (ruta `home`) — para `staff` agrega
-  las métricas de Fase 2 §1 (alumnos activos, alumnos con pago pendiente,
-  pagos del mes, rutinas activas, últimas novedades); para `alumno` sigue
-  siendo la pantalla mínima de Fase 0 (su portal real es Fase 3).
+- **Dashboard**: `tenants.views.HomeView` (ruta `home`) — bifurca por
+  `perfil.rol`. Para `staff`: métricas de Fase 2 §1 (alumnos activos, alumnos
+  con pago pendiente, pagos del mes, rutinas activas, últimas novedades).
+  Para `alumno`: el portal de Fase 3 (su rutina activa, su cuota del mes,
+  últimas novedades) — ver más abajo.
 - **`RutinaPlantillaItem`/`RutinaAsignadaItem`** no son `TenantOwnedModel`
   (no tienen `gimnasio` propio): sus vistas resuelven el aislamiento
   buscando primero el padre vía `for_gimnasio()` antes de tocar el item — ver
   `rutinas/views.py` (`ItemPlantillaMixin`).
-- **Deliberadamente NO construido en Fase 2**: "enviar/reenviar invitación"
-  en la ficha de alumno (ROADMAP Fase 2 §2) — el magic-link que le da sentido
-  se diseña en Fase 3; agregarlo antes hubiera sido un botón sin nada
-  funcional detrás. `PagoMensual` sigue sin vista de "crear" — el staff solo
-  confirma pagos ya autogenerados (principio no negociable §3).
+- `PagoMensual` sigue sin vista de "crear" — el staff solo confirma pagos ya
+  autogenerados (principio no negociable §3).
+
+## Portal del alumno y acceso (Fase 3)
+
+- **Acceso**: `Alumno.perfil` (`OneToOneField` a `tenants.Perfil`, nullable)
+  vincula un alumno con su login. El staff lo crea/resetea desde la ficha del
+  alumno (`alumnos:acceso_crear` / `alumnos:acceso_cambiar_password`,
+  `alumnos/views.py::CrearAccesoView`/`CambiarPasswordAlumnoView`) — un form
+  plano (no `ModelForm`), con la contraseña en texto plano en pantalla
+  (`help_text` lo explica: es la única vez que se puede leer, el staff la
+  tiene que copiar para pasársela al alumno). `username` es único GLOBAL
+  (`auth.User`, sin namespacing por gimnasio) — el form lo valida y sugiere
+  uno libre (mismo patrón que `RegisterView._slug_disponible`).
+- **`fecha_activacion`**: se registra en el PRIMER login exitoso del alumno,
+  no al crear el acceso — vía la señal `user_logged_in` en
+  `alumnos/signals.py`, conectada en `AlumnosConfig.ready()`. Mide adopción
+  real, no alta administrativa.
+- **Portal**: `HomeView._portal_alumno` (mismo patrón de import tardío que
+  `_metricas_dashboard`) resuelve `perfil.alumno` y agrega su rutina activa
+  (con items), la cuota del mes actual y las novedades visibles al contexto;
+  la plantilla renderiza todo en una sola pantalla mobile-first (ROADMAP
+  Fase 3: "entiende su rutina sin explicación adicional"). Si el `Perfil` de
+  rol `alumno` todavía no está vinculado a un `Alumno`, se muestra un estado
+  vacío, no un error 500.
 
 ## Comandos
 

@@ -11,8 +11,13 @@ Ajustes sobre la versión anterior, todos incorporados abajo:
 2. **Timeline realista.** Se pasa de 4 semanas rígidas a ~6 semanas / hitos. Se agrega el
    cierre comercial del primer gimnasio *antes* de terminar el producto (onboarding
    concierge + seña del setup) para asegurar plata de julio y bloquear al cliente.
-3. **Acceso del alumno sin contraseña (magic-link / código).** Diseñado explícitamente.
-   Los socios de gimnasio no son técnicos; usuario+contraseña = call center de reseteos.
+3. **Acceso del alumno con usuario y contraseña, asignados por el staff.** Decisión del
+   dueño del producto (2026-07-01): el dueño del gimnasio o el entrenador le asigna el
+   usuario y contraseña a cada alumno directamente (en persona o por WhatsApp), no un
+   magic-link. El riesgo de "call center de reseteos" que motivaba el magic-link no aplica
+   igual acá porque el reseteo también lo hace el staff a mano, cara a cara con el alumno,
+   no un soporte remoto self-serve. Ver Fase 3 para el detalle y `ISSUES.md` para el
+   registro de este cambio.
 4. **Pagos autogenerados por cron.** El dueño confirma, no crea. El cron genera los pagos
    pendientes del mes y pasa `pendiente → vencido` solo. Sin esto, el dato se pudre.
 5. **Sin subdominios por gimnasio en el MVP.** El tenant se resuelve por el usuario logueado
@@ -110,10 +115,9 @@ Roles del MVP: **`staff`** (dueño y/o entrenador, mismos permisos) y **`alumno`
 Un usuario pertenece a un gimnasio. (Separar dueño de entrenador queda para después: en los
 gimnasios chicos suele ser la misma persona, y menos roles = menos lógica de permisos.)
 
-**Acceso del alumno: sin contraseña.** El alumno accede por magic-link o código enviado a su
-email/teléfono. Opción concreta: `django-sesame` para links firmados, o tokens de un solo
-uso con el framework de signing de Django. Esto define un pequeño flujo de invitación (ver
-Fase 3), no necesariamente campos extra en el modelo.
+**Acceso del alumno: usuario y contraseña asignados por el staff.** El staff crea el login
+desde la ficha del alumno (usuario sugerido, contraseña sugerida o elegida). Esto define un
+vínculo `Alumno` ↔ `Perfil`/`User` (ver Fase 3), no un mecanismo de tokens/links firmados.
 
 ### Alumno
 `gimnasio`, `nombre`, `apellido`, `email`, `teléfono`, `fecha_nacimiento`,
@@ -157,7 +161,7 @@ Alumnos activos, alumnos con pago pendiente, pagos del mes, rutinas activas, úl
 
 ### 2. Gestión de alumnos
 Crear, editar, activar/inactivar, ver ficha, ver pagos, ver rutina actual.
-**Incluye enviar/reenviar la invitación de acceso** (magic-link) al alumno.
+**Incluye crear/reasignar el acceso** (usuario y contraseña) del alumno — ver Fase 3.
 
 ### 3. Gestión de ejercicios
 Crear, editar, cargar link de YouTube, filtrar por grupo muscular.
@@ -188,11 +192,16 @@ tocar el admin de Django.
 
 # Fase 3 — Portal del alumno
 
-### Activación de cuenta (diseñada explícitamente)
-1. El staff crea al alumno (o lo importa del Excel) y dispara la invitación.
-2. El alumno recibe un link/código por email o WhatsApp/teléfono.
-3. Toca el link → entra sin crear contraseña. Se registra `fecha_activacion`.
-4. Reingresos: nuevo magic-link o sesión recordada. Cero gestión de contraseñas.
+### Activación de cuenta (usuario/contraseña asignados por el staff)
+1. El staff crea al alumno (o lo importa del Excel) y, desde su ficha, le asigna un
+   usuario y una contraseña (sugeridos por el sistema, editables).
+2. El staff le comunica esas credenciales al alumno en persona o por WhatsApp — no hay
+   email ni SMS automático en el MVP.
+3. El alumno entra con usuario/contraseña como cualquier login. En su primer ingreso
+   exitoso se registra `fecha_activacion` (mide adopción real, no solo alta administrativa).
+4. Reingresos: sesión normal de Django. Si el alumno olvida la contraseña, el staff le
+   asigna una nueva desde su ficha (mismo flujo que crearla la primera vez) — el reseteo es
+   siempre cara a cara con el staff, no un self-serve de "olvidé mi contraseña".
 
 ### Funciones del alumno
 Ver su rutina activa, ver ejercicios por día, abrir videos, ver novedades, ver el estado de
@@ -335,8 +344,8 @@ CRUD de rutinas con duplicación.
 **Semana 3:** asignación de rutina con snapshot, gestión de pagos (confirmar + comprobante),
 cron de autogeneración/vencimiento, novedades.
 
-**Semana 4:** portal del alumno + flujo de activación sin contraseña, vista mobile de la
-rutina, integración de R2 para comprobantes.
+**Semana 4:** portal del alumno + flujo de activación con usuario/contraseña asignados por
+el staff, vista mobile de la rutina, integración de R2 para comprobantes.
 
 **Semana 5:** white-label (logo/colores por gimnasio), pulido de UX, deploy a Render con
 todas las variables de seguridad y backups.
@@ -353,7 +362,8 @@ alumnos reales, ajuste de bugs, demo para el segundo gimnasio.
 3. Crea ejercicios.
 4. Crea rutinas.
 5. Asigna una rutina a un alumno (con snapshot).
-6. El alumno entra sin contraseña desde el celular y ve su rutina.
+6. El alumno entra con el usuario/contraseña que le asignó el staff desde el celular y ve
+   su rutina.
 7. El dueño marca pagos (autogenerados por cron) y sube comprobante.
 8. Los comprobantes persisten en R2 (no se borran en deploys).
 9. El sistema separa correctamente los datos entre gimnasios.

@@ -41,6 +41,57 @@ class AlumnoTests(TestCase):
         self.assertIsNone(alumno.fecha_activacion)
 
 
+class FechaActivacionSignalTests(TestCase):
+    """Fase 3: `fecha_activacion` se registra en el primer login exitoso del
+    alumno, vía la señal `user_logged_in` (`alumnos/signals.py`)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        self.user = User.objects.create_user("ana", password="clave-123456")
+        self.perfil = Perfil.objects.create(
+            usuario=self.user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno.perfil = self.perfil
+        self.alumno.save()
+
+    def test_primer_login_registra_fecha_activacion(self):
+        self.assertIsNone(self.alumno.fecha_activacion)
+        self.client.login(username="ana", password="clave-123456")
+        self.alumno.refresh_from_db()
+        self.assertIsNotNone(self.alumno.fecha_activacion)
+
+    def test_segundo_login_no_pisa_la_fecha_original(self):
+        self.client.login(username="ana", password="clave-123456")
+        self.alumno.refresh_from_db()
+        primera_fecha = self.alumno.fecha_activacion
+
+        self.client.logout()
+        self.client.login(username="ana", password="clave-123456")
+        self.alumno.refresh_from_db()
+
+        self.assertEqual(self.alumno.fecha_activacion, primera_fecha)
+
+    def test_login_de_staff_no_toca_fecha_activacion_de_ningun_alumno(self):
+        staff_user = User.objects.create_user("dueno", password="clave-123456")
+        Perfil.objects.create(
+            usuario=staff_user, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="dueno", password="clave-123456")
+        self.alumno.refresh_from_db()
+        self.assertIsNone(self.alumno.fecha_activacion)
+
+    def test_alumno_sin_perfil_vinculado_no_rompe_el_login(self):
+        huerfano = User.objects.create_user("huerfano", password="clave-123456")
+        Perfil.objects.create(
+            usuario=huerfano, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        # No hay Alumno.perfil apuntando a este Perfil -- no debe explotar.
+        self.client.login(username="huerfano", password="clave-123456")
+
+
 class TenantIsolationTests(TestCase):
     """Confirma que dos gimnasios no comparten alumnos."""
 
@@ -224,3 +275,171 @@ class AlumnoViewsTests(TestCase):
         self.client.login(username="staff_b", password="clave12345")
         response = self.client.get(reverse("alumnos:detalle", args=[self.alumno_b.pk]))
         self.assertContains(response, "Sin rutina asignada todavía")
+
+
+class AccesoAlumnoViewsTests(TestCase):
+    """Fase 3: `CrearAccesoView`/`CambiarPasswordAlumnoView` — el staff
+    asigna usuario/contraseña a mano (ver ISSUES.md 2026-07-01, ya no hay
+    magic-link)."""
+
+    def setUp(self):
+        self.gimnasio_a = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+
+        self.staff_a = User.objects.create_user(username="staff_a", password="clave12345")
+        Perfil.objects.create(
+            usuario=self.staff_a, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF
+        )
+
+        self.staff_b = User.objects.create_user(username="staff_b", password="clave12345")
+        Perfil.objects.create(
+            usuario=self.staff_b, gimnasio=self.gimnasio_b, rol=Perfil.Rol.STAFF
+        )
+
+        self.usuario_alumno = User.objects.create_user(
+            username="usuario_alumno", password="clave12345"
+        )
+        Perfil.objects.create(
+            usuario=self.usuario_alumno, gimnasio=self.gimnasio_a, rol=Perfil.Rol.ALUMNO
+        )
+
+        self.alumno_a = Alumno.objects.create(
+            gimnasio=self.gimnasio_a, nombre="Juan", apellido="Pérez"
+        )
+        self.alumno_b = Alumno.objects.create(
+            gimnasio=self.gimnasio_b, nombre="Ana", apellido="García"
+        )
+
+    def _url_crear(self, alumno):
+        return reverse("alumnos:acceso_crear", args=[alumno.pk])
+
+    def _url_cambiar(self, alumno):
+        return reverse("alumnos:acceso_cambiar_password", args=[alumno.pk])
+
+    # 1. Anónimo -> login; rol ALUMNO -> 403.
+    def test_anonimo_redirige_a_login_y_alumno_recibe_403(self):
+        for url in (self._url_crear(self.alumno_a), self._url_cambiar(self.alumno_a)):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 302)
+            self.assertIn(reverse("login"), response.url)
+
+        self.client.login(username="usuario_alumno", password="clave12345")
+        for url in (self._url_crear(self.alumno_a), self._url_cambiar(self.alumno_a)):
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 403)
+
+    # 2. Staff crea acceso: User+Perfil creados, alumno.perfil linkeado,
+    #    rol ALUMNO, y el alumno puede loguearse con la contraseña enviada.
+    def test_staff_crea_acceso_para_su_alumno(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(
+            self._url_crear(self.alumno_a),
+            {"username": "juanperez", "password": "clave-super-segura-99"},
+        )
+        self.assertEqual(response.status_code, 302)
+
+        self.alumno_a.refresh_from_db()
+        self.assertIsNotNone(self.alumno_a.perfil)
+        self.assertEqual(self.alumno_a.perfil.rol, Perfil.Rol.ALUMNO)
+        self.assertEqual(self.alumno_a.perfil.gimnasio, self.gimnasio_a)
+        self.assertEqual(self.alumno_a.perfil.usuario.username, "juanperez")
+
+        self.client.logout()
+        puede_entrar = self.client.login(
+            username="juanperez", password="clave-super-segura-99"
+        )
+        self.assertTrue(puede_entrar)
+
+    # 3. Ya tiene acceso -> redirect con error, no crea un segundo User/Perfil.
+    def test_crear_acceso_si_ya_tiene_uno_no_duplica(self):
+        self.client.login(username="staff_a", password="clave12345")
+        self.client.post(
+            self._url_crear(self.alumno_a),
+            {"username": "juanperez", "password": "clave-super-segura-99"},
+        )
+        self.alumno_a.refresh_from_db()
+        perfil_original = self.alumno_a.perfil
+
+        usuarios_antes = User.objects.count()
+        perfiles_antes = Perfil.objects.count()
+
+        response = self.client.post(
+            self._url_crear(self.alumno_a),
+            {"username": "otro-usuario", "password": "otra-clave-segura-99"},
+        )
+        self.assertEqual(response.status_code, 302)
+
+        self.alumno_a.refresh_from_db()
+        self.assertEqual(self.alumno_a.perfil, perfil_original)
+        self.assertEqual(User.objects.count(), usuarios_antes)
+        self.assertEqual(Perfil.objects.count(), perfiles_antes)
+
+    # 4. Aislamiento de tenant: staff A no puede tocar alumno de B (404).
+    def test_aislamiento_de_tenant_devuelve_404(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        response = self.client.get(self._url_crear(self.alumno_b))
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.post(
+            self._url_crear(self.alumno_b),
+            {"username": "intruso", "password": "clave-super-segura-99"},
+        )
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.get(self._url_cambiar(self.alumno_b))
+        self.assertEqual(response.status_code, 404)
+
+    # 5. Colisión de username (global, no por gimnasio) -> form invalido, sin User nuevo.
+    def test_username_duplicado_es_rechazado_por_el_form(self):
+        from alumnos.forms import CrearAccesoForm
+
+        User.objects.create_user(username="repetido", password="clave12345")
+        usuarios_antes = User.objects.count()
+
+        form = CrearAccesoForm(
+            data={"username": "repetido", "password": "clave-super-segura-99"}
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("username", form.errors)
+        self.assertEqual(User.objects.count(), usuarios_antes)
+
+    # 6. Contraseña débil rechazada por los validadores de Django.
+    def test_password_debil_es_rechazada(self):
+        from alumnos.forms import CambiarPasswordAlumnoForm, CrearAccesoForm
+
+        for password in ("1234", "password"):
+            form = CrearAccesoForm(data={"username": "nuevo-user", "password": password})
+            self.assertFalse(form.is_valid())
+            self.assertIn("password", form.errors)
+
+            form2 = CambiarPasswordAlumnoForm(data={"password": password})
+            self.assertFalse(form2.is_valid())
+            self.assertIn("password", form2.errors)
+
+    # 7. CambiarPasswordAlumnoView cambia la contraseña; solo alcanzable con perfil ya creado.
+    def test_cambiar_password_actualiza_credenciales_y_requiere_perfil_existente(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        # Sin perfil todavía: redirige, no rompe.
+        response = self.client.get(self._url_cambiar(self.alumno_a))
+        self.assertEqual(response.status_code, 302)
+
+        self.client.post(
+            self._url_crear(self.alumno_a),
+            {"username": "juanperez", "password": "clave-original-99"},
+        )
+
+        response = self.client.post(
+            self._url_cambiar(self.alumno_a),
+            {"password": "clave-nueva-100"},
+        )
+        self.assertEqual(response.status_code, 302)
+
+        self.client.logout()
+        self.assertFalse(
+            self.client.login(username="juanperez", password="clave-original-99")
+        )
+        self.assertTrue(
+            self.client.login(username="juanperez", password="clave-nueva-100")
+        )

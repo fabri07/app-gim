@@ -69,13 +69,83 @@
   </div>
 {% else %}
   <div class="tarjeta">
-    <h1>{{ perfil.gimnasio.nombre }}</h1>
-    <p>Sesión iniciada como <strong>{{ user.username }}</strong> ({{ perfil.get_rol_display }}).</p>
-    <p class="texto-suave">
-      El portal del alumno (ver tu rutina, tus pagos, novedades) es Fase 3 del
-      ROADMAP y todavía no existe. Esta pantalla solo confirma que el login y
-      el scoping por gimnasio funcionan de punta a punta.
-    </p>
+    <h1>Hola, {{ user.username }}</h1>
+    <p class="texto-suave">{{ perfil.gimnasio.nombre }}</p>
+  </div>
+
+  {% if not alumno %}
+    <div class="tarjeta">
+      <p class="texto-suave">
+        Todavía no está vinculada tu cuenta a una ficha de alumno. Hablá con
+        el gimnasio para que te la asignen.
+      </p>
+    </div>
+  {% else %}
+    <div class="tarjeta">
+      <h2>Tu rutina</h2>
+      {% if rutina_actual %}
+        <p><strong>{{ rutina_actual.nombre_snapshot }}</strong></p>
+        <p class="texto-suave">Objetivo: {{ rutina_actual.objetivo_snapshot }}</p>
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Día</th>
+              <th>Ejercicio</th>
+              <th>Series</th>
+              <th>Repeticiones</th>
+              <th>Descanso</th>
+              <th>Notas</th>
+              <th>Video</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in rutina_actual.items.all %}
+              <tr>
+                <td>{{ item.dia }}</td>
+                <td>{{ item.ejercicio_nombre_snapshot }}</td>
+                <td>{{ item.series }}</td>
+                <td>{{ item.repeticiones }}</td>
+                <td>{{ item.descanso|default:"—" }}</td>
+                <td>{{ item.notas|default:"—" }}</td>
+                <td>
+                  {% if item.ejercicio_video_snapshot %}
+                    <a href="{{ item.ejercicio_video_snapshot }}" target="_blank" rel="noopener">Ver video</a>
+                  {% else %}
+                    <span class="texto-suave">Sin video</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="texto-suave">Todavía no tenés una rutina asignada.</p>
+      {% endif %}
+    </div>
+
+    <div class="tarjeta">
+      <h2>Tu cuota de este mes</h2>
+      {% if mensualidad_actual %}
+        {% if mensualidad_actual.estado == "pagado" %}
+          <span class="badge badge--ok">Pagado</span>
+        {% elif mensualidad_actual.estado == "vencido" %}
+          <span class="badge badge--riesgo">Vencido</span>
+        {% else %}
+          <span class="badge badge--alerta">Pendiente</span>
+        {% endif %}
+      {% else %}
+        <p class="texto-suave">Sin información de tu cuota este mes.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <div class="tarjeta">
+    <h2>Últimas novedades</h2>
+    {% for novedad in ultimas_novedades %}
+      <p><strong>{{ novedad.titulo }}</strong> &middot; {{ novedad.fecha_publicacion }}</p>
+    {% empty %}
+      <p class="texto-suave">No hay novedades publicadas todavía.</p>
+    {% endfor %}
   </div>
 {% endif %}
 {% endblock %}

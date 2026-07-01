@@ -10,8 +10,13 @@ from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
+from django.utils import timezone
 from django.views.generic import TemplateView
 
+from alumnos.models import Alumno
+from novedades.models import Novedad
+from pagos.models import PagoMensual
+from rutinas.models import RutinaAsignada, RutinaAsignadaItem
 from tenants.mixins import StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil
 
@@ -136,3 +141,137 @@ class StaffRequiredMixinTests(TestCase):
         user = User.objects.create_user("sin-perfil", password="x")
         with self.assertRaises(PermissionDenied):
             self._get(user)
+
+
+class HomeViewAlumnoTests(TestCase):
+    """Portal del alumno (Fase 3): rutina activa, cuota del mes, novedades."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio Alfa", slug="alfa")
+        self.hoy = timezone.now().date()
+
+    def _crear_alumno_con_login(self, *, username, nombre, apellido):
+        user = User.objects.create_user(username, password="clave-123456")
+        perfil = Perfil.objects.create(
+            usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio,
+            nombre=nombre,
+            apellido=apellido,
+            perfil=perfil,
+        )
+        return user, perfil, alumno
+
+    def test_alumno_ve_rutina_pago_y_novedad(self):
+        user, _perfil, alumno = self._crear_alumno_con_login(
+            username="ana", nombre="Ana", apellido="Gómez"
+        )
+        rutina = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno,
+            nombre_snapshot="Rutina Fuerza",
+            objetivo_snapshot="Ganar fuerza",
+            fecha_inicio=self.hoy,
+            activa=True,
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=rutina,
+            ejercicio_nombre_snapshot="Sentadilla",
+            ejercicio_video_snapshot="https://videos.example.com/sentadilla",
+            dia=1,
+            orden=1,
+            series=4,
+            repeticiones="10",
+            descanso="60s",
+            notas="Controlar la técnica",
+        )
+        PagoMensual.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno,
+            mes=self.hoy.month,
+            anio=self.hoy.year,
+            monto=10000,
+            estado=PagoMensual.Estado.PAGADO,
+        )
+        Novedad.objects.create(
+            gimnasio=self.gimnasio,
+            titulo="Gimnasio cerrado el feriado",
+            mensaje="Aviso",
+        )
+
+        self.client.login(username="ana", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rutina Fuerza")
+        self.assertContains(response, "Sentadilla")
+        self.assertContains(response, "https://videos.example.com/sentadilla")
+        self.assertContains(response, "Pagado")
+        self.assertContains(response, "Gimnasio cerrado el feriado")
+
+    def test_alumno_sin_rutina_ve_mensaje_no_tecnico(self):
+        self._crear_alumno_con_login(
+            username="beto", nombre="Beto", apellido="Ramírez"
+        )
+        self.client.login(username="beto", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Todavía no tenés una rutina asignada.")
+
+    def test_alumno_sin_pago_del_mes_ve_estado_sin_informacion(self):
+        self._crear_alumno_con_login(
+            username="carla", nombre="Carla", apellido="Díaz"
+        )
+        self.client.login(username="carla", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Sin información de tu cuota este mes.")
+
+    def test_alumno_no_ve_rutina_de_otro_alumno_del_mismo_gimnasio(self):
+        _user_a, _perfil_a, alumno_a = self._crear_alumno_con_login(
+            username="dario", nombre="Darío", apellido="López"
+        )
+        _user_b, _perfil_b, alumno_b = self._crear_alumno_con_login(
+            username="elena", nombre="Elena", apellido="Suárez"
+        )
+        RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno_a,
+            nombre_snapshot="Rutina de Darío",
+            objetivo_snapshot="Objetivo A",
+            fecha_inicio=self.hoy,
+            activa=True,
+        )
+        RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno_b,
+            nombre_snapshot="Rutina de Elena",
+            objetivo_snapshot="Objetivo B",
+            fecha_inicio=self.hoy,
+            activa=True,
+        )
+
+        self.client.login(username="dario", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rutina de Darío")
+        self.assertNotContains(response, "Rutina de Elena")
+
+    def test_perfil_alumno_sin_alumno_vinculado_no_rompe(self):
+        user = User.objects.create_user("sin-vinculo", password="clave-123456")
+        Perfil.objects.create(
+            usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+
+        self.client.login(username="sin-vinculo", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Todavía no está vinculada tu cuenta a una ficha de alumno.",
+        )
