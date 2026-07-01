@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block title %}Rutinas · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Plantillas de rutina</h1>
+    <a class="boton" href="{% url 'rutinas:plantilla_crear' %}">Nueva plantilla</a>
+  </div>
+
+  <table class="tabla">
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>Objetivo</th>
+        <th>Nivel</th>
+        <th>Días/semana</th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for plantilla in plantillas %}
+        <tr>
+          <td>{{ plantilla.nombre }}</td>
+          <td>{{ plantilla.objetivo }}</td>
+          <td>{{ plantilla.get_nivel_display }}</td>
+          <td>{{ plantilla.dias_por_semana }}</td>
+          <td>
+            {% if plantilla.activa %}
+              <span class="badge badge--ok">Activa</span>
+            {% else %}
+              <span class="badge badge--riesgo">Inactiva</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{% url 'rutinas:plantilla_detalle' plantilla.pk %}">Ver</a>
+            &middot;
+            <a href="{% url 'rutinas:plantilla_editar' plantilla.pk %}">Editar</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="6" class="texto-suave">No hay plantillas de rutina todavía.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

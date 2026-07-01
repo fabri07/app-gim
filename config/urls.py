@@ -1,6 +1,4 @@
-"""Routing raíz: admin + autenticación/tenancy. Fase 2 agrega las vistas del
-dominio (alumnos, rutinas, pagos, novedades) — Fase 1 solo define los
-modelos."""
+"""Routing raíz: admin + autenticación/tenancy + vistas de dominio (Fase 2)."""
 
 from django.conf import settings
 from django.conf.urls.static import static
@@ -10,6 +8,11 @@ from django.urls import include, path
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", include("tenants.urls")),
+    path("alumnos/", include("alumnos.urls")),
+    path("ejercicios/", include("ejercicios.urls")),
+    path("rutinas/", include("rutinas.urls")),
+    path("pagos/", include("pagos.urls")),
+    path("novedades/", include("novedades.urls")),
 ]
 
 if settings.DEBUG:

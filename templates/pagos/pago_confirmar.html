@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Confirmar pago · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Confirmar pago</h1>
+  <p class="texto-suave">{{ object.alumno }} &middot; {{ object.mes|stringformat:"02d" }}/{{ object.anio }}</p>
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="boton">Confirmar pago</button>
+    <a class="boton-secundario" href="{% url 'pagos:listado' %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

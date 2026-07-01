@@ -1,0 +1,29 @@
+"""
+Form de confirmación de pago (Fase 2 §6).
+
+El staff NUNCA crea un `PagoMensual` a mano (ver docstring de
+`generar_pagos_pendientes` en `pagos/models.py`): las filas pendientes ya
+existen, autogeneradas por el cron de Fase 1. Este form solo cubre la única
+acción de escritura que le queda al staff sobre un pago: confirmarlo (cargar
+el monto real, la fecha de pago, el medio y el comprobante).
+
+Deliberadamente NO incluye:
+  - `estado`: confirmar un pago SIEMPRE significa marcarlo PAGADO. Exponerlo
+    como dropdown le daría al staff la posibilidad (sin sentido de negocio)
+    de "confirmar" un pago dejándolo pendiente/vencido. La vista lo fija.
+  - `alumno`, `mes`, `anio`: se definen una sola vez, en la autogeneración;
+    editarlos acá permitiría mover un pago a otro alumno/período por error.
+
+Hereda de `TenantScopedModelForm` por el mismo motivo que `EjercicioForm`:
+mantener el mismo contrato en todos los forms de Fase 2, aunque ninguno de
+estos campos sea un FK tenant-owned que necesite acotarse.
+"""
+
+from core.forms import TenantScopedModelForm
+from pagos.models import PagoMensual
+
+
+class ConfirmarPagoForm(TenantScopedModelForm):
+    class Meta:
+        model = PagoMensual
+        fields = ["monto", "fecha_pago", "medio_pago_texto", "comprobante"]

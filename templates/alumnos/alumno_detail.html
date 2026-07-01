@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% block title %}{{ alumno }} · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>{{ alumno.nombre }} {{ alumno.apellido }}</h1>
+    <div>
+      <a class="boton-secundario" href="{% url 'alumnos:editar' alumno.pk %}">Editar</a>
+      <a class="boton-secundario" href="{% url 'alumnos:listado' %}">Volver al listado</a>
+    </div>
+  </div>
+
+  <div class="tarjeta">
+    <p>
+      Estado:
+      {% if alumno.estado == "activo" %}
+        <span class="badge badge--ok">Activo</span>
+      {% else %}
+        <span class="badge badge--riesgo">Inactivo</span>
+      {% endif %}
+    </p>
+    <p>Email: {{ alumno.email|default:"—" }}</p>
+    <p>Teléfono: {{ alumno.telefono|default:"—" }}</p>
+    <p>Fecha de nacimiento: {{ alumno.fecha_nacimiento|default:"—" }}</p>
+    {% if alumno.observaciones %}<p>Observaciones: {{ alumno.observaciones }}</p>{% endif %}
+
+    <form method="post" action="{% url 'alumnos:activar' alumno.pk %}">
+      {% csrf_token %}
+      {% if alumno.estado == "activo" %}
+        <button type="submit" class="boton-peligro">Inactivar alumno</button>
+      {% else %}
+        <button type="submit" class="boton">Activar alumno</button>
+      {% endif %}
+    </form>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Rutina actual</h2>
+    {% if rutina_actual %}
+      <p><strong>{{ rutina_actual.nombre_snapshot }}</strong> &middot; {{ rutina_actual.objetivo_snapshot }}</p>
+      <p class="texto-suave">Desde {{ rutina_actual.fecha_inicio }}</p>
+    {% else %}
+      <p class="texto-suave">Sin rutina asignada todavía.</p>
+    {% endif %}
+  </div>
+
+  <div class="tarjeta">
+    <h2>Pagos</h2>
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Mes</th>
+          <th>Año</th>
+          <th>Monto</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pago in pagos %}
+          <tr>
+            <td>{{ pago.mes }}</td>
+            <td>{{ pago.anio }}</td>
+            <td>{{ pago.monto }}</td>
+            <td>
+              {% if pago.estado == "pagado" %}
+                <span class="badge badge--ok">Pagado</span>
+              {% elif pago.estado == "pendiente" %}
+                <span class="badge badge--alerta">Pendiente</span>
+              {% else %}
+                <span class="badge badge--riesgo">Vencido</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4" class="texto-suave">Sin pagos registrados todavía.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

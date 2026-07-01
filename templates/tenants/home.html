@@ -1,14 +1,81 @@
 {% extends 'base.html' %}
 {% block title %}Inicio · App Gimnasios{% endblock %}
+{% block main_class %}{% if perfil.rol == "staff" %}contenido--ancho{% else %}contenido{% endif %}{% endblock %}
 
 {% block content %}
-<div class="tarjeta">
+{% if perfil.rol == "staff" %}
   <h1>{{ perfil.gimnasio.nombre }}</h1>
-  <p>Sesión iniciada como <strong>{{ user.username }}</strong> ({{ perfil.get_rol_display }}).</p>
-  <p class="texto-suave">
-    El dashboard real (alumnos activos, pagos pendientes, rutinas, novedades)
-    llega en Fase 2 del ROADMAP. Esta pantalla solo confirma que el login y el
-    scoping por gimnasio funcionan de punta a punta.
-  </p>
-</div>
+
+  <div class="dashboard-grid">
+    <div class="metrica">
+      <span class="metrica__valor">{{ alumnos_activos_count }}</span>
+      <span class="metrica__etiqueta">Alumnos activos</span>
+    </div>
+    <div class="metrica">
+      <span class="metrica__valor">{{ alumnos_pago_pendiente_count }}</span>
+      <span class="metrica__etiqueta">Alumnos con pago pendiente</span>
+    </div>
+    <div class="metrica">
+      <span class="metrica__valor">{{ pagos_del_mes|length }}</span>
+      <span class="metrica__etiqueta">Pagos del mes</span>
+    </div>
+    <div class="metrica">
+      <span class="metrica__valor">{{ rutinas_activas_count }}</span>
+      <span class="metrica__etiqueta">Rutinas activas</span>
+    </div>
+  </div>
+
+  <div class="tarjeta">
+    <div class="acciones-lista">
+      <h2>Pagos del mes</h2>
+      <a class="boton-secundario" href="{% url 'pagos:listado' %}">Ver todos</a>
+    </div>
+    <table class="tabla">
+      <thead>
+        <tr><th>Alumno</th><th>Monto</th><th>Estado</th></tr>
+      </thead>
+      <tbody>
+        {% for pago in pagos_del_mes %}
+          <tr>
+            <td>{{ pago.alumno }}</td>
+            <td>{{ pago.monto }}</td>
+            <td>
+              {% if pago.estado == "pagado" %}
+                <span class="badge badge--ok">Pagado</span>
+              {% elif pago.estado == "vencido" %}
+                <span class="badge badge--riesgo">Vencido</span>
+              {% else %}
+                <span class="badge badge--alerta">Pendiente</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="texto-suave">Todavía no hay pagos generados para este mes.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="tarjeta">
+    <div class="acciones-lista">
+      <h2>Últimas novedades</h2>
+      <a class="boton-secundario" href="{% url 'novedades:listado' %}">Ver todas</a>
+    </div>
+    {% for novedad in ultimas_novedades %}
+      <p><strong>{{ novedad.titulo }}</strong> &middot; {{ novedad.fecha_publicacion }}</p>
+    {% empty %}
+      <p class="texto-suave">No hay novedades publicadas todavía.</p>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="tarjeta">
+    <h1>{{ perfil.gimnasio.nombre }}</h1>
+    <p>Sesión iniciada como <strong>{{ user.username }}</strong> ({{ perfil.get_rol_display }}).</p>
+    <p class="texto-suave">
+      El portal del alumno (ver tu rutina, tus pagos, novedades) es Fase 3 del
+      ROADMAP y todavía no existe. Esta pantalla solo confirma que el login y
+      el scoping por gimnasio funcionan de punta a punta.
+    </p>
+  </div>
+{% endif %}
 {% endblock %}

@@ -1,0 +1,21 @@
+"""URLs de gestión de la biblioteca de ejercicios (Fase 2).
+
+No se incluye acá en `config/urls.py` -- eso queda a cargo de quien integre
+todas las apps de dominio en una sola pasada.
+"""
+
+from django.urls import path
+
+from ejercicios.views import (
+    EjercicioCreateView,
+    EjercicioListView,
+    EjercicioUpdateView,
+)
+
+app_name = "ejercicios"
+
+urlpatterns = [
+    path("", EjercicioListView.as_view(), name="listado"),
+    path("nuevo/", EjercicioCreateView.as_view(), name="crear"),
+    path("<int:pk>/editar/", EjercicioUpdateView.as_view(), name="editar"),
+]

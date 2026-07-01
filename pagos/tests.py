@@ -7,14 +7,19 @@ Sigue el mismo criterio que `tenants/tests.py`: `django.test.TestCase` plano,
 sin pytest ni factories (el proyecto es chico, KISS/YAGNI).
 """
 
+from datetime import date
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.urls import reverse
 
 from alumnos.models import Alumno
 from pagos.models import PagoMensual, generar_pagos_pendientes, marcar_vencidos
-from tenants.models import Gimnasio
+from tenants.models import Gimnasio, Perfil
+
+User = get_user_model()
 
 
 class PagoMensualModelTests(TestCase):
@@ -173,3 +178,142 @@ class MarcarVencidosTests(TestCase):
         pago_pasado.refresh_from_db()
         self.assertEqual(actualizados, 1)
         self.assertEqual(pago_pasado.estado, PagoMensual.Estado.VENCIDO)
+
+
+class PagoMensualViewTests(TestCase):
+    """Tests de Fase 2 para las vistas de gestión de pagos: acceso por rol,
+    aislamiento de tenant y el flujo de confirmación (que es la única
+    escritura que el staff puede hacer sobre un `PagoMensual` existente).
+
+    `pagos.urls` todavía no está incluido en `config/urls.py` (lo integra
+    quien reúna las apps de dominio), así que estas pruebas activan un
+    urlconf propio -- ver `pagos/urls_test.py` -- en vez de tocar el
+    urlconf raíz del proyecto.
+    """
+
+    def setUp(self):
+        self.gimnasio_a = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+
+        self.alumno_a = Alumno.objects.create(
+            gimnasio=self.gimnasio_a, nombre="Juan", apellido="Perez"
+        )
+        self.alumno_b = Alumno.objects.create(
+            gimnasio=self.gimnasio_b, nombre="Ana", apellido="Gomez"
+        )
+
+        self.staff_user = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff_user, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF
+        )
+
+        self.alumno_user = User.objects.create_user("alumno-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.alumno_user, gimnasio=self.gimnasio_a, rol=Perfil.Rol.ALUMNO
+        )
+
+        self.pago_pendiente_a = PagoMensual.objects.create(
+            gimnasio=self.gimnasio_a,
+            alumno=self.alumno_a,
+            mes=3,
+            anio=2026,
+            monto=Decimal("0"),
+        )
+        self.pago_pagado_a = PagoMensual.objects.create(
+            gimnasio=self.gimnasio_a,
+            alumno=self.alumno_a,
+            mes=4,
+            anio=2026,
+            monto=Decimal("15000.00"),
+            estado=PagoMensual.Estado.PAGADO,
+        )
+        self.pago_b = PagoMensual.objects.create(
+            gimnasio=self.gimnasio_b,
+            alumno=self.alumno_b,
+            mes=3,
+            anio=2026,
+            monto=Decimal("0"),
+        )
+
+    def test_anonimo_es_redirigido_al_login(self):
+        response = self.client.get(reverse("pagos:listado"))
+
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={reverse('pagos:listado')}",
+        )
+
+    def test_alumno_recibe_forbidden(self):
+        self.client.login(username="alumno-a", password="clave-123456")
+
+        response = self.client.get(reverse("pagos:listado"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_lista_solo_los_pagos_de_su_gimnasio(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(reverse("pagos:listado"))
+
+        self.assertEqual(response.status_code, 200)
+        pagos_listados = list(response.context["pagos"])
+        self.assertIn(self.pago_pendiente_a, pagos_listados)
+        self.assertIn(self.pago_pagado_a, pagos_listados)
+        self.assertNotIn(self.pago_b, pagos_listados)
+
+    def test_filtros_combinados_narrowen_el_resultado(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(
+            reverse("pagos:listado"), {"mes": 3, "anio": 2026, "estado": "pendiente"}
+        )
+
+        pagos_listados = list(response.context["pagos"])
+        self.assertEqual(pagos_listados, [self.pago_pendiente_a])
+
+    def test_filtro_deudores_incluye_pendiente_y_vencido(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        pago_vencido = PagoMensual.objects.create(
+            gimnasio=self.gimnasio_a,
+            alumno=self.alumno_a,
+            mes=5,
+            anio=2026,
+            monto=Decimal("0"),
+            estado=PagoMensual.Estado.VENCIDO,
+        )
+
+        response = self.client.get(reverse("pagos:listado"), {"estado": "deudores"})
+
+        pagos_listados = list(response.context["pagos"])
+        self.assertIn(self.pago_pendiente_a, pagos_listados)
+        self.assertIn(pago_vencido, pagos_listados)
+        self.assertNotIn(self.pago_pagado_a, pagos_listados)
+
+    def test_confirmar_pago_de_otro_gimnasio_da_404(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(
+            reverse("pagos:confirmar", args=[self.pago_b.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_confirmar_pago_pendiente_lo_marca_pagado_y_persiste_datos(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.post(
+            reverse("pagos:confirmar", args=[self.pago_pendiente_a.pk]),
+            {
+                "monto": "15000.00",
+                "fecha_pago": "2026-03-05",
+                "medio_pago_texto": "Efectivo",
+                "comprobante": "",
+            },
+        )
+
+        self.assertRedirects(response, reverse("pagos:listado"))
+        self.pago_pendiente_a.refresh_from_db()
+        self.assertEqual(self.pago_pendiente_a.estado, PagoMensual.Estado.PAGADO)
+        self.assertEqual(self.pago_pendiente_a.monto, Decimal("15000.00"))
+        self.assertEqual(self.pago_pendiente_a.fecha_pago, date(2026, 3, 5))
+        self.assertEqual(self.pago_pendiente_a.medio_pago_texto, "Efectivo")

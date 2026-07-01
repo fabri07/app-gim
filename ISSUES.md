@@ -53,3 +53,37 @@ de confirmación del staff exija completar `monto` antes de marcar
 `estado=PAGADO` — no depender de que el cron lo haya puesto bien. Si más
 adelante se agrega un campo de tarifa mensual (a `Alumno` o a un futuro plan),
 `generar_pagos_pendientes` debería leerlo de ahí en vez de usar 0 fijo.
+
+**[2026-07-01] Actualización — resuelto en Fase 2:** `ConfirmarPagoForm`
+(`pagos/forms.py`) incluye `monto` como campo obligatorio del `ModelForm`
+(sin `blank=True` en el modelo); el staff no puede marcar `estado=PAGADO` sin
+completarlo. El límite de fondo sigue abierto (no hay tarifa mensual
+configurable en `Alumno` todavía) pero el riesgo de filas en $0 sin que nadie
+lo note ya no existe: el form lo bloquea.
+
+## [2026-07-01] Fase 2: integración de 5 agentes en paralelo — dos hallazgos
+
+**Estado:** resuelto
+
+**Impacto:** al integrar las vistas de `alumnos`/`ejercicios`/`rutinas`/
+`pagos`/`novedades` (cada una construida por un agente distinto, sin acceso a
+`config/urls.py` ni `templates/base.html`) aparecieron dos problemas recién
+visibles al juntar todo:
+1. Cada agente había armado su propio urlconf de prueba (`tests_urlconf.py`,
+   `urls_test.py`, o un `urlpatterns` inline en el propio `tests.py`) para
+   poder testear vistas antes de que `config/urls.py` incluyera su app. Al
+   agregar un nav global en `base.html` con `{% url 'alumnos:listado' %}`
+   etc., esos urlconfs de prueba (que solo incluían su propia app + login)
+   rompieron con `NoReverseMatch`.
+2. Las páginas de listado/detalle usaban `<div class="contenido--ancho">`
+   anidado dentro de `<main class="contenido">` (fijo en `base.html`,
+   `max-width: 480px`) — el ancho "ancho" quedaba atrapado por el contenedor
+   angosto del padre.
+
+**Resolución:** (1) se reemplazó `ROOT_URLCONF` real (`config/urls.py`, ya
+con las 5 apps incluidas) en todos los tests, eliminando los urlconfs de
+prueba ad-hoc. (2) se agregó `{% block main_class %}` en `base.html` (default
+`contenido`) y cada template "ancho" lo sobreescribe a `contenido--ancho`.
+Verificado con la suite completa (85/85) y un recorrido manual de punta a
+punta (registro → alumno → ejercicio → rutina → asignación → pago →
+novedad → dashboard) sin tocar `/admin/`.

@@ -42,6 +42,14 @@ body {
   padding: 0 1rem;
 }
 
+/* Fase 2: páginas de listado/dashboard necesitan más ancho que el
+   formulario angosto de login/register (que sigue usando .contenido). */
+.contenido--ancho {
+  max-width: 960px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
 .tarjeta {
   background: var(--superficie);
   border: 1px solid var(--borde);
@@ -55,23 +63,123 @@ form p { margin: 0.75rem 0; }
 
 label { display: block; font-weight: 500; margin-bottom: 0.25rem; }
 
-input {
+input, select, textarea {
   width: 100%;
   padding: 0.5rem;
   border: 1px solid var(--borde);
   border-radius: 0.25rem;
+  font-family: inherit;
 }
 
-button[type="submit"] {
+textarea { resize: vertical; }
+
+button[type="submit"], .boton {
+  display: inline-block;
   background: var(--acento);
   color: #fff;
   border: none;
   padding: 0.5rem 1rem;
   border-radius: 0.25rem;
   cursor: pointer;
+  text-decoration: none;
+  font-size: 0.95rem;
 }
 
+.boton-secundario {
+  display: inline-block;
+  background: none;
+  color: var(--tinta);
+  border: 1px solid var(--borde);
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.boton-peligro { background: #dc2626; }
+
 .texto-suave { color: #666; font-size: 0.9rem; }
+
+/* Nav de secciones de staff (Fase 2). */
+.nav-staff {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 1.5rem;
+  background: var(--superficie);
+  border-bottom: 1px solid var(--borde);
+  font-size: 0.9rem;
+}
+
+.nav-staff a { color: var(--tinta); text-decoration: none; }
+.nav-staff a:hover { color: var(--acento); }
+
+/* Listados (alumnos, ejercicios, rutinas, pagos, novedades). */
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.tabla th, .tabla td {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--borde);
+}
+
+.tabla th { background: var(--fondo); font-weight: 600; }
+.tabla tr:last-child td { border-bottom: none; }
+
+.acciones-lista {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.filtros {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  align-items: end;
+}
+
+.filtros label { margin-bottom: 0.25rem; }
+
+/* Estado visual (activo/inactivo, pendiente/pagado/vencido). */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.badge--ok { background: #dcfce7; color: #166534; }        /* activo, pagado, visible */
+.badge--alerta { background: #fef3c7; color: #92400e; }    /* pendiente */
+.badge--riesgo { background: #fee2e2; color: #991b1b; }    /* vencido, inactivo, oculta */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.metrica {
+  background: var(--superficie);
+  border: 1px solid var(--borde);
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.metrica__valor { font-size: 1.8rem; font-weight: 700; display: block; }
+.metrica__etiqueta { color: #666; font-size: 0.85rem; }
 
 .mensajes {
   list-style: none;

@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}{{ asignada.nombre_snapshot }} · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>{{ asignada.nombre_snapshot }}</h1>
+    <a class="boton-secundario" href="{% url 'rutinas:plantilla_listado' %}">Volver a plantillas</a>
+  </div>
+
+  <div class="tarjeta">
+    <p>Alumno: {{ asignada.alumno }}</p>
+    <p>Objetivo: {{ asignada.objetivo_snapshot }}</p>
+    <p>Fecha de inicio: {{ asignada.fecha_inicio }}</p>
+    <p>Fecha de fin: {{ asignada.fecha_fin|default:"—" }}</p>
+    <p>
+      Estado:
+      {% if asignada.activa %}
+        <span class="badge badge--ok">Activa</span>
+      {% else %}
+        <span class="badge badge--riesgo">Inactiva</span>
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Ejercicios</h2>
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Día</th>
+          <th>Orden</th>
+          <th>Ejercicio</th>
+          <th>Series</th>
+          <th>Repeticiones</th>
+          <th>Descanso</th>
+          <th>Notas</th>
+          <th>Video</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr>
+            <td>{{ item.dia }}</td>
+            <td>{{ item.orden }}</td>
+            <td>{{ item.ejercicio_nombre_snapshot }}</td>
+            <td>{{ item.series }}</td>
+            <td>{{ item.repeticiones }}</td>
+            <td>{{ item.descanso|default:"—" }}</td>
+            <td>{{ item.notas|default:"—" }}</td>
+            <td>
+              {% if item.ejercicio_video_snapshot %}
+                <a href="{{ item.ejercicio_video_snapshot }}" target="_blank" rel="noopener">Ver video</a>
+              {% else %}
+                <span class="texto-suave">Sin video</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="8" class="texto-suave">Esta rutina no tiene ejercicios.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

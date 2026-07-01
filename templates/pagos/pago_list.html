@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block title %}Pagos · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Pagos</h1>
+    <a class="boton-secundario" href="{% url 'pagos:listado' %}?estado=deudores">Ver deudores</a>
+  </div>
+
+  <form method="get" class="filtros">
+    <div>
+      <label for="mes">Mes</label>
+      <input type="number" name="mes" id="mes" min="1" max="12" value="{{ mes_actual }}">
+    </div>
+    <div>
+      <label for="anio">Año</label>
+      <input type="number" name="anio" id="anio" min="2000" value="{{ anio_actual }}">
+    </div>
+    <div>
+      <label for="estado">Estado</label>
+      <select name="estado" id="estado">
+        <option value="" {% if not estado_actual %}selected{% endif %}>Todos</option>
+        <option value="deudores" {% if estado_actual == "deudores" %}selected{% endif %}>Deudores (pendiente + vencido)</option>
+        {% for valor, etiqueta in estados %}
+          <option value="{{ valor }}" {% if estado_actual == valor %}selected{% endif %}>{{ etiqueta }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="boton-secundario">Filtrar</button>
+    {% if mes_actual or anio_actual or estado_actual %}
+      <a class="boton-secundario" href="{% url 'pagos:listado' %}">Quitar filtros</a>
+    {% endif %}
+  </form>
+
+  <table class="tabla">
+    <thead>
+      <tr>
+        <th>Alumno</th>
+        <th>Mes/Año</th>
+        <th>Monto</th>
+        <th>Estado</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for pago in pagos %}
+        <tr>
+          <td>{{ pago.alumno }}</td>
+          <td>{{ pago.mes|stringformat:"02d" }}/{{ pago.anio }}</td>
+          <td>{{ pago.monto }}</td>
+          <td>
+            {% if pago.estado == "pagado" %}
+              <span class="badge badge--ok">Pagado</span>
+            {% elif pago.estado == "vencido" %}
+              <span class="badge badge--riesgo">Vencido</span>
+            {% else %}
+              <span class="badge badge--alerta">Pendiente</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{% url 'pagos:confirmar' pago.pk %}">
+              {% if pago.estado == "pagado" %}Editar{% else %}Confirmar{% endif %}
+            </a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="5" class="texto-suave">No hay pagos que coincidan con el filtro.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

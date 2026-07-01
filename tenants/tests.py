@@ -7,9 +7,12 @@ TenantOwnedModel concreto para ejercitarlos.
 """
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.exceptions import PermissionDenied
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
+from django.views.generic import TemplateView
 
+from tenants.mixins import StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil
 
 
@@ -99,3 +102,37 @@ class TenantIsolationTests(TestCase):
 
         self.assertEqual(perfil.gimnasio, gimnasio_a)
         self.assertNotEqual(perfil.gimnasio, gimnasio_b)
+
+
+class _VistaDeStaff(StaffRequiredMixin, TemplateView):
+    """Vista mínima de prueba; no se registra en urls."""
+
+    template_name = "tenants/home.html"
+
+
+class StaffRequiredMixinTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+
+    def _get(self, user):
+        request = self.factory.get("/")
+        request.user = user
+        return _VistaDeStaff.as_view()(request)
+
+    def test_staff_entra_sin_problema(self):
+        user = User.objects.create_user("staff-1", password="x")
+        Perfil.objects.create(usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        response = self._get(user)
+        self.assertEqual(response.status_code, 200)
+
+    def test_alumno_recibe_permission_denied(self):
+        user = User.objects.create_user("alumno-1", password="x")
+        Perfil.objects.create(usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
+        with self.assertRaises(PermissionDenied):
+            self._get(user)
+
+    def test_usuario_sin_perfil_recibe_permission_denied(self):
+        user = User.objects.create_user("sin-perfil", password="x")
+        with self.assertRaises(PermissionDenied):
+            self._get(user)

@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}Alumnos · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Alumnos</h1>
+    <a class="boton" href="{% url 'alumnos:crear' %}">Nuevo alumno</a>
+  </div>
+
+  <form method="get" class="filtros">
+    <div>
+      <label for="estado">Estado</label>
+      <select name="estado" id="estado" onchange="this.form.submit()">
+        <option value="" {% if not estado_actual %}selected{% endif %}>Todos</option>
+        <option value="activo" {% if estado_actual == "activo" %}selected{% endif %}>Activos</option>
+        <option value="inactivo" {% if estado_actual == "inactivo" %}selected{% endif %}>Inactivos</option>
+      </select>
+    </div>
+    <button type="submit" class="boton-secundario">Filtrar</button>
+  </form>
+
+  {% if estado_actual %}
+    <p class="texto-suave">
+      Mostrando solo: <strong>{{ estado_actual }}</strong>
+      &middot; <a href="{% url 'alumnos:listado' %}">quitar filtro</a>
+    </p>
+  {% endif %}
+
+  <table class="tabla">
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>Apellido</th>
+        <th>Estado</th>
+        <th>Contacto</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in alumnos %}
+        <tr>
+          <td>{{ a.nombre }}</td>
+          <td>{{ a.apellido }}</td>
+          <td>
+            {% if a.estado == "activo" %}
+              <span class="badge badge--ok">Activo</span>
+            {% else %}
+              <span class="badge badge--riesgo">Inactivo</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if a.email %}{{ a.email }}{% endif %}
+            {% if a.email and a.telefono %}&middot;{% endif %}
+            {% if a.telefono %}{{ a.telefono }}{% endif %}
+            {% if not a.email and not a.telefono %}
+              <span class="texto-suave">Sin datos de contacto</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{% url 'alumnos:detalle' a.pk %}">Ver</a>
+            &middot;
+            <a href="{% url 'alumnos:editar' a.pk %}">Editar</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="5" class="texto-suave">No hay alumnos cargados todavía.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

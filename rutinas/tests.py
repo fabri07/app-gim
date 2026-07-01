@@ -1,16 +1,25 @@
 """
-Tests de Fase 1 para `rutinas`.
+Tests de `rutinas`.
 
-El test más importante de todo este archivo (y probablemente de toda la
-Fase 1) es `RutinaAsignadaSnapshotTests.test_editar_la_plantilla_no_afecta_la_asignacion_existente`:
+Fase 1 (arriba): el test más importante de todo este archivo (y
+probablemente de toda la Fase 1) es
+`RutinaAsignadaSnapshotTests.test_editar_la_plantilla_no_afecta_la_asignacion_existente`:
 verifica que `RutinaAsignada.crear_desde_plantilla` produce una copia
 realmente congelada, no una referencia viva a la plantilla.
+
+Fase 2 (abajo, `RutinasViewsTests`): vistas de gestión -- acceso por rol,
+aislamiento de tenant (incluido el caso especial de los items, que no son
+`TenantOwnedModel` y se aíslan a través de su plantilla padre), el hueco de
+FK-injection en el campo `ejercicio` del item, duplicar (POST-only) y el
+flujo de asignación de punta a punta.
 """
 
 from datetime import date
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
 
 from alumnos.models import Alumno
 from ejercicios.models import Ejercicio
@@ -20,7 +29,7 @@ from rutinas.models import (
     RutinaPlantilla,
     RutinaPlantillaItem,
 )
-from tenants.models import Gimnasio
+from tenants.models import Gimnasio, Perfil
 
 
 class RutinasTestCase(TestCase):
@@ -342,3 +351,382 @@ class AislamientoTenantTests(RutinasTestCase):
 
         propias = RutinaAsignada.objects.for_gimnasio(self.gimnasio)
         self.assertEqual(list(propias), [asignada_propia])
+
+
+User = get_user_model()
+
+
+class RutinasViewsTests(TestCase):
+    """Vistas de gestión de rutinas (Fase 2): acceso por rol, aislamiento de
+    tenant (plantillas y, a través de su padre, items), el cierre del hueco
+    de FK-injection en `ejercicio`, duplicar (POST-only) y la asignación de
+    punta a punta."""
+
+    def setUp(self):
+        self.gimnasio_a = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+
+        self.staff_a = User.objects.create_user(username="staff_a", password="clave12345")
+        Perfil.objects.create(
+            usuario=self.staff_a, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF
+        )
+
+        self.staff_b = User.objects.create_user(username="staff_b", password="clave12345")
+        Perfil.objects.create(
+            usuario=self.staff_b, gimnasio=self.gimnasio_b, rol=Perfil.Rol.STAFF
+        )
+
+        self.usuario_alumno = User.objects.create_user(
+            username="usuario_alumno", password="clave12345"
+        )
+        Perfil.objects.create(
+            usuario=self.usuario_alumno, gimnasio=self.gimnasio_a, rol=Perfil.Rol.ALUMNO
+        )
+
+        self.ejercicio_a = Ejercicio.objects.create(
+            gimnasio=self.gimnasio_a,
+            nombre="Sentadilla A",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+        self.ejercicio_b = Ejercicio.objects.create(
+            gimnasio=self.gimnasio_b,
+            nombre="Sentadilla B",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+
+        self.alumno_a = Alumno.objects.create(
+            gimnasio=self.gimnasio_a, nombre="Ana", apellido="Pérez"
+        )
+        self.alumno_a_inactivo = Alumno.objects.create(
+            gimnasio=self.gimnasio_a,
+            nombre="Inactivo",
+            apellido="Alumno",
+            estado=Alumno.Estado.INACTIVO,
+        )
+        self.alumno_b = Alumno.objects.create(
+            gimnasio=self.gimnasio_b, nombre="Bruno", apellido="Gómez"
+        )
+
+        self.plantilla_a = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio_a,
+            nombre="Rutina A",
+            objetivo="Hipertrofia",
+            nivel=RutinaPlantilla.Nivel.PRINCIPIANTE,
+            dias_por_semana=3,
+        )
+        self.plantilla_a_inactiva = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio_a,
+            nombre="Rutina A inactiva",
+            objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.AVANZADO,
+            dias_por_semana=4,
+            activa=False,
+        )
+        self.item_a = RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla_a,
+            ejercicio=self.ejercicio_a,
+            dia=1,
+            orden=1,
+            series=4,
+            repeticiones="8-12",
+            descanso="90s",
+        )
+
+        self.plantilla_b = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio_b,
+            nombre="Rutina B",
+            objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.AVANZADO,
+            dias_por_semana=5,
+        )
+        self.item_b = RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla_b,
+            ejercicio=self.ejercicio_b,
+            dia=1,
+            orden=1,
+            series=5,
+            repeticiones="5",
+            descanso="120s",
+        )
+
+        self.asignada_a = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio_a,
+            alumno=self.alumno_a,
+            plantilla=self.plantilla_a,
+            fecha_inicio=date(2026, 1, 1),
+        )
+
+    def _urls_get_staff(self):
+        return [
+            reverse("rutinas:plantilla_listado"),
+            reverse("rutinas:plantilla_crear"),
+            reverse("rutinas:plantilla_detalle", args=[self.plantilla_a.pk]),
+            reverse("rutinas:plantilla_editar", args=[self.plantilla_a.pk]),
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
+            reverse(
+                "rutinas:item_editar", args=[self.plantilla_a.pk, self.item_a.pk]
+            ),
+            reverse("rutinas:asignar"),
+            reverse("rutinas:asignada_detalle", args=[self.asignada_a.pk]),
+        ]
+
+    # 1. Anónimo -> redirect a login; rol ALUMNO -> 403 (ver
+    # docstring de `alumnos/tests.py`: PermissionDenied vía self.client
+    # resuelve en un 403 normal, no en una excepción de Python, porque
+    # `response_for_exception` la convierte en respuesta antes de que exista
+    # oportunidad de re-lanzarla).
+    def test_anonimo_redirige_a_login_en_todas_las_vistas(self):
+        for url in self._urls_get_staff():
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 302, url)
+            self.assertIn(reverse("login"), response.url)
+
+    def test_perfil_alumno_recibe_403_en_todas_las_vistas(self):
+        self.client.login(username="usuario_alumno", password="clave12345")
+        for url in self._urls_get_staff():
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 403, url)
+
+    # 2. CRUD de plantilla para staff de su propio gimnasio; 404 cross-tenant.
+    def test_staff_puede_listar_crear_ver_y_editar_su_plantilla(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        response = self.client.get(reverse("rutinas:plantilla_listado"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rutina A")
+
+        datos = {
+            "nombre": "Rutina nueva",
+            "objetivo": "Fuerza",
+            "nivel": RutinaPlantilla.Nivel.INTERMEDIO,
+            "dias_por_semana": 4,
+            "activa": "on",
+        }
+        response = self.client.post(reverse("rutinas:plantilla_crear"), datos)
+        self.assertEqual(response.status_code, 302)
+        nueva = RutinaPlantilla.objects.get(nombre="Rutina nueva")
+        self.assertEqual(nueva.gimnasio, self.gimnasio_a)
+
+        response = self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[self.plantilla_a.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Sentadilla A")
+
+        datos_editados = {
+            "nombre": "Rutina A editada",
+            "objetivo": "Hipertrofia",
+            "nivel": RutinaPlantilla.Nivel.PRINCIPIANTE,
+            "dias_por_semana": 3,
+            "activa": "on",
+        }
+        response = self.client.post(
+            reverse("rutinas:plantilla_editar", args=[self.plantilla_a.pk]),
+            datos_editados,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.plantilla_a.refresh_from_db()
+        self.assertEqual(self.plantilla_a.nombre, "Rutina A editada")
+
+    def test_aislamiento_de_tenant_en_plantilla_devuelve_404(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        response = self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[self.plantilla_b.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.get(
+            reverse("rutinas:plantilla_editar", args=[self.plantilla_b.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.post(
+            reverse("rutinas:plantilla_editar", args=[self.plantilla_b.pk]),
+            {
+                "nombre": "hackeada",
+                "objetivo": "x",
+                "nivel": RutinaPlantilla.Nivel.AVANZADO,
+                "dias_por_semana": 1,
+            },
+        )
+        self.assertEqual(response.status_code, 404)
+        self.plantilla_b.refresh_from_db()
+        self.assertEqual(self.plantilla_b.nombre, "Rutina B")
+
+    # 3. Items: CRUD dentro de la plantilla correcta; 404 cross-tenant vía el
+    # lookup del padre (ni siquiera llega a consultar el item).
+    def test_item_crud_dentro_de_la_plantilla_correcta(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        datos = {
+            "ejercicio": self.ejercicio_a.pk,
+            "dia": 2,
+            "orden": 1,
+            "series": 3,
+            "repeticiones": "10",
+            "descanso": "60s",
+            "notas": "",
+        }
+        response = self.client.post(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]), datos
+        )
+        self.assertEqual(response.status_code, 302)
+        nuevo_item = RutinaPlantillaItem.objects.get(rutina=self.plantilla_a, dia=2)
+        self.assertEqual(nuevo_item.ejercicio, self.ejercicio_a)
+
+        response = self.client.get(
+            reverse(
+                "rutinas:item_editar", args=[self.plantilla_a.pk, nuevo_item.pk]
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+
+        datos["series"] = 9
+        response = self.client.post(
+            reverse(
+                "rutinas:item_editar", args=[self.plantilla_a.pk, nuevo_item.pk]
+            ),
+            datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        nuevo_item.refresh_from_db()
+        self.assertEqual(nuevo_item.series, 9)
+
+        eliminar_url = reverse(
+            "rutinas:item_eliminar", args=[self.plantilla_a.pk, nuevo_item.pk]
+        )
+        response = self.client.get(eliminar_url)
+        self.assertEqual(response.status_code, 405)
+
+        response = self.client.post(eliminar_url)
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(
+            RutinaPlantillaItem.objects.filter(pk=nuevo_item.pk).exists()
+        )
+
+    def test_item_de_otro_gimnasio_no_es_accesible_desde_plantilla_ajena(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        # La plantilla del kwarg es de OTRO gimnasio: 404 antes de tocar el item.
+        response = self.client.get(
+            reverse("rutinas:item_crear", args=[self.plantilla_b.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.get(
+            reverse("rutinas:item_editar", args=[self.plantilla_b.pk, self.item_b.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+        response = self.client.post(
+            reverse(
+                "rutinas:item_eliminar", args=[self.plantilla_b.pk, self.item_b.pk]
+            )
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(RutinaPlantillaItem.objects.filter(pk=self.item_b.pk).exists())
+
+    # 4. El campo `ejercicio` del form de item solo ofrece ejercicios del
+    # propio gimnasio -- el cierre del hueco de FK-injection.
+    def test_ejercicio_del_form_de_item_esta_scopeado_al_gimnasio(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        response = self.client.get(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk])
+        )
+        queryset = response.context["form"].fields["ejercicio"].queryset
+        self.assertIn(self.ejercicio_a, queryset)
+        self.assertNotIn(self.ejercicio_b, queryset)
+
+        # Postear directamente el id de un ejercicio de otro gimnasio: form
+        # inválido, no un item creado a medio camino.
+        datos = {
+            "ejercicio": self.ejercicio_b.pk,
+            "dia": 1,
+            "orden": 9,
+            "series": 3,
+            "repeticiones": "10",
+            "descanso": "",
+            "notas": "",
+        }
+        response = self.client.post(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]), datos
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("ejercicio", response.context["form"].errors)
+        self.assertFalse(
+            RutinaPlantillaItem.objects.filter(
+                rutina=self.plantilla_a, ejercicio=self.ejercicio_b
+            ).exists()
+        )
+
+    # 5. Duplicar (POST-only) crea una copia independiente y redirige a ella;
+    # GET no está permitido.
+    def test_duplicar_via_post_crea_copia_y_redirige(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        url = reverse("rutinas:plantilla_duplicar", args=[self.plantilla_a.pk])
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 405)
+
+        response = self.client.post(url)
+        self.assertEqual(response.status_code, 302)
+
+        copia = RutinaPlantilla.objects.get(nombre="Rutina A (copia)")
+        self.assertNotEqual(copia.pk, self.plantilla_a.pk)
+        self.assertEqual(copia.gimnasio, self.gimnasio_a)
+        self.assertEqual(copia.items.count(), 1)
+        self.assertIn(
+            reverse("rutinas:plantilla_detalle", args=[copia.pk]), response.url
+        )
+
+        # Independiente: tocar un item de la copia no afecta al original.
+        item_copiado = copia.items.get()
+        item_copiado.series = 999
+        item_copiado.save()
+        self.item_a.refresh_from_db()
+        self.assertEqual(self.item_a.series, 4)
+
+    def test_duplicar_plantilla_de_otro_gimnasio_devuelve_404(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(
+            reverse("rutinas:plantilla_duplicar", args=[self.plantilla_b.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    # 6. Asignación de punta a punta.
+    def test_asignar_rutina_end_to_end(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        response = self.client.get(reverse("rutinas:asignar"))
+        self.assertEqual(response.status_code, 200)
+        form = response.context["form"]
+        self.assertIn(self.alumno_a, form.fields["alumno"].queryset)
+        self.assertNotIn(self.alumno_a_inactivo, form.fields["alumno"].queryset)
+        self.assertNotIn(self.alumno_b, form.fields["alumno"].queryset)
+        self.assertIn(self.plantilla_a, form.fields["plantilla"].queryset)
+        self.assertNotIn(self.plantilla_a_inactiva, form.fields["plantilla"].queryset)
+        self.assertNotIn(self.plantilla_b, form.fields["plantilla"].queryset)
+
+        datos = {
+            "alumno": self.alumno_a.pk,
+            "plantilla": self.plantilla_a.pk,
+            "fecha_inicio": "2026-04-01",
+        }
+        response = self.client.post(reverse("rutinas:asignar"), datos)
+        self.assertEqual(response.status_code, 302)
+
+        nueva_asignada = RutinaAsignada.objects.exclude(pk=self.asignada_a.pk).get(
+            alumno=self.alumno_a, fecha_inicio=date(2026, 4, 1)
+        )
+        self.assertEqual(nueva_asignada.gimnasio, self.gimnasio_a)
+        self.assertEqual(nueva_asignada.nombre_snapshot, self.plantilla_a.nombre)
+        self.assertEqual(nueva_asignada.items.count(), 1)
+
+        response = self.client.get(response.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Sentadilla A")
+        self.assertEqual(response.context["asignada"], nueva_asignada)
+        self.assertEqual(response.context["asignada"].fecha_inicio, date(2026, 4, 1))

@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}{% if object %}Editar alumno{% else %}Nuevo alumno{% endif %} · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>{% if object %}Editar alumno{% else %}Nuevo alumno{% endif %}</h1>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Guardar</button>
+  </form>
+  <p><a href="{% url 'alumnos:listado' %}">Volver al listado</a></p>
+</div>
+{% endblock %}

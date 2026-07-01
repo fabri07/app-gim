@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Asignar rutina · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Asignar rutina a un alumno</h1>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="boton">Asignar</button>
+    <a class="boton-secundario" href="{% url 'rutinas:plantilla_listado' %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

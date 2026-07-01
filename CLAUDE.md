@@ -13,13 +13,12 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: Fase 1 completa** (modelo de datos). Ver `REUSO.md` para el
-detalle de qué se copió de dónde en Fase 0. Apps de dominio agregadas:
-`alumnos` (Alumno), `ejercicios` (Ejercicio), `rutinas` (RutinaPlantilla/Item,
-RutinaAsignada/Item con snapshot), `pagos` (PagoMensual + autogeneración),
-`novedades` (Novedad). Próximo paso: Fase 2 (vistas del staff — dashboard,
-CRUD de alumnos/ejercicios/rutinas, asignación, confirmación de pagos,
-novedades).
+**Fase actual: Fase 2 completa** (vistas del staff). Ver `REUSO.md` para el
+detalle de qué se copió de dónde en Fase 0. Un dueño puede usar el sistema de
+punta a punta desde el panel web (registro → alumnos → ejercicios → rutinas →
+asignación → pagos → novedades → dashboard) sin tocar `/admin/`. Próximo
+paso: Fase 3 (portal del alumno — activación sin contraseña vía magic-link,
+que Fase 2 dejó explícitamente afuera de "Gestión de alumnos").
 
 ## Principios no negociables (resumen — el detalle está en ROADMAP.md)
 
@@ -85,6 +84,31 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   comando que Fase 5 programa como Render Cron Job.
 - **`novedades`** — `Novedad(TenantOwnedModel)` con `NovedadQuerySet.visibles()`
   (activa + publicada + no vencida).
+
+## Vistas de staff (Fase 2)
+
+Cada app de dominio tiene `forms.py`/`views.py`/`urls.py` (namespace propio,
+p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
+`templates/<app>/`. Todas las vistas de gestión combinan
+`tenants.mixins.StaffRequiredMixin` (autorización por rol — solo `staff`,
+403 para `alumno` o sin `Perfil`) con `core.mixins.TenantScopedMixin`
+(aislamiento por tenant), `StaffRequiredMixin` primero en el MRO.
+
+- **Nav**: `templates/base.html` muestra el menú de secciones solo si
+  `user.perfil.rol == "staff"`.
+- **Dashboard**: `tenants.views.HomeView` (ruta `home`) — para `staff` agrega
+  las métricas de Fase 2 §1 (alumnos activos, alumnos con pago pendiente,
+  pagos del mes, rutinas activas, últimas novedades); para `alumno` sigue
+  siendo la pantalla mínima de Fase 0 (su portal real es Fase 3).
+- **`RutinaPlantillaItem`/`RutinaAsignadaItem`** no son `TenantOwnedModel`
+  (no tienen `gimnasio` propio): sus vistas resuelven el aislamiento
+  buscando primero el padre vía `for_gimnasio()` antes de tocar el item — ver
+  `rutinas/views.py` (`ItemPlantillaMixin`).
+- **Deliberadamente NO construido en Fase 2**: "enviar/reenviar invitación"
+  en la ficha de alumno (ROADMAP Fase 2 §2) — el magic-link que le da sentido
+  se diseña en Fase 3; agregarlo antes hubiera sido un botón sin nada
+  funcional detrás. `PagoMensual` sigue sin vista de "crear" — el staff solo
+  confirma pagos ya autogenerados (principio no negociable §3).
 
 ## Comandos
 

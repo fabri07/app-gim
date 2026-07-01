@@ -16,12 +16,22 @@
       </form>
     {% endif %}
   </header>
+  {% if user.is_authenticated and user.perfil.rol == "staff" %}
+    <nav class="nav-staff">
+      <a href="{% url 'home' %}">Dashboard</a>
+      <a href="{% url 'alumnos:listado' %}">Alumnos</a>
+      <a href="{% url 'ejercicios:listado' %}">Ejercicios</a>
+      <a href="{% url 'rutinas:plantilla_listado' %}">Rutinas</a>
+      <a href="{% url 'pagos:listado' %}">Pagos</a>
+      <a href="{% url 'novedades:listado' %}">Novedades</a>
+    </nav>
+  {% endif %}
   {% if messages %}
     <ul class="mensajes">
       {% for message in messages %}<li class="mensaje">{{ message }}</li>{% endfor %}
     </ul>
   {% endif %}
-  <main class="contenido">
+  <main class="{% block main_class %}contenido{% endblock %}">
     {% block content %}{% endblock %}
   </main>
 </body>
