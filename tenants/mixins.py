@@ -34,3 +34,39 @@ class StaffRequiredMixin(LoginRequiredMixin):
             if perfil.rol != Perfil.Rol.STAFF:
                 raise PermissionDenied("Esta sección es solo para staff.")
         return super().dispatch(request, *args, **kwargs)
+
+
+class AlumnoRequiredMixin(LoginRequiredMixin):
+    """Simétrico a StaffRequiredMixin: 403 si no hay Perfil o el rol no es ALUMNO.
+
+    A diferencia de StaffRequiredMixin, expone `self.alumno` (puede ser None si el
+    Perfil de rol alumno todavía no está vinculado a una ficha de Alumno) para que las
+    vistas GET puedan renderizar un estado vacío en vez de un 403.
+
+    Reglas de uso (documentarlas en vistas que la hereden):
+    - Vistas GET pueden mostrar un estado vacío cuando `self.alumno is None`.
+    - Vistas POST de escritura deben hacer `if self.alumno is None: raise PermissionDenied(...)`.
+    """
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            try:
+                self.perfil = request.user.perfil
+            except ObjectDoesNotExist:
+                raise PermissionDenied(
+                    "Tu usuario no tiene un Perfil asociado a un Gimnasio."
+                )
+            if self.perfil.rol != Perfil.Rol.ALUMNO:
+                raise PermissionDenied("Esta sección es solo para alumnos.")
+        return super().dispatch(request, *args, **kwargs)
+
+    @property
+    def gimnasio(self):
+        return self.perfil.gimnasio
+
+    @property
+    def alumno(self):
+        try:
+            return self.perfil.alumno
+        except ObjectDoesNotExist:
+            return None
