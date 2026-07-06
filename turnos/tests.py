@@ -21,8 +21,10 @@ from urllib.parse import parse_qs
 
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
-from django.db import IntegrityError, transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -184,6 +186,21 @@ class ReservaModelTests(TestCase):
                     fecha=date(2026, 7, 6),
                     hora_inicio=time(9, 0),
                 )
+
+    def test_full_clean_rechaza_alumno_de_otro_gimnasio(self):
+        otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        alumno_de_otro = Alumno.objects.create(
+            gimnasio=otro_gimnasio, nombre="Bruno", apellido="Pérez"
+        )
+        reserva = Reserva(
+            gimnasio=self.gimnasio,
+            alumno=alumno_de_otro,
+            fecha=date(2026, 7, 6),
+            hora_inicio=time(9, 0),
+        )
+
+        with self.assertRaises(ValidationError):
+            reserva.full_clean()
 
 
 class TurnosTenantIsolationTests(TestCase):
@@ -643,6 +660,40 @@ class CrearReservaTests(TestCase):
             )
 
 
+class CrearReservaSinConfiguracionPreviaTests(TestCase):
+    """Reproduce el caso donde el gimnasio tiene horarios cargados pero
+    todavía nunca se generó su fila de `ConfiguracionTurnos` (p.ej. se
+    cargaron horarios por otra vía sin pasar antes por
+    `obtener_configuracion`/la vista de config)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio Sin Config", slug="gimnasio-sin-config"
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        for dia in range(7):
+            HorarioAtencion.objects.create(
+                gimnasio=self.gimnasio,
+                dia_semana=dia,
+                hora_desde=time(0, 0),
+                hora_hasta=time(23, 0),
+            )
+        # A propósito NO se crea ConfiguracionTurnos acá.
+
+    def test_crea_la_reserva_aunque_no_exista_configuracion_previa(self):
+        self.assertEqual(ConfiguracionTurnos.objects.filter(gimnasio=self.gimnasio).count(), 0)
+        fecha_futura = (timezone.localdate() + timedelta(days=2))
+
+        reserva = crear_reserva(self.gimnasio, self.alumno, fecha_futura, time(10, 0))
+
+        self.assertIsNotNone(reserva.pk)
+        self.assertEqual(
+            ConfiguracionTurnos.objects.filter(gimnasio=self.gimnasio).count(), 1
+        )
+
+
 class CancelarReservaTests(TestCase):
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(
@@ -868,6 +919,23 @@ class GrillaSemanalTests(TestCase):
         franja_10 = next(f for f in grilla[self.desde] if f.hora_inicio == time(10, 0))
         self.assertEqual(franja_10.ocupadas, 0)
         self.assertFalse(franja_10.reservada_por_mi)
+
+    def test_cantidad_de_queries_no_escala_con_los_dias(self):
+        """`grilla_semanal` debe precargar horarios/excepciones en bloque en
+        vez de re-consultarlos por día/franja -- la cantidad de queries no
+        puede depender de `dias`."""
+        CupoExcepcion.objects.create(
+            gimnasio=self.gimnasio, dia_semana=0, hora_inicio=time(9, 0), vacantes=5
+        )
+
+        with CaptureQueriesContext(connection) as pocos_dias:
+            grilla_semanal(self.gimnasio, self.desde, dias=3, alumno=self.alumno)
+        with CaptureQueriesContext(connection) as muchos_dias:
+            grilla_semanal(self.gimnasio, self.desde, dias=14, alumno=self.alumno)
+
+        self.assertEqual(
+            len(pocos_dias.captured_queries), len(muchos_dias.captured_queries)
+        )
 
 
 class ReservasPorFranjaTests(TestCase):

@@ -11,7 +11,7 @@ alumno ocupa en una franja concreta.
 from django.core.validators import MinValueValidator
 from django.db import models
 
-from core.models import TenantOwnedModel
+from core.models import TenantOwnedModel, validar_gimnasio_de
 
 
 class DiaSemana(models.IntegerChoices):
@@ -107,3 +107,8 @@ class Reserva(TenantOwnedModel):
 
     def __str__(self):
         return f"{self.alumno} - {self.fecha} {self.hora_inicio}"
+
+    def clean(self):
+        super().clean()
+        if self.gimnasio_id and self.alumno_id:
+            validar_gimnasio_de(self.gimnasio, alumno=self.alumno)

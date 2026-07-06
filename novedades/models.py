@@ -10,7 +10,7 @@ modela el dato.
 from django.db import models
 from django.utils.timezone import now
 
-from core.models import TenantOwnedModel, TenantQuerySet, TimeStampedModel
+from core.models import TenantOwnedModel, TenantQuerySet, TimeStampedModel, validar_gimnasio_de
 
 
 class NovedadQuerySet(TenantQuerySet):
@@ -95,3 +95,8 @@ class NovedadLeida(TimeStampedModel):
 
     def __str__(self):
         return f"{self.alumno} leyó '{self.novedad.titulo}'"
+
+    def clean(self):
+        super().clean()
+        if self.novedad_id and self.alumno_id:
+            validar_gimnasio_de(self.novedad.gimnasio, alumno=self.alumno)

@@ -10,7 +10,28 @@ Patrón adaptado de ~/gestor-pedidos/core/models.py (Negocio -> Gimnasio).
 Ver REUSO.md para el detalle de qué se reutilizó y qué se adaptó.
 """
 
+from django.core.exceptions import ValidationError
 from django.db import models
+
+
+def validar_gimnasio_de(gimnasio, **relaciones):
+    """Valida, para usar en `clean()`, que cada instancia en `relaciones`
+    (nombre_de_campo=instancia) pertenezca al `gimnasio` dado.
+
+    `TenantScopedModelForm` ya cierra este hueco para los datos que pasan por
+    un form de staff, pero no para accesos directos (admin, shell, imports) a
+    un modelo con más de una FK a entidades tenant-owned -- p.ej.
+    `Reserva.alumno`, `PagoMensual.alumno`, `NovedadLeida.alumno`/`novedad`.
+    Instancias `None` se ignoran (los validadores de "campo requerido" ya
+    cubren ese caso).
+    """
+    errores = {
+        campo: ValidationError("Pertenece a otro gimnasio.", code="gimnasio_no_coincide")
+        for campo, instancia in relaciones.items()
+        if instancia is not None and instancia.gimnasio_id != gimnasio.id
+    }
+    if errores:
+        raise ValidationError(errores)
 
 
 class TimeStampedModel(models.Model):

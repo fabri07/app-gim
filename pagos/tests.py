@@ -11,6 +11,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
@@ -81,6 +82,22 @@ class PagoMensualModelTests(TestCase):
         pagos_del_gimnasio = PagoMensual.objects.for_gimnasio(self.gimnasio)
 
         self.assertEqual(list(pagos_del_gimnasio), [pago_propio])
+
+    def test_full_clean_rechaza_alumno_de_otro_gimnasio(self):
+        otro_gimnasio = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+        alumno_de_otro = Alumno.objects.create(
+            gimnasio=otro_gimnasio, nombre="Ana", apellido="Gomez"
+        )
+        pago = PagoMensual(
+            gimnasio=self.gimnasio,
+            alumno=alumno_de_otro,
+            mes=3,
+            anio=2026,
+            monto=Decimal("15000.00"),
+        )
+
+        with self.assertRaises(ValidationError):
+            pago.full_clean()
 
 
 class GenerarPagosPendientesTests(TestCase):

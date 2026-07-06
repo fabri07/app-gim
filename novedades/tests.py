@@ -14,6 +14,7 @@ creación, unicidad y cascade delete.
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
@@ -377,6 +378,18 @@ class NovedadLeidaModelTests(TestCase):
         self.novedad.delete()
 
         self.assertEqual(NovedadLeida.objects.count(), 0)
+
+    def test_full_clean_rechaza_alumno_de_otro_gimnasio_que_la_novedad(self):
+        """La novedad y el alumno deben ser del mismo gimnasio -- `NovedadLeida`
+        no tiene `gimnasio` propio, se scopea vía `novedad.gimnasio`."""
+        otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        alumno_de_otro = Alumno.objects.create(
+            gimnasio=otro_gimnasio, nombre="Otro", apellido="Alumno"
+        )
+        novedad_leida = NovedadLeida(novedad=self.novedad, alumno=alumno_de_otro)
+
+        with self.assertRaises(ValidationError):
+            novedad_leida.full_clean()
 
 
 class NovedadMarcarLeidaViewTests(TestCase):

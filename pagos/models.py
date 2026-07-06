@@ -19,7 +19,7 @@ no una capa de "servicios" separada: el proyecto es chico y no lo justifica).
 from django.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
 
-from core.models import TenantOwnedModel
+from core.models import TenantOwnedModel, validar_gimnasio_de
 
 
 class MedioCobro(TenantOwnedModel):
@@ -86,6 +86,11 @@ class PagoMensual(TenantOwnedModel):
 
     def __str__(self):
         return f"{self.alumno} - {self.mes:02d}/{self.anio:04d}"
+
+    def clean(self):
+        super().clean()
+        if self.gimnasio_id and self.alumno_id:
+            validar_gimnasio_de(self.gimnasio, alumno=self.alumno)
 
 
 def generar_pagos_pendientes(mes, anio):

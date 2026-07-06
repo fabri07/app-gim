@@ -130,6 +130,30 @@ def franjas_de_rango(
     return franjas
 
 
+def _franjas_de_horarios(
+    horarios, duracion_minutos: int
+) -> list[tuple[time, time]]:
+    """Corta una lista de `HorarioAtencion` (ya filtrada a un solo día) en
+    franjas de `duracion_minutos`, deduplicando por `hora_inicio` (si dos
+    rangos solapados generan el mismo horario, aparece una sola vez). Lógica
+    compartida por `franjas_del_dia` (una consulta por día) y la precarga en
+    bloque de `grilla_semanal` (evita repetirla por cada día de la grilla).
+    """
+    vistas = set()
+    franjas = []
+    for horario in horarios:
+        for inicio, fin in franjas_de_rango(
+            horario.hora_desde, horario.hora_hasta, duracion_minutos
+        ):
+            if inicio in vistas:
+                continue
+            vistas.add(inicio)
+            franjas.append((inicio, fin))
+
+    franjas.sort(key=lambda par: par[0])
+    return franjas
+
+
 def franjas_del_dia(gimnasio, dia_semana: int) -> list[tuple[time, time]]:
     """Junta las franjas de TODOS los `HorarioAtencion` del gimnasio para ese
     `dia_semana` (puede haber varios rangos, ej. 8-12 y 16-21), aplicando
@@ -141,20 +165,7 @@ def franjas_del_dia(gimnasio, dia_semana: int) -> list[tuple[time, time]]:
     horarios = HorarioAtencion.objects.for_gimnasio(gimnasio).filter(
         dia_semana=dia_semana
     )
-
-    vistas = set()
-    franjas = []
-    for horario in horarios:
-        for inicio, fin in franjas_de_rango(
-            horario.hora_desde, horario.hora_hasta, config.duracion_minutos
-        ):
-            if inicio in vistas:
-                continue
-            vistas.add(inicio)
-            franjas.append((inicio, fin))
-
-    franjas.sort(key=lambda par: par[0])
-    return franjas
+    return _franjas_de_horarios(horarios, config.duracion_minutos)
 
 
 def vacantes_de_franja(gimnasio, dia_semana: int, hora_inicio: time, default: int) -> int:
@@ -184,12 +195,32 @@ def es_franja_vigente(gimnasio, fecha: date, hora_inicio: time) -> bool:
 
 def grilla_semanal(gimnasio, desde: date, dias: int = 14, alumno=None) -> dict[date, list[Franja]]:
     """Para cada fecha en `[desde, desde+dias)`, arma la lista de `Franja` del
-    día (`franjas_del_dia` + `vacantes_de_franja` + conteo real de `Reserva`
-    de esa fecha/hora, en una sola query agregada) y un dict de apoyo para
-    `reservada_por_mi` si `alumno` no es `None`.
+    día (franjas + cupo + conteo real de `Reserva` de esa fecha/hora) y un
+    dict de apoyo para `reservada_por_mi` si `alumno` no es `None`.
+
+    A diferencia de `franjas_del_dia`/`vacantes_de_franja` (pensadas para
+    resolver UN día/franja puntual), acá se precargan TODOS los
+    `HorarioAtencion` y `CupoExcepcion` del gimnasio en un solo query cada
+    uno y se agrupan en memoria por `dia_semana`/`hora_inicio` -- para no
+    repetir una consulta por cada uno de los `dias` de la grilla (horarios) ni
+    una por cada franja de cada día (excepciones), que escalaba linealmente
+    con `dias` y con la cantidad de franjas.
     """
     config = obtener_configuracion(gimnasio)
     hasta = desde + timedelta(days=dias - 1)
+
+    horarios_por_dia = {}
+    for horario in HorarioAtencion.objects.for_gimnasio(gimnasio):
+        horarios_por_dia.setdefault(horario.dia_semana, []).append(horario)
+    franjas_por_dia_semana = {
+        dia_semana: _franjas_de_horarios(horarios, config.duracion_minutos)
+        for dia_semana, horarios in horarios_por_dia.items()
+    }
+
+    vacantes_por_excepcion = {
+        (excepcion.dia_semana, excepcion.hora_inicio): excepcion.vacantes
+        for excepcion in CupoExcepcion.objects.for_gimnasio(gimnasio)
+    }
 
     conteos = (
         Reserva.objects.for_gimnasio(gimnasio)
@@ -210,10 +241,11 @@ def grilla_semanal(gimnasio, desde: date, dias: int = 14, alumno=None) -> dict[d
     grilla = {}
     for offset in range(dias):
         fecha = desde + timedelta(days=offset)
+        dia_semana = fecha.weekday()
         franjas_dia = []
-        for hora_inicio, hora_fin in franjas_del_dia(gimnasio, fecha.weekday()):
-            vacantes = vacantes_de_franja(
-                gimnasio, fecha.weekday(), hora_inicio, config.vacantes_default
+        for hora_inicio, hora_fin in franjas_por_dia_semana.get(dia_semana, []):
+            vacantes = vacantes_por_excepcion.get(
+                (dia_semana, hora_inicio), config.vacantes_default
             )
             franjas_dia.append(
                 Franja(
@@ -261,10 +293,13 @@ def crear_reserva(gimnasio, alumno, fecha: date, hora_inicio: time) -> Reserva:
     gimnasio para serializar reservas concurrentes de la misma franja (en
     SQLite, el backend usado en tests, `select_for_update()` no aplica un
     lock real -- ver docstring de `turnos/tests.py` -- pero en Postgres, el
-    backend de producción, sí lo hace).
+    backend de producción, sí lo hace). Se pasa primero por
+    `obtener_configuracion()` (que la crea si todavía no existe) para no
+    romper con `DoesNotExist` si el gimnasio nunca generó su config.
     """
     with transaction.atomic():
-        config = ConfiguracionTurnos.objects.select_for_update().get(gimnasio=gimnasio)
+        config = obtener_configuracion(gimnasio)
+        config = ConfiguracionTurnos.objects.select_for_update().get(pk=config.pk)
 
         if not es_franja_vigente(gimnasio, fecha, hora_inicio):
             raise TurnoInexistente()
