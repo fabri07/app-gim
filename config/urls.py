@@ -13,6 +13,7 @@ urlpatterns = [
     path("rutinas/", include("rutinas.urls")),
     path("pagos/", include("pagos.urls")),
     path("novedades/", include("novedades.urls")),
+    path("turnos/", include("turnos.urls")),
 ]
 
 if settings.DEBUG:

@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     #   rutinas    -> RutinaPlantilla/Item, RutinaAsignada/Item (FK a ejercicios y alumnos)
     #   pagos      -> PagoMensual (FK a alumnos)
     #   novedades  -> Novedad (sin dependencias de dominio)
+    #   turnos     -> ConfiguracionTurnos/HorarioAtencion/CupoExcepcion/Reserva (FK a alumnos)
     'core',
     'tenants',
     'ejercicios',
@@ -79,6 +80,7 @@ INSTALLED_APPS = [
     'rutinas',
     'pagos',
     'novedades',
+    'turnos',
 ]
 
 MIDDLEWARE = [
