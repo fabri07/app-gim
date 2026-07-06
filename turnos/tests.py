@@ -47,11 +47,11 @@ from turnos.services import (
     TurnoLleno,
     cancelar_reserva,
     crear_reserva,
-    eliminar_reservas_desencajadas,
     es_franja_vigente,
     franjas_de_rango,
     franjas_del_dia,
     grilla_semanal,
+    reconciliar_reservas_desencajadas,
     reservas_por_franja,
     url_google_calendar,
     vacantes_de_franja,
@@ -730,7 +730,7 @@ class CancelarReservaTests(TestCase):
         self.assertTrue(Reserva.objects.filter(pk=reserva.pk).exists())
 
 
-class EliminarReservasDesencajadasTests(TestCase):
+class ReconciliarReservasDesencajadasTests(TestCase):
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(
             nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
@@ -752,9 +752,10 @@ class EliminarReservasDesencajadasTests(TestCase):
         self.fecha_futura = (ahora + timedelta(days=2)).date()
         self.fecha_pasada = (ahora - timedelta(days=2)).date()
 
-    def test_borra_reserva_futura_que_queda_desencajada(self):
-        # 10:00 es franja válida con duracion=60; deja de serlo con 45
-        # (600 min no es múltiplo de 45).
+    def test_migra_a_la_franja_mas_cercana_con_lugar(self):
+        # 10:00 es franja válida con duración=60; deja de serlo con 45 (600'
+        # no es múltiplo de 45'). 9:45 (585') sí lo es y queda a 15' de
+        # distancia (vs. 30' de 10:30) -- se reprograma ahí.
         Reserva.objects.create(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
@@ -764,16 +765,106 @@ class EliminarReservasDesencajadasTests(TestCase):
         self.config.duracion_minutos = 45
         self.config.save()
 
-        borradas = eliminar_reservas_desencajadas(self.gimnasio)
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
 
-        self.assertEqual(borradas, 1)
-        self.assertFalse(
+        self.assertEqual(resultado.migradas, 1)
+        self.assertEqual(resultado.canceladas, 0)
+        reserva = Reserva.objects.get(gimnasio=self.gimnasio, fecha=self.fecha_futura)
+        self.assertEqual(reserva.hora_inicio, time(9, 45))
+
+    def test_cancela_si_no_queda_ninguna_franja_ese_dia(self):
+        reserva = Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(10, 0),
+        )
+        HorarioAtencion.objects.filter(
+            gimnasio=self.gimnasio, dia_semana=self.fecha_futura.weekday()
+        ).delete()
+
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
+
+        self.assertEqual(resultado.migradas, 0)
+        self.assertEqual(resultado.canceladas, 1)
+        self.assertFalse(Reserva.objects.filter(pk=reserva.pk).exists())
+
+    def test_cancela_si_la_franja_mas_cercana_ya_esta_llena(self):
+        self.config.vacantes_default = 1
+        self.config.save()
+        otro_alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Bruno", apellido="Pérez"
+        )
+        Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=otro_alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(9, 45),
+        )
+        reserva = Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(10, 0),
+        )
+        self.config.duracion_minutos = 45
+        self.config.save()
+
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
+
+        self.assertEqual(resultado.migradas, 0)
+        self.assertEqual(resultado.canceladas, 1)
+        self.assertFalse(Reserva.objects.filter(pk=reserva.pk).exists())
+
+    def test_cancela_si_el_alumno_ya_tiene_otra_reserva_en_la_franja_mas_cercana(self):
+        Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(9, 45),
+        )
+        reserva_desencajada = Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(10, 0),
+        )
+        self.config.duracion_minutos = 45
+        self.config.save()
+
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
+
+        self.assertEqual(resultado.migradas, 0)
+        self.assertEqual(resultado.canceladas, 1)
+        self.assertFalse(Reserva.objects.filter(pk=reserva_desencajada.pk).exists())
+        self.assertTrue(
             Reserva.objects.filter(
-                gimnasio=self.gimnasio, fecha=self.fecha_futura, hora_inicio=time(10, 0)
+                gimnasio=self.gimnasio,
+                alumno=self.alumno,
+                fecha=self.fecha_futura,
+                hora_inicio=time(9, 45),
             ).exists()
         )
 
-    def test_no_borra_reserva_pasada_aunque_quede_desencajada(self):
+    def test_ante_empate_de_distancia_elige_la_franja_mas_temprana(self):
+        # Bajo duracion_minutos=60 (config de setUp), 10:30 nunca es una
+        # franja válida (630' no es múltiplo de 60') -- queda exactamente a
+        # mitad de camino entre 10:00 (600') y 11:00 (660'), ambas a 30' de
+        # distancia.
+        reserva = Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(10, 30),
+        )
+
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
+
+        self.assertEqual(resultado.migradas, 1)
+        reserva.refresh_from_db()
+        self.assertEqual(reserva.hora_inicio, time(10, 0))
+
+    def test_no_toca_reserva_pasada_aunque_quede_desencajada(self):
         Reserva.objects.create(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
@@ -783,16 +874,17 @@ class EliminarReservasDesencajadasTests(TestCase):
         self.config.duracion_minutos = 45
         self.config.save()
 
-        borradas = eliminar_reservas_desencajadas(self.gimnasio)
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
 
-        self.assertEqual(borradas, 0)
+        self.assertEqual(resultado.migradas, 0)
+        self.assertEqual(resultado.canceladas, 0)
         self.assertTrue(
             Reserva.objects.filter(
                 gimnasio=self.gimnasio, fecha=self.fecha_pasada, hora_inicio=time(10, 0)
             ).exists()
         )
 
-    def test_no_borra_reserva_futura_que_sigue_encajando(self):
+    def test_no_toca_reserva_futura_que_sigue_encajando(self):
         # 03:00 = 180', que sigue siendo múltiplo de 45 -> sigue siendo franja.
         Reserva.objects.create(
             gimnasio=self.gimnasio,
@@ -803,16 +895,17 @@ class EliminarReservasDesencajadasTests(TestCase):
         self.config.duracion_minutos = 45
         self.config.save()
 
-        borradas = eliminar_reservas_desencajadas(self.gimnasio)
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
 
-        self.assertEqual(borradas, 0)
+        self.assertEqual(resultado.migradas, 0)
+        self.assertEqual(resultado.canceladas, 0)
         self.assertTrue(
             Reserva.objects.filter(
                 gimnasio=self.gimnasio, fecha=self.fecha_futura, hora_inicio=time(3, 0)
             ).exists()
         )
 
-    def test_reducir_el_cupo_no_borra_ninguna_reserva(self):
+    def test_reducir_el_cupo_no_toca_ninguna_reserva(self):
         Reserva.objects.create(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
@@ -822,9 +915,10 @@ class EliminarReservasDesencajadasTests(TestCase):
         self.config.vacantes_default = 1
         self.config.save()
 
-        borradas = eliminar_reservas_desencajadas(self.gimnasio)
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
 
-        self.assertEqual(borradas, 0)
+        self.assertEqual(resultado.migradas, 0)
+        self.assertEqual(resultado.canceladas, 0)
         self.assertTrue(
             Reserva.objects.filter(
                 gimnasio=self.gimnasio, fecha=self.fecha_futura, hora_inicio=time(10, 0)
@@ -1295,8 +1389,9 @@ class CupoExcepcionEliminarViewTests(TestCase):
 
 class ConfiguracionTurnosReconciliacionTests(TestCase):
     """Cambiar la configuración (vía la vista, no el service directo) debe
-    disparar `eliminar_reservas_desencajadas` y avisar al staff cuántas
-    reservas futuras se cancelaron -- pero nunca tocar reservas pasadas."""
+    disparar `reconciliar_reservas_desencajadas` y avisar al staff cuántas
+    reservas futuras se reprogramaron y/o cancelaron -- pero nunca tocar
+    reservas pasadas."""
 
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(
@@ -1324,9 +1419,36 @@ class ConfiguracionTurnosReconciliacionTests(TestCase):
         self.fecha_pasada = (ahora - timedelta(days=2)).date()
         self.client.login(username="staff-1", password="clave-123456")
 
-    def test_cambiar_duracion_borra_reserva_futura_desencajada_y_avisa(self):
+    def test_cambiar_duracion_reprograma_reserva_futura_desencajada_y_avisa(self):
         # 10:00 es franja válida con duración=60; deja de serlo con 45
-        # (600' no es múltiplo de 45').
+        # (600' no es múltiplo de 45') -- pero 9:45 (585') sí lo es y queda
+        # libre, así que se reprograma en vez de cancelarse.
+        Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(10, 0),
+        )
+
+        response = self.client.post(
+            reverse("turnos:configuracion"),
+            {"duracion_minutos": 45, "vacantes_default": 5},
+            follow=True,
+        )
+
+        reserva = Reserva.objects.get(gimnasio=self.gimnasio, fecha=self.fecha_futura)
+        self.assertEqual(reserva.hora_inicio, time(9, 45))
+        self.assertContains(
+            response,
+            "Se reprogramaron 1 reserva(s) futura(s) a un nuevo horario.",
+        )
+
+    def test_cambiar_duracion_cancela_si_no_hay_franja_alternativa_y_avisa(self):
+        # Sin ningún HorarioAtencion ese día en la config nueva, no hay a
+        # dónde reprogramar -- se cancela como antes.
+        HorarioAtencion.objects.filter(
+            gimnasio=self.gimnasio, dia_semana=self.fecha_futura.weekday()
+        ).delete()
         Reserva.objects.create(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
@@ -1352,7 +1474,7 @@ class ConfiguracionTurnosReconciliacionTests(TestCase):
             "Se cancelaron 1 reserva(s) futura(s) que ya no encajan en la nueva grilla.",
         )
 
-    def test_reserva_pasada_no_se_borra_ni_genera_aviso(self):
+    def test_reserva_pasada_no_se_toca_ni_genera_aviso(self):
         Reserva.objects.create(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
@@ -1374,6 +1496,7 @@ class ConfiguracionTurnosReconciliacionTests(TestCase):
             ).exists()
         )
         self.assertNotContains(response, "Se cancelaron")
+        self.assertNotContains(response, "Se reprogramaron")
 
 
 # ---------------------------------------------------------------------------

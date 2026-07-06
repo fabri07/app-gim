@@ -41,18 +41,18 @@ from turnos.services import (
     TurnoCerrado,
     cancelar_reserva,
     crear_reserva,
-    eliminar_reservas_desencajadas,
     grilla_semanal,
+    reconciliar_reservas_desencajadas,
     reservas_por_franja,
     url_google_calendar,
 )
 
 
 class ReconciliaReservasMixin:
-    """Borra las reservas futuras que quedaron "desencajadas" tras un cambio
-    de horarios/duración (Task 3, `eliminar_reservas_desencajadas`) y avisa
-    al staff cuántas se cancelaron. El mensaje SOLO aparece si de verdad se
-    borró alguna (`n > 0`) -- no ensuciar la pantalla con un aviso vacío en
+    """Reubica o cancela las reservas futuras que quedaron "desencajadas"
+    tras un cambio de horarios/duración (`reconciliar_reservas_desencajadas`)
+    y avisa al staff. Cada mensaje SOLO aparece si de verdad hubo alguna
+    migración/cancelación -- no ensuciar la pantalla con un aviso vacío en
     el caso común de que la grilla nueva siga cubriendo todas las reservas
     existentes.
 
@@ -61,11 +61,16 @@ class ReconciliaReservasMixin:
     ese mixin -- una property propia)."""
 
     def _reconciliar(self):
-        n = eliminar_reservas_desencajadas(self.gimnasio)
-        if n > 0:
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
+        if resultado.migradas > 0:
+            messages.info(
+                self.request,
+                f"Se reprogramaron {resultado.migradas} reserva(s) futura(s) a un nuevo horario.",
+            )
+        if resultado.canceladas > 0:
             messages.warning(
                 self.request,
-                f"Se cancelaron {n} reserva(s) futura(s) que ya no encajan en la nueva grilla.",
+                f"Se cancelaron {resultado.canceladas} reserva(s) futura(s) que ya no encajan en la nueva grilla.",
             )
 
 

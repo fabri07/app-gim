@@ -12,8 +12,9 @@ no depender de la timezone del servidor.
 Este módulo no valida permisos ni resuelve el gimnasio del request -- eso es
 responsabilidad de las vistas (Task 4). Acá solo vive la lógica de negocio:
 cortar horarios de atención en franjas de turno, calcular cupos, crear y
-cancelar reservas, y limpiar reservas que quedaron "desencajadas" tras un
-cambio de configuración.
+cancelar reservas, y reconciliar reservas que quedaron "desencajadas" tras
+un cambio de configuración (reubicándolas si es posible, cancelándolas si
+no).
 """
 
 from dataclasses import dataclass
@@ -364,21 +365,85 @@ def url_google_calendar(reserva, gimnasio) -> str:
     return "https://calendar.google.com/calendar/render?" + urlencode(params)
 
 
-def eliminar_reservas_desencajadas(gimnasio) -> int:
-    """Borra las `Reserva` futuras (inicio >= ahora local) del gimnasio cuya
-    `(dia_semana, hora_inicio)` ya NO aparece en `franjas_del_dia()` con la
-    config vigente. Las reservas ya pasadas NO se tocan (quedan como
-    historial). Reducir el cupo (sin cambiar horarios/duración) no borra
-    ninguna -- solo horarios/duración cambian qué franjas existen. Devuelve
-    la cantidad borrada.
+@dataclass(frozen=True)
+class ResultadoReconciliacion:
+    migradas: int
+    canceladas: int
+
+
+def _franja_mas_cercana(franjas: list[tuple[time, time]], hora_original: time) -> time | None:
+    """De una lista de franjas del día (ya ordenada ascendente por
+    `hora_inicio`, ver `_franjas_de_horarios`), la `hora_inicio` con menor
+    distancia absoluta en minutos a `hora_original`. Empate -> la más
+    temprana (`min()` es estable y la lista ya viene ordenada). `None` si
+    `franjas` está vacía.
     """
+    if not franjas:
+        return None
+
+    def _minutos(hora: time) -> int:
+        return hora.hour * 60 + hora.minute
+
+    objetivo = _minutos(hora_original)
+    return min(franjas, key=lambda franja: abs(_minutos(franja[0]) - objetivo))[0]
+
+
+def reconciliar_reservas_desencajadas(gimnasio) -> ResultadoReconciliacion:
+    """Para cada `Reserva` futura del gimnasio cuya `(dia_semana, hora_inicio)`
+    ya no aparece en `franjas_del_dia()` con la config vigente (tras un
+    cambio de horarios/duración), intenta mudarla a la franja de ese mismo
+    día más cercana en horario a la original. Si ese día no queda ninguna
+    franja, si la más cercana ya alcanzó su cupo, o si el alumno ya tiene
+    otra reserva exactamente en esa franja/fecha, se cancela (se borra) --
+    igual que el comportamiento anterior. Las reservas ya pasadas no se
+    tocan (quedan como historial). Devuelve cuántas se migraron y cuántas
+    se cancelaron.
+
+    El límite de `CIERRE_RESERVA` NO aplica acá: es el sistema preservando
+    una reserva que ya existía, no una reserva nueva.
+    """
+    config = obtener_configuracion(gimnasio)
     ahora = _ahora_local()
-    borradas = 0
-    for reserva in Reserva.objects.for_gimnasio(gimnasio):
-        inicio = datetime.combine(reserva.fecha, reserva.hora_inicio)
-        if inicio < ahora:
-            continue
-        if not es_franja_vigente(gimnasio, reserva.fecha, reserva.hora_inicio):
+    migradas = 0
+    canceladas = 0
+
+    with transaction.atomic():
+        for reserva in Reserva.objects.for_gimnasio(gimnasio):
+            inicio = datetime.combine(reserva.fecha, reserva.hora_inicio)
+            if inicio < ahora:
+                continue
+            if es_franja_vigente(gimnasio, reserva.fecha, reserva.hora_inicio):
+                continue
+
+            dia_semana = reserva.fecha.weekday()
+            franjas = franjas_del_dia(gimnasio, dia_semana)
+            nueva_hora = _franja_mas_cercana(franjas, reserva.hora_inicio)
+
+            if nueva_hora is not None:
+                vacantes = vacantes_de_franja(
+                    gimnasio, dia_semana, nueva_hora, config.vacantes_default
+                )
+                ocupadas = (
+                    Reserva.objects.for_gimnasio(gimnasio)
+                    .filter(fecha=reserva.fecha, hora_inicio=nueva_hora)
+                    .exclude(pk=reserva.pk)
+                    .count()
+                )
+                ya_tiene_esa = (
+                    Reserva.objects.for_gimnasio(gimnasio)
+                    .filter(
+                        fecha=reserva.fecha, hora_inicio=nueva_hora, alumno=reserva.alumno
+                    )
+                    .exclude(pk=reserva.pk)
+                    .exists()
+                )
+                if ocupadas < vacantes and not ya_tiene_esa:
+                    reserva.hora_inicio = nueva_hora
+                    reserva.save(update_fields=["hora_inicio"])
+                    migradas += 1
+                    continue
+
             reserva.delete()
-            borradas += 1
-    return borradas
+            canceladas += 1
+
+    return ResultadoReconciliacion(migradas=migradas, canceladas=canceladas)
