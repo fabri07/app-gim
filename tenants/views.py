@@ -97,6 +97,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         renderiza un estado vacío en vez de 500.
         """
         from novedades.models import Novedad
+        from pagos.models import MedioCobro
 
         try:
             alumno = perfil.alumno
@@ -128,6 +129,9 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "ids_novedades_leidas": set(
                 alumno.novedades_leidas.values_list("novedad_id", flat=True)
             ),
+            "medios_cobro": MedioCobro.objects.for_gimnasio(
+                perfil.gimnasio
+            ).filter(activo=True),
         }
 
     @staticmethod

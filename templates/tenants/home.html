@@ -149,6 +149,21 @@
         {% else %}
           <span class="badge badge--alerta">Pendiente</span>
         {% endif %}
+        {% if mensualidad_actual.monto > 0 %}
+          <p>Monto: $ {{ mensualidad_actual.monto }}</p>
+        {% endif %}
+        {% if mensualidad_actual.estado != "pagado" and medios_cobro %}
+          <p>Podés transferir a:</p>
+          <ul>
+            {% for medio in medios_cobro %}
+              <li>
+                <strong>{{ medio.alias }}</strong>
+                {% if medio.titular %}· {{ medio.titular }}{% endif %}
+                {% if medio.entidad %}· {{ medio.entidad }}{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% endif %}
       {% else %}
         <p class="texto-suave">Sin información de tu cuota este mes.</p>
       {% endif %}

@@ -16,7 +16,7 @@ from django.views.generic import TemplateView, View
 
 from alumnos.models import Alumno
 from novedades.models import Novedad, NovedadLeida
-from pagos.models import PagoMensual
+from pagos.models import MedioCobro, PagoMensual
 from rutinas.models import RutinaAsignada, RutinaAsignadaItem
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil
@@ -388,6 +388,89 @@ class HomeViewAlumnoTests(TestCase):
             response,
             "Todavía no está vinculada tu cuenta a una ficha de alumno.",
         )
+
+    def test_cuota_pendiente_con_monto_muestra_monto_y_alias_activos(self):
+        _user, _perfil, alumno = self._crear_alumno_con_login(
+            username="hugo", nombre="Hugo", apellido="Peralta"
+        )
+        PagoMensual.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno,
+            mes=self.hoy.month,
+            anio=self.hoy.year,
+            monto=15000,
+            estado=PagoMensual.Estado.PENDIENTE,
+        )
+        MedioCobro.objects.create(
+            gimnasio=self.gimnasio,
+            alias="gimnasio.alfa",
+            titular="Juan Pérez",
+            entidad="Mercado Pago",
+            activo=True,
+        )
+        MedioCobro.objects.create(
+            gimnasio=self.gimnasio,
+            alias="alias-inactivo",
+            activo=False,
+        )
+        otro_gimnasio = Gimnasio.objects.create(nombre="Gimnasio Beta", slug="beta")
+        MedioCobro.objects.create(
+            gimnasio=otro_gimnasio,
+            alias="alias-otro-gimnasio",
+            activo=True,
+        )
+
+        self.client.login(username="hugo", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Monto: $ 15000")
+        self.assertContains(response, "gimnasio.alfa")
+        self.assertContains(response, "Juan Pérez")
+        self.assertContains(response, "Mercado Pago")
+        self.assertNotContains(response, "alias-inactivo")
+        self.assertNotContains(response, "alias-otro-gimnasio")
+
+    def test_cuota_pagada_no_muestra_lista_de_alias(self):
+        _user, _perfil, alumno = self._crear_alumno_con_login(
+            username="ines", nombre="Inés", apellido="Marín"
+        )
+        PagoMensual.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno,
+            mes=self.hoy.month,
+            anio=self.hoy.year,
+            monto=15000,
+            estado=PagoMensual.Estado.PAGADO,
+        )
+        MedioCobro.objects.create(
+            gimnasio=self.gimnasio,
+            alias="gimnasio.alfa",
+            activo=True,
+        )
+
+        self.client.login(username="ines", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "transferir")
+        self.assertNotContains(response, "gimnasio.alfa")
+
+    def test_sin_mensualidad_actual_no_rompe_por_medios_cobro_ausente(self):
+        self._crear_alumno_con_login(
+            username="jorge", nombre="Jorge", apellido="Núñez"
+        )
+        MedioCobro.objects.create(
+            gimnasio=self.gimnasio,
+            alias="gimnasio.alfa",
+            activo=True,
+        )
+
+        self.client.login(username="jorge", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Sin información de tu cuota este mes.")
 
 
 class GimnasioUpdateViewTests(TestCase):
