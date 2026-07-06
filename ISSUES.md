@@ -198,3 +198,24 @@ solo con `DEBUG=False`; en dev/tests usa la `StaticFilesStorage` simple de
 Django, que no necesita manifest. Verificado corriendo la suite completa
 (105/105) y simulando producción a mano (`DJANGO_DEBUG=False` +
 `collectstatic` + resolución de la URL hasheada) antes de commitear.
+
+## [2026-07-06] Reconciliación de turnos sin lock cuando el staff edita horarios
+
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** `reconciliar_reservas_desencajadas()` (`turnos/services.py`),
+que reubica o cancela reservas cuando el staff cambia horarios/duración, no
+toma `select_for_update()` sobre `ConfiguracionTurnos` como sí hace
+`crear_reserva()`. En teoría, un alumno reservando esa misma franja en el
+instante exacto en que el staff guarda un cambio de horario podría hacer
+que una franja quede momentáneamente por encima de su cupo.
+
+**Resolución / próximo paso:** aceptado sin lock por ahora -- la
+reconciliación corre solo cuando el staff edita su propia grilla (poco
+frecuente, y es la misma persona activamente cambiando el horario que los
+alumnos están reaccionando), y el código anterior (que solo borraba, sin
+reubicar) tenía la misma propiedad. Si alguna vez se reporta una
+sobre-ocupación real, la solución es barata: `reconciliar_reservas_desencajadas`
+ya llama a `obtener_configuracion(gimnasio)` al principio; cambiarlo por
+`ConfiguracionTurnos.objects.select_for_update().get(pk=config.pk)` (mismo
+patrón que `crear_reserva`) la serializaría contra reservas concurrentes.
