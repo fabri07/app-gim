@@ -20,10 +20,22 @@ estos campos sea un FK tenant-owned que necesite acotarse.
 """
 
 from core.forms import TenantScopedModelForm
-from pagos.models import PagoMensual
+from pagos.models import MedioCobro, PagoMensual
 
 
 class ConfirmarPagoForm(TenantScopedModelForm):
     class Meta:
         model = PagoMensual
         fields = ["monto", "fecha_pago", "medio_pago_texto", "comprobante"]
+
+
+class MedioCobroForm(TenantScopedModelForm):
+    """Alta/edición de un medio de cobro. Incluye `activo` a propósito: no
+    hay `DeleteView` para `MedioCobro` (mismo patrón que `Novedad.activa`) --
+    "eliminar" un medio de cobro es editarlo y destildar `activo`, no
+    borrarlo, así se conserva el historial de a qué alias transfirió cada
+    alumno en el pasado."""
+
+    class Meta:
+        model = MedioCobro
+        fields = ["alias", "titular", "entidad", "activo"]

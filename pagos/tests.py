@@ -350,3 +350,126 @@ class MedioCobroModelTests(TestCase):
         medios_del_gimnasio = MedioCobro.objects.for_gimnasio(self.gimnasio)
 
         self.assertEqual(list(medios_del_gimnasio), [medio_propio])
+
+
+class MedioCobroViewTests(TestCase):
+    """Tests de Task 11 para las vistas de gestión de medios de cobro:
+    acceso por rol, aislamiento de tenant y el stampeo server-side de
+    `gimnasio` al crear (mismo criterio que `PagoMensualViewTests`)."""
+
+    def setUp(self):
+        self.gimnasio_a = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+
+        self.staff_user = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff_user, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF
+        )
+
+        self.alumno_user = User.objects.create_user("alumno-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.alumno_user, gimnasio=self.gimnasio_a, rol=Perfil.Rol.ALUMNO
+        )
+
+        self.medio_a = MedioCobro.objects.create(
+            gimnasio=self.gimnasio_a, alias="alias_a", titular="Juan Perez"
+        )
+        self.medio_b = MedioCobro.objects.create(
+            gimnasio=self.gimnasio_b, alias="alias_b", titular="Ana Gomez"
+        )
+
+    def test_anonimo_es_redirigido_al_login_en_listado(self):
+        response = self.client.get(reverse("pagos:medios_listado"))
+
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={reverse('pagos:medios_listado')}",
+        )
+
+    def test_anonimo_es_redirigido_al_login_en_crear(self):
+        response = self.client.get(reverse("pagos:medios_crear"))
+
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={reverse('pagos:medios_crear')}",
+        )
+
+    def test_anonimo_es_redirigido_al_login_en_editar(self):
+        response = self.client.get(reverse("pagos:medios_editar", args=[self.medio_a.pk]))
+
+        self.assertRedirects(
+            response,
+            f"{reverse('login')}?next={reverse('pagos:medios_editar', args=[self.medio_a.pk])}",
+        )
+
+    def test_alumno_recibe_forbidden_en_listado(self):
+        self.client.login(username="alumno-a", password="clave-123456")
+
+        response = self.client.get(reverse("pagos:medios_listado"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_alumno_recibe_forbidden_en_crear(self):
+        self.client.login(username="alumno-a", password="clave-123456")
+
+        response = self.client.get(reverse("pagos:medios_crear"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_alumno_recibe_forbidden_en_editar(self):
+        self.client.login(username="alumno-a", password="clave-123456")
+
+        response = self.client.get(reverse("pagos:medios_editar", args=[self.medio_a.pk]))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_lista_solo_los_medios_de_su_gimnasio(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(reverse("pagos:medios_listado"))
+
+        self.assertEqual(response.status_code, 200)
+        medios_listados = list(response.context["medios"])
+        self.assertIn(self.medio_a, medios_listados)
+        self.assertNotIn(self.medio_b, medios_listados)
+
+    def test_crear_medio_lo_asocia_al_gimnasio_del_staff_logueado(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.post(
+            reverse("pagos:medios_crear"),
+            {
+                "alias": "nuevo.alias",
+                "titular": "Pedro Ruiz",
+                "entidad": "Banco Nuevo",
+                "activo": "on",
+            },
+        )
+
+        self.assertRedirects(response, reverse("pagos:medios_listado"))
+        medio_creado = MedioCobro.objects.get(alias="nuevo.alias")
+        self.assertEqual(medio_creado.gimnasio, self.gimnasio_a)
+
+    def test_editar_medio_de_otro_gimnasio_da_404(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(reverse("pagos:medios_editar", args=[self.medio_b.pk]))
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_editar_medio_permite_desactivarlo(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.post(
+            reverse("pagos:medios_editar", args=[self.medio_a.pk]),
+            {
+                "alias": self.medio_a.alias,
+                "titular": self.medio_a.titular,
+                "entidad": "",
+                # `activo` ausente del POST == checkbox destildado.
+            },
+        )
+
+        self.assertRedirects(response, reverse("pagos:medios_listado"))
+        self.medio_a.refresh_from_db()
+        self.assertFalse(self.medio_a.activo)
