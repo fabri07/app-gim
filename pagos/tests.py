@@ -16,7 +16,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from alumnos.models import Alumno
-from pagos.models import PagoMensual, generar_pagos_pendientes, marcar_vencidos
+from pagos.models import PagoMensual, MedioCobro, generar_pagos_pendientes, marcar_vencidos
 from tenants.models import Gimnasio, Perfil
 
 User = get_user_model()
@@ -317,3 +317,36 @@ class PagoMensualViewTests(TestCase):
         self.assertEqual(self.pago_pendiente_a.monto, Decimal("15000.00"))
         self.assertEqual(self.pago_pendiente_a.fecha_pago, date(2026, 3, 5))
         self.assertEqual(self.pago_pendiente_a.medio_pago_texto, "Efectivo")
+
+
+class MedioCobroModelTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+
+    def test_crea_medio_cobro_y_str(self):
+        medio = MedioCobro.objects.create(
+            gimnasio=self.gimnasio,
+            alias="alias123456",
+            titular="Juan Perez",
+            entidad="Banco del Sudamericano",
+            activo=True,
+        )
+        self.assertEqual(str(medio), "alias123456")
+        self.assertTrue(medio.activo)
+
+    def test_for_gimnasio_aisla_por_tenant(self):
+        otro_gimnasio = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+        medio_propio = MedioCobro.objects.create(
+            gimnasio=self.gimnasio,
+            alias="alias_a",
+            titular="Juan Perez",
+        )
+        MedioCobro.objects.create(
+            gimnasio=otro_gimnasio,
+            alias="alias_b",
+            titular="Ana Gomez",
+        )
+
+        medios_del_gimnasio = MedioCobro.objects.for_gimnasio(self.gimnasio)
+
+        self.assertEqual(list(medios_del_gimnasio), [medio_propio])

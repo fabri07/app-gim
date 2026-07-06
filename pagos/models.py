@@ -22,6 +22,25 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from core.models import TenantOwnedModel
 
 
+class MedioCobro(TenantOwnedModel):
+    """Alias/CBU al que los alumnos transfieren la cuota. Solo datos exhibidos en el
+    portal -- sin integración de pagos (principio no negociable del proyecto: "sin
+    Mercado Pago ni integraciones financieras en el MVP")."""
+
+    alias = models.CharField(max_length=60)
+    titular = models.CharField(max_length=80, blank=True)
+    entidad = models.CharField(max_length=60, blank=True)  # banco o billetera virtual
+    activo = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "medio de cobro"
+        verbose_name_plural = "medios de cobro"
+        ordering = ["alias"]
+
+    def __str__(self):
+        return self.alias
+
+
 class PagoMensual(TenantOwnedModel):
     """La cuota de un alumno para un mes/año calendario puntual.
 
