@@ -1,7 +1,11 @@
-"""Forms de gestión de turnos (Task 4): configuración general (duración de
-clase y cupo default), horarios de atención y excepciones de cupo. Los tres
-se editan desde una sola pantalla de staff
-(`turnos/views.py::ConfiguracionTurnosView`).
+"""Forms de gestión de turnos.
+
+Task 4: configuración general (duración de clase y cupo default), horarios de
+atención y excepciones de cupo. Los tres se editan desde una sola pantalla de
+staff (`turnos/views.py::ConfiguracionTurnosView`).
+
+Task 5: `ReservaForm`, el form plano que parsea el POST de reserva del
+alumno (`turnos/views.py::ReservarView`).
 """
 
 from django import forms
@@ -107,3 +111,14 @@ class CupoExcepcionForm(TenantScopedModelForm):
                 "Eliminala primero si querés cambiar el valor."
             )
         return cleaned
+
+
+class ReservaForm(forms.Form):
+    """Solo parsea `fecha`/`hora_inicio` del POST de reserva del alumno
+    (Task 5). Deliberadamente NO valida vigencia de la franja, cierre, cupo
+    ni duplicados -- esa lógica de negocio vive entera en
+    `services.crear_reserva` (Task 3) para no duplicarla acá; el form es
+    puro parseo de tipos."""
+
+    fecha = forms.DateField()
+    hora_inicio = forms.TimeField()

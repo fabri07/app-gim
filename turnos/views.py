@@ -1,34 +1,50 @@
-"""Vistas de gestión de turnos (Task 4): configuración general (duración de
-clase y cupo default), horarios de atención y excepciones de cupo. Las tres
-se editan desde una sola pantalla de staff (`ConfiguracionTurnosView`);
-horarios y excepciones tienen su propio alta/baja que redirige de vuelta a
-esa pantalla.
+"""Vistas de turnos.
 
-Alcance de esta tarea: SOLO configuración. La grilla y las reservas del
-alumno (`MisTurnosView`/`ReservarView`/`CancelarReservaView`) y la agenda de
-staff (`AgendaView`) son las Tasks 5/6.
+Task 4: configuración general (duración de clase y cupo default), horarios de
+atención y excepciones de cupo. Las tres se editan desde una sola pantalla de
+staff (`ConfiguracionTurnosView`); horarios y excepciones tienen su propio
+alta/baja que redirige de vuelta a esa pantalla.
+
+Task 5: grilla y reservas del alumno (`MisTurnosView`/`ReservarView`/
+`CancelarReservaView`).
+
+Alcance de esta tarea: NO incluye la agenda de staff (`AgendaView`, Task 6).
 """
 
+from datetime import timedelta
+
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, UpdateView, View
+from django.utils import timezone
+from django.views.generic import CreateView, TemplateView, UpdateView, View
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
-from tenants.mixins import StaffRequiredMixin
+from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from turnos.forms import (
     ConfiguracionTurnosForm,
     CupoExcepcionForm,
     HorarioAtencionForm,
+    ReservaForm,
 )
 from turnos.models import (
     ConfiguracionTurnos,
     CupoExcepcion,
     HorarioAtencion,
+    Reserva,
     obtener_configuracion,
 )
-from turnos.services import eliminar_reservas_desencajadas
+from turnos.services import (
+    ErrorDeReserva,
+    TurnoCerrado,
+    cancelar_reserva,
+    crear_reserva,
+    eliminar_reservas_desencajadas,
+    grilla_semanal,
+    url_google_calendar,
+)
 
 
 class ReconciliaReservasMixin:
@@ -153,3 +169,104 @@ class CupoExcepcionEliminarView(
         self.get_object().delete()
         messages.success(request, "Excepción de cupo eliminada.")
         return redirect("turnos:configuracion")
+
+
+class MisTurnosView(AlumnoRequiredMixin, TemplateView):
+    """Grilla de 14 días (desde el lunes de la semana actual) + "Mis
+    reservas" futuras del alumno logueado.
+
+    `self.alumno` puede ser `None` (Perfil de rol alumno todavía sin ficha
+    de `Alumno` vinculada, ver `AlumnoRequiredMixin`) -- en ese caso la
+    grilla se muestra igual (sin `reservada_por_mi`, porque
+    `grilla_semanal` recibe `alumno=None`) y "Mis reservas" queda vacío, no
+    un 500.
+    """
+
+    template_name = "turnos/mis_turnos.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        hoy = timezone.localdate()
+        lunes_actual = hoy - timedelta(days=hoy.weekday())
+        context["grilla"] = grilla_semanal(
+            self.gimnasio, desde=lunes_actual, dias=14, alumno=self.alumno
+        )
+
+        if self.alumno is None:
+            mis_reservas = []
+        else:
+            reservas = Reserva.objects.for_gimnasio(self.gimnasio).filter(
+                alumno=self.alumno, fecha__gte=timezone.localdate()
+            )
+            # Se precomputa acá (no en el template) porque
+            # `url_google_calendar` toma 2 argumentos -- el lenguaje de
+            # templates de Django solo permite invocar métodos sin
+            # argumentos.
+            mis_reservas = [
+                (reserva, url_google_calendar(reserva, self.gimnasio))
+                for reserva in reservas
+            ]
+        context["mis_reservas"] = mis_reservas
+
+        context["sin_horarios"] = not HorarioAtencion.objects.for_gimnasio(
+            self.gimnasio
+        ).exists()
+        return context
+
+
+class ReservarView(AlumnoRequiredMixin, View):
+    """Solo POST: crea una reserva a partir de una franja de la grilla.
+    Nunca deja pasar un `ErrorDeReserva` como 500 -- siempre redirige a
+    `mis_turnos` con un mensaje (de éxito o de error)."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        if self.alumno is None:
+            raise PermissionDenied(
+                "Todavía no tenés una ficha de alumno vinculada."
+            )
+
+        form = ReservaForm(request.POST)
+        if form.is_valid():
+            try:
+                crear_reserva(
+                    self.gimnasio,
+                    self.alumno,
+                    form.cleaned_data["fecha"],
+                    form.cleaned_data["hora_inicio"],
+                )
+            except ErrorDeReserva as error:
+                messages.error(request, str(error))
+            else:
+                messages.success(request, "¡Turno reservado!")
+        else:
+            messages.error(request, "Datos de turno inválidos.")
+        return redirect("turnos:mis_turnos")
+
+
+class CancelarReservaView(AlumnoRequiredMixin, SingleObjectMixin, View):
+    """Solo POST. `get_queryset()` acota SIEMPRE por `(gimnasio, alumno)` --
+    una reserva de otro alumno (mismo gimnasio o de otro) da 404, nunca un
+    403 ni, peor, un borrado indebido. Si `self.alumno` es `None`, el
+    queryset queda vacío a propósito: sigue dando 404 en vez de reventar en
+    el filtro."""
+
+    model = Reserva
+    http_method_names = ["post"]
+
+    def get_queryset(self):
+        if self.alumno is None:
+            return Reserva.objects.none()
+        return Reserva.objects.for_gimnasio(self.gimnasio).filter(alumno=self.alumno)
+
+    def post(self, request, *args, **kwargs):
+        reserva = self.get_object()
+        try:
+            cancelar_reserva(reserva)
+        except TurnoCerrado as error:
+            messages.error(request, str(error))
+        else:
+            messages.success(request, "Reserva cancelada.")
+        return redirect("turnos:mis_turnos")

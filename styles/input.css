@@ -225,4 +225,26 @@
   .badge--riesgo {
     @apply bg-red-100 text-red-800;
   }
+
+  /* Grilla de turnos del alumno (Fase 6, Task 5) */
+  .grilla-turnos {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4;
+  }
+
+  .turno {
+    @apply flex items-center justify-between gap-2 rounded-md border
+      border-gray-200 bg-gray-50 px-3 py-2 text-sm mb-2;
+  }
+
+  .turno--pasado {
+    @apply opacity-50;
+  }
+
+  .turno--lleno {
+    @apply bg-red-50;
+  }
+
+  .turno--mio {
+    @apply bg-green-50 border-green-200;
+  }
 }
