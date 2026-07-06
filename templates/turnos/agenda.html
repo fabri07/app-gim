@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Agenda · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="tarjeta">
+    <div class="acciones-lista">
+      <h2>Agenda</h2>
+      <a href="{% url 'turnos:configuracion' %}" class="boton-secundario">Configuración</a>
+    </div>
+    <div class="grilla-turnos">
+      {% for dia, filas in grilla.items %}
+        <div>
+          <h3>{{ dia|date:"l d/m"|capfirst }}</h3>
+          {% if filas %}
+            {% for franja, reservas_franja in filas %}
+              <div class="turno{% if franja.pasada %} turno--pasado{% elif franja.llena %} turno--lleno{% endif %}">
+                {% if reservas_franja %}
+                  <details>
+                    <summary>{{ franja.hora_inicio|time:"H:i" }} &middot; {{ franja.ocupadas }}/{{ franja.vacantes }}</summary>
+                    <ul>
+                      {% for reserva in reservas_franja %}
+                        <li>{{ reserva.alumno }}</li>
+                      {% endfor %}
+                    </ul>
+                  </details>
+                {% else %}
+                  <span>{{ franja.hora_inicio|time:"H:i" }} &middot; {{ franja.ocupadas }}/{{ franja.vacantes }}</span>
+                {% endif %}
+              </div>
+            {% endfor %}
+          {% else %}
+            <p class="texto-suave">Cerrado</p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

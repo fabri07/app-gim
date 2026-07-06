@@ -1761,3 +1761,140 @@ class CancelarReservaViewTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertTrue(Reserva.objects.filter(pk=reserva.pk).exists())
+
+
+# ---------------------------------------------------------------------------
+# turnos/views.py (Task 6: agenda de staff)
+# ---------------------------------------------------------------------------
+
+
+class AgendaViewAccesoTests(TestCase):
+    """Anónimo -> redirect a login; alumno -> 403 (patrón
+    `TurnosAlumnoViewsAccesoTests`, versión staff)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.alumno_user = User.objects.create_user(
+            "alumno-1", password="clave-123456"
+        )
+        Perfil.objects.create(
+            usuario=self.alumno_user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+
+    def test_anonimo_es_redirigido_a_login(self):
+        url = reverse("turnos:agenda")
+
+        response = self.client.get(url)
+
+        self.assertRedirects(response, f"{reverse('login')}?next={url}")
+
+    def test_alumno_recibe_403(self):
+        self.client.login(username="alumno-1", password="clave-123456")
+
+        response = self.client.get(reverse("turnos:agenda"))
+
+        self.assertEqual(response.status_code, 403)
+
+
+class AgendaViewTests(TestCase):
+    """La agenda muestra la ocupación ("X/Y") y el detalle de quién reservó
+    cada franja, sin filtrar reservas de otros gimnasios."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        self.alumno_de_otro_gym = Alumno.objects.create(
+            gimnasio=self.otro_gimnasio, nombre="Carla", apellido="Ruiz"
+        )
+
+        ConfiguracionTurnos.objects.create(
+            gimnasio=self.gimnasio, duracion_minutos=60, vacantes_default=2
+        )
+        for dia in range(7):
+            HorarioAtencion.objects.create(
+                gimnasio=self.gimnasio,
+                dia_semana=dia,
+                hora_desde=time(8, 0),
+                hora_hasta=time(12, 0),
+            )
+        ConfiguracionTurnos.objects.create(
+            gimnasio=self.otro_gimnasio, duracion_minutos=60, vacantes_default=2
+        )
+        for dia in range(7):
+            HorarioAtencion.objects.create(
+                gimnasio=self.otro_gimnasio,
+                dia_semana=dia,
+                hora_desde=time(8, 0),
+                hora_hasta=time(12, 0),
+            )
+
+        self.staff = User.objects.create_user("staff-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-1", password="clave-123456")
+
+        self.hoy = timezone.localdate()
+        self.lunes_actual = self.hoy - timedelta(days=self.hoy.weekday())
+
+    def test_muestra_ocupacion_y_nombre_del_alumno_anotado(self):
+        Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.lunes_actual,
+            hora_inicio=time(9, 0),
+        )
+
+        response = self.client.get(reverse("turnos:agenda"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1/2")
+        self.assertContains(response, "Gómez")
+        self.assertContains(response, "Ana")
+
+    def test_no_muestra_reservas_de_otro_gimnasio(self):
+        Reserva.objects.create(
+            gimnasio=self.otro_gimnasio,
+            alumno=self.alumno_de_otro_gym,
+            fecha=self.lunes_actual,
+            hora_inicio=time(9, 0),
+        )
+
+        response = self.client.get(reverse("turnos:agenda"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Ruiz")
+
+    def test_incluye_link_a_configuracion(self):
+        response = self.client.get(reverse("turnos:agenda"))
+
+        self.assertContains(response, reverse("turnos:configuracion"))
+
+
+class NavStaffTurnosLinkTests(TestCase):
+    """El nav de `base.html` para un staff logueado incluye el link a la
+    agenda de turnos, en cualquier página que extienda `base.html` (se usa
+    `home` como muestra, patrón brief Task 6)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.staff = User.objects.create_user("staff-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-1", password="clave-123456")
+
+    def test_nav_contiene_link_a_agenda_de_turnos(self):
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, reverse("turnos:agenda"))

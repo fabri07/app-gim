@@ -8,7 +8,7 @@ alta/baja que redirige de vuelta a esa pantalla.
 Task 5: grilla y reservas del alumno (`MisTurnosView`/`ReservarView`/
 `CancelarReservaView`).
 
-Alcance de esta tarea: NO incluye la agenda de staff (`AgendaView`, Task 6).
+Task 6: agenda de staff (`AgendaView`) -- cierra la Feature A (turnos).
 """
 
 from datetime import timedelta
@@ -43,6 +43,7 @@ from turnos.services import (
     crear_reserva,
     eliminar_reservas_desencajadas,
     grilla_semanal,
+    reservas_por_franja,
     url_google_calendar,
 )
 
@@ -270,3 +271,41 @@ class CancelarReservaView(AlumnoRequiredMixin, SingleObjectMixin, View):
         else:
             messages.success(request, "Reserva cancelada.")
         return redirect("turnos:mis_turnos")
+
+
+class AgendaView(StaffRequiredMixin, TenantScopedMixin, TemplateView):
+    """Agenda de staff: misma grilla de 14 días que `MisTurnosView`, pero de
+    solo lectura y con el detalle de quién reservó cada franja (Task 6,
+    cierra la Feature A).
+
+    `reservas_por_franja` trae TODAS las reservas del rango en una sola query
+    (con `select_related("alumno")`) y las agrupa en un dict en Python -- acá
+    se combina ese dict con la grilla, también en Python, en una lista de
+    `(franja, reservas_de_esa_franja)` por día. Hace falta este paso porque
+    el lenguaje de templates de Django no permite indexar un dict por una
+    clave tupla armada a partir de dos variables de contexto (`reservas.franja.hora_inicio`
+    no funciona) -- mismo motivo por el que `MisTurnosView` arma `mis_reservas`
+    como lista de tuplas en vez de resolverlo en el template. El template
+    nunca dispara una query por celda de la grilla.
+    """
+
+    template_name = "turnos/agenda.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        hoy = timezone.localdate()
+        lunes_actual = hoy - timedelta(days=hoy.weekday())
+        grilla = grilla_semanal(self.gimnasio, desde=lunes_actual, dias=14)
+        reservas = reservas_por_franja(
+            self.gimnasio, lunes_actual, lunes_actual + timedelta(days=13)
+        )
+
+        context["grilla"] = {
+            fecha: [
+                (franja, reservas.get((fecha, franja.hora_inicio), []))
+                for franja in franjas
+            ]
+            for fecha, franjas in grilla.items()
+        }
+        return context

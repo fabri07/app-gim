@@ -1,12 +1,13 @@
 """URLs de turnos/reservas.
 
 Task 4: configuración de staff. Task 5: grilla y reservas del alumno
-(`mis_turnos`/`reservar`/`cancelar`, esta tarea). La agenda de staff
-(`agenda`) se agrega en la Task 6 -- no crearla acá todavía."""
+(`mis_turnos`/`reservar`/`cancelar`). Task 6: agenda de staff (`agenda`) --
+cierra la Feature A."""
 
 from django.urls import path
 
 from turnos.views import (
+    AgendaView,
     CancelarReservaView,
     ConfiguracionTurnosView,
     CupoExcepcionCreateView,
@@ -48,4 +49,5 @@ urlpatterns = [
         CancelarReservaView.as_view(),
         name="cancelar",
     ),
+    path("agenda/", AgendaView.as_view(), name="agenda"),
 ]
