@@ -89,6 +89,10 @@
     {% endif %}
   </div>
 
+  <div class="tarjeta">
+    <a class="boton" href="{% url 'turnos:mis_turnos' %}">Reservar turno</a>
+  </div>
+
   {% if not alumno %}
     <div class="tarjeta">
       <p class="texto-suave">

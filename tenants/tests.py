@@ -472,6 +472,29 @@ class HomeViewAlumnoTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Sin información de tu cuota este mes.")
 
+    def test_alumno_ve_link_reservar_turno_con_ficha(self):
+        self._crear_alumno_con_login(
+            username="con-ficha-turno", nombre="Rita", apellido="Sosa"
+        )
+
+        self.client.login(username="con-ficha-turno", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("turnos:mis_turnos"))
+
+    def test_alumno_ve_link_reservar_turno_sin_ficha(self):
+        user = User.objects.create_user("sin-ficha-turno", password="clave-123456")
+        Perfil.objects.create(
+            usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+
+        self.client.login(username="sin-ficha-turno", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, reverse("turnos:mis_turnos"))
+
 
 class GimnasioUpdateViewTests(TestCase):
     """Fase 4: personalización white-label. Sin pk en la URL -- get_object
