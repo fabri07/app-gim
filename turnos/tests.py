@@ -4,9 +4,9 @@ idempotencia de `obtener_configuracion`, restricciones de unicidad, el
 `CheckConstraint` de `HorarioAtencion` y el aislamiento por gimnasio heredado
 de `TenantQuerySet.for_gimnasio`, patrón `novedades/tests.py`) y los
 servicios de dominio de `turnos/services.py` (corte de horarios en franjas,
-cupos, alta/baja de reservas y limpieza de reservas desencajadas).
+cupos, alta/baja de reservas y reconciliación de reservas desencajadas).
 
-Los tests de `crear_reserva`/`cancelar_reserva`/`eliminar_reservas_desencajadas`
+Los tests de `crear_reserva`/`cancelar_reserva`/`reconciliar_reservas_desencajadas`
 anclan sus fechas/horas a `timezone.localtime()` (nunca a fechas hardcodeadas)
 para no pudrirse con el paso del tiempo. En SQLite (backend de test)
 `select_for_update()` no toma un lock real -- Django lo ejecuta como un SELECT
