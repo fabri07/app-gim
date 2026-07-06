@@ -1,0 +1,552 @@
+{
+  "/Users/fabriziosola/app_gim/alumnos/__init__.py": {
+    "mtime": 1782914566.3506026,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/admin.py": {
+    "mtime": 1782914680.1496737,
+    "ast_hash": "373e2dd6d163479340beb91a5460cb51",
+    "semantic_hash": "373e2dd6d163479340beb91a5460cb51"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/apps.py": {
+    "mtime": 1782918953.1581917,
+    "ast_hash": "68d55aa204d3b7d31b804a6f8b0b788f",
+    "semantic_hash": "68d55aa204d3b7d31b804a6f8b0b788f"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/forms.py": {
+    "mtime": 1782919198.1960957,
+    "ast_hash": "1d045fb39f316bacbfe38348ef4502d0",
+    "semantic_hash": "1d045fb39f316bacbfe38348ef4502d0"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/migrations/0001_initial.py": {
+    "mtime": 1782914965.0244565,
+    "ast_hash": "6b62c8acd8864630775e0a61c512f063",
+    "semantic_hash": "6b62c8acd8864630775e0a61c512f063"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/migrations/0002_alumno_perfil_alter_alumno_fecha_activacion.py": {
+    "mtime": 1782918962.0539093,
+    "ast_hash": "e2df7bfea0bcd77b115b2b724784dc27",
+    "semantic_hash": "e2df7bfea0bcd77b115b2b724784dc27"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/migrations/__init__.py": {
+    "mtime": 1782914566.364566,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/models.py": {
+    "mtime": 1782918938.7940078,
+    "ast_hash": "3cef55b630adde1db99d8e7b2184c9c9",
+    "semantic_hash": "3cef55b630adde1db99d8e7b2184c9c9"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/signals.py": {
+    "mtime": 1782918948.204246,
+    "ast_hash": "72b63b09b62e72d6d6e467f7b64623c1",
+    "semantic_hash": "72b63b09b62e72d6d6e467f7b64623c1"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/tests.py": {
+    "mtime": 1782919278.0413427,
+    "ast_hash": "4bbe835ea115f7d8455454f651c02206",
+    "semantic_hash": "4bbe835ea115f7d8455454f651c02206"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/urls.py": {
+    "mtime": 1782919237.5341063,
+    "ast_hash": "c3a6488346babfd03cece50cb2e16307",
+    "semantic_hash": "c3a6488346babfd03cece50cb2e16307"
+  },
+  "/Users/fabriziosola/app_gim/alumnos/views.py": {
+    "mtime": 1782919229.9285605,
+    "ast_hash": "4b57c9aed46b8232ae89829c7c8ce49a",
+    "semantic_hash": "4b57c9aed46b8232ae89829c7c8ce49a"
+  },
+  "/Users/fabriziosola/app_gim/config/__init__.py": {
+    "mtime": 1782911622.7303772,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/config/asgi.py": {
+    "mtime": 1782911622.7325332,
+    "ast_hash": "63d5777b090ac063ecd29c3dfa786ba5",
+    "semantic_hash": "63d5777b090ac063ecd29c3dfa786ba5"
+  },
+  "/Users/fabriziosola/app_gim/config/settings.py": {
+    "mtime": 1782932307.04244,
+    "ast_hash": "1e026210be146d52c646a799b10f7fd9",
+    "semantic_hash": "1e026210be146d52c646a799b10f7fd9"
+  },
+  "/Users/fabriziosola/app_gim/config/urls.py": {
+    "mtime": 1782917448.84453,
+    "ast_hash": "441f1b99e4dc67d437f9fa00c70d259b",
+    "semantic_hash": "441f1b99e4dc67d437f9fa00c70d259b"
+  },
+  "/Users/fabriziosola/app_gim/config/wsgi.py": {
+    "mtime": 1782911622.7342908,
+    "ast_hash": "412e3606d946f0fb4dbc98443c4cf8bb",
+    "semantic_hash": "412e3606d946f0fb4dbc98443c4cf8bb"
+  },
+  "/Users/fabriziosola/app_gim/core/__init__.py": {
+    "mtime": 1782911624.1046336,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/core/admin.py": {
+    "mtime": 1782911624.107289,
+    "ast_hash": "e3dc717de887db03a015667a5fec59d8",
+    "semantic_hash": "e3dc717de887db03a015667a5fec59d8"
+  },
+  "/Users/fabriziosola/app_gim/core/apps.py": {
+    "mtime": 1782911624.1112328,
+    "ast_hash": "f1fd81efee676c27d905c04186e6c885",
+    "semantic_hash": "f1fd81efee676c27d905c04186e6c885"
+  },
+  "/Users/fabriziosola/app_gim/core/forms.py": {
+    "mtime": 1782911672.70893,
+    "ast_hash": "f69bb3f72a1a0aca2349f882daa05837",
+    "semantic_hash": "f69bb3f72a1a0aca2349f882daa05837"
+  },
+  "/Users/fabriziosola/app_gim/core/migrations/__init__.py": {
+    "mtime": 1782911624.1151595,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/core/mixins.py": {
+    "mtime": 1782911664.3957849,
+    "ast_hash": "0b2ed5e159c538b1a7d046bf792c9280",
+    "semantic_hash": "0b2ed5e159c538b1a7d046bf792c9280"
+  },
+  "/Users/fabriziosola/app_gim/core/models.py": {
+    "mtime": 1782911652.5002031,
+    "ast_hash": "21af0246f41655192392259ebfb15535",
+    "semantic_hash": "21af0246f41655192392259ebfb15535"
+  },
+  "/Users/fabriziosola/app_gim/core/tests.py": {
+    "mtime": 1782914714.1171455,
+    "ast_hash": "daea929ef228a562e47f97b32e650aee",
+    "semantic_hash": "daea929ef228a562e47f97b32e650aee"
+  },
+  "/Users/fabriziosola/app_gim/core/views.py": {
+    "mtime": 1782911624.1061146,
+    "ast_hash": "f467fa232324ad139aaecd0df7698f3f",
+    "semantic_hash": "f467fa232324ad139aaecd0df7698f3f"
+  },
+  "/Users/fabriziosola/app_gim/ejercicios/__init__.py": {
+    "mtime": 1782914567.6845977,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/ejercicios/admin.py": {
+    "mtime": 1782914670.2898207,
+    "ast_hash": "90c48a3c25d025d6cb1548acd00764b3",
+    "semantic_hash": "90c48a3c25d025d6cb1548acd00764b3"
+  },
+  "/Users/fabriziosola/app_gim/ejercicios/apps.py": {
+    "mtime": 1782914567.6907942,
+    "ast_hash": "0c4e257b5fe1a01e5421b664e6263043",
+    "semantic_hash": "0c4e257b5fe1a01e5421b664e6263043"
+  },
+  "/Users/fabriziosola/app_gim/ejercicios/forms.py": {
+    "mtime": 1782916221.8814402,
+    "ast_hash": "43c0413a54c2da259af1aba14906433a",
+    "semantic_hash": "43c0413a54c2da259af1aba14906433a"
+  },
+  "/Users/fabriziosola/app_gim/ejercicios/migrations/0001_initial.py": {
+    "mtime": 1782914965.0271237,
+    "ast_hash": "e79e71df6fe932c3aa62cece14ab723a",
+    "semantic_hash": "e79e71df6fe932c3aa62cece14ab723a"
+  },
+  "/Users/fabriziosola/app_gim/ejercicios/migrations/__init__.py": {
+    "mtime": 1782914567.6951098,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/ejercicios/models.py": {
+    "mtime": 1782914669.2032464,
+    "ast_hash": "0a2c7c7ea8ddf7d6ce17d5e33e9d052d",
+    "semantic_hash": "0a2c7c7ea8ddf7d6ce17d5e33e9d052d"
+  },
+  "/Users/fabriziosola/app_gim/ejercicios/tests.py": {
+    "mtime": 1782918020.3723612,
+    "ast_hash": "dcac23321081fd11bb6425c3f00f1461",
+    "semantic_hash": "dcac23321081fd11bb6425c3f00f1461"
+  },
+  "/Users/fabriziosola/app_gim/ejercicios/urls.py": {
+    "mtime": 1782916253.30965,
+    "ast_hash": "8cf447ecb7f4c9ef5ef17fc77d98b8d9",
+    "semantic_hash": "8cf447ecb7f4c9ef5ef17fc77d98b8d9"
+  },
+  "/Users/fabriziosola/app_gim/ejercicios/views.py": {
+    "mtime": 1782916245.080058,
+    "ast_hash": "5555c7735c957a7a86e35537d0be942f",
+    "semantic_hash": "5555c7735c957a7a86e35537d0be942f"
+  },
+  "/Users/fabriziosola/app_gim/manage.py": {
+    "mtime": 1782911622.7290072,
+    "ast_hash": "09ce28f22db4398409f377833475117f",
+    "semantic_hash": "09ce28f22db4398409f377833475117f"
+  },
+  "/Users/fabriziosola/app_gim/novedades/__init__.py": {
+    "mtime": 1782914571.7644463,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/novedades/admin.py": {
+    "mtime": 1782914724.3132813,
+    "ast_hash": "b2f8b1ece78b72e89604bb027e65f980",
+    "semantic_hash": "b2f8b1ece78b72e89604bb027e65f980"
+  },
+  "/Users/fabriziosola/app_gim/novedades/apps.py": {
+    "mtime": 1782914571.7702074,
+    "ast_hash": "6e80ee0922f70340404713b5282c5d75",
+    "semantic_hash": "6e80ee0922f70340404713b5282c5d75"
+  },
+  "/Users/fabriziosola/app_gim/novedades/forms.py": {
+    "mtime": 1782916346.5258665,
+    "ast_hash": "67f17cc6afb73528279097e895a19715",
+    "semantic_hash": "67f17cc6afb73528279097e895a19715"
+  },
+  "/Users/fabriziosola/app_gim/novedades/migrations/0001_initial.py": {
+    "mtime": 1782914988.3107631,
+    "ast_hash": "eb3113d537d4059a9dca9fea73e4c640",
+    "semantic_hash": "eb3113d537d4059a9dca9fea73e4c640"
+  },
+  "/Users/fabriziosola/app_gim/novedades/migrations/__init__.py": {
+    "mtime": 1782914571.774685,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/novedades/models.py": {
+    "mtime": 1782914980.520644,
+    "ast_hash": "2ffa1406325cbd592c29e5c512e362ab",
+    "semantic_hash": "2ffa1406325cbd592c29e5c512e362ab"
+  },
+  "/Users/fabriziosola/app_gim/novedades/tests.py": {
+    "mtime": 1782918052.4462826,
+    "ast_hash": "72ed6967d91de382f14e8aef6b9e4b47",
+    "semantic_hash": "72ed6967d91de382f14e8aef6b9e4b47"
+  },
+  "/Users/fabriziosola/app_gim/novedades/urls.py": {
+    "mtime": 1782916393.678749,
+    "ast_hash": "5101a8ad9fcd94ec4a6775e2b0fabeb2",
+    "semantic_hash": "5101a8ad9fcd94ec4a6775e2b0fabeb2"
+  },
+  "/Users/fabriziosola/app_gim/novedades/views.py": {
+    "mtime": 1782916364.587933,
+    "ast_hash": "a500cdcd699fa554958296b2740709d4",
+    "semantic_hash": "a500cdcd699fa554958296b2740709d4"
+  },
+  "/Users/fabriziosola/app_gim/package.json": {
+    "mtime": 1782923175.6526022,
+    "ast_hash": "4d16ba25e0c8a9c26222a1ca5da22a89",
+    "semantic_hash": "4d16ba25e0c8a9c26222a1ca5da22a89"
+  },
+  "/Users/fabriziosola/app_gim/pagos/__init__.py": {
+    "mtime": 1782914570.3411703,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/pagos/admin.py": {
+    "mtime": 1782914716.453136,
+    "ast_hash": "5cf79972a4005f7bad0d5d1e764a2adc",
+    "semantic_hash": "5cf79972a4005f7bad0d5d1e764a2adc"
+  },
+  "/Users/fabriziosola/app_gim/pagos/apps.py": {
+    "mtime": 1782914570.3466992,
+    "ast_hash": "d1c04bd9b042b97bc71932e3c5cde043",
+    "semantic_hash": "d1c04bd9b042b97bc71932e3c5cde043"
+  },
+  "/Users/fabriziosola/app_gim/pagos/forms.py": {
+    "mtime": 1782916300.8861668,
+    "ast_hash": "556ad93d9429589ec741c4e552562173",
+    "semantic_hash": "556ad93d9429589ec741c4e552562173"
+  },
+  "/Users/fabriziosola/app_gim/pagos/management/__init__.py": {
+    "mtime": 1782914720.6546092,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/pagos/management/commands/__init__.py": {
+    "mtime": 1782914720.6548774,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/pagos/management/commands/generar_pagos.py": {
+    "mtime": 1782914728.2498655,
+    "ast_hash": "3f017275283d55e2e4e6dd6dee34085f",
+    "semantic_hash": "3f017275283d55e2e4e6dd6dee34085f"
+  },
+  "/Users/fabriziosola/app_gim/pagos/migrations/0001_initial.py": {
+    "mtime": 1782914988.3146985,
+    "ast_hash": "641d48cdcd273eb8dedca85157df3e12",
+    "semantic_hash": "641d48cdcd273eb8dedca85157df3e12"
+  },
+  "/Users/fabriziosola/app_gim/pagos/migrations/__init__.py": {
+    "mtime": 1782914570.3501687,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/pagos/models.py": {
+    "mtime": 1782914708.5023916,
+    "ast_hash": "e0a3a697ed3301af4d6395b1eca23e16",
+    "semantic_hash": "e0a3a697ed3301af4d6395b1eca23e16"
+  },
+  "/Users/fabriziosola/app_gim/pagos/tests.py": {
+    "mtime": 1782918062.7498398,
+    "ast_hash": "7f935847c5b28a816adacd7a30285a2b",
+    "semantic_hash": "7f935847c5b28a816adacd7a30285a2b"
+  },
+  "/Users/fabriziosola/app_gim/pagos/urls.py": {
+    "mtime": 1782916315.857925,
+    "ast_hash": "009d2995578fdc6065283076a21db731",
+    "semantic_hash": "009d2995578fdc6065283076a21db731"
+  },
+  "/Users/fabriziosola/app_gim/pagos/views.py": {
+    "mtime": 1782916311.017485,
+    "ast_hash": "33968e40ebba4cf2837269ef36a8ad9b",
+    "semantic_hash": "33968e40ebba4cf2837269ef36a8ad9b"
+  },
+  "/Users/fabriziosola/app_gim/rutinas/__init__.py": {
+    "mtime": 1782914569.0766327,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/rutinas/admin.py": {
+    "mtime": 1782914827.2936163,
+    "ast_hash": "5178c61514482c97ffe07bd4636128d4",
+    "semantic_hash": "5178c61514482c97ffe07bd4636128d4"
+  },
+  "/Users/fabriziosola/app_gim/rutinas/apps.py": {
+    "mtime": 1782914569.0832474,
+    "ast_hash": "def273d2c7dd87522ab16e5691960b59",
+    "semantic_hash": "def273d2c7dd87522ab16e5691960b59"
+  },
+  "/Users/fabriziosola/app_gim/rutinas/forms.py": {
+    "mtime": 1782916362.4475787,
+    "ast_hash": "a0afdb4d3832ed580594cb786a133518",
+    "semantic_hash": "a0afdb4d3832ed580594cb786a133518"
+  },
+  "/Users/fabriziosola/app_gim/rutinas/migrations/0001_initial.py": {
+    "mtime": 1782914988.3222158,
+    "ast_hash": "c5047f0ca1f89b68ff4c3e1c0fcd78ae",
+    "semantic_hash": "c5047f0ca1f89b68ff4c3e1c0fcd78ae"
+  },
+  "/Users/fabriziosola/app_gim/rutinas/migrations/__init__.py": {
+    "mtime": 1782914569.0863338,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/rutinas/models.py": {
+    "mtime": 1782914807.7312994,
+    "ast_hash": "c7358d1ff778300d557893f56fa1e8ea",
+    "semantic_hash": "c7358d1ff778300d557893f56fa1e8ea"
+  },
+  "/Users/fabriziosola/app_gim/rutinas/tests.py": {
+    "mtime": 1782917993.6434464,
+    "ast_hash": "dbe7f30cd6d8419e34b0ebfd1281be9c",
+    "semantic_hash": "dbe7f30cd6d8419e34b0ebfd1281be9c"
+  },
+  "/Users/fabriziosola/app_gim/rutinas/urls.py": {
+    "mtime": 1782916418.8316836,
+    "ast_hash": "2d593c7940caeb5d60402b5e9f8b9a81",
+    "semantic_hash": "2d593c7940caeb5d60402b5e9f8b9a81"
+  },
+  "/Users/fabriziosola/app_gim/rutinas/views.py": {
+    "mtime": 1782916522.3370714,
+    "ast_hash": "a2c0e70023d6269186a14353de3783be",
+    "semantic_hash": "a2c0e70023d6269186a14353de3783be"
+  },
+  "/Users/fabriziosola/app_gim/tenants/__init__.py": {
+    "mtime": 1782911625.4123337,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/tenants/admin.py": {
+    "mtime": 1782911724.0795193,
+    "ast_hash": "fda13b402f990dceeb39cebfc2fd0107",
+    "semantic_hash": "fda13b402f990dceeb39cebfc2fd0107"
+  },
+  "/Users/fabriziosola/app_gim/tenants/apps.py": {
+    "mtime": 1782911625.4171915,
+    "ast_hash": "6df8e320556188c1e0e9fd8a605c0d66",
+    "semantic_hash": "6df8e320556188c1e0e9fd8a605c0d66"
+  },
+  "/Users/fabriziosola/app_gim/tenants/forms.py": {
+    "mtime": 1782920532.5273788,
+    "ast_hash": "d0ab46dd6c9f3a9e82632f860d15c225",
+    "semantic_hash": "d0ab46dd6c9f3a9e82632f860d15c225"
+  },
+  "/Users/fabriziosola/app_gim/tenants/migrations/0001_initial.py": {
+    "mtime": 1782911840.3649242,
+    "ast_hash": "0247e878c3450e7e27a5e060873f046b",
+    "semantic_hash": "0247e878c3450e7e27a5e060873f046b"
+  },
+  "/Users/fabriziosola/app_gim/tenants/migrations/0002_gimnasio_color_primario_gimnasio_color_secundario_and_more.py": {
+    "mtime": 1782914528.5613465,
+    "ast_hash": "e5bc1710f72596718d25eea8100a9251",
+    "semantic_hash": "e5bc1710f72596718d25eea8100a9251"
+  },
+  "/Users/fabriziosola/app_gim/tenants/migrations/__init__.py": {
+    "mtime": 1782911625.4208016,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/Users/fabriziosola/app_gim/tenants/mixins.py": {
+    "mtime": 1782915997.5421605,
+    "ast_hash": "f8a8d03c4a4a9eec5906ca7d89500d4c",
+    "semantic_hash": "f8a8d03c4a4a9eec5906ca7d89500d4c"
+  },
+  "/Users/fabriziosola/app_gim/tenants/models.py": {
+    "mtime": 1782914462.88589,
+    "ast_hash": "ac24a5c852112c55c29f0ece554d6d92",
+    "semantic_hash": "ac24a5c852112c55c29f0ece554d6d92"
+  },
+  "/Users/fabriziosola/app_gim/tenants/tests.py": {
+    "mtime": 1782920620.170811,
+    "ast_hash": "e2216027b49369cfaafd14e8187e03ed",
+    "semantic_hash": "e2216027b49369cfaafd14e8187e03ed"
+  },
+  "/Users/fabriziosola/app_gim/tenants/urls.py": {
+    "mtime": 1782920569.516432,
+    "ast_hash": "a488db0c277c49ee2adb1a9d6a069c1e",
+    "semantic_hash": "a488db0c277c49ee2adb1a9d6a069c1e"
+  },
+  "/Users/fabriziosola/app_gim/tenants/views.py": {
+    "mtime": 1782920561.8546526,
+    "ast_hash": "ea50ac2505f74d390db08a9fe4128eb4",
+    "semantic_hash": "ea50ac2505f74d390db08a9fe4128eb4"
+  },
+  "/Users/fabriziosola/app_gim/CLAUDE.md": {
+    "mtime": 1782924133.0887575,
+    "ast_hash": "c2285710d4acaaa3fd66f1043cd75dd4",
+    "semantic_hash": "c2285710d4acaaa3fd66f1043cd75dd4"
+  },
+  "/Users/fabriziosola/app_gim/ISSUES.md": {
+    "mtime": 1782924162.6760073,
+    "ast_hash": "f2fc863e8bc71917c0149b6f3e25a86c",
+    "semantic_hash": "f2fc863e8bc71917c0149b6f3e25a86c"
+  },
+  "/Users/fabriziosola/app_gim/REUSO.md": {
+    "mtime": 1782911988.9408374,
+    "ast_hash": "bf56db6c3e38a873548e6b4366520814",
+    "semantic_hash": "bf56db6c3e38a873548e6b4366520814"
+  },
+  "/Users/fabriziosola/app_gim/ROADMAP.md": {
+    "mtime": 1782918873.195264,
+    "ast_hash": "d74c2cf2511cee49529854ab6deb115c",
+    "semantic_hash": "d74c2cf2511cee49529854ab6deb115c"
+  },
+  "/Users/fabriziosola/app_gim/render.yaml": {
+    "mtime": 1782923823.703274,
+    "ast_hash": "54530e3c38be0ef187ba0ba279649127",
+    "semantic_hash": "54530e3c38be0ef187ba0ba279649127"
+  },
+  "/Users/fabriziosola/app_gim/requirements.txt": {
+    "mtime": 1782923002.2502325,
+    "ast_hash": "243d7de84f181dbde87eae3a9478218f",
+    "semantic_hash": "243d7de84f181dbde87eae3a9478218f"
+  },
+  "/Users/fabriziosola/app_gim/templates/alumnos/acceso_form.html": {
+    "mtime": 1782919245.4676247,
+    "ast_hash": "0f12da111ab39e05af57d37214ef7ae8",
+    "semantic_hash": "0f12da111ab39e05af57d37214ef7ae8"
+  },
+  "/Users/fabriziosola/app_gim/templates/alumnos/alumno_detail.html": {
+    "mtime": 1782919253.8702748,
+    "ast_hash": "ba0c4ca1d007e4eca3ef391b36f5fd96",
+    "semantic_hash": "ba0c4ca1d007e4eca3ef391b36f5fd96"
+  },
+  "/Users/fabriziosola/app_gim/templates/alumnos/alumno_form.html": {
+    "mtime": 1782916404.0479848,
+    "ast_hash": "8ed54cbb5a521753f1b8d5a4d527c286",
+    "semantic_hash": "8ed54cbb5a521753f1b8d5a4d527c286"
+  },
+  "/Users/fabriziosola/app_gim/templates/alumnos/alumno_list.html": {
+    "mtime": 1782917558.678249,
+    "ast_hash": "0285d8dd42bc41d0743d357b1048f277",
+    "semantic_hash": "0285d8dd42bc41d0743d357b1048f277"
+  },
+  "/Users/fabriziosola/app_gim/templates/base.html": {
+    "mtime": 1782920874.051699,
+    "ast_hash": "04b3b256c9179e9710e1ad5501061579",
+    "semantic_hash": "04b3b256c9179e9710e1ad5501061579"
+  },
+  "/Users/fabriziosola/app_gim/templates/ejercicios/ejercicio_form.html": {
+    "mtime": 1782916307.3883264,
+    "ast_hash": "95a1c23646b44412f9b365cc8587efa3",
+    "semantic_hash": "95a1c23646b44412f9b365cc8587efa3"
+  },
+  "/Users/fabriziosola/app_gim/templates/ejercicios/ejercicio_list.html": {
+    "mtime": 1782917569.4401033,
+    "ast_hash": "914e48fd05b40d827512d27a26db196a",
+    "semantic_hash": "914e48fd05b40d827512d27a26db196a"
+  },
+  "/Users/fabriziosola/app_gim/templates/novedades/novedad_form.html": {
+    "mtime": 1782916418.6189952,
+    "ast_hash": "1a70452d89fda293010f8ac73c1252e4",
+    "semantic_hash": "1a70452d89fda293010f8ac73c1252e4"
+  },
+  "/Users/fabriziosola/app_gim/templates/novedades/novedad_list.html": {
+    "mtime": 1782917573.8576982,
+    "ast_hash": "650313cb2a66ff519bdfe49837f1969a",
+    "semantic_hash": "650313cb2a66ff519bdfe49837f1969a"
+  },
+  "/Users/fabriziosola/app_gim/templates/pagos/pago_confirmar.html": {
+    "mtime": 1782920880.9536633,
+    "ast_hash": "16780c15813c81a0d0e54e86f515a134",
+    "semantic_hash": "16780c15813c81a0d0e54e86f515a134"
+  },
+  "/Users/fabriziosola/app_gim/templates/pagos/pago_list.html": {
+    "mtime": 1782917584.737458,
+    "ast_hash": "abc2e4da6bd4b51e0ce21a215a225516",
+    "semantic_hash": "abc2e4da6bd4b51e0ce21a215a225516"
+  },
+  "/Users/fabriziosola/app_gim/templates/registration/login.html": {
+    "mtime": 1782911786.1123726,
+    "ast_hash": "223638cc343db3adf22b9d022ab9ea76",
+    "semantic_hash": "223638cc343db3adf22b9d022ab9ea76"
+  },
+  "/Users/fabriziosola/app_gim/templates/registration/register.html": {
+    "mtime": 1782911790.6778097,
+    "ast_hash": "a07108a2138353f55fea93b994773997",
+    "semantic_hash": "a07108a2138353f55fea93b994773997"
+  },
+  "/Users/fabriziosola/app_gim/templates/rutinas/asignada_detail.html": {
+    "mtime": 1782917590.0810404,
+    "ast_hash": "547bc14ef273046daea2afe4cb86020e",
+    "semantic_hash": "547bc14ef273046daea2afe4cb86020e"
+  },
+  "/Users/fabriziosola/app_gim/templates/rutinas/asignar_form.html": {
+    "mtime": 1782916487.3007793,
+    "ast_hash": "bfee82d97fe137da9163b2a49f2a7aaf",
+    "semantic_hash": "bfee82d97fe137da9163b2a49f2a7aaf"
+  },
+  "/Users/fabriziosola/app_gim/templates/rutinas/item_form.html": {
+    "mtime": 1782916483.2100053,
+    "ast_hash": "55784f107614d8cd416be8bcba5d936e",
+    "semantic_hash": "55784f107614d8cd416be8bcba5d936e"
+  },
+  "/Users/fabriziosola/app_gim/templates/rutinas/plantilla_detail.html": {
+    "mtime": 1782917595.5033615,
+    "ast_hash": "a06c57e2948b7183e51bda757bbe3463",
+    "semantic_hash": "a06c57e2948b7183e51bda757bbe3463"
+  },
+  "/Users/fabriziosola/app_gim/templates/rutinas/plantilla_form.html": {
+    "mtime": 1782916463.9560199,
+    "ast_hash": "b95c8ad4993a44f9d6b65cb7822c6c8d",
+    "semantic_hash": "b95c8ad4993a44f9d6b65cb7822c6c8d"
+  },
+  "/Users/fabriziosola/app_gim/templates/rutinas/plantilla_list.html": {
+    "mtime": 1782917600.762862,
+    "ast_hash": "1f7aa6425586ecea9e571f0e1a47b901",
+    "semantic_hash": "1f7aa6425586ecea9e571f0e1a47b901"
+  },
+  "/Users/fabriziosola/app_gim/templates/tenants/gimnasio_form.html": {
+    "mtime": 1782920896.1382892,
+    "ast_hash": "e2727239e4d623bffd7c86e974949705",
+    "semantic_hash": "e2727239e4d623bffd7c86e974949705"
+  },
+  "/Users/fabriziosola/app_gim/templates/tenants/home.html": {
+    "mtime": 1782920498.996896,
+    "ast_hash": "b4c8a515e93afc31569a3ff774ba5730",
+    "semantic_hash": "b4c8a515e93afc31569a3ff774ba5730"
+  }
+}
