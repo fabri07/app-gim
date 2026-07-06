@@ -38,3 +38,7 @@ node_modules/
 .DS_Store
 .idea/
 .vscode/
+
+# Worktrees de desarrollo aislado (Claude Code)
+.worktrees/
+.superpowers/
