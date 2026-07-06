@@ -8,15 +8,16 @@ ocultas o vencidas, a diferencia de la pantalla del alumno (Fase 3).
 """
 
 from django.contrib import messages
-from django.shortcuts import redirect
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, ListView, UpdateView, View
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
-from tenants.mixins import StaffRequiredMixin
+from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from novedades.forms import NovedadForm
-from novedades.models import Novedad
+from novedades.models import Novedad, NovedadLeida
 
 
 class NovedadListView(StaffRequiredMixin, TenantScopedMixin, ListView):
@@ -85,3 +86,27 @@ class NovedadOcultarView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixi
         from django.shortcuts import redirect
 
         return redirect("novedades:listado")
+
+
+class NovedadMarcarLeidaView(AlumnoRequiredMixin, View):
+    """El alumno marca como leída una novedad visible de su gimnasio (Fase 5,
+    Feature B: read-receipts).
+
+    Solo POST -- es una escritura, igual que `NovedadOcultarView`. Idempotente
+    vía `get_or_create` (no `create`): un segundo click no duplica la fila ni
+    rompe contra el `unique_together` de `NovedadLeida`. La novedad se busca
+    filtrando por `.visibles()` (no solo `for_gimnasio()`): una novedad oculta,
+    vencida o de otro gimnasio da 404 -- no es un tema de permisos (403), es
+    que desde la perspectiva del alumno esa novedad "no existe" para marcar.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        if self.alumno is None:
+            raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
+        novedad = get_object_or_404(
+            Novedad.objects.for_gimnasio(self.gimnasio).visibles(), pk=kwargs["pk"]
+        )
+        NovedadLeida.objects.get_or_create(novedad=novedad, alumno=self.alumno)
+        return redirect("home")

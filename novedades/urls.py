@@ -9,6 +9,7 @@ from django.urls import path
 from novedades.views import (
     NovedadCreateView,
     NovedadListView,
+    NovedadMarcarLeidaView,
     NovedadOcultarView,
     NovedadUpdateView,
 )
@@ -20,4 +21,5 @@ urlpatterns = [
     path("nueva/", NovedadCreateView.as_view(), name="crear"),
     path("<int:pk>/editar/", NovedadUpdateView.as_view(), name="editar"),
     path("<int:pk>/ocultar/", NovedadOcultarView.as_view(), name="ocultar"),
+    path("<int:pk>/leida/", NovedadMarcarLeidaView.as_view(), name="marcar_leida"),
 ]

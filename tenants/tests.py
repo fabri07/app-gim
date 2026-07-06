@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.views.generic import TemplateView, View
 
 from alumnos.models import Alumno
-from novedades.models import Novedad
+from novedades.models import Novedad, NovedadLeida
 from pagos.models import PagoMensual
 from rutinas.models import RutinaAsignada, RutinaAsignadaItem
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
@@ -317,6 +317,62 @@ class HomeViewAlumnoTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Rutina de Darío")
         self.assertNotContains(response, "Rutina de Elena")
+
+    def test_contexto_incluye_ids_novedades_leidas(self):
+        _user, _perfil, alumno = self._crear_alumno_con_login(
+            username="fede", nombre="Fede", apellido="Ruiz"
+        )
+        novedad_leida = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Leída", mensaje="Contenido."
+        )
+        Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Sin leer", mensaje="Contenido."
+        )
+        NovedadLeida.objects.create(novedad=novedad_leida, alumno=alumno)
+
+        self.client.login(username="fede", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["ids_novedades_leidas"], {novedad_leida.pk}
+        )
+
+    def test_badge_nueva_solo_aparece_para_novedades_no_leidas(self):
+        _user, _perfil, alumno = self._crear_alumno_con_login(
+            username="gaby", nombre="Gaby", apellido="Torres"
+        )
+        novedad_leida = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Ya la leí", mensaje="Contenido."
+        )
+        Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Todavía no la leí", mensaje="Contenido."
+        )
+        NovedadLeida.objects.create(novedad=novedad_leida, alumno=alumno)
+
+        self.client.login(username="gaby", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, "Nueva")
+        # Ambas novedades comparten plantilla; el badge "Nueva" debe aparecer
+        # una sola vez (para la no leída), no para la ya leída.
+        self.assertEqual(response.content.decode().count(">Nueva<"), 1)
+
+    def test_alumno_sin_ficha_no_ve_boton_marcar_leida(self):
+        user = User.objects.create_user("sin-ficha-2", password="clave-123456")
+        Perfil.objects.create(
+            usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Aviso", mensaje="Contenido."
+        )
+
+        self.client.login(username="sin-ficha-2", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Marcar como leída")
+        self.assertNotContains(response, "Nueva")
 
     def test_perfil_alumno_sin_alumno_vinculado_no_rompe(self):
         user = User.objects.create_user("sin-vinculo", password="clave-123456")

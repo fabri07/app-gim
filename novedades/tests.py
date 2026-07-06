@@ -377,3 +377,142 @@ class NovedadLeidaModelTests(TestCase):
         self.novedad.delete()
 
         self.assertEqual(NovedadLeida.objects.count(), 0)
+
+
+class NovedadMarcarLeidaViewTests(TestCase):
+    """El alumno marca una novedad visible de su gimnasio como leída
+    (Fase 5, Feature B). Ver `novedades.views.NovedadMarcarLeidaView`."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        self.user = User.objects.create_user("alumno-1", password="clave-123456")
+        self.perfil = Perfil.objects.create(
+            usuario=self.user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez", perfil=self.perfil
+        )
+        self.novedad = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Aviso", mensaje="Contenido."
+        )
+
+    def test_anonimo_es_redirigido_a_login(self):
+        url = reverse("novedades:marcar_leida", args=[self.novedad.pk])
+
+        response = self.client.post(url)
+
+        self.assertRedirects(response, f"{reverse('login')}?next={url}")
+
+    def test_staff_recibe_403(self):
+        staff = User.objects.create_user("staff-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-1", password="clave-123456")
+
+        response = self.client.post(
+            reverse("novedades:marcar_leida", args=[self.novedad.pk])
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_alumno_sin_ficha_recibe_403(self):
+        user = User.objects.create_user("sin-ficha", password="clave-123456")
+        Perfil.objects.create(
+            usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.login(username="sin-ficha", password="clave-123456")
+
+        response = self.client.post(
+            reverse("novedades:marcar_leida", args=[self.novedad.pk])
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(NovedadLeida.objects.exists())
+
+    def test_alumno_marca_novedad_como_leida(self):
+        self.client.login(username="alumno-1", password="clave-123456")
+
+        response = self.client.post(
+            reverse("novedades:marcar_leida", args=[self.novedad.pk])
+        )
+
+        self.assertRedirects(response, reverse("home"))
+        self.assertTrue(
+            NovedadLeida.objects.filter(
+                novedad=self.novedad, alumno=self.alumno
+            ).exists()
+        )
+
+    def test_marcar_dos_veces_es_idempotente(self):
+        self.client.login(username="alumno-1", password="clave-123456")
+        url = reverse("novedades:marcar_leida", args=[self.novedad.pk])
+
+        primera = self.client.post(url)
+        segunda = self.client.post(url)
+
+        self.assertEqual(primera.status_code, 302)
+        self.assertEqual(segunda.status_code, 302)
+        self.assertEqual(
+            NovedadLeida.objects.filter(
+                novedad=self.novedad, alumno=self.alumno
+            ).count(),
+            1,
+        )
+
+    def test_novedad_de_otro_gimnasio_da_404(self):
+        novedad_otro = Novedad.objects.create(
+            gimnasio=self.otro_gimnasio, titulo="Otro aviso", mensaje="Contenido."
+        )
+        self.client.login(username="alumno-1", password="clave-123456")
+
+        response = self.client.post(
+            reverse("novedades:marcar_leida", args=[novedad_otro.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(NovedadLeida.objects.exists())
+
+    def test_novedad_oculta_da_404(self):
+        oculta = Novedad.objects.create(
+            gimnasio=self.gimnasio,
+            titulo="Oculta",
+            mensaje="Contenido.",
+            activa=False,
+        )
+        self.client.login(username="alumno-1", password="clave-123456")
+
+        response = self.client.post(
+            reverse("novedades:marcar_leida", args=[oculta.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_novedad_vencida_da_404(self):
+        vencida = Novedad.objects.create(
+            gimnasio=self.gimnasio,
+            titulo="Vencida",
+            mensaje="Contenido.",
+            fecha_publicacion=now().date() - timedelta(days=10),
+            visible_hasta=now().date() - timedelta(days=1),
+        )
+        self.client.login(username="alumno-1", password="clave-123456")
+
+        response = self.client.post(
+            reverse("novedades:marcar_leida", args=[vencida.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_get_no_esta_permitido(self):
+        self.client.login(username="alumno-1", password="clave-123456")
+
+        response = self.client.get(
+            reverse("novedades:marcar_leida", args=[self.novedad.pk])
+        )
+
+        self.assertEqual(response.status_code, 405)
+        self.assertFalse(NovedadLeida.objects.exists())

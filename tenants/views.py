@@ -111,6 +111,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
                 "ultimas_novedades": Novedad.objects.for_gimnasio(
                     perfil.gimnasio
                 ).visibles()[:5],
+                "ids_novedades_leidas": set(),
             }
 
         hoy = timezone.now().date()
@@ -124,6 +125,9 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "ultimas_novedades": Novedad.objects.for_gimnasio(
                 perfil.gimnasio
             ).visibles()[:5],
+            "ids_novedades_leidas": set(
+                alumno.novedades_leidas.values_list("novedad_id", flat=True)
+            ),
         }
 
     @staticmethod

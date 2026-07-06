@@ -158,7 +158,19 @@
   <div class="tarjeta">
     <h2>Últimas novedades</h2>
     {% for novedad in ultimas_novedades %}
-      <p><strong>{{ novedad.titulo }}</strong> &middot; {{ novedad.fecha_publicacion }}</p>
+      <p>
+        <strong>{{ novedad.titulo }}</strong> &middot; {{ novedad.fecha_publicacion }}
+        {% if alumno and novedad.pk not in ids_novedades_leidas %}
+          <span class="badge badge--alerta">Nueva</span>
+        {% endif %}
+      </p>
+      <p class="texto-suave">{{ novedad.mensaje }}</p>
+      {% if alumno and novedad.pk not in ids_novedades_leidas %}
+        <form method="post" action="{% url 'novedades:marcar_leida' novedad.pk %}" style="display:inline">
+          {% csrf_token %}
+          <button type="submit" class="boton-secundario">Marcar como leída</button>
+        </form>
+      {% endif %}
     {% empty %}
       <p class="texto-suave">No hay novedades publicadas todavía.</p>
     {% endfor %}
