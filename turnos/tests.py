@@ -1147,6 +1147,39 @@ class CupoExcepcionCreateViewTests(TestCase):
         )
         self.assertEqual(CupoExcepcion.objects.count(), 0)
 
+    def test_excepcion_duplicada_no_rompe_con_integrity_error(self):
+        """Regression: sin este chequeo, `gimnasio` no siendo un campo del
+        form hace que Django se salte la validación automática de
+        `unique_together` -- una segunda excepción para el mismo
+        (gimnasio, dia_semana, hora_inicio) llegaba cruda al INSERT y volaba
+        con `IntegrityError` (500), en vez de re-renderizar el form con un
+        error prolijo. No hay vista de edición: el flujo esperado para
+        "cambiar" una excepción es borrar y recrear, así que este caso (el
+        staff se olvida de borrar la vieja primero) es un camino realista."""
+        CupoExcepcion.objects.create(
+            gimnasio=self.gimnasio,
+            dia_semana=DiaSemana.LUNES,
+            hora_inicio=time(9, 0),
+            vacantes=3,
+        )
+
+        response = self.client.post(
+            reverse("turnos:cupo_crear"),
+            {"dia_semana": DiaSemana.LUNES, "hora_inicio": "09:00", "vacantes": 7},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Ya existe una excepción de cupo para ese día y horario.",
+        )
+        self.assertEqual(
+            CupoExcepcion.objects.for_gimnasio(self.gimnasio).count(), 1
+        )
+        self.assertEqual(
+            CupoExcepcion.objects.for_gimnasio(self.gimnasio).first().vacantes, 3
+        )
+
 
 class CupoExcepcionEliminarViewTests(TestCase):
     def setUp(self):

@@ -17,8 +17,17 @@ from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
 from tenants.mixins import StaffRequiredMixin
-from turnos.forms import ConfiguracionTurnosForm, CupoExcepcionForm, HorarioAtencionForm
-from turnos.models import ConfiguracionTurnos, CupoExcepcion, HorarioAtencion, obtener_configuracion
+from turnos.forms import (
+    ConfiguracionTurnosForm,
+    CupoExcepcionForm,
+    HorarioAtencionForm,
+)
+from turnos.models import (
+    ConfiguracionTurnos,
+    CupoExcepcion,
+    HorarioAtencion,
+    obtener_configuracion,
+)
 from turnos.services import eliminar_reservas_desencajadas
 
 
@@ -60,7 +69,7 @@ class ConfiguracionTurnosView(StaffRequiredMixin, ReconciliaReservasMixin, Updat
     success_url = reverse_lazy("turnos:configuracion")
 
     def get_object(self, queryset=None):
-        return obtener_configuracion(self.request.user.perfil.gimnasio)
+        return obtener_configuracion(self.gimnasio)
 
     @property
     def gimnasio(self):

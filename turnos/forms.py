@@ -85,4 +85,25 @@ class CupoExcepcionForm(TenantScopedModelForm):
             raise forms.ValidationError(
                 "Ese horario no coincide con ninguna franja de turnos de ese día."
             )
+
+        # `gimnasio` no es un campo del form -> Django NO corre solo la
+        # validación automática de `unique_together` del ModelForm (la
+        # excluye porque referencia un campo excluido). Sin este chequeo
+        # manual, una segunda excepción para el mismo (gimnasio, dia_semana,
+        # hora_inicio) pasa `clean()` y explota en el INSERT con
+        # `IntegrityError` (500 crudo) -- no hay vista de edición todavía
+        # (el flujo es "borrar y recrear"), así que este es el único lugar
+        # donde se puede avisar de forma amigable. `exclude(pk=self.instance.pk)`
+        # es un no-op al crear y descarta la propia fila si en el futuro se
+        # agrega una vista de edición.
+        duplicada = (
+            CupoExcepcion.objects.for_gimnasio(self.gimnasio)
+            .filter(dia_semana=dia_semana, hora_inicio=hora_inicio)
+            .exclude(pk=self.instance.pk)
+        )
+        if duplicada.exists():
+            raise forms.ValidationError(
+                "Ya existe una excepción de cupo para ese día y horario. "
+                "Eliminala primero si querés cambiar el valor."
+            )
         return cleaned
