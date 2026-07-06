@@ -19,12 +19,14 @@ from datetime import date, datetime, time, timedelta
 from unittest.mock import patch
 from urllib.parse import parse_qs
 
+from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from alumnos.models import Alumno
-from tenants.models import Gimnasio
+from tenants.models import Gimnasio, Perfil
 from turnos.models import (
     ConfiguracionTurnos,
     CupoExcepcion,
@@ -899,3 +901,374 @@ class ReservasPorFranjaTests(TestCase):
         self.assertEqual(
             set(agrupadas[(fecha, time(9, 0))]), {reserva_1, reserva_2}
         )
+
+
+# ---------------------------------------------------------------------------
+# turnos/views.py (Task 4: configuración de staff)
+# ---------------------------------------------------------------------------
+
+
+class TurnosViewsAccesoTests(TestCase):
+    """Anónimo -> redirect a login; alumno -> 403, en las 5 rutas de gestión
+    nuevas (patrón `novedades/tests.py::NovedadViewsAccesoTests`, extendido a
+    todas las rutas del brief)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.horario = HorarioAtencion.objects.create(
+            gimnasio=self.gimnasio,
+            dia_semana=DiaSemana.LUNES,
+            hora_desde=time(8, 0),
+            hora_hasta=time(12, 0),
+        )
+        self.excepcion = CupoExcepcion.objects.create(
+            gimnasio=self.gimnasio,
+            dia_semana=DiaSemana.LUNES,
+            hora_inicio=time(8, 0),
+            vacantes=3,
+        )
+
+    def _urls(self):
+        return [
+            reverse("turnos:configuracion"),
+            reverse("turnos:horario_crear"),
+            reverse("turnos:horario_eliminar", args=[self.horario.pk]),
+            reverse("turnos:cupo_crear"),
+            reverse("turnos:cupo_eliminar", args=[self.excepcion.pk]),
+        ]
+
+    def test_anonimo_es_redirigido_a_login_en_todas_las_rutas(self):
+        for url in self._urls():
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertRedirects(response, f"{reverse('login')}?next={url}")
+
+    def test_alumno_recibe_403_en_todas_las_rutas(self):
+        user = User.objects.create_user("alumno-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.login(username="alumno-1", password="clave-123456")
+
+        for url in self._urls():
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 403)
+
+
+class ConfiguracionTurnosViewTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.staff = User.objects.create_user("staff-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-1", password="clave-123456")
+
+    def test_get_crea_la_fila_de_configuracion_si_no_existia(self):
+        self.assertEqual(ConfiguracionTurnos.objects.count(), 0)
+
+        response = self.client.get(reverse("turnos:configuracion"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ConfiguracionTurnos.objects.count(), 1)
+        config = response.context["form"].instance
+        self.assertEqual(config.duracion_minutos, 60)
+        self.assertEqual(config.vacantes_default, 10)
+
+    def test_post_cambia_duracion_y_vacantes_default(self):
+        response = self.client.post(
+            reverse("turnos:configuracion"),
+            {"duracion_minutos": 45, "vacantes_default": 15},
+        )
+
+        self.assertRedirects(response, reverse("turnos:configuracion"))
+        config = obtener_configuracion(self.gimnasio)
+        self.assertEqual(config.duracion_minutos, 45)
+        self.assertEqual(config.vacantes_default, 15)
+
+
+class HorarioAtencionCreateViewTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.staff = User.objects.create_user("staff-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-1", password="clave-123456")
+
+    def test_crear_horario_valido(self):
+        response = self.client.post(
+            reverse("turnos:horario_crear"),
+            {
+                "dia_semana": DiaSemana.LUNES,
+                "hora_desde": "08:00",
+                "hora_hasta": "12:00",
+            },
+        )
+
+        self.assertRedirects(response, reverse("turnos:configuracion"))
+        self.assertEqual(
+            HorarioAtencion.objects.for_gimnasio(self.gimnasio).count(), 1
+        )
+
+    def test_hora_desde_mayor_o_igual_a_hora_hasta_no_crea_fila(self):
+        response = self.client.post(
+            reverse("turnos:horario_crear"),
+            {
+                "dia_semana": DiaSemana.LUNES,
+                "hora_desde": "12:00",
+                "hora_hasta": "12:00",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response, "El horario de inicio debe ser anterior al de cierre."
+        )
+        self.assertEqual(HorarioAtencion.objects.count(), 0)
+
+    def test_horario_solapado_con_uno_existente_no_crea_fila(self):
+        HorarioAtencion.objects.create(
+            gimnasio=self.gimnasio,
+            dia_semana=DiaSemana.LUNES,
+            hora_desde=time(8, 0),
+            hora_hasta=time(12, 0),
+        )
+
+        response = self.client.post(
+            reverse("turnos:horario_crear"),
+            {
+                "dia_semana": DiaSemana.LUNES,
+                "hora_desde": "10:00",
+                "hora_hasta": "14:00",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response, "Ya existe un horario que se superpone ese día."
+        )
+        self.assertEqual(
+            HorarioAtencion.objects.for_gimnasio(self.gimnasio).count(), 1
+        )
+
+
+class HorarioAtencionEliminarViewTests(TestCase):
+    def setUp(self):
+        self.gimnasio_a = Gimnasio.objects.create(nombre="A", slug="a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="B", slug="b")
+        self.staff_a = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff_a, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF
+        )
+        self.horario_a = HorarioAtencion.objects.create(
+            gimnasio=self.gimnasio_a,
+            dia_semana=DiaSemana.LUNES,
+            hora_desde=time(8, 0),
+            hora_hasta=time(12, 0),
+        )
+        self.horario_b = HorarioAtencion.objects.create(
+            gimnasio=self.gimnasio_b,
+            dia_semana=DiaSemana.LUNES,
+            hora_desde=time(8, 0),
+            hora_hasta=time(12, 0),
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+    def test_eliminar_horario_propio_lo_borra(self):
+        response = self.client.post(
+            reverse("turnos:horario_eliminar", args=[self.horario_a.pk])
+        )
+
+        self.assertRedirects(response, reverse("turnos:configuracion"))
+        self.assertFalse(
+            HorarioAtencion.objects.filter(pk=self.horario_a.pk).exists()
+        )
+
+    def test_eliminar_horario_de_otro_gimnasio_da_404_y_no_borra(self):
+        response = self.client.post(
+            reverse("turnos:horario_eliminar", args=[self.horario_b.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(
+            HorarioAtencion.objects.filter(pk=self.horario_b.pk).exists()
+        )
+
+
+class CupoExcepcionCreateViewTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.staff = User.objects.create_user("staff-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        ConfiguracionTurnos.objects.create(
+            gimnasio=self.gimnasio, duracion_minutos=60, vacantes_default=5
+        )
+        HorarioAtencion.objects.create(
+            gimnasio=self.gimnasio,
+            dia_semana=DiaSemana.LUNES,
+            hora_desde=time(8, 0),
+            hora_hasta=time(12, 0),
+        )
+        self.client.login(username="staff-1", password="clave-123456")
+
+    def test_crear_excepcion_con_hora_que_es_franja_valida(self):
+        response = self.client.post(
+            reverse("turnos:cupo_crear"),
+            {"dia_semana": DiaSemana.LUNES, "hora_inicio": "09:00", "vacantes": 3},
+        )
+
+        self.assertRedirects(response, reverse("turnos:configuracion"))
+        self.assertEqual(
+            CupoExcepcion.objects.for_gimnasio(self.gimnasio).count(), 1
+        )
+
+    def test_hora_que_no_es_franja_no_crea_fila(self):
+        response = self.client.post(
+            reverse("turnos:cupo_crear"),
+            {"dia_semana": DiaSemana.LUNES, "hora_inicio": "09:30", "vacantes": 3},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Ese horario no coincide con ninguna franja de turnos de ese día.",
+        )
+        self.assertEqual(CupoExcepcion.objects.count(), 0)
+
+
+class CupoExcepcionEliminarViewTests(TestCase):
+    def setUp(self):
+        self.gimnasio_a = Gimnasio.objects.create(nombre="A", slug="a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="B", slug="b")
+        self.staff_a = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff_a, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF
+        )
+        self.excepcion_a = CupoExcepcion.objects.create(
+            gimnasio=self.gimnasio_a,
+            dia_semana=DiaSemana.LUNES,
+            hora_inicio=time(8, 0),
+            vacantes=3,
+        )
+        self.excepcion_b = CupoExcepcion.objects.create(
+            gimnasio=self.gimnasio_b,
+            dia_semana=DiaSemana.LUNES,
+            hora_inicio=time(8, 0),
+            vacantes=3,
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+    def test_eliminar_excepcion_propia_la_borra(self):
+        response = self.client.post(
+            reverse("turnos:cupo_eliminar", args=[self.excepcion_a.pk])
+        )
+
+        self.assertRedirects(response, reverse("turnos:configuracion"))
+        self.assertFalse(
+            CupoExcepcion.objects.filter(pk=self.excepcion_a.pk).exists()
+        )
+
+    def test_eliminar_excepcion_de_otro_gimnasio_da_404_y_no_borra(self):
+        response = self.client.post(
+            reverse("turnos:cupo_eliminar", args=[self.excepcion_b.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(
+            CupoExcepcion.objects.filter(pk=self.excepcion_b.pk).exists()
+        )
+
+
+class ConfiguracionTurnosReconciliacionTests(TestCase):
+    """Cambiar la configuración (vía la vista, no el service directo) debe
+    disparar `eliminar_reservas_desencajadas` y avisar al staff cuántas
+    reservas futuras se cancelaron -- pero nunca tocar reservas pasadas."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.staff = User.objects.create_user("staff-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        ConfiguracionTurnos.objects.create(
+            gimnasio=self.gimnasio, duracion_minutos=60, vacantes_default=5
+        )
+        for dia in range(7):
+            HorarioAtencion.objects.create(
+                gimnasio=self.gimnasio,
+                dia_semana=dia,
+                hora_desde=time(0, 0),
+                hora_hasta=time(23, 0),
+            )
+        ahora = timezone.localtime()
+        self.fecha_futura = (ahora + timedelta(days=2)).date()
+        self.fecha_pasada = (ahora - timedelta(days=2)).date()
+        self.client.login(username="staff-1", password="clave-123456")
+
+    def test_cambiar_duracion_borra_reserva_futura_desencajada_y_avisa(self):
+        # 10:00 es franja válida con duración=60; deja de serlo con 45
+        # (600' no es múltiplo de 45').
+        Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(10, 0),
+        )
+
+        response = self.client.post(
+            reverse("turnos:configuracion"),
+            {"duracion_minutos": 45, "vacantes_default": 5},
+            follow=True,
+        )
+
+        self.assertFalse(
+            Reserva.objects.filter(
+                gimnasio=self.gimnasio,
+                fecha=self.fecha_futura,
+                hora_inicio=time(10, 0),
+            ).exists()
+        )
+        self.assertContains(
+            response,
+            "Se cancelaron 1 reserva(s) futura(s) que ya no encajan en la nueva grilla.",
+        )
+
+    def test_reserva_pasada_no_se_borra_ni_genera_aviso(self):
+        Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.fecha_pasada,
+            hora_inicio=time(10, 0),
+        )
+
+        response = self.client.post(
+            reverse("turnos:configuracion"),
+            {"duracion_minutos": 45, "vacantes_default": 5},
+            follow=True,
+        )
+
+        self.assertTrue(
+            Reserva.objects.filter(
+                gimnasio=self.gimnasio,
+                fecha=self.fecha_pasada,
+                hora_inicio=time(10, 0),
+            ).exists()
+        )
+        self.assertNotContains(response, "Se cancelaron")

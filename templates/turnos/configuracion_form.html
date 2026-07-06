@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% block title %}Configuración de turnos · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="tarjeta">
+    <h1>Configuración de turnos</h1>
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="boton">Guardar</button>
+    </form>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Horarios de atención</h2>
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Día</th>
+          <th>Desde</th>
+          <th>Hasta</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for horario in horarios %}
+          <tr>
+            <td>{{ horario.get_dia_semana_display }}</td>
+            <td>{{ horario.hora_desde }}</td>
+            <td>{{ horario.hora_hasta }}</td>
+            <td>
+              <form method="post" action="{% url 'turnos:horario_eliminar' horario.pk %}" style="display:inline">
+                {% csrf_token %}
+                <button type="submit" class="boton-peligro">Eliminar</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4" class="texto-suave">No hay horarios de atención cargados todavía.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h3>Agregar horario</h3>
+    <form method="post" action="{% url 'turnos:horario_crear' %}" novalidate>
+      {% csrf_token %}
+      {{ horario_form.as_p }}
+      <button type="submit" class="boton">Agregar horario</button>
+    </form>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Excepciones de cupo</h2>
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Día</th>
+          <th>Hora</th>
+          <th>Vacantes</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for excepcion in excepciones %}
+          <tr>
+            <td>{{ excepcion.get_dia_semana_display }}</td>
+            <td>{{ excepcion.hora_inicio }}</td>
+            <td>{{ excepcion.vacantes }}</td>
+            <td>
+              <form method="post" action="{% url 'turnos:cupo_eliminar' excepcion.pk %}" style="display:inline">
+                {% csrf_token %}
+                <button type="submit" class="boton-peligro">Eliminar</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4" class="texto-suave">No hay excepciones de cupo cargadas todavía.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <h3>Agregar excepción de cupo</h3>
+    <form method="post" action="{% url 'turnos:cupo_crear' %}" novalidate>
+      {% csrf_token %}
+      {{ cupo_form.as_p }}
+      <button type="submit" class="boton">Agregar excepción</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
