@@ -516,3 +516,122 @@ class NovedadMarcarLeidaViewTests(TestCase):
 
         self.assertEqual(response.status_code, 405)
         self.assertFalse(NovedadLeida.objects.exists())
+
+
+class NovedadListViewConteoLecturasTests(TestCase):
+    """`NovedadListView` expone `lecturas_count` por novedad (annotate) y
+    `alumnos_activos_count` en el contexto (Fase 5, Feature B, Task 9)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.staff = User.objects.create_user("staff-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-1", password="clave-123456")
+
+    def test_lecturas_count_por_novedad(self):
+        con_lecturas = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Con lecturas", mensaje="Contenido."
+        )
+        sin_lecturas = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Sin lecturas", mensaje="Contenido."
+        )
+        alumno_1 = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        alumno_2 = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        NovedadLeida.objects.create(novedad=con_lecturas, alumno=alumno_1)
+        NovedadLeida.objects.create(novedad=con_lecturas, alumno=alumno_2)
+
+        response = self.client.get(reverse("novedades:listado"))
+
+        novedades_por_pk = {n.pk: n for n in response.context["novedades"]}
+        self.assertEqual(novedades_por_pk[con_lecturas.pk].lecturas_count, 2)
+        self.assertEqual(novedades_por_pk[sin_lecturas.pk].lecturas_count, 0)
+
+    def test_alumnos_activos_count_ignora_inactivos(self):
+        Alumno.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Activo",
+            apellido="Uno",
+            estado=Alumno.Estado.ACTIVO,
+        )
+        Alumno.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Activo",
+            apellido="Dos",
+            estado=Alumno.Estado.ACTIVO,
+        )
+        Alumno.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Inactivo",
+            apellido="Uno",
+            estado=Alumno.Estado.INACTIVO,
+        )
+
+        response = self.client.get(reverse("novedades:listado"))
+
+        self.assertEqual(response.context["alumnos_activos_count"], 2)
+
+
+class NovedadLecturasViewTests(TestCase):
+    """`NovedadLecturasView`: detalle de qué alumnos leyeron una novedad
+    (Fase 5, Feature B, Task 9)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        self.staff = User.objects.create_user("staff-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.novedad = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Aviso", mensaje="Contenido."
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        NovedadLeida.objects.create(novedad=self.novedad, alumno=self.alumno)
+
+    def test_lista_los_alumnos_que_leyeron(self):
+        self.client.login(username="staff-1", password="clave-123456")
+
+        response = self.client.get(
+            reverse("novedades:lecturas", args=[self.novedad.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Pérez")
+        self.assertContains(response, "Juan")
+
+    def test_novedad_de_otro_gimnasio_da_404(self):
+        novedad_otro = Novedad.objects.create(
+            gimnasio=self.otro_gimnasio, titulo="Otro aviso", mensaje="Contenido."
+        )
+        self.client.login(username="staff-1", password="clave-123456")
+
+        response = self.client.get(
+            reverse("novedades:lecturas", args=[novedad_otro.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_alumno_recibe_403(self):
+        user = User.objects.create_user("alumno-1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.login(username="alumno-1", password="clave-123456")
+
+        response = self.client.get(
+            reverse("novedades:lecturas", args=[self.novedad.pk])
+        )
+
+        self.assertEqual(response.status_code, 403)

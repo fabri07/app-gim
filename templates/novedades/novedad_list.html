@@ -17,6 +17,7 @@
         <th>Visible hasta</th>
         <th>Activa</th>
         <th>Visible ahora</th>
+        <th>Leída por</th>
         <th></th>
       </tr>
     </thead>
@@ -41,6 +42,9 @@
             {% endif %}
           </td>
           <td>
+            <a href="{% url 'novedades:lecturas' novedad.pk %}">{{ novedad.lecturas_count }}/{{ alumnos_activos_count }}</a>
+          </td>
+          <td>
             <a href="{% url 'novedades:editar' novedad.pk %}">Editar</a>
             {% if novedad.activa %}
               &middot;
@@ -53,7 +57,7 @@
         </tr>
       {% empty %}
         <tr>
-          <td colspan="6" class="texto-suave">No hay novedades publicadas todavía.</td>
+          <td colspan="7" class="texto-suave">No hay novedades publicadas todavía.</td>
         </tr>
       {% endfor %}
     </tbody>
