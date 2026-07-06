@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 import dj_database_url
@@ -136,6 +137,16 @@ else:
             'NAME': BASE_DIR / 'db.sqlite3',
         }
     }
+
+
+# Hashing de contraseñas: PBKDF2 (el default de Django) es lento a propósito
+# (resiste fuerza bruta en producción) -- del orden de cientos de ms por hash.
+# La suite crea decenas de usuarios (`create_user`) y hace más de cien
+# `client.login()`, cada uno disparando ese hash; con `manage.py test` corriendo,
+# se cambia a MD5 (inseguro, pero acá no importa) y baja la mayor parte del
+# tiempo de la suite sin tocar el hasher real de producción/dev.
+if "test" in sys.argv:
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 
 # Password validation
