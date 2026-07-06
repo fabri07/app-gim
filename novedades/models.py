@@ -10,7 +10,7 @@ modela el dato.
 from django.db import models
 from django.utils.timezone import now
 
-from core.models import TenantOwnedModel, TenantQuerySet
+from core.models import TenantOwnedModel, TenantQuerySet, TimeStampedModel
 
 
 class NovedadQuerySet(TenantQuerySet):
@@ -77,3 +77,21 @@ class Novedad(TenantOwnedModel):
 
     def __str__(self):
         return self.titulo
+
+
+class NovedadLeida(TimeStampedModel):
+    """Registro de que un alumno leyó una novedad. NO es TenantOwnedModel -- se
+    scopea a través de `novedad.gimnasio`, mismo patrón que RutinaAsignadaItem."""
+
+    novedad = models.ForeignKey(Novedad, on_delete=models.CASCADE, related_name="lecturas")
+    alumno = models.ForeignKey(
+        "alumnos.Alumno", on_delete=models.CASCADE, related_name="novedades_leidas"
+    )
+
+    class Meta:
+        verbose_name = "novedad leída"
+        verbose_name_plural = "novedades leídas"
+        unique_together = ("novedad", "alumno")
+
+    def __str__(self):
+        return f"{self.alumno} leyó '{self.novedad.titulo}'"

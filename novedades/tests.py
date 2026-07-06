@@ -6,16 +6,21 @@ heredado de `TenantQuerySet.for_gimnasio` (core).
 Fase 2 agrega tests de las vistas de gestión (`NovedadListView`,
 `NovedadCreateView`, `NovedadUpdateView`, `NovedadOcultarView`): login/rol
 requerido, aislamiento por gimnasio y el atajo de "ocultar".
+
+Fase 5 agrega el modelo `NovedadLeida` (Feature B: read-receipts) — tests de
+creación, unicidad y cascade delete.
 """
 
 from datetime import timedelta
 
 from django.contrib.auth.models import User
+from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
 from django.utils.timezone import now
 
-from novedades.models import Novedad
+from alumnos.models import Alumno
+from novedades.models import Novedad, NovedadLeida
 from tenants.models import Gimnasio, Perfil
 
 
@@ -314,3 +319,61 @@ class NovedadListadoVisibleAhoraTests(TestCase):
         self.assertIn(vigente.pk, response.context["ids_visibles"])
         self.assertNotIn(oculta.pk, response.context["ids_visibles"])
         self.assertNotIn(vencida.pk, response.context["ids_visibles"])
+
+
+class NovedadLeidaModelTests(TestCase):
+    """Tests del modelo `NovedadLeida` (Feature B: read-receipts).
+
+    Cubre: creación + __str__, unicidad (novedad, alumno), y cascade delete.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Juan",
+            apellido="Pérez",
+        )
+        self.novedad = Novedad.objects.create(
+            gimnasio=self.gimnasio,
+            titulo="Aviso importante",
+            mensaje="El gimnasio abre de 7 a 22.",
+        )
+
+    def test_creacion_y_str(self):
+        """NovedadLeida se crea correctamente y __str__ devuelve el formato esperado."""
+        novedad_leida = NovedadLeida.objects.create(
+            novedad=self.novedad,
+            alumno=self.alumno,
+        )
+
+        self.assertEqual(
+            str(novedad_leida), "Pérez, Juan leyó 'Aviso importante'"
+        )
+
+    def test_unicidad_novedad_alumno(self):
+        """Crear dos NovedadLeida con el mismo par (novedad, alumno) lanza IntegrityError."""
+        NovedadLeida.objects.create(
+            novedad=self.novedad,
+            alumno=self.alumno,
+        )
+
+        with self.assertRaises(IntegrityError):
+            NovedadLeida.objects.create(
+                novedad=self.novedad,
+                alumno=self.alumno,
+            )
+
+    def test_cascade_delete_desde_novedad(self):
+        """Borrar una Novedad borra en cascada sus NovedadLeida."""
+        NovedadLeida.objects.create(
+            novedad=self.novedad,
+            alumno=self.alumno,
+        )
+        self.assertEqual(NovedadLeida.objects.count(), 1)
+
+        self.novedad.delete()
+
+        self.assertEqual(NovedadLeida.objects.count(), 0)
