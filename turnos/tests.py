@@ -1454,6 +1454,39 @@ class MisTurnosViewTests(TestCase):
             response, "El gimnasio todavía no configuró sus turnos."
         )
 
+    def test_reserva_existente_sigue_visible_aunque_el_gimnasio_quede_sin_horarios(
+        self,
+    ):
+        """Regression: "Mis reservas" no debe depender de `sin_horarios`. Si
+        el staff borra todos los `HorarioAtencion` (p.ej. a mitad de una
+        reconfiguración) mientras el alumno todavía tiene una `Reserva`
+        futura de antes, tiene que poder seguir viéndola (y cancelarla desde
+        ahí) aunque no haya grilla para reservar turnos nuevos -- la
+        cancelación por POST directo ya funcionaba, pero quedaba
+        indescubrible desde la pantalla."""
+        fecha = self.hoy + timedelta(days=1)
+        reserva = Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=fecha,
+            hora_inicio=time(9, 0),
+        )
+        HorarioAtencion.objects.for_gimnasio(self.gimnasio).delete()
+
+        response = self.client.get(reverse("turnos:mis_turnos"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Mis reservas")
+        # Identifica la fila de la reserva por su URL de cancelar (única por
+        # pk) en vez de la fecha formateada -- `{{ reserva.fecha }}` se
+        # localiza (es-ar) a "7 Julio 2026", no al `str(date)` de Python.
+        self.assertContains(
+            response, reverse("turnos:cancelar", args=[reserva.pk])
+        )
+        self.assertContains(
+            response, "El gimnasio todavía no configuró sus turnos."
+        )
+
     def test_alumno_de_gimnasio_b_no_ve_ocupacion_de_reservas_del_gimnasio_a(self):
         Reserva.objects.create(
             gimnasio=self.gimnasio,
