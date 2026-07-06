@@ -6,7 +6,7 @@ patrón de ~/gestor-pedidos/core/tests.py — en Fase 0 todavía no existe ning�
 TenantOwnedModel concreto para ejercitarlos.
 """
 
-from django.contrib.auth.models import User
+from django.contrib.auth.models import AnonymousUser, User
 from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
@@ -178,6 +178,13 @@ class AlumnoRequiredMixinTests(TestCase):
         with self.assertRaises(PermissionDenied):
             self._get(user)
 
+    def test_anonimo_es_redirigido_al_login(self):
+        request = self.factory.get("/")
+        request.user = AnonymousUser()
+        response = _VistaDeAlumno.as_view()(request)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
     def test_alumno_sin_alumno_vinculado_entra_y_alumno_es_none(self):
         user = User.objects.create_user("alumno-sin-vinculo", password="x")
         Perfil.objects.create(usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
@@ -186,7 +193,6 @@ class AlumnoRequiredMixinTests(TestCase):
         request = self.factory.get("/")
         request.user = user
         view = _VistaDeAlumno()
-        view.request = request
         view.setup(request)
         response = view.dispatch(request)
 
