@@ -27,10 +27,16 @@ class NovedadListView(StaffRequiredMixin, TenantScopedMixin, ListView):
     context_object_name = "novedades"
 
     def get_queryset(self):
-        # `distinct=True` evita que el join con `lecturas` infle el conteo
-        # si en el futuro se agrega otra tabla relacionada por `Novedad`.
-        return super().get_queryset().annotate(
-            lecturas_count=Count("lecturas", distinct=True)
+        # Solo broadcasts (`alumno` nulo): las novedades personales (Parte B)
+        # son autogeneradas por la reconciliación de turnos y no se gestionan
+        # desde acá; además su audiencia es 1, así que ensuciarían el conteo
+        # "X/Y leído". `distinct=True` evita que el join con `lecturas` infle
+        # el conteo si en el futuro se agrega otra tabla relacionada.
+        return (
+            super()
+            .get_queryset()
+            .filter(alumno__isnull=True)
+            .annotate(lecturas_count=Count("lecturas", distinct=True))
         )
 
     def get_context_data(self, **kwargs):
@@ -41,6 +47,7 @@ class NovedadListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         context["ids_visibles"] = set(
             Novedad.objects.for_gimnasio(self.gimnasio)
             .visibles()
+            .filter(alumno__isnull=True)
             .values_list("pk", flat=True)
         )
         # Denominador del "X/Y leído" del listado (Feature B, Task 9): import
@@ -125,7 +132,10 @@ class NovedadMarcarLeidaView(AlumnoRequiredMixin, View):
         if self.alumno is None:
             raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
         novedad = get_object_or_404(
-            Novedad.objects.for_gimnasio(self.gimnasio).visibles(), pk=kwargs["pk"]
+            Novedad.objects.for_gimnasio(self.gimnasio)
+            .visibles()
+            .para_alumno(self.alumno),
+            pk=kwargs["pk"],
         )
         NovedadLeida.objects.get_or_create(novedad=novedad, alumno=self.alumno)
         return redirect("home")

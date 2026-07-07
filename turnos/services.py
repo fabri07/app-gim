@@ -366,9 +366,22 @@ def url_google_calendar(reserva, gimnasio) -> str:
 
 
 @dataclass(frozen=True)
+class EventoReconciliacion:
+    """Detalle de lo que le pasó a UNA reserva durante la reconciliación
+    (Parte B). `hora_nueva` seteada = migrada a ese horario; `None` = cancelada.
+    Lo consume `_generar_novedades_personales` para avisarle al alumno."""
+
+    alumno: "Alumno"
+    fecha: date
+    hora_original: time
+    hora_nueva: time | None
+
+
+@dataclass(frozen=True)
 class ResultadoReconciliacion:
     migradas: int
     canceladas: int
+    eventos: tuple[EventoReconciliacion, ...] = ()
 
 
 def _franja_mas_cercana(franjas: list[tuple[time, time]], hora_original: time) -> time | None:
@@ -406,6 +419,7 @@ def reconciliar_reservas_desencajadas(gimnasio) -> ResultadoReconciliacion:
     ahora = _ahora_local()
     migradas = 0
     canceladas = 0
+    eventos: list[EventoReconciliacion] = []
 
     with transaction.atomic():
         for reserva in Reserva.objects.for_gimnasio(gimnasio):
@@ -415,9 +429,10 @@ def reconciliar_reservas_desencajadas(gimnasio) -> ResultadoReconciliacion:
             if es_franja_vigente(gimnasio, reserva.fecha, reserva.hora_inicio):
                 continue
 
+            hora_original = reserva.hora_inicio
             dia_semana = reserva.fecha.weekday()
             franjas = franjas_del_dia(gimnasio, dia_semana)
-            nueva_hora = _franja_mas_cercana(franjas, reserva.hora_inicio)
+            nueva_hora = _franja_mas_cercana(franjas, hora_original)
 
             if nueva_hora is not None:
                 vacantes = vacantes_de_franja(
@@ -441,9 +456,82 @@ def reconciliar_reservas_desencajadas(gimnasio) -> ResultadoReconciliacion:
                     reserva.hora_inicio = nueva_hora
                     reserva.save(update_fields=["hora_inicio"])
                     migradas += 1
+                    eventos.append(
+                        EventoReconciliacion(
+                            alumno=reserva.alumno,
+                            fecha=reserva.fecha,
+                            hora_original=hora_original,
+                            hora_nueva=nueva_hora,
+                        )
+                    )
                     continue
 
+            eventos.append(
+                EventoReconciliacion(
+                    alumno=reserva.alumno,
+                    fecha=reserva.fecha,
+                    hora_original=hora_original,
+                    hora_nueva=None,
+                )
+            )
             reserva.delete()
             canceladas += 1
 
-    return ResultadoReconciliacion(migradas=migradas, canceladas=canceladas)
+        _generar_novedades_personales(gimnasio, eventos)
+
+    return ResultadoReconciliacion(
+        migradas=migradas, canceladas=canceladas, eventos=tuple(eventos)
+    )
+
+
+def _generar_novedades_personales(gimnasio, eventos: list[EventoReconciliacion]) -> None:
+    """Por cada reserva migrada/cancelada, le crea al alumno una `Novedad`
+    personal (Parte B) que verá en su portal. Corre dentro del mismo
+    `transaction.atomic()` de la reconciliación: la migración y su aviso
+    commitean juntos o nada.
+
+    Se saltea al alumno SIN `Perfil`: no tiene login ni portal donde ver la
+    novedad (la reserva igual se migró/canceló y el staff la ve en el conteo
+    agregado). `visible_hasta` = la fecha de la reserva afectada, así el aviso
+    se autovence una vez que esa fecha pasó.
+
+    Import tardío de `Novedad` para no acoplar `turnos` con `novedades` a nivel
+    de módulo (mismo patrón que `tenants/views.py::HomeView`). Se llama
+    `full_clean()` antes de `save()` porque `create()`/`save()` no invocan
+    `clean()`, y este helper es la única vía de creación de novedades personales.
+    """
+    from novedades.models import Novedad
+
+    hoy = _ahora_local().date()
+
+    for evento in eventos:
+        if evento.alumno.perfil_id is None:
+            continue
+
+        if evento.hora_nueva is not None:
+            titulo = "Cambió el horario de tu turno"
+            mensaje = (
+                f"Tu turno del {evento.fecha:%d/%m} se movió de las "
+                f"{evento.hora_original:%H:%M} a las {evento.hora_nueva:%H:%M} "
+                "porque el gimnasio actualizó su grilla de horarios."
+            )
+        else:
+            titulo = "Se canceló uno de tus turnos"
+            mensaje = (
+                f"Tu turno del {evento.fecha:%d/%m} a las "
+                f"{evento.hora_original:%H:%M} se canceló porque ya no hay un "
+                "horario compatible en la nueva grilla. Podés reservar otro "
+                "desde 'Reservar turno'."
+            )
+
+        novedad = Novedad(
+            gimnasio=gimnasio,
+            alumno=evento.alumno,
+            titulo=titulo,
+            mensaje=mensaje,
+            fecha_publicacion=hoy,
+            visible_hasta=evento.fecha,
+            activa=True,
+        )
+        novedad.full_clean()
+        novedad.save()

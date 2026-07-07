@@ -37,6 +37,13 @@ class NovedadQuerySet(TenantQuerySet):
             models.Q(visible_hasta__isnull=True) | models.Q(visible_hasta__gte=hoy)
         )
 
+    def para_alumno(self, alumno):
+        """Novedades dirigidas a `alumno`: los broadcasts del gimnasio
+        (`alumno` nulo) MÁS las personales de ese alumno. Excluye las
+        personales de otros alumnos. Se combina con `for_gimnasio()`/
+        `visibles()` en las vistas del portal (Parte B)."""
+        return self.filter(models.Q(alumno__isnull=True) | models.Q(alumno=alumno))
+
 
 def _hoy():
     # Función a nivel de módulo (no lambda): las migraciones de Django
@@ -60,6 +67,12 @@ class Novedad(TenantOwnedModel):
 
     `activa` permite "ocultar" (Fase 2) sin perder el registro, análogo a
     `Gimnasio.activo`.
+
+    `alumno` nulo (lo habitual) = novedad de gimnasio, la ve todo el gimnasio
+    (broadcast, comportamiento desde Fase 1). Cuando está seteado, es una
+    novedad PERSONAL que solo ve ese alumno (Parte B: aviso proactivo cuando su
+    reserva se migra/cancela). Hoy solo la reconciliación de turnos crea
+    personales; el staff sigue publicando siempre broadcasts.
     """
 
     titulo = models.CharField(max_length=140)
@@ -67,6 +80,13 @@ class Novedad(TenantOwnedModel):
     fecha_publicacion = models.DateField(default=_hoy)
     visible_hasta = models.DateField(null=True, blank=True)
     activa = models.BooleanField(default=True)
+    alumno = models.ForeignKey(
+        "alumnos.Alumno",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="novedades_personales",
+    )
 
     objects = NovedadQuerySet.as_manager()
 
@@ -77,6 +97,14 @@ class Novedad(TenantOwnedModel):
 
     def __str__(self):
         return self.titulo
+
+    def clean(self):
+        super().clean()
+        # Una novedad personal y su destinatario deben ser del mismo gimnasio
+        # (mismo criterio que `NovedadLeida.clean`). Los broadcasts (`alumno`
+        # nulo) no tienen nada que validar acá.
+        if self.gimnasio_id and self.alumno_id:
+            validar_gimnasio_de(self.gimnasio, alumno=self.alumno)
 
 
 class NovedadLeida(TimeStampedModel):

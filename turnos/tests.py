@@ -29,6 +29,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from alumnos.models import Alumno
+from novedades.models import Novedad
 from tenants.models import Gimnasio, Perfil
 from turnos.models import (
     ConfiguracionTurnos,
@@ -926,6 +927,121 @@ class ReconciliarReservasDesencajadasTests(TestCase):
         )
 
 
+class ReconciliacionGeneraNovedadesTests(TestCase):
+    """Parte B: cuando la reconciliación migra o cancela la reserva de un
+    alumno CON login, le genera una `Novedad` personal. Alumno sin `Perfil`
+    (sin portal donde verla) no genera nada, pero la reserva se migra/cancela
+    igual. Mismo escenario base que `ReconciliarReservasDesencajadasTests`."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
+        )
+        self.perfil = Perfil.objects.create(
+            usuario=User.objects.create_user("alumno-1", password="clave-123456"),
+            gimnasio=self.gimnasio,
+            rol=Perfil.Rol.ALUMNO,
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez", perfil=self.perfil
+        )
+        self.config = ConfiguracionTurnos.objects.create(
+            gimnasio=self.gimnasio, duracion_minutos=60, vacantes_default=5
+        )
+        for dia in range(7):
+            HorarioAtencion.objects.create(
+                gimnasio=self.gimnasio,
+                dia_semana=dia,
+                hora_desde=time(0, 0),
+                hora_hasta=time(23, 0),
+            )
+        self.fecha_futura = (timezone.localtime() + timedelta(days=2)).date()
+
+    def _reserva_10hs(self):
+        return Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(10, 0),
+        )
+
+    def test_migrar_genera_novedad_personal(self):
+        self._reserva_10hs()
+        self.config.duracion_minutos = 45  # 10:00 deja de encajar; migra a 09:45
+        self.config.save()
+
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
+
+        self.assertEqual(resultado.migradas, 1)
+        novedad = Novedad.objects.get(alumno=self.alumno)
+        self.assertEqual(novedad.gimnasio, self.gimnasio)
+        self.assertEqual(novedad.titulo, "Cambió el horario de tu turno")
+        self.assertIn("10:00", novedad.mensaje)
+        self.assertIn("09:45", novedad.mensaje)
+        self.assertEqual(novedad.visible_hasta, self.fecha_futura)
+        self.assertTrue(novedad.activa)
+
+    def test_cancelar_genera_novedad_personal(self):
+        self._reserva_10hs()
+        HorarioAtencion.objects.filter(
+            gimnasio=self.gimnasio, dia_semana=self.fecha_futura.weekday()
+        ).delete()  # sin franjas ese día -> se cancela
+
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
+
+        self.assertEqual(resultado.canceladas, 1)
+        novedad = Novedad.objects.get(alumno=self.alumno)
+        self.assertEqual(novedad.titulo, "Se canceló uno de tus turnos")
+        self.assertIn("10:00", novedad.mensaje)
+        self.assertEqual(novedad.visible_hasta, self.fecha_futura)
+
+    def test_alumno_sin_perfil_no_genera_novedad_pero_migra_igual(self):
+        alumno_sin_login = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Bruno", apellido="Sin Login"
+        )
+        Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno_sin_login,
+            fecha=self.fecha_futura,
+            hora_inicio=time(10, 0),
+        )
+        self.config.duracion_minutos = 45
+        self.config.save()
+
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
+
+        self.assertEqual(resultado.migradas, 1)
+        self.assertFalse(Novedad.objects.filter(alumno=alumno_sin_login).exists())
+
+    def test_reserva_que_sigue_encajando_no_genera_novedad(self):
+        Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(3, 0),  # 180' sigue siendo múltiplo de 45
+        )
+        self.config.duracion_minutos = 45
+        self.config.save()
+
+        reconciliar_reservas_desencajadas(self.gimnasio)
+
+        self.assertFalse(Novedad.objects.filter(alumno=self.alumno).exists())
+
+    def test_eventos_expone_detalle_por_reserva(self):
+        self._reserva_10hs()
+        self.config.duracion_minutos = 45
+        self.config.save()
+
+        resultado = reconciliar_reservas_desencajadas(self.gimnasio)
+
+        self.assertEqual(len(resultado.eventos), 1)
+        evento = resultado.eventos[0]
+        self.assertEqual(evento.alumno, self.alumno)
+        self.assertEqual(evento.fecha, self.fecha_futura)
+        self.assertEqual(evento.hora_original, time(10, 0))
+        self.assertEqual(evento.hora_nueva, time(9, 45))
+
+
 class UrlGoogleCalendarTests(TestCase):
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(
@@ -1442,6 +1558,43 @@ class ConfiguracionTurnosReconciliacionTests(TestCase):
             response,
             "Se reprogramaron 1 reserva(s) futura(s) a un nuevo horario.",
         )
+
+    def test_end_to_end_reprogramar_genera_novedad_en_el_portal_del_alumno(self):
+        # Cadena completa de la Parte B, a través de las vistas y plantillas
+        # reales: el staff cambia la config -> la reserva se reprograma -> se
+        # crea una Novedad personal -> el alumno la ve en su portal (con badge
+        # "Nueva"), y el staff NO la ve en su listado de gestión.
+        user_alumno = User.objects.create_user("alumno-e2e", password="clave-123456")
+        perfil_alumno = Perfil.objects.create(
+            usuario=user_alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Eva", apellido="Ruiz", perfil=perfil_alumno
+        )
+        Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno,
+            fecha=self.fecha_futura,
+            hora_inicio=time(10, 0),
+        )
+
+        self.client.post(
+            reverse("turnos:configuracion"),
+            {"duracion_minutos": 45, "vacantes_default": 5},
+            follow=True,
+        )
+
+        novedad = Novedad.objects.get(alumno=alumno)
+        self.assertEqual(novedad.titulo, "Cambió el horario de tu turno")
+
+        listado = self.client.get(reverse("novedades:listado"))
+        self.assertNotContains(listado, "Cambió el horario de tu turno")
+
+        self.client.logout()
+        self.client.login(username="alumno-e2e", password="clave-123456")
+        portal = self.client.get(reverse("home"))
+        self.assertContains(portal, "Cambió el horario de tu turno")
+        self.assertContains(portal, "Nueva")
 
     def test_cambiar_duracion_cancela_si_no_hay_franja_alternativa_y_avisa(self):
         # Sin ningún HorarioAtencion ese día en la config nueva, no hay a

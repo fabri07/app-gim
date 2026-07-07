@@ -114,6 +114,80 @@ class NovedadTenantIsolationTests(TestCase):
         )
 
 
+class NovedadPersonalModelTests(TestCase):
+    """`Novedad` con destinatario (`alumno`): personal vs. broadcast,
+    `para_alumno()`, coherencia de gimnasio y aislamiento intra-gimnasio
+    (Parte B). `alumno` nulo = broadcast (comportamiento histórico)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        self.otro_alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+
+    def test_broadcast_tiene_alumno_none(self):
+        novedad = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Aviso", mensaje="Para todos."
+        )
+        self.assertIsNone(novedad.alumno)
+
+    def test_para_alumno_incluye_broadcasts_y_propias_excluye_ajenas(self):
+        broadcast = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Broadcast", mensaje="Para todos."
+        )
+        propia = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Propia", mensaje="Para vos.",
+            alumno=self.alumno,
+        )
+        ajena = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Ajena", mensaje="Para otro.",
+            alumno=self.otro_alumno,
+        )
+
+        qs = Novedad.objects.for_gimnasio(self.gimnasio).para_alumno(self.alumno)
+
+        self.assertIn(broadcast, qs)
+        self.assertIn(propia, qs)
+        self.assertNotIn(ajena, qs)
+
+    def test_personal_de_un_alumno_no_la_ve_otro_del_mismo_gimnasio(self):
+        personal = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Propia", mensaje="Para vos.",
+            alumno=self.alumno,
+        )
+
+        qs_otro = Novedad.objects.for_gimnasio(self.gimnasio).para_alumno(
+            self.otro_alumno
+        )
+
+        self.assertNotIn(personal, qs_otro)
+
+    def test_clean_rechaza_alumno_de_otro_gimnasio(self):
+        otro_gimnasio = Gimnasio.objects.create(nombre="B", slug="b")
+        alumno_de_otro = Alumno.objects.create(
+            gimnasio=otro_gimnasio, nombre="X", apellido="Y"
+        )
+        novedad = Novedad(
+            gimnasio=self.gimnasio, titulo="T", mensaje="M", alumno=alumno_de_otro
+        )
+
+        with self.assertRaises(ValidationError):
+            novedad.full_clean()
+
+    def test_cascade_delete_desde_alumno(self):
+        personal = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Propia", mensaje="Para vos.",
+            alumno=self.alumno,
+        )
+
+        self.alumno.delete()
+
+        self.assertFalse(Novedad.objects.filter(pk=personal.pk).exists())
+
+
 class NovedadViewsAccesoTests(TestCase):
     """Login y rol requeridos para entrar a cualquier vista de gestión."""
 
@@ -489,6 +563,39 @@ class NovedadMarcarLeidaViewTests(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertFalse(NovedadLeida.objects.exists())
 
+    def test_alumno_marca_su_novedad_personal(self):
+        personal = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Para vos", mensaje="Personal.",
+            alumno=self.alumno,
+        )
+        self.client.login(username="alumno-1", password="clave-123456")
+
+        response = self.client.post(
+            reverse("novedades:marcar_leida", args=[personal.pk])
+        )
+
+        self.assertRedirects(response, reverse("home"))
+        self.assertTrue(
+            NovedadLeida.objects.filter(novedad=personal, alumno=self.alumno).exists()
+        )
+
+    def test_no_puede_marcar_personal_de_otro_alumno_da_404(self):
+        otro_alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Otra", apellido="Persona"
+        )
+        personal_ajena = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Para otro", mensaje="Personal.",
+            alumno=otro_alumno,
+        )
+        self.client.login(username="alumno-1", password="clave-123456")
+
+        response = self.client.post(
+            reverse("novedades:marcar_leida", args=[personal_ajena.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(NovedadLeida.objects.exists())
+
     def test_novedad_oculta_da_404(self):
         oculta = Novedad.objects.create(
             gimnasio=self.gimnasio,
@@ -590,6 +697,28 @@ class NovedadListViewConteoLecturasTests(TestCase):
         response = self.client.get(reverse("novedades:listado"))
 
         self.assertEqual(response.context["alumnos_activos_count"], 2)
+
+    def test_listado_staff_no_incluye_novedades_personales(self):
+        # Parte B: las personales son autogeneradas y no se gestionan desde el
+        # listado; tampoco deben aparecer ni contarse en "ids_visibles".
+        broadcast = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Broadcast", mensaje="Para todos."
+        )
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        personal = Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Personal", mensaje="Para uno.",
+            alumno=alumno,
+        )
+
+        response = self.client.get(reverse("novedades:listado"))
+
+        pks = {n.pk for n in response.context["novedades"]}
+        self.assertIn(broadcast.pk, pks)
+        self.assertNotIn(personal.pk, pks)
+        self.assertIn(broadcast.pk, response.context["ids_visibles"])
+        self.assertNotIn(personal.pk, response.context["ids_visibles"])
 
 
 class NovedadLecturasViewTests(TestCase):

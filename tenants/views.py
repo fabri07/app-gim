@@ -105,13 +105,15 @@ class HomeView(LoginRequiredMixin, TemplateView):
             alumno = None
 
         if alumno is None:
+            # Sin `Alumno` vinculado no hay a quién dirigirle personales: solo
+            # los broadcasts del gimnasio (`alumno` nulo).
             return {
                 "alumno": None,
                 "rutina_actual": None,
                 "mensualidad_actual": None,
-                "ultimas_novedades": Novedad.objects.for_gimnasio(
-                    perfil.gimnasio
-                ).visibles()[:5],
+                "ultimas_novedades": Novedad.objects.for_gimnasio(perfil.gimnasio)
+                .visibles()
+                .filter(alumno__isnull=True)[:5],
                 "ids_novedades_leidas": set(),
             }
 
@@ -123,9 +125,9 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "mensualidad_actual": alumno.pagos.filter(
                 mes=hoy.month, anio=hoy.year
             ).first(),
-            "ultimas_novedades": Novedad.objects.for_gimnasio(
-                perfil.gimnasio
-            ).visibles()[:5],
+            "ultimas_novedades": Novedad.objects.for_gimnasio(perfil.gimnasio)
+            .visibles()
+            .para_alumno(alumno)[:5],
             "ids_novedades_leidas": set(
                 alumno.novedades_leidas.values_list("novedad_id", flat=True)
             ),
@@ -157,7 +159,11 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "rutinas_activas_count": RutinaAsignada.objects.for_gimnasio(gimnasio)
             .filter(activa=True)
             .count(),
-            "ultimas_novedades": Novedad.objects.for_gimnasio(gimnasio).visibles()[:5],
+            # Solo broadcasts en el dashboard del staff: las personales son de
+            # un alumno puntual, no del panel de gestión (Parte B).
+            "ultimas_novedades": Novedad.objects.for_gimnasio(gimnasio)
+            .visibles()
+            .filter(alumno__isnull=True)[:5],
         }
 
 

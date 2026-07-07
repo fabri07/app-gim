@@ -318,6 +318,35 @@ class HomeViewAlumnoTests(TestCase):
         self.assertContains(response, "Rutina de Darío")
         self.assertNotContains(response, "Rutina de Elena")
 
+    def test_alumno_ve_su_novedad_personal_pero_no_la_de_otro(self):
+        # Parte B: las novedades personales (con `alumno`) solo las ve su
+        # destinatario; los broadcasts (sin `alumno`), todo el gimnasio.
+        _u_a, _p_a, alumno_a = self._crear_alumno_con_login(
+            username="hugo", nombre="Hugo", apellido="Vera"
+        )
+        _u_b, _p_b, alumno_b = self._crear_alumno_con_login(
+            username="ines", nombre="Inés", apellido="Mora"
+        )
+        Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Aviso para todo el gimnasio",
+            mensaje="Broadcast.",
+        )
+        Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Aviso solo para Hugo",
+            mensaje="Personal.", alumno=alumno_a,
+        )
+        Novedad.objects.create(
+            gimnasio=self.gimnasio, titulo="Aviso solo para Ines",
+            mensaje="Personal.", alumno=alumno_b,
+        )
+
+        self.client.login(username="hugo", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, "Aviso para todo el gimnasio")
+        self.assertContains(response, "Aviso solo para Hugo")
+        self.assertNotContains(response, "Aviso solo para Ines")
+
     def test_contexto_incluye_ids_novedades_leidas(self):
         _user, _perfil, alumno = self._crear_alumno_con_login(
             username="fede", nombre="Fede", apellido="Ruiz"
