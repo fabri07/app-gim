@@ -218,7 +218,40 @@ class MisTurnosView(AlumnoRequiredMixin, TemplateView):
         context["sin_horarios"] = not HorarioAtencion.objects.for_gimnasio(
             self.gimnasio
         ).exists()
+        context.update(self._contexto_calendar())
         return context
+
+    def _contexto_calendar(self):
+        """Estado de la integración con Google Calendar del alumno (Parte C).
+        Import tardío: si la integración no está configurada, el portal sigue
+        mostrando solo el deep-link. `calendario` depende de `turnos`, así que
+        el import va acá (no a nivel de módulo) para evitar el ciclo."""
+        from calendario import services
+        from calendario.models import GoogleCalendarCredential, ReservaCalendarEvent
+
+        activa = services.integracion_activa()
+        if not activa or self.alumno is None:
+            return {
+                "calendar_mostrar": False,
+                "calendar_conectado": False,
+                "calendar_summary": "",
+                "calendar_hay_errores": False,
+            }
+        try:
+            credencial = self.alumno.credencial_calendar
+        except GoogleCalendarCredential.DoesNotExist:
+            credencial = None
+        conectado = bool(credencial and credencial.esta_conectada)
+        hay_errores = conectado and ReservaCalendarEvent.objects.filter(
+            reserva__alumno=self.alumno,
+            sync_status=ReservaCalendarEvent.SyncStatus.ERROR,
+        ).exists()
+        return {
+            "calendar_mostrar": True,
+            "calendar_conectado": conectado,
+            "calendar_summary": credencial.google_calendar_summary if conectado else "",
+            "calendar_hay_errores": hay_errores,
+        }
 
 
 class ReservarView(AlumnoRequiredMixin, View):

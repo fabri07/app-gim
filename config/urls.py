@@ -14,6 +14,7 @@ urlpatterns = [
     path("pagos/", include("pagos.urls")),
     path("novedades/", include("novedades.urls")),
     path("turnos/", include("turnos.urls")),
+    path("calendario/", include("calendario.urls")),
 ]
 
 if settings.DEBUG:

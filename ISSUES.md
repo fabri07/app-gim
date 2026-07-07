@@ -20,6 +20,52 @@ del log.
 
 ---
 
+## [2026-07-07] Parte C: `cryptography` no compila con `pip install` a secas (Python 3.14)
+
+**Estado:** resuelto
+
+**Impacto:** al agregar `cryptography` (para cifrar tokens OAuth), `pip install`
+intenta compilar el sdist con Rust y falla (no hay toolchain de Rust en el
+entorno; venv Python 3.14 x86_64). Bloquea instalar las deps de la Parte C.
+
+**Resolución / próximo paso:** existe wheel binario — instalar con
+`pip install --only-binary :all: cryptography` (quedó `cryptography==48.0.1`
+pineada en `requirements.txt`). En Render (Linux) hay wheels manylinux, así que
+`pip install -r requirements.txt` no compila nada; el gotcha es solo del entorno
+local de dev.
+
+## [2026-07-07] Parte C: `calendar.app.created` no escribe en el calendario principal
+
+**Estado:** aceptado (decisión de diseño)
+
+**Impacto:** el scope `calendar.app.created` (el más acotado, recomendado por
+Google) NO permite crear eventos en el calendario principal del alumno: solo en
+calendarios que la propia app crea. Escribir en el principal exigiría
+`calendar.events`, con más fricción de consentimiento/verificación.
+
+**Resolución / próximo paso:** al conectar, la app crea/reutiliza un calendario
+secundario "Turnos de {gimnasio}" y vuelca ahí todos los eventos
+(`calendario.services.asegurar_calendario_secundario`). Al desconectar se borra
+ese calendario. La app del gimnasio sigue siendo la fuente de verdad de los
+turnos; Google Calendar es un mirror opcional.
+
+## [2026-07-07] Parte C: sync best-effort e integración apagada por defecto
+
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** la sync con Google es síncrona best-effort (sin outbox/reintentos
+en background): si la API de Google falla, el evento queda en
+`sync_status=error` y NO se reintenta solo (el alumno puede "Reintentar
+sincronización" desde el portal). Además la integración solo se prende si están
+las 4 `GOOGLE_*`; si no, degrada al deep-link.
+
+**Resolución / próximo paso:** aceptado para el MVP (coincide con "primero se
+cobra"). Si hiciera falta robustez, migrar a un outbox + management command
+(mismo patrón que `generar_pagos`). Producción arranca en modo OAuth "Testing"
+de Google (hasta 100 usuarios, sin verificación/CASA).
+
+---
+
 ## [2026-07-01] Fase 0: el ROADMAP asumía Django en Vektor, pero Vektor es FastAPI
 
 **Estado:** resuelto

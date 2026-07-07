@@ -56,6 +56,18 @@ services:
         sync: false
       - key: R2_ENDPOINT_URL
         sync: false
+      # Parte C: integración opcional con Google Calendar (OAuth por alumno).
+      # Credenciales creadas en Google Cloud Console (ver CLAUDE.md). Sin las 4,
+      # la integración queda apagada y el portal usa solo el deep-link.
+      # GOOGLE_OAUTH_REDIRECT_URI = https://<URL de Render>/calendario/callback/
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        sync: false
+      - key: GOOGLE_TOKEN_ENCRYPTION_KEY
+        sync: false
 
   # Cron de autogeneración de pagos (pagos.generar_pagos_pendientes +
   # marcar_vencidos, ver pagos/management/commands/generar_pagos.py).

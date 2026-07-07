@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     #   pagos      -> PagoMensual (FK a alumnos)
     #   novedades  -> Novedad (sin dependencias de dominio)
     #   turnos     -> ConfiguracionTurnos/HorarioAtencion/CupoExcepcion/Reserva (FK a alumnos)
+    #   calendario -> integración opcional con Google Calendar (FK a alumnos/turnos)
     'core',
     'tenants',
     'ejercicios',
@@ -82,6 +83,7 @@ INSTALLED_APPS = [
     'pagos',
     'novedades',
     'turnos',
+    'calendario',
 ]
 
 MIDDLEWARE = [
@@ -254,6 +256,42 @@ if _r2_seteadas:
     # no tiene sentido que sean públicos aunque el logo sí podría serlo.
     AWS_QUERYSTRING_AUTH = True
     AWS_QUERYSTRING_EXPIRE = 3600
+
+
+# Parte C: integración opcional con Google Calendar (OAuth por alumno).
+# Mismo criterio todo-o-nada que R2: si la integración está configurada, las 4
+# variables deben estar; si no hay ninguna, la app degrada al deep-link actual
+# ("Agregar a Google Calendar") sin tocar nada. Ver `calendario.services`.
+GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
+GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
+GOOGLE_OAUTH_REDIRECT_URI = os.environ.get("GOOGLE_OAUTH_REDIRECT_URI", "")
+GOOGLE_TOKEN_ENCRYPTION_KEY = os.environ.get("GOOGLE_TOKEN_ENCRYPTION_KEY", "")
+
+# Scope mínimo: `calendar.app.created` NO da acceso al calendario principal del
+# alumno -- solo permite crear calendarios secundarios y gestionar eventos en
+# ellos (por eso la app crea un calendario "Turnos de {gimnasio}"). Ver
+# https://developers.google.com/workspace/calendar/api/auth
+GOOGLE_CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.app.created"]
+
+_GOOGLE_VARS = [
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_REDIRECT_URI",
+    "GOOGLE_TOKEN_ENCRYPTION_KEY",
+]
+_google_seteadas = [v for v in _GOOGLE_VARS if os.environ.get(v)]
+
+if _google_seteadas and len(_google_seteadas) < len(_GOOGLE_VARS):
+    _google_faltantes = ", ".join(v for v in _GOOGLE_VARS if v not in _google_seteadas)
+    raise ImproperlyConfigured(
+        f"Configuración de Google Calendar incompleta: falta(n) {_google_faltantes}. "
+        "Las 4 variables GOOGLE_* deben estar todas seteadas (o ninguna, para "
+        "degradar al deep-link) -- ver .env.example."
+    )
+
+# Bandera que consumen `calendario.services`/vistas/templates para prender o no
+# la integración. True solo si están las 4 credenciales.
+GOOGLE_CALENDAR_ENABLED = len(_google_seteadas) == len(_GOOGLE_VARS)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

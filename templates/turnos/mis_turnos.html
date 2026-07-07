@@ -4,6 +4,30 @@
 
 {% block content %}
 <div class="contenido--ancho">
+  {% if calendar_mostrar %}
+    <div class="tarjeta">
+      <h2>Google Calendar</h2>
+      {% if calendar_conectado %}
+        <p>Sincronizando tus turnos en el calendario
+          <strong>{{ calendar_summary|default:"Turnos" }}</strong>.</p>
+        {% if calendar_hay_errores %}
+          <p class="badge badge--riesgo">Algunos turnos no se pudieron sincronizar.</p>
+          <form method="post" action="{% url 'calendario:reintentar' %}" style="display:inline">
+            {% csrf_token %}
+            <button type="submit" class="boton">Reintentar sincronización</button>
+          </form>
+        {% endif %}
+        <form method="post" action="{% url 'calendario:desconectar' %}" style="display:inline">
+          {% csrf_token %}
+          <button type="submit" class="boton-peligro">Desconectar</button>
+        </form>
+      {% else %}
+        <p>Conectá tu Google Calendar y tus turnos se van a agendar solos.</p>
+        <a href="{% url 'calendario:conectar' %}" class="boton">Conectar mi Google Calendar</a>
+      {% endif %}
+    </div>
+  {% endif %}
+
   {% if mis_reservas %}
     <div class="tarjeta">
       <h2>Mis reservas</h2>
