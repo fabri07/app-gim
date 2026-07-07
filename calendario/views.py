@@ -71,12 +71,30 @@ class CalendarioCallbackView(AlumnoRequiredMixin, View):
         try:
             credentials = services.intercambiar_code(code, state)
             credencial = services.guardar_credencial(self.alumno, credentials)
-            services.asegurar_calendario_secundario(credencial)
-            services.sincronizar_reservas_futuras(self.alumno)
         except Exception as exc:  # noqa: BLE001 - best-effort, no romper el portal
             logger.warning("Fallo conectando Google Calendar: %s", services._sanitizar_error(exc))
             messages.error(request, "No se pudo conectar Google Calendar. Probá de nuevo.")
             return redirect("turnos:mis_turnos")
+
+        # Sin refresh token (ni nuevo ni previo) no se puede refrescar después:
+        # `esta_conectada` sería False. Abortamos con un mensaje claro en vez de
+        # dejar una credencial inútil y hacer un backfill que no haría nada.
+        if not credencial.esta_conectada:
+            credencial.delete()
+            messages.error(
+                request,
+                "Google no otorgó acceso sin conexión. Revocá el acceso de la app "
+                "en tu cuenta de Google y volvé a conectar.",
+            )
+            return redirect("turnos:mis_turnos")
+
+        # Provisión del calendario + backfill: best-effort, no revierten la
+        # conexión (la credencial ya es válida; la sync se puede reintentar).
+        try:
+            services.asegurar_calendario_secundario(credencial)
+            services.sincronizar_reservas_futuras(self.alumno)
+        except Exception as exc:  # noqa: BLE001 - best-effort
+            logger.warning("Conectado, pero falló el backfill inicial: %s", services._sanitizar_error(exc))
 
         messages.success(request, "¡Listo! Tus turnos se van a sincronizar con tu Google Calendar.")
         return redirect("turnos:mis_turnos")

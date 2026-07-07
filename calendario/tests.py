@@ -180,6 +180,21 @@ class CallbackViewTests(TestCase):
         self.assertEqual(cred.refresh_token, "viejo")
         self.assertEqual(cred.access_token, "nuevo_access")
 
+    @patch("calendario.services.sincronizar_reservas_futuras")
+    @patch("calendario.services.asegurar_calendario_secundario")
+    @patch("calendario.services.intercambiar_code")
+    def test_callback_primera_conexion_sin_refresh_token_aborta(self, mock_code, mock_cal, mock_backfill):
+        # Primera conexión, Google no manda refresh_token y no había uno previo.
+        mock_code.return_value = MagicMock(refresh_token=None, token="a_tok", expiry=None, scopes=None)
+        self._sembrar_state("st_ok")
+
+        response = self.client.get(reverse("calendario:callback"), {"code": "c", "state": "st_ok"})
+
+        self.assertRedirects(response, reverse("turnos:mis_turnos"))
+        self.assertFalse(GoogleCalendarCredential.objects.exists())  # no deja credencial inútil
+        mock_cal.assert_not_called()
+        mock_backfill.assert_not_called()
+
 
 @override_settings(**GOOGLE_ON)
 class DesconectarViewTests(TestCase):
@@ -339,6 +354,58 @@ class SyncReservasSignalsTests(TestCase):
                 self.config.save()
         service.events.return_value.update.assert_called()
 
+    def test_reserva_save_sin_update_fields_actualiza_el_evento(self):
+        self._conectar()
+        reserva = self._reserva()
+        ReservaCalendarEvent.objects.create(reserva=reserva, google_event_id="evt_1")
+        service = _mock_service()
+        with patch("calendario.services.get_calendar_service", return_value=service):
+            with self.captureOnCommitCallbacks(execute=True):
+                reserva.save()  # update_fields is None
+        service.events.return_value.update.assert_called()
+
+    def test_backfill_crea_eventos_de_reservas_futuras_preexistentes(self):
+        # Reserva creada ANTES de conectar (integración apagada -> sin evento).
+        with override_settings(GOOGLE_CALENDAR_ENABLED=False):
+            reserva = self._reserva()
+        self.assertFalse(ReservaCalendarEvent.objects.exists())
+
+        self._conectar()
+        service = _mock_service()
+        with patch("calendario.services.get_calendar_service", return_value=service):
+            services.sincronizar_reservas_futuras(self.alumno)
+
+        evento = ReservaCalendarEvent.objects.get(reserva=reserva)
+        self.assertEqual(evento.google_event_id, "evt_1")
+        self.assertEqual(evento.sync_status, ReservaCalendarEvent.SyncStatus.OK)
+
+    def test_token_expirado_se_refresca_y_persiste_el_nuevo_access(self):
+        cred = self._conectar()
+        fake_creds = MagicMock(valid=False, refresh_token="r", token="nuevo_access", expiry=None)
+        fake_creds.refresh.side_effect = lambda _req: setattr(fake_creds, "valid", True)
+        with patch("calendario.services._google_credentials", return_value=fake_creds), \
+                patch("googleapiclient.discovery.build"):
+            services.get_calendar_service(cred)
+        fake_creds.refresh.assert_called_once()
+        cred.refresh_from_db()
+        self.assertEqual(cred.access_token, "nuevo_access")
+
+    def test_refresh_error_marca_la_credencial_revocada(self):
+        from google.auth.exceptions import RefreshError
+
+        cred = self._conectar()
+        reserva = self._reserva()
+        fake_creds = MagicMock(valid=False, refresh_token="r", token="t", expiry=None)
+        fake_creds.refresh.side_effect = RefreshError("invalid_grant")
+        with patch("calendario.services._google_credentials", return_value=fake_creds):
+            services.crear_evento(reserva)  # dispara get_calendar_service -> refresh falla
+
+        cred.refresh_from_db()
+        self.assertIsNotNone(cred.revoked_at)
+        self.assertFalse(cred.esta_conectada)
+        evento = ReservaCalendarEvent.objects.get(reserva=reserva)
+        self.assertEqual(evento.sync_status, ReservaCalendarEvent.SyncStatus.ERROR)
+
 
 @override_settings(**GOOGLE_ON)
 class PortalCalendarUITests(TestCase):
@@ -373,3 +440,25 @@ class PortalCalendarUITests(TestCase):
     def test_integracion_apagada_no_muestra_card(self):
         response = self.client.get(reverse("turnos:mis_turnos"))
         self.assertNotContains(response, "Conectar mi Google Calendar")
+
+    def test_muestra_reintentar_si_hay_evento_en_error(self):
+        GoogleCalendarCredential.objects.create(
+            alumno=self.alumno, refresh_token="r",
+            google_calendar_id="cal_abc", google_calendar_summary="Turnos de Alfa",
+        )
+        ConfiguracionTurnos.objects.create(
+            gimnasio=self.gimnasio, duracion_minutos=60, vacantes_default=5
+        )
+        # La reserva dispara el signal, pero sin captureOnCommitCallbacks el
+        # on_commit no corre (no toca la API real en el test).
+        reserva = Reserva.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            fecha=(timezone.localtime() + timedelta(days=2)).date(), hora_inicio=time(10, 0),
+        )
+        ReservaCalendarEvent.objects.create(
+            reserva=reserva, sync_status=ReservaCalendarEvent.SyncStatus.ERROR
+        )
+
+        response = self.client.get(reverse("turnos:mis_turnos"))
+
+        self.assertContains(response, "Reintentar sincronización")

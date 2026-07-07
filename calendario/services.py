@@ -128,15 +128,29 @@ def _google_credentials(credencial):
     )
 
 
+def _marcar_revocada(credencial) -> None:
+    """El refresh token dejó de servir (revocado por el usuario o expirado):
+    marca la credencial para que el portal ofrezca reconectar. A partir de acá
+    `esta_conectada` es False, así que la sync deja de intentar."""
+    credencial.revoked_at = now()
+    credencial.save(update_fields=["revoked_at", "modificado"])
+
+
 def get_calendar_service(credencial):
     """Cliente de la API de Calendar para ese alumno, refrescando el access
-    token si venció (y persistiendo el nuevo)."""
+    token si venció (y persistiendo el nuevo). Si el refresh falla porque el
+    token fue revocado, marca la credencial como revocada y propaga."""
+    from google.auth.exceptions import RefreshError
     from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
 
     creds = _google_credentials(credencial)
     if not creds.valid and creds.refresh_token:
-        creds.refresh(Request())
+        try:
+            creds.refresh(Request())
+        except RefreshError:
+            _marcar_revocada(credencial)
+            raise
         credencial.access_token = creds.token or ""
         credencial.expires_at = getattr(creds, "expiry", None)
         credencial.save(update_fields=["access_token", "expires_at", "modificado"])
