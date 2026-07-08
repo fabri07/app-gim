@@ -113,7 +113,7 @@ class ConectarViewTests(TestCase):
 
     @patch(
         "calendario.services.build_authorization_url",
-        return_value=("https://accounts.google.com/o/oauth2/auth?x=1", "st_123"),
+        return_value=("https://accounts.google.com/o/oauth2/auth?x=1", "st_123", "verif_123"),
     )
     def test_redirige_a_google_y_guarda_state(self, _mock):
         self.client.login(username="alu", password="clave-123456")
@@ -121,6 +121,7 @@ class ConectarViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("accounts.google.com", response["Location"])
         self.assertEqual(self.client.session["calendario_oauth_state"], "st_123")
+        self.assertEqual(self.client.session["calendario_oauth_verifier"], "verif_123")
 
 
 @override_settings(**GOOGLE_ON)
@@ -194,6 +195,55 @@ class CallbackViewTests(TestCase):
         self.assertFalse(GoogleCalendarCredential.objects.exists())  # no deja credencial inútil
         mock_cal.assert_not_called()
         mock_backfill.assert_not_called()
+
+
+@override_settings(**GOOGLE_ON)
+class PKCECodeVerifierTests(TestCase):
+    """Regresión: el `code_verifier` de PKCE tiene que persistir entre la
+    autorización (connect) y el intercambio del code (callback). Si no, Google
+    rechaza el token con `invalid_grant: Missing code verifier`. El bug original
+    se escapó porque los tests de connect/callback mockeaban
+    `build_authorization_url`/`intercambiar_code` y nunca ejercitaban la costura
+    real por la sesión."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.user = User.objects.create_user("alu", password="clave-123456")
+        self.perfil = Perfil.objects.create(
+            usuario=self.user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez", perfil=self.perfil
+        )
+        self.client.login(username="alu", password="clave-123456")
+
+    def test_build_authorization_url_devuelve_code_verifier(self):
+        url, state, verifier = services.build_authorization_url()
+        self.assertIn("code_challenge=", url)
+        self.assertTrue(verifier)
+
+    def test_connect_guarda_el_verifier_en_sesion(self):
+        self.client.get(reverse("calendario:conectar"))
+        self.assertTrue(self.client.session.get("calendario_oauth_verifier"))
+
+    @patch("calendario.services.sincronizar_reservas_futuras")
+    @patch("calendario.services.asegurar_calendario_secundario")
+    @patch("calendario.services.intercambiar_code")
+    def test_callback_pasa_a_intercambiar_code_el_verifier_de_la_sesion(
+        self, mock_code, mock_cal, mock_backfill
+    ):
+        mock_code.return_value = MagicMock(refresh_token="r", token="a", expiry=None, scopes=None)
+        # `connect` real: guarda state + verifier en la MISMA sesión del client.
+        self.client.get(reverse("calendario:conectar"))
+        session = self.client.session
+        state = session["calendario_oauth_state"]
+        verifier = session["calendario_oauth_verifier"]
+
+        self.client.get(reverse("calendario:callback"), {"code": "c", "state": state})
+
+        mock_code.assert_called_once()
+        # El verifier que se guardó al autorizar tiene que llegar al intercambio.
+        self.assertIn(verifier, mock_code.call_args.args)
 
 
 @override_settings(**GOOGLE_ON)
@@ -425,6 +475,12 @@ class PortalCalendarUITests(TestCase):
     def test_muestra_boton_conectar_si_no_conectado(self):
         response = self.client.get(reverse("turnos:mis_turnos"))
         self.assertContains(response, "Conectar mi Google Calendar")
+
+    def test_boton_conectar_desactiva_hx_boost(self):
+        # Conectar redirige cross-origin a Google; con hx-boost activo htmx
+        # intercepta el <a> y no puede seguir ese 302 -> el botón no haría nada.
+        response = self.client.get(reverse("turnos:mis_turnos"))
+        self.assertContains(response, 'hx-boost="false"')
 
     def test_muestra_estado_conectado(self):
         GoogleCalendarCredential.objects.create(

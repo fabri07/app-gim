@@ -73,24 +73,32 @@ def build_flow(state: str | None = None):
     )
 
 
-def build_authorization_url() -> tuple[str, str]:
-    """URL a la que mandar al alumno + el `state` (anti-CSRF, se guarda en sesión).
+def build_authorization_url() -> tuple[str, str, str]:
+    """URL a la que mandar al alumno + el `state` (anti-CSRF) + el `code_verifier`
+    de PKCE. Los tres se guardan en sesión: el verifier hay que reenviarlo en el
+    callback o Google rechaza el token con `invalid_grant: Missing code verifier`.
 
     `access_type=offline` para recibir `refresh_token`; `prompt=consent` para que
     Google lo reenvíe también en reconexiones (no siempre lo hace);
-    `include_granted_scopes=true` para consentimiento incremental.
+    `include_granted_scopes=true` para consentimiento incremental. `Flow` activa
+    PKCE por defecto: `authorization_url()` genera el `code_verifier` en la
+    instancia y publica su `code_challenge` en la URL.
     """
-    url, state = build_flow().authorization_url(
+    flow = build_flow()
+    url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
     )
-    return url, state
+    return url, state, flow.code_verifier
 
 
-def intercambiar_code(code: str, state: str):
-    """Cambia el authorization code por credenciales de Google."""
+def intercambiar_code(code: str, state: str, code_verifier: str | None = None):
+    """Cambia el authorization code por credenciales de Google. `code_verifier`
+    es el generado en `build_authorization_url` (viaja por la sesión): sin él
+    `fetch_token` no manda el verifier de PKCE y Google rechaza el intercambio."""
     flow = build_flow(state=state)
+    flow.code_verifier = code_verifier
     flow.fetch_token(code=code)
     return flow.credentials
 

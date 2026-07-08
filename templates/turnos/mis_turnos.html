@@ -23,7 +23,10 @@
         </form>
       {% else %}
         <p>Conectá tu Google Calendar y tus turnos se van a agendar solos.</p>
-        <a href="{% url 'calendario:conectar' %}" class="boton">Conectar mi Google Calendar</a>
+        {# hx-boost="false": conectar redirige a accounts.google.com (cross-origin);
+           htmx no puede seguir ese 302 por XHR, así que dejamos que el navegador
+           haga la navegación dura. Mismo criterio que los forms de upload. #}
+        <a href="{% url 'calendario:conectar' %}" class="boton" hx-boost="false">Conectar mi Google Calendar</a>
       {% endif %}
     </div>
   {% endif %}

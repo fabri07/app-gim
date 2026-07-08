@@ -265,3 +265,48 @@ sobre-ocupación real, la solución es barata: `reconciliar_reservas_desencajada
 ya llama a `obtener_configuracion(gimnasio)` al principio; cambiarlo por
 `ConfiguracionTurnos.objects.select_for_update().get(pk=config.pk)` (mismo
 patrón que `crear_reserva`) la serializaría contra reservas concurrentes.
+
+## [2026-07-08] Parte C: OAuth de Google fallaba con "Missing code verifier" (PKCE)
+
+**Estado:** resuelto
+
+**Impacto:** al conectar Google Calendar desde el portal del alumno, el
+callback fallaba siempre con `InvalidGrantError: (invalid_grant) Missing code
+verifier` y mostraba "No se pudo conectar Google Calendar". La conexión era
+100% inservible en producción. Detectado probando el flujo real en el
+navegador (los tests no lo cubrían, ver abajo).
+
+**Causa raíz:** `google-auth-oauthlib` activa PKCE por defecto.
+`build_authorization_url()` llamaba a `flow.authorization_url(...)`, que genera
+un `code_verifier` en esa instancia de `Flow` y publica su `code_challenge` en
+la URL — pero la función devolvía solo `(url, state)` y **descartaba el
+verifier**. En el callback, `intercambiar_code()` creaba un `Flow` nuevo (con
+`code_verifier=None`), así que `fetch_token()` no mandaba el verifier y Google
+rechazaba el intercambio.
+
+**Resolución:** persistir el `code_verifier` en la sesión junto al `state`.
+`build_authorization_url()` ahora devuelve `(url, state, code_verifier)`
+(capturado de `flow.code_verifier`); la vista lo guarda en
+`session["calendario_oauth_verifier"]`; el callback lo saca de la sesión y lo
+pasa a `intercambiar_code(code, state, code_verifier)`, que lo setea en el
+`Flow` antes de `fetch_token`. Verificado end-to-end en el navegador (conexión
+OK, credencial + calendario secundario "Turnos de {gimnasio}" creados) y con
+tests de regresión que ejercitan la costura connect→sesión→callback SIN
+mockear `build_authorization_url`/`intercambiar_code` (que es justo lo que
+tapaba el bug: los tests viejos mockeaban ambas puntas y nunca probaban que el
+verifier viajara por la sesión).
+
+## [2026-07-08] Parte C: el botón "Conectar Google Calendar" no funcionaba bajo hx-boost
+
+**Estado:** resuelto
+
+**Impacto:** el `<a>` "Conectar mi Google Calendar" en `mis_turnos.html` no
+hacía nada al clickearlo. El `<body>` tiene `hx-boost="true"`, así que htmx
+interceptaba el click y hacía un GET por XHR a `/calendario/conectar/`, que
+responde 302 hacia `accounts.google.com`; htmx no puede seguir un redirect
+cross-origin por XHR, y el click quedaba tragado (sin error visible).
+
+**Resolución:** `hx-boost="false"` en ese link, para que el navegador haga la
+navegación dura y siga el 302 externo. Mismo criterio que ya se usaba para los
+forms con upload de archivo (ver CLAUDE.md, sección UI/HTMX). Cubierto con un
+test que verifica que el atributo se emite.

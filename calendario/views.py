@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _STATE_KEY = "calendario_oauth_state"
 _STATE_TS_KEY = "calendario_oauth_state_ts"
+_VERIFIER_KEY = "calendario_oauth_verifier"  # code_verifier de PKCE (ver services)
 _STATE_MAX_SEGUNDOS = 600  # el state en sesión vale 10 minutos
 
 
@@ -37,9 +38,10 @@ class ConectarCalendarioView(AlumnoRequiredMixin, View):
             messages.info(request, "La integración con Google Calendar no está disponible.")
             return redirect("turnos:mis_turnos")
 
-        url, state = services.build_authorization_url()
+        url, state, verifier = services.build_authorization_url()
         request.session[_STATE_KEY] = state
         request.session[_STATE_TS_KEY] = now().isoformat()
+        request.session[_VERIFIER_KEY] = verifier
         return redirect(url)
 
 
@@ -64,12 +66,13 @@ class CalendarioCallbackView(AlumnoRequiredMixin, View):
 
         code = request.GET.get("code")
         state = request.GET.get("state")
+        verifier = request.session.pop(_VERIFIER_KEY, None)
         if not code:
             messages.error(request, "Google no devolvió el código de autorización.")
             return redirect("turnos:mis_turnos")
 
         try:
-            credentials = services.intercambiar_code(code, state)
+            credentials = services.intercambiar_code(code, state, verifier)
             credencial = services.guardar_credencial(self.alumno, credentials)
         except Exception as exc:  # noqa: BLE001 - best-effort, no romper el portal
             logger.warning("Fallo conectando Google Calendar: %s", services._sanitizar_error(exc))
