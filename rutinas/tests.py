@@ -756,6 +756,26 @@ class RutinasViewsTests(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertTrue(RutinaPlantillaItem.objects.filter(pk=self.item_b.pk).exists())
 
+    def test_plantilla_detail_muestra_columna_semana(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[self.plantilla_a.pk])
+        )
+        self.assertContains(response, "<th>Semana</th>", html=True)
+
+    def test_asignada_detail_muestra_semana_actual(self):
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio_a,
+            alumno=self.alumno_a,
+            plantilla=self.plantilla_a,
+            fecha_inicio=timezone.localdate() - timedelta(days=7),
+        )
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("rutinas:asignada_detalle", args=[asignada.pk])
+        )
+        self.assertContains(response, "Semana actual: 2 de 4")
+
     # 4. El campo `ejercicio` del form de item solo ofrece ejercicios del
     # propio gimnasio -- el cierre del hueco de FK-injection.
     def test_ejercicio_del_form_de_item_esta_scopeado_al_gimnasio(self):

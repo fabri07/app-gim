@@ -40,6 +40,7 @@
     <table class="tabla">
       <thead>
         <tr>
+          <th>Semana</th>
           <th>Día</th>
           <th>Orden</th>
           <th>Ejercicio</th>
@@ -53,6 +54,7 @@
       <tbody>
         {% for item in items %}
           <tr>
+            <td>{{ item.semana }}</td>
             <td>{{ item.dia }}</td>
             <td>{{ item.orden }}</td>
             <td>{{ item.ejercicio.nombre }}</td>
@@ -71,7 +73,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="8" class="texto-suave">Esta plantilla todavía no tiene ejercicios.</td>
+            <td colspan="9" class="texto-suave">Esta plantilla todavía no tiene ejercicios.</td>
           </tr>
         {% endfor %}
       </tbody>

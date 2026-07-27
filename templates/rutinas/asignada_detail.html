@@ -14,6 +14,7 @@
     <p>Objetivo: {{ asignada.objetivo_snapshot }}</p>
     <p>Fecha de inicio: {{ asignada.fecha_inicio }}</p>
     <p>Fecha de fin: {{ asignada.fecha_fin|default:"—" }}</p>
+    <p>Semana actual: {{ asignada.semana_actual }} de 4</p>
     <p>
       Estado:
       {% if asignada.activa %}
@@ -29,6 +30,7 @@
     <table class="tabla">
       <thead>
         <tr>
+          <th>Semana</th>
           <th>Día</th>
           <th>Orden</th>
           <th>Ejercicio</th>
@@ -42,6 +44,7 @@
       <tbody>
         {% for item in items %}
           <tr>
+            <td>{{ item.semana }}</td>
             <td>{{ item.dia }}</td>
             <td>{{ item.orden }}</td>
             <td>{{ item.ejercicio_nombre_snapshot }}</td>
@@ -59,7 +62,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="8" class="texto-suave">Esta rutina no tiene ejercicios.</td>
+            <td colspan="9" class="texto-suave">Esta rutina no tiene ejercicios.</td>
           </tr>
         {% endfor %}
       </tbody>
