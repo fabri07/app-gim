@@ -14,12 +14,13 @@ FK-injection en el campo `ejercicio` del item, duplicar (POST-only) y el
 flujo de asignación de punta a punta.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from alumnos.models import Alumno
 from ejercicios.models import Ejercicio
@@ -176,6 +177,48 @@ class SemanaItemTests(RutinasTestCase):
         item.save()
         item.refresh_from_db()
         self.assertEqual(item.semana, 4)
+
+
+class SemanaActualTests(RutinasTestCase):
+    """`RutinaAsignada.semana_actual`: calculada por fecha, clampeada en 4,
+    sin loop automático."""
+
+    def _asignada_con_inicio(self, fecha_inicio):
+        plantilla, _, _ = self.crear_plantilla_con_items()
+        return RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            plantilla=plantilla,
+            fecha_inicio=fecha_inicio,
+        )
+
+    def test_semana_actual_es_1_el_dia_de_inicio(self):
+        asignada = self._asignada_con_inicio(timezone.localdate())
+        self.assertEqual(asignada.semana_actual, 1)
+
+    def test_semana_actual_es_1_a_los_6_dias(self):
+        asignada = self._asignada_con_inicio(
+            timezone.localdate() - timedelta(days=6)
+        )
+        self.assertEqual(asignada.semana_actual, 1)
+
+    def test_semana_actual_pasa_a_2_a_los_7_dias(self):
+        asignada = self._asignada_con_inicio(
+            timezone.localdate() - timedelta(days=7)
+        )
+        self.assertEqual(asignada.semana_actual, 2)
+
+    def test_semana_actual_se_clampea_en_4(self):
+        asignada = self._asignada_con_inicio(
+            timezone.localdate() - timedelta(days=100)
+        )
+        self.assertEqual(asignada.semana_actual, 4)
+
+    def test_semana_actual_es_1_si_fecha_inicio_es_futura(self):
+        asignada = self._asignada_con_inicio(
+            timezone.localdate() + timedelta(days=5)
+        )
+        self.assertEqual(asignada.semana_actual, 1)
 
 
 class CrearDesdePlantillaTests(RutinasTestCase):

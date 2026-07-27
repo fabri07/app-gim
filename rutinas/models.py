@@ -25,6 +25,7 @@ Repetir el FK `gimnasio` en el item sería redundante (mismo criterio que
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.utils import timezone
 
 from core.models import TenantOwnedModel, TimeStampedModel
 
@@ -220,6 +221,18 @@ class RutinaAsignada(TenantOwnedModel):
                 ]
             )
         return asignada
+
+    @property
+    def semana_actual(self) -> int:
+        """Semana del ciclo (1-4) que le toca a esta asignación hoy, según
+        `fecha_inicio`. Se recalcula sola en cada acceso -- no es un campo
+        persistido, así que nunca se desincroniza. Sin loop: una vez
+        alcanzada la semana 4 se sostiene ahí hasta que el staff cierre esta
+        asignación y cree una nueva."""
+        dias_transcurridos = (timezone.localdate() - self.fecha_inicio).days
+        if dias_transcurridos < 0:
+            return 1
+        return min(SEMANAS_POR_CICLO, (dias_transcurridos // 7) + 1)
 
 
 class RutinaAsignadaItem(TimeStampedModel):
