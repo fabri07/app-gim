@@ -32,6 +32,7 @@ class RutinaPlantillaItemForm(TenantScopedModelForm):
         model = RutinaPlantillaItem
         fields = [
             "ejercicio",
+            "semana",
             "dia",
             "orden",
             "series",

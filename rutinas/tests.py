@@ -686,6 +686,7 @@ class RutinasViewsTests(TestCase):
 
         datos = {
             "ejercicio": self.ejercicio_a.pk,
+            "semana": 2,
             "dia": 2,
             "orden": 1,
             "series": 3,
@@ -699,6 +700,7 @@ class RutinasViewsTests(TestCase):
         self.assertEqual(response.status_code, 302)
         nuevo_item = RutinaPlantillaItem.objects.get(rutina=self.plantilla_a, dia=2)
         self.assertEqual(nuevo_item.ejercicio, self.ejercicio_a)
+        self.assertEqual(nuevo_item.semana, 2)
 
         response = self.client.get(
             reverse(
@@ -708,6 +710,7 @@ class RutinasViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
         datos["series"] = 9
+        datos["semana"] = 3
         response = self.client.post(
             reverse(
                 "rutinas:item_editar", args=[self.plantilla_a.pk, nuevo_item.pk]
@@ -717,6 +720,7 @@ class RutinasViewsTests(TestCase):
         self.assertEqual(response.status_code, 302)
         nuevo_item.refresh_from_db()
         self.assertEqual(nuevo_item.series, 9)
+        self.assertEqual(nuevo_item.semana, 3)
 
         eliminar_url = reverse(
             "rutinas:item_eliminar", args=[self.plantilla_a.pk, nuevo_item.pk]
