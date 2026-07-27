@@ -84,7 +84,6 @@ class RutinaPlantilla(TenantOwnedModel):
                     RutinaPlantillaItem(
                         rutina=copia,
                         ejercicio=item.ejercicio,
-                        semana=item.semana,
                         dia=item.dia,
                         orden=item.orden,
                         series=item.series,
@@ -208,7 +207,6 @@ class RutinaAsignada(TenantOwnedModel):
                         rutina_asignada=asignada,
                         ejercicio_nombre_snapshot=item.ejercicio.nombre,
                         ejercicio_video_snapshot=item.ejercicio.url_video,
-                        semana=item.semana,
                         dia=item.dia,
                         orden=item.orden,
                         series=item.series,
