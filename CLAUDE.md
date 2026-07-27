@@ -13,14 +13,20 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: Fase 5 en curso** (deploy a Render + Cloudflare R2). El código
-de producción ya está listo (Postgres, WhiteNoise, R2, `render.yaml`) — falta
-la parte que no puedo hacer yo: crear el bucket de R2 en Cloudflare y aplicar
-el Blueprint en el dashboard de Render (cuentas/pagos de terceros). Ver
-"Deploy (Fase 5)" más abajo para el estado exacto y los pasos manuales que
-quedan. Fases 0-4 (esqueleto, modelos, vistas de staff, portal del alumno,
-UX/white-label) completas — un dueño puede usar el sistema de punta a punta
-desde el panel web sin tocar `/admin/`.
+**Fase actual: código de Fases 0-6 completo en `main`, deploy real
+pendiente.** El código de producción está listo (Postgres, WhiteNoise, R2,
+`render.yaml`) pero falta la parte que no puedo hacer yo: crear el bucket de
+R2 en Cloudflare, aplicar el Blueprint en el dashboard de Render, y cargar
+las env vars `GOOGLE_*` (cuentas/pagos de terceros). Ver "Deploy (Fase 5)"
+más abajo para el estado exacto y los pasos manuales que quedan. Fases 0-4
+(esqueleto, modelos, vistas de staff, portal del alumno, UX/white-label)
+completas — un dueño puede usar el sistema de punta a punta desde el panel
+web sin tocar `/admin/`. Además del scope original del ROADMAP ya están
+mergeadas: agenda de turnos/reservas con cupos, read-receipts de novedades,
+medios de cobro configurables, y una integración opcional con Google
+Calendar por alumno (ver "Turnos, reservas y Google Calendar" más abajo) —
+el ROADMAP.md no las documenta todavía como fases propias, viven en
+`ISSUES.md` y en los mensajes de commit ("Fase 6, Task N", "Parte A/B/C").
 
 **Nota:** el acceso del alumno NO es magic-link como decía la primera versión
 del ROADMAP — el dueño del producto pidió que el staff asigne usuario y
@@ -77,7 +83,7 @@ KISS/YAGNI para esta etapa). El patrón viene de `~/gestor-pedidos` (ver
 heredar de `TenantScopedModelForm`. Las vistas de gestión van con
 `TenantScopedMixin`.
 
-## Apps de dominio (Fase 1)
+## Apps de dominio
 
 - **`alumnos`** — `Alumno(TenantOwnedModel)`.
 - **`ejercicios`** — `Ejercicio(TenantOwnedModel)`, biblioteca por gimnasio
@@ -87,12 +93,18 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   hace con `RutinaAsignada.crear_desde_plantilla(...)` y
   `RutinaPlantilla.duplicar()` — ambas transaccionales. Los modelos "Item" NO
   son `TenantOwnedModel` (se acceden vía su padre, que ya está scopeado).
-- **`pagos`** — `PagoMensual(TenantOwnedModel)`. `pagos/models.py` expone
-  `generar_pagos_pendientes(mes, anio)` y `marcar_vencidos(mes, anio)`;
-  `python manage.py generar_pagos` corre ambas para el mes actual — es el
-  comando que Fase 5 programa como Render Cron Job.
+- **`pagos`** — `PagoMensual(TenantOwnedModel)` y `MedioCobro(TenantOwnedModel)`
+  (alias/CBU/lo que el gimnasio muestra al alumno para pagar, editable por
+  staff). `pagos/models.py` expone `generar_pagos_pendientes(mes, anio)` y
+  `marcar_vencidos(mes, anio)`; `python manage.py generar_pagos` corre ambas
+  para el mes actual — es el comando que Fase 5 programa como Render Cron Job.
 - **`novedades`** — `Novedad(TenantOwnedModel)` con `NovedadQuerySet.visibles()`
-  (activa + publicada + no vencida).
+  (activa + publicada + no vencida), y `NovedadLeida` (read-receipt por
+  alumno; no es `TenantOwnedModel`, se scopea vía su FK a `Novedad`/`Alumno`
+  que ya está acotada) para el badge "Nueva" del portal y el conteo de
+  lecturas que ve el staff.
+- **`turnos`** y **`calendario`** — agenda de reservas con cupos y su
+  integración opcional con Google Calendar; ver sección propia abajo.
 
 ## Vistas de staff (Fase 2)
 
@@ -140,6 +152,64 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
   rol `alumno` todavía no está vinculado a un `Alumno`, se muestra un estado
   vacío, no un error 500.
 
+## Turnos, reservas y Google Calendar (más allá del ROADMAP original)
+
+Agregado después de Fase 4, fuera del scope que describe `ROADMAP.md` (que
+llama "Fase 6" al primer piloto pago, no a esto) — el detalle real vive en
+`ISSUES.md` y en los commits ("Fase 6, Task N" para turnos; "Parte A/B/C"
+para la migración de reservas desencajadas y Google Calendar).
+
+- **`turnos`** (`turnos/models.py`, `turnos/services.py`): agenda de clases
+  con cupo. `ConfiguracionTurnos` (duración + cupo default, una fila por
+  gimnasio) + `HorarioAtencion` (franjas por día de semana) + `CupoExcepcion`
+  (pisa el cupo un día/horario puntual, incluso a 0) generan la grilla;
+  `Reserva` es lo que un alumno ocupa. Toda la lógica de negocio (crear
+  reserva, cancelar, calcular la grilla semanal) vive en `services.py`, no en
+  las vistas ni en los modelos — `crear_reserva()` toma
+  `select_for_update()` sobre `ConfiguracionTurnos` para serializar altas
+  concurrentes contra el cupo.
+- **Reservas desencajadas**: cuando el staff cambia horarios/duración,
+  reservas existentes pueden quedar fuera de cualquier franja vigente.
+  `reconciliar_reservas_desencajadas()` las reubica en la franja vigente más
+  cercana (o las cancela si no hay ninguna) y llama a
+  `_generar_novedades_personales()` para avisarle a cada alumno afectado vía
+  una `Novedad` dirigida a él. **Riesgo aceptado a propósito**: esta función
+  NO toma lock (a diferencia de `crear_reserva()`) porque solo corre cuando
+  el staff edita su propia grilla — ver la entrada `[2026-07-06]` en
+  `ISSUES.md` para el razonamiento y cómo cerrarlo si hiciera falta.
+- **`calendario`** (`calendario/models.py`, `calendario/services.py`):
+  integración **opcional** con Google Calendar, por alumno (no por
+  gimnasio). `GOOGLE_CALENDAR_ENABLED` en `settings.py` se activa solo si las
+  4 env vars `GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI` +
+  `GOOGLE_TOKEN_ENCRYPTION_KEY` están seteadas (todas o ninguna — falla al
+  arrancar si están parciales). Scope usado:
+  `calendar.app.created` (NO da acceso al calendario principal del alumno,
+  solo a un calendario secundario que la app crea, "Turnos de {gimnasio}").
+  Tokens (`refresh_token`/`access_token`) se guardan cifrados con
+  `EncryptedTextField` (`calendario/fields.py`, usa `cryptography` +
+  `GOOGLE_TOKEN_ENCRYPTION_KEY`), nunca en texto plano. La sync
+  reserva→evento es **síncrona** vía `transaction.on_commit` (no hay
+  Redis/Celery/django-q en este proyecto).
+  - Ninguno de los dos modelos de `calendario` es `TenantOwnedModel`: se
+    scopean a través de su FK (`alumno`/`reserva`), que ya está acotada por
+    gimnasio — mismo precedente que `NovedadLeida`.
+  - **Gotcha de PKCE**: `google-auth-oauthlib` activa PKCE por defecto;
+    `build_authorization_url()` tiene que devolver y persistir el
+    `code_verifier` en la sesión (no solo `state`) para que el callback
+    pueda reconstruir el mismo `Flow` — si armás un `Flow` nuevo en el
+    callback sin pasarle el verifier original, Google devuelve
+    `invalid_grant: Missing code verifier`. No lo detectan los tests que
+    mockean `build_authorization_url`/`intercambiar_code`: hace falta un
+    test que ejercite connect→sesión→callback sin mockear ninguna de las
+    dos puntas. Ver `ISSUES.md` `[2026-07-08]`.
+  - **Gotcha de hx-boost**: cualquier link que dispare un redirect
+    cross-origin (como "Conectar Google Calendar", que redirige a
+    `accounts.google.com`) necesita `hx-boost="false"` explícito — htmx
+    intercepta el click, hace el GET por XHR, y no puede seguir un redirect
+    cross-origin, así que el click queda tragado sin error visible. Mismo
+    criterio que los forms de upload de archivo (ver "UI y white-label"
+    abajo).
+
 ## UI y white-label (Fase 4)
 
 - **Tailwind sin reescribir plantillas**: en vez de convertir las ~25
@@ -177,7 +247,11 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
   ninguna vista (siguen devolviendo la página completa; htmx solo evita el
   reload duro). Excluido explícitamente (`hx-boost="false"`) en los dos
   forms con upload de archivo (`pagos/pago_confirmar.html`,
-  `tenants/gimnasio_form.html`) para no arriesgar el envío de multipart.
+  `tenants/gimnasio_form.html`, para no arriesgar el envío de multipart) y en
+  el link "Conectar Google Calendar" (`mis_turnos.html`, para no tragarse el
+  redirect cross-origin a `accounts.google.com` — ver la sección de Google
+  Calendar arriba). Regla general: cualquier `<a>`/`<form>` que dependa de un
+  redirect externo o de multipart necesita `hx-boost="false"`.
 - **Alpine.js**: solo para el toggle del nav en mobile (`x-data` en `<body>`,
   compartido entre el botón ☰ del header y el `<nav>` — deben estar en el
   MISMO scope de `x-data`, si no el toggle no hace nada). No se usó para
@@ -185,7 +259,7 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
 
 ## Deploy (Fase 5)
 
-**Estado (2026-07-01): código listo, falta la parte manual en Render y
+**Estado (2026-07-08): código listo, falta la parte manual en Render y
 Cloudflare** (cuentas/pagos de terceros — eso no lo puedo hacer yo). Repo en
 `https://github.com/fabri07/app-gim` (privado).
 
@@ -211,6 +285,13 @@ Cloudflare** (cuentas/pagos de terceros — eso no lo puedo hacer yo). Repo en
   3. Verificar: la app levanta, el login funciona, un logo/comprobante
      subido efectivamente aparece en el bucket de R2 (no en el filesystem
      de Render).
+  4. Opcional (integración con Google Calendar): crear credenciales OAuth
+     "Web application" en Google Cloud Console, y setear en Render las 4 env
+     vars `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`/
+     `GOOGLE_OAUTH_REDIRECT_URI`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (las 4 o
+     ninguna — settings.py revienta al arrancar si están parciales). Sin
+     esto la app funciona igual; simplemente el alumno no ve la opción de
+     conectar su calendario (`GOOGLE_CALENDAR_ENABLED = False`).
 - **Settings de producción** (`config/settings.py`): `DATABASE_URL` (Postgres
   si está seteada, SQLite si no — mismo criterio que el resto del archivo),
   `STORAGES["default"]` cambia a `storages.backends.s3.S3Storage` solo si
