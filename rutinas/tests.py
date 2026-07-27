@@ -121,6 +121,63 @@ class ModeloBasicoTests(RutinasTestCase):
         self.assertEqual(str(item), "Día 1 · Press de banca")
 
 
+class SemanaItemTests(RutinasTestCase):
+    """Campo `semana` (1-4) en los items de plantilla y de asignación."""
+
+    def test_item_semana_default_es_1(self):
+        _, item1, _ = self.crear_plantilla_con_items()
+        self.assertEqual(item1.semana, 1)
+
+    def test_item_semana_acepta_valor_explicito(self):
+        plantilla, _, _ = self.crear_plantilla_con_items()
+        item = RutinaPlantillaItem.objects.create(
+            rutina=plantilla,
+            ejercicio=self.press_banca,
+            semana=3,
+            dia=1,
+            orden=3,
+            series=3,
+            repeticiones="10",
+        )
+        self.assertEqual(item.semana, 3)
+
+    def test_item_semana_fuera_de_rango_falla_full_clean(self):
+        _, item1, _ = self.crear_plantilla_con_items()
+        item1.semana = 5
+        with self.assertRaises(ValidationError):
+            item1.full_clean()
+        item1.semana = 0
+        with self.assertRaises(ValidationError):
+            item1.full_clean()
+
+    def test_items_ordenados_por_semana_antes_que_dia_y_orden(self):
+        plantilla, item1, item2 = self.crear_plantilla_con_items()
+        # item1: dia=1, orden=1 · item2: dia=1, orden=2 (mismo día, ambos semana=1 por default)
+        item1.semana = 2
+        item1.save()
+        items = list(plantilla.items.all())
+        # item2 (semana=1) debe listar ANTES que item1 (semana=2), aunque
+        # item1 tenga menor `orden` -- confirma que `semana` pesa más que `orden`.
+        self.assertEqual(items[0], item2)
+        self.assertEqual(items[1], item1)
+
+    def test_rutina_asignada_item_semana_default_es_1_y_acepta_explicito(self):
+        plantilla, _, _ = self.crear_plantilla_con_items()
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            plantilla=plantilla,
+            fecha_inicio=date(2026, 1, 1),
+        )
+        item = asignada.items.first()
+        self.assertEqual(item.semana, 1)
+        item.semana = 4
+        item.full_clean()
+        item.save()
+        item.refresh_from_db()
+        self.assertEqual(item.semana, 4)
+
+
 class CrearDesdePlantillaTests(RutinasTestCase):
     """`crear_desde_plantilla` copia lo que corresponde, y solo eso."""
 

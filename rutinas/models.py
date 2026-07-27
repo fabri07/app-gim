@@ -23,9 +23,12 @@ Repetir el FK `gimnasio` en el item sería redundante (mismo criterio que
 """
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 
 from core.models import TenantOwnedModel, TimeStampedModel
+
+SEMANAS_POR_CICLO = 4
 
 
 class RutinaPlantilla(TenantOwnedModel):
@@ -81,6 +84,7 @@ class RutinaPlantilla(TenantOwnedModel):
                     RutinaPlantillaItem(
                         rutina=copia,
                         ejercicio=item.ejercicio,
+                        semana=item.semana,
                         dia=item.dia,
                         orden=item.orden,
                         series=item.series,
@@ -112,6 +116,11 @@ class RutinaPlantillaItem(TimeStampedModel):
         # obligamos al staff a reasignarlo/quitarlo antes de borrarlo, en vez
         # de romper la plantilla en silencio.
     )
+    semana = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(SEMANAS_POR_CICLO)],
+        help_text="Semana del ciclo (1 a 4).",
+    )
     dia = models.PositiveSmallIntegerField(
         help_text="Día N de la rutina (1..dias_por_semana), no día de la semana."
     )
@@ -129,7 +138,7 @@ class RutinaPlantillaItem(TimeStampedModel):
     class Meta:
         verbose_name = "item de plantilla"
         verbose_name_plural = "items de plantilla"
-        ordering = ["dia", "orden"]
+        ordering = ["semana", "dia", "orden"]
 
     def __str__(self):
         return f"Día {self.dia} · {self.ejercicio.nombre}"
@@ -199,6 +208,7 @@ class RutinaAsignada(TenantOwnedModel):
                         rutina_asignada=asignada,
                         ejercicio_nombre_snapshot=item.ejercicio.nombre,
                         ejercicio_video_snapshot=item.ejercicio.url_video,
+                        semana=item.semana,
                         dia=item.dia,
                         orden=item.orden,
                         series=item.series,
@@ -227,6 +237,11 @@ class RutinaAsignadaItem(TimeStampedModel):
     )
     ejercicio_nombre_snapshot = models.CharField(max_length=120)
     ejercicio_video_snapshot = models.URLField(blank=True)
+    semana = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(SEMANAS_POR_CICLO)],
+        help_text="Semana del ciclo (1 a 4).",
+    )
     dia = models.PositiveSmallIntegerField(
         help_text="Día N de la rutina (1..dias_por_semana), no día de la semana."
     )
@@ -239,7 +254,7 @@ class RutinaAsignadaItem(TimeStampedModel):
     class Meta:
         verbose_name = "item de rutina asignada"
         verbose_name_plural = "items de rutina asignada"
-        ordering = ["dia", "orden"]
+        ordering = ["semana", "dia", "orden"]
 
     def __str__(self):
         return f"Día {self.dia} · {self.ejercicio_nombre_snapshot}"
