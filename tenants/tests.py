@@ -6,6 +6,8 @@ patrón de ~/gestor-pedidos/core/tests.py — en Fase 0 todavía no existe ning�
 TenantOwnedModel concreto para ejercitarlos.
 """
 
+from datetime import timedelta
+
 from django.contrib.auth.models import AnonymousUser, User
 from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse
@@ -266,6 +268,44 @@ class HomeViewAlumnoTests(TestCase):
         self.assertContains(response, "https://videos.example.com/sentadilla")
         self.assertContains(response, "Pagado")
         self.assertContains(response, "Gimnasio cerrado el feriado")
+
+    def test_alumno_ve_solo_los_ejercicios_de_su_semana_actual(self):
+        _user, _perfil, alumno = self._crear_alumno_con_login(
+            username="fede", nombre="Fede", apellido="Iglesias"
+        )
+        rutina = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno,
+            nombre_snapshot="Rutina Progresiva",
+            objetivo_snapshot="Hipertrofia",
+            fecha_inicio=self.hoy - timedelta(days=7),  # hoy cae en semana 2
+            activa=True,
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=rutina,
+            ejercicio_nombre_snapshot="Sentadilla semana 1",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=4,
+            repeticiones="10",
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=rutina,
+            ejercicio_nombre_snapshot="Peso muerto semana 2",
+            semana=2,
+            dia=1,
+            orden=1,
+            series=4,
+            repeticiones="8",
+        )
+
+        self.client.login(username="fede", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, "Peso muerto semana 2")
+        self.assertNotContains(response, "Sentadilla semana 1")
+        self.assertContains(response, "Semana 2 de 4")
 
     def test_alumno_sin_rutina_ve_mensaje_no_tecnico(self):
         self._crear_alumno_con_login(

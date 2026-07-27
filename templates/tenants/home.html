@@ -106,6 +106,7 @@
       {% if rutina_actual %}
         <p><strong>{{ rutina_actual.nombre_snapshot }}</strong></p>
         <p class="texto-suave">Objetivo: {{ rutina_actual.objetivo_snapshot }}</p>
+        <p class="texto-suave">Semana {{ rutina_actual.semana_actual }} de 4</p>
         <table class="tabla">
           <thead>
             <tr>
@@ -119,7 +120,7 @@
             </tr>
           </thead>
           <tbody>
-            {% for item in rutina_actual.items.all %}
+            {% for item in items_semana_actual %}
               <tr>
                 <td>{{ item.dia }}</td>
                 <td>{{ item.ejercicio_nombre_snapshot }}</td>

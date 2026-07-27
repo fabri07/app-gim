@@ -118,10 +118,16 @@ class HomeView(LoginRequiredMixin, TemplateView):
             }
 
         hoy = timezone.now().date()
+        rutina_actual = alumno.rutinas_asignadas.filter(activa=True).first()
 
         return {
             "alumno": alumno,
-            "rutina_actual": alumno.rutinas_asignadas.filter(activa=True).first(),
+            "rutina_actual": rutina_actual,
+            "items_semana_actual": (
+                rutina_actual.items.filter(semana=rutina_actual.semana_actual)
+                if rutina_actual
+                else []
+            ),
             "mensualidad_actual": alumno.pagos.filter(
                 mes=hoy.month, anio=hoy.year
             ).first(),
