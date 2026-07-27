@@ -217,6 +217,21 @@ class CrearDesdePlantillaTests(RutinasTestCase):
         copiado2 = asignada.items.get(orden=2)
         self.assertEqual(copiado2.ejercicio_nombre_snapshot, item2.ejercicio.nombre)
 
+    def test_crear_desde_plantilla_copia_la_semana_de_cada_item(self):
+        plantilla, item1, item2 = self.crear_plantilla_con_items()
+        item1.semana = 3
+        item1.save()
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            plantilla=plantilla,
+            fecha_inicio=date(2026, 1, 1),
+        )
+        copiado1 = asignada.items.get(orden=1)
+        self.assertEqual(copiado1.semana, 3)
+        copiado2 = asignada.items.get(orden=2)
+        self.assertEqual(copiado2.semana, 1)
+
     def test_falla_si_la_plantilla_es_de_otro_gimnasio(self):
         otro_gimnasio = Gimnasio.objects.create(nombre="Otro Gym", slug="otro-gym")
         plantilla, _, _ = self.crear_plantilla_con_items()
@@ -360,6 +375,16 @@ class DuplicarPlantillaTests(RutinasTestCase):
 
         item_copiado = copia.items.get(orden=1)
         self.assertEqual(item_copiado.series, 4)
+
+    def test_duplicar_copia_la_semana_de_cada_item(self):
+        plantilla, item1, item2 = self.crear_plantilla_con_items()
+        item1.semana = 2
+        item1.save()
+        copia = plantilla.duplicar()
+        copiado1 = copia.items.get(orden=1)
+        self.assertEqual(copiado1.semana, 2)
+        copiado2 = copia.items.get(orden=2)
+        self.assertEqual(copiado2.semana, 1)
 
 
 class AislamientoTenantTests(RutinasTestCase):
