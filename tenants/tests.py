@@ -278,7 +278,7 @@ class HomeViewAlumnoTests(TestCase):
             alumno=alumno,
             nombre_snapshot="Rutina Progresiva",
             objetivo_snapshot="Hipertrofia",
-            fecha_inicio=self.hoy - timedelta(days=7),  # hoy cae en semana 2
+            fecha_inicio=timezone.localdate() - timedelta(days=7),  # hoy cae en semana 2
             activa=True,
         )
         RutinaAsignadaItem.objects.create(
@@ -306,6 +306,38 @@ class HomeViewAlumnoTests(TestCase):
         self.assertContains(response, "Peso muerto semana 2")
         self.assertNotContains(response, "Sentadilla semana 1")
         self.assertContains(response, "Semana 2 de 4")
+
+    def test_alumno_ve_semana_1_si_semana_actual_no_tiene_items(self):
+        # Rutinas de antes de la progresión semanal (o plantillas nuevas
+        # todavía sin cargar más allá de semana 1) tienen TODOS sus items en
+        # semana=1. Sin fallback, un alumno cuya `semana_actual` calculada
+        # sea >1 vería la tabla vacía para siempre.
+        _user, _perfil, alumno = self._crear_alumno_con_login(
+            username="lucia", nombre="Lucía", apellido="Fernández"
+        )
+        rutina = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno,
+            nombre_snapshot="Rutina Vieja",
+            objetivo_snapshot="Fuerza",
+            fecha_inicio=timezone.localdate() - timedelta(days=21),  # semana 4
+            activa=True,
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=rutina,
+            ejercicio_nombre_snapshot="Sentadilla semana 1",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=4,
+            repeticiones="10",
+        )
+
+        self.client.login(username="lucia", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, "Semana 4 de 4")
+        self.assertContains(response, "Sentadilla semana 1")
 
     def test_alumno_sin_rutina_ve_mensaje_no_tecnico(self):
         self._crear_alumno_con_login(

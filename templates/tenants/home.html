@@ -136,6 +136,8 @@
                   {% endif %}
                 </td>
               </tr>
+            {% empty %}
+              <tr><td colspan="7" class="texto-suave">Todavía no hay ejercicios cargados en esta rutina.</td></tr>
             {% endfor %}
           </tbody>
         </table>

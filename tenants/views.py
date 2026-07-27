@@ -120,14 +120,24 @@ class HomeView(LoginRequiredMixin, TemplateView):
         hoy = timezone.now().date()
         rutina_actual = alumno.rutinas_asignadas.filter(activa=True).first()
 
+        items_semana_actual = []
+        if rutina_actual is not None:
+            items_semana_actual = rutina_actual.items.filter(
+                semana=rutina_actual.semana_actual
+            )
+            if not items_semana_actual.exists():
+                # Rutinas de antes de la progresión semanal (o plantillas
+                # nuevas todavía sin cargar más allá de semana 1) tienen
+                # todos sus items en semana=1 (default del campo). Sin este
+                # fallback, un alumno con `fecha_inicio` de hace una semana o
+                # más vería la tabla vacía para siempre (`semana_actual`
+                # clampea en 4 y no vuelve a bajar).
+                items_semana_actual = rutina_actual.items.filter(semana=1)
+
         return {
             "alumno": alumno,
             "rutina_actual": rutina_actual,
-            "items_semana_actual": (
-                rutina_actual.items.filter(semana=rutina_actual.semana_actual)
-                if rutina_actual
-                else []
-            ),
+            "items_semana_actual": items_semana_actual,
             "mensualidad_actual": alumno.pagos.filter(
                 mes=hoy.month, anio=hoy.year
             ).first(),

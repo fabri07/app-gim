@@ -310,3 +310,34 @@ cross-origin por XHR, y el click quedaba tragado (sin error visible).
 navegación dura y siga el 302 externo. Mismo criterio que ya se usaba para los
 forms con upload de archivo (ver CLAUDE.md, sección UI/HTMX). Cubierto con un
 test que verifica que el atributo se emite.
+
+## [2026-07-27] Progresión semanal: sin auto-loop tras semana 4, y fallback a semana 1 si la semana actual no tiene items
+
+**Estado:** decisión de diseño + resuelto (hallazgo de code review)
+
+**Impacto/decisión:** `RutinaAsignada.semana_actual` clampea en 4 y no
+vuelve a `semana 1` automáticamente pasado el ciclo de `SEMANAS_POR_CICLO`
+semanas — es intencional, no un bug: el staff cierra la asignación (`activa
+= False`) y crea una nueva cuando el alumno termina el ciclo, mismo patrón
+que ya existe para cualquier cambio de rutina. Un loop automático escondería
+el fin de ciclo del staff, que es justo el momento en que debería revisar y
+ajustar la rutina.
+
+Separado de eso, el code review final detectó que el filtro estricto
+`items.filter(semana=rutina_actual.semana_actual)` dejaba la tabla de
+ejercicios del portal completamente vacía (sin ningún mensaje) para: (a)
+toda `RutinaAsignada` creada antes de este feature, cuyos items quedaron
+enteros en `semana=1` (default del campo) por la migración; y (b) una
+rutina nueva a la que el staff todavía solo le cargó la semana 1, si el
+alumno ya lleva 7+ días con `fecha_inicio` en el pasado. En ambos casos
+`semana_actual` calcula ≥2, el filtro no matchea nada, y como clampea en 4
+nunca se recupera solo.
+
+**Resolución:** `HomeView._portal_alumno` (`tenants/views.py`) cae a
+`items.filter(semana=1)` cuando el filtro por la semana actual no devuelve
+nada, preservando compatibilidad hacia atrás con rutinas viejas/parciales
+("plantillas viejas siguen funcionando igual, solo viven enteras en semana
+1", como dice el spec original). El residual (una rutina realmente sin
+ningún item, ni en semana 1) ahora muestra un mensaje `{% empty %}` en vez
+de una tabla en blanco. Test de regresión:
+`tenants/tests.py::HomeViewAlumnoTests::test_alumno_ve_semana_1_si_semana_actual_no_tiene_items`.
