@@ -18,3 +18,4 @@ cryptography==48.0.1
 
 # Proyecto 2 (importador de planes desde Excel)
 openpyxl==3.1.5
+rapidfuzz==3.13.0

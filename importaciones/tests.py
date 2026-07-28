@@ -7,6 +7,13 @@ import openpyxl
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase
 
+from ejercicios.models import Ejercicio
+from importaciones.matching import (
+    MatchResultado,
+    construir_indice_ejercicios,
+    resolver_grupo_muscular,
+    resolver_nombre,
+)
 from importaciones.models import Importacion
 from importaciones.parsing import (
     ALIAS_BIBLIOTECA,
@@ -278,3 +285,56 @@ class ParsearArchivoBibliotecaTests(SimpleTestCase):
         items, invalidas = parsear_archivo_biblioteca(_archivo_xlsx(wb))
         self.assertEqual(len(items), 1)
         self.assertEqual(invalidas, [])
+
+
+class ResolverNombreTests(SimpleTestCase):
+    def setUp(self):
+        # Índice armado a mano -- resolver_nombre es pura, no toca DB.
+        self.indice = {"press de banca": "PRESS_ID", "sentadilla": "SENTADILLA_ID"}
+
+    def test_match_exacto_tras_normalizar(self):
+        resultado = resolver_nombre("press de banca", self.indice)
+        self.assertEqual(resultado.tipo, "exacto")
+        self.assertEqual(resultado.ejercicio, "PRESS_ID")
+
+    def test_typo_da_ambiguo_con_candidato(self):
+        resultado = resolver_nombre("sentadila", self.indice)  # falta una "l"
+        self.assertEqual(resultado.tipo, "ambiguo")
+        self.assertEqual(resultado.candidato, "SENTADILLA_ID")
+        self.assertGreaterEqual(resultado.score, 60)
+
+    def test_nombre_sin_relacion_da_nuevo(self):
+        resultado = resolver_nombre("hip thrust", self.indice)
+        self.assertEqual(resultado.tipo, "nuevo")
+        self.assertIsNone(resultado.candidato)
+
+    def test_indice_vacio_siempre_da_nuevo(self):
+        resultado = resolver_nombre("cualquier cosa", {})
+        self.assertEqual(resultado.tipo, "nuevo")
+
+
+class ResolverGrupoMuscularTests(SimpleTestCase):
+    def test_match_exacto_contra_choices(self):
+        self.assertEqual(resolver_grupo_muscular("Pecho"), Ejercicio.GrupoMuscular.PECHO)
+
+    def test_match_por_alias(self):
+        self.assertEqual(resolver_grupo_muscular("Abdomen"), Ejercicio.GrupoMuscular.CORE)
+
+    def test_sin_match_devuelve_none(self):
+        self.assertIsNone(resolver_grupo_muscular("no existe esto"))
+
+
+class ConstruirIndiceEjerciciosTests(TestCase):
+    def test_indexa_por_nombre_normalizado_y_aisla_por_tenant(self):
+        gimnasio_a = Gimnasio.objects.create(nombre="Gym A", slug="gym-a")
+        gimnasio_b = Gimnasio.objects.create(nombre="Gym B", slug="gym-b")
+        ejercicio_a = Ejercicio.objects.create(
+            gimnasio=gimnasio_a, nombre="Press de Banca",
+            grupo_muscular=Ejercicio.GrupoMuscular.PECHO,
+        )
+        Ejercicio.objects.create(
+            gimnasio=gimnasio_b, nombre="Sentadilla",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+        indice = construir_indice_ejercicios(gimnasio_a)
+        self.assertEqual(indice, {"press de banca": ejercicio_a})
