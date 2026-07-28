@@ -23,10 +23,12 @@ más abajo para el estado exacto y los pasos manuales que quedan. Fases 0-4
 completas — un dueño puede usar el sistema de punta a punta desde el panel
 web sin tocar `/admin/`. Además del scope original del ROADMAP ya están
 mergeadas: agenda de turnos/reservas con cupos, read-receipts de novedades,
-medios de cobro configurables, y una integración opcional con Google
-Calendar por alumno (ver "Turnos, reservas y Google Calendar" más abajo) —
-el ROADMAP.md no las documenta todavía como fases propias, viven en
-`ISSUES.md` y en los mensajes de commit ("Fase 6, Task N", "Parte A/B/C").
+medios de cobro configurables, una integración opcional con Google
+Calendar por alumno (ver "Turnos, reservas y Google Calendar" más abajo), y
+un importador de planes/ejercicios desde Excel (ver "Importador de Excel
+(Proyecto 2)" más abajo) — el ROADMAP.md no las documenta todavía como
+fases propias, viven en `ISSUES.md` y en los mensajes de commit ("Fase 6,
+Task N", "Parte A/B/C", "Proyecto 2, Task N").
 
 **Nota:** el acceso del alumno NO es magic-link como decía la primera versión
 del ROADMAP — el dueño del producto pidió que el staff asigne usuario y
@@ -105,6 +107,8 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   lecturas que ve el staff.
 - **`turnos`** y **`calendario`** — agenda de reservas con cupos y su
   integración opcional con Google Calendar; ver sección propia abajo.
+- **`importaciones`** — importador de planes de entrenamiento y biblioteca de
+  ejercicios desde Excel; ver "Importador de Excel (Proyecto 2)" abajo.
 
 ## Vistas de staff (Fase 2)
 
@@ -209,6 +213,57 @@ para la migración de reservas desencajadas y Google Calendar).
     cross-origin, así que el click queda tragado sin error visible. Mismo
     criterio que los forms de upload de archivo (ver "UI y white-label"
     abajo).
+
+## Importador de Excel (Proyecto 2)
+
+Agregado después de Fase 6, fuera del scope original de `ROADMAP.md` (lo
+llama "Proyecto 2" en el spec/plan de `docs/superpowers/`) — deja que el
+staff cargue rutinas y ejercicios en lote desde un `.xlsx` en vez de
+hacerlo fila por fila desde el panel. Spec y plan completos en
+`docs/superpowers/specs/2026-07-27-importador-planes-entrenamiento-design.md`
+y `docs/superpowers/plans/2026-07-27-importador-planes-entrenamiento-plan.md`
+(14 tareas, cada una con su propia revisión — la Tarea 14 y el fix wave post
+revisión-final surgieron de una revisión de rama completa, no estaban en el
+plan original).
+
+- **`importaciones`** (`models.py`, `parsing.py`, `matching.py`,
+  `services.py`, `forms.py`, `views.py`): dos flujos independientes,
+  namespace `importaciones:` — `plantillas_subir`/`plantillas_preview` (crea
+  `RutinaPlantilla`) y `biblioteca_subir`/`biblioteca_preview` (crea
+  `Ejercicio`). Mismo patrón subir → previsualizar → confirmar en los dos:
+  `previsualizar_importacion_*` parsea el archivo y crea una fila
+  `Importacion` (`TenantOwnedModel`, `resultado` es un `JSONField` con todo
+  lo necesario para el preview y el confirm — nunca vuelve a abrirse el
+  archivo original) sin tocar `RutinaPlantilla`/`Ejercicio`;
+  `confirmar_importacion_*` recién ahí escribe, adentro de una transacción
+  con `select_for_update()` sobre la `Importacion` (mismo patrón anti-TOCTOU
+  que el resto del repo — evita doble confirmación concurrente).
+- **`parsing.py`** es Django-free a propósito (testeable con
+  `SimpleTestCase`, sin DB) — lee el `.xlsx` con `openpyxl`, resuelve celdas
+  combinadas, detecta columnas por alias (case/acentos-insensible) y arma
+  filas válidas/inválidas. Fila inválida = se salta y se lista con motivo,
+  nunca invalida la hoja entera (salvo que falte una columna REQUERIDA en
+  TODA la hoja, ahí se excluye esa hoja sola, no el archivo).
+- **`matching.py`**: matching difuso de nombres de ejercicio contra la
+  biblioteca del gimnasio vía `rapidfuzz` (`PISO_SCORE=60`,
+  `UMBRAL_AMBIGUO=87` — por debajo de 60 es "nuevo", 60-86 es "ambiguo",
+  ≥87 se trata como confiable). Un match ambiguo NUNCA se resuelve solo:
+  queda pre-marcado "usar existente" pero el staff tiene que elegir
+  activamente en el preview (plantillas vía `ResolucionEjercicioFormSet`;
+  biblioteca vía el mismo campo JSON único que ya lleva `grupo_muscular`,
+  ver el punto siguiente). `Ejercicio.grupo_muscular` nuevo nunca tiene
+  default silencioso — choices cerradas, el staff lo elige siempre.
+- **Gotcha de escala (biblioteca)**: el flujo de biblioteca reemplaza el
+  patrón de "un form de Django por ejercicio pendiente" (el que sí usa
+  plantillas) por un único campo JSON serializado a mano con un poco de JS
+  vanilla (sin build, sin Alpine) — una biblioteca real puede traer miles de
+  filas, y un formset de ese tamaño rompe
+  `DATA_UPLOAD_MAX_NUMBER_FIELDS` (default 1000 de Django). Si tocás este
+  flujo, NO reintroduzcas un formset por ítem ahí — ver `ISSUES.md`
+  `[2026-07-28]` para el detalle completo (incluye el caso simétrico de
+  plantillas, aceptado como riesgo documentado en vez de arreglado, porque
+  el dueño confirmó que una plantilla real nunca supera ~300 ejercicios
+  distintos).
 
 ## UI y white-label (Fase 4)
 
