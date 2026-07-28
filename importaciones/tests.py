@@ -1079,6 +1079,27 @@ class ImportacionBibliotecaViewsTests(TestCase):
             Ejercicio.objects.get(nombre="Hip thrust").grupo_muscular, "piernas"
         )
 
+    def test_preview_lista_filas_invalidas_con_motivo(self):
+        # Regla global no negociable: "filas inválidas se saltean y se
+        # listan con motivo" -- nunca se descartan en silencio.
+        self.client.login(username="staff_a", password="clave12345")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Grupo Muscular"])
+        ws.append(["Press de banca", "Pecho"])
+        ws.append(["", "Pecho"])  # sin nombre -> fila inválida
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+        self.assertEqual(len(importacion.resultado["filas_invalidas"]), 1)
+
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "Falta el nombre del ejercicio")
+
     def test_descartar_marca_la_importacion_como_descartada_y_redirige_a_subir(self):
         importacion = Importacion.objects.create(
             gimnasio=self.gimnasio_a, tipo=Importacion.Tipo.BIBLIOTECA, resultado={"items": []},

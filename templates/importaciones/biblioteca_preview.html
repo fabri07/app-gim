@@ -21,6 +21,19 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if importacion.resultado.filas_invalidas %}
+      <div class="tarjeta">
+        <h2>Filas descartadas</h2>
+        <table class="tabla">
+          <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
+          <tbody>
+            {% for fila in importacion.resultado.filas_invalidas %}
+              <tr><td>{{ fila.fila_excel }}</td><td>{{ fila.motivo }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
     {{ formset.management_form }}
     {% if formset.forms %}
       <div class="tarjeta">
