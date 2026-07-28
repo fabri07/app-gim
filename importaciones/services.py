@@ -292,7 +292,12 @@ def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
             raise ImportacionInvalida("Esta importación ya fue procesada.")
 
         for item in importacion.resultado["items"]:
-            decision = decisiones["items"][item["nombre_normalizado"]]
+            try:
+                decision = decisiones["items"][item["nombre_normalizado"]]
+            except KeyError:
+                raise ImportacionInvalida(
+                    f"Falta la decisión para el ejercicio «{item['nombre_original']}»."
+                )
             if not decision["incluir"] or item["match"]["tipo"] == "exacto":
                 # "exacto" ya existe en la biblioteca: no se recrea.
                 continue

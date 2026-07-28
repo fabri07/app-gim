@@ -685,3 +685,63 @@ class ImportacionBibliotecaTests(TestCase):
         confirmar_importacion_biblioteca(importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones)
         with self.assertRaises(ImportacionInvalida):
             confirmar_importacion_biblioteca(importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones)
+
+    def test_confirmar_grupo_muscular_invalido_no_crea_nada(self):
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
+        )
+        ejercicios_antes = Ejercicio.objects.count()
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_biblioteca(
+                importacion=importacion, gimnasio=self.gimnasio,
+                decisiones={"items": {
+                    "press de banca": {"incluir": True, "grupo_muscular": "banana"},
+                    "sentadila": {"incluir": False, "grupo_muscular": None},
+                }},
+            )
+        self.assertEqual(Ejercicio.objects.count(), ejercicios_antes)
+
+    def test_confirmar_con_gimnasio_distinto_falla(self):
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
+        )
+        otro_gimnasio = Gimnasio.objects.create(nombre="Otro Gym", slug="otro-gym")
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_biblioteca(
+                importacion=importacion, gimnasio=otro_gimnasio,
+                decisiones={"items": {
+                    "press de banca": {"incluir": True, "grupo_muscular": "pecho"},
+                    "sentadila": {"incluir": False, "grupo_muscular": None},
+                }},
+            )
+
+    def test_confirmar_decision_faltante_da_error_claro(self):
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
+        )
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_biblioteca(
+                importacion=importacion, gimnasio=self.gimnasio,
+                decisiones={"items": {
+                    "press de banca": {"incluir": True, "grupo_muscular": "pecho"},
+                    # falta la decisión de "sentadila"
+                }},
+            )
+
+    def test_confirmar_match_ambiguo_crea_nuevo_ejercicio(self):
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
+        )
+        item = next(i for i in importacion.resultado["items"] if i["nombre_original"] == "sentadila")
+        self.assertEqual(item["match"]["tipo"], "ambiguo")
+        creados = confirmar_importacion_biblioteca(
+            importacion=importacion, gimnasio=self.gimnasio,
+            decisiones={"items": {
+                "press de banca": {"incluir": False, "grupo_muscular": None},
+                "sentadila": {"incluir": True, "grupo_muscular": "piernas"},
+            }},
+        )
+        self.assertEqual(len(creados), 1)
+        self.assertEqual(
+            Ejercicio.objects.filter(gimnasio=self.gimnasio, nombre="sentadila").count(), 1,
+        )
