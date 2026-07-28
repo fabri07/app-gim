@@ -6,10 +6,9 @@ import io
 import openpyxl
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase, TestCase, override_settings
-from django.urls import include, path, reverse
+from django.test import SimpleTestCase, TestCase
+from django.urls import reverse
 
-from config.urls import urlpatterns as _urlpatterns_produccion
 from ejercicios.models import Ejercicio
 from importaciones.matching import (
     MatchResultado,
@@ -40,20 +39,6 @@ from importaciones.services import (
 )
 from rutinas.models import RutinaPlantilla, RutinaPlantillaItem
 from tenants.models import Gimnasio, Perfil
-
-
-# `importaciones.urls` todavía no está incluido en `config/urls.py` -- eso
-# es la Tarea 12 (wiring final), fuera del alcance de esta tarea. Pero los
-# tests de vistas de acá abajo necesitan poder resolver
-# `reverse("importaciones:...")` (y, para el caso anónimo, `reverse("login")`
-# vía `LOGIN_URL`) igual. En vez de tocar `config/urls.py` antes de tiempo,
-# este módulo se usa a sí mismo como un ROOT_URLCONF alternativo (solo bajo
-# `@override_settings`, solo para `ImportacionPlantillasViewsTests`):
-# reexporta el urlconf real de producción (`config.urls`, sin modificarlo)
-# más el include que la Tarea 12 va a agregar ahí de forma definitiva.
-urlpatterns = list(_urlpatterns_produccion) + [
-    path("importaciones/", include("importaciones.urls")),
-]
 
 
 def _archivo_xlsx(wb):
@@ -832,7 +817,6 @@ class ResolucionEjercicioFormSetTests(SimpleTestCase):
         self.assertTrue(formset.is_valid(), formset.errors)
 
 
-@override_settings(ROOT_URLCONF="importaciones.tests")
 class ImportacionPlantillasViewsTests(TestCase):
     def setUp(self):
         self.gimnasio_a = Gimnasio.objects.create(nombre="Gym A", slug="gym-a")
@@ -948,7 +932,6 @@ class ImportacionPlantillasViewsTests(TestCase):
         self.assertEqual(importacion.estado, Importacion.Estado.DESCARTADA)
 
 
-@override_settings(ROOT_URLCONF="importaciones.tests")
 class ImportacionBibliotecaViewsTests(TestCase):
     def setUp(self):
         self.gimnasio_a = Gimnasio.objects.create(nombre="Gym A", slug="gym-a")
@@ -1112,3 +1095,72 @@ class ImportacionBibliotecaViewsTests(TestCase):
         self.assertEqual(response.url, reverse("importaciones:biblioteca_subir"))
         importacion.refresh_from_db()
         self.assertEqual(importacion.estado, Importacion.Estado.DESCARTADA)
+
+
+class RegresionCamposDelPostTests(TestCase):
+    """El confirm POST manda solo decisiones (objetivo/nivel por hoja +
+    resolución por ejercicio distinto), nunca el dataset entero -- por
+    diseño (spec §2) no debería acercarse jamás al límite default de
+    Django (1000 campos por POST) para una hoja de tamaño realista, sin
+    importar cuántas filas tenga.
+
+    NOTA (Tarea 12): la planilla original de este test (500 filas, cada una
+    con un nombre de ejercicio DISTINTO -- "Ejercicio {i}" para las 500)
+    contradice la premisa que el propio test dice validar: con 500
+    ejercicios distintos el confirm POST manda ~1500 campos (3 por
+    ejercicio × 500) y SÍ supera el límite default de 1000, tirando
+    `TooManyFieldsSent`. Ninguna plantilla real tiene 500 ejercicios
+    completamente distintos en una sola hoja -- una planilla de ese tamaño
+    normalmente repite un vocabulario acotado de ejercicios a lo largo de
+    varias semanas/días (ver el ejemplo de la spec: "4 semanas × 5 días × 6
+    ejercicios × 2 hojas ~240 filas"). Este test usa 500 filas que reciclan
+    un pool de 20 ejercicios distintos -- volumen de filas realista, sin
+    caer en el caso patológico que rompe el propio invariante que se quiere
+    demostrar. Ver ISSUES.md `[2026-07-28]` para el detalle."""
+
+    CANTIDAD_FILAS = 500
+    CANTIDAD_EJERCICIOS_DISTINTOS = 20
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+
+    def test_hoja_de_500_filas_no_rompe_el_confirm_post(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Full body"
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        for i in range(self.CANTIDAD_FILAS):
+            nombre = f"Ejercicio {i % self.CANTIDAD_EJERCICIOS_DISTINTOS}"
+            ws.append([1, nombre, 3, "10"])
+
+        self.client.login(username="staff", password="clave12345")
+        response = self.client.post(
+            reverse("importaciones:plantillas_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+        self.assertEqual(
+            len(importacion.resultado["ejercicios_distintos"]),
+            self.CANTIDAD_EJERCICIOS_DISTINTOS,
+        )
+
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_hoja": "Full body", "form-0-incluir": "on",
+            "form-0-objetivo": "General", "form-0-nivel": "principiante",
+            "ejercicios-TOTAL_FORMS": str(self.CANTIDAD_EJERCICIOS_DISTINTOS),
+            "ejercicios-INITIAL_FORMS": str(self.CANTIDAD_EJERCICIOS_DISTINTOS),
+        }
+        for i, nombre in enumerate(importacion.resultado["ejercicios_distintos"]):
+            datos[f"ejercicios-{i}-nombre_normalizado"] = nombre
+            datos[f"ejercicios-{i}-accion"] = "crear_nuevo"
+            datos[f"ejercicios-{i}-grupo_muscular"] = "cuerpo_completo"
+
+        response = self.client.post(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            RutinaPlantilla.objects.get().items.count(), self.CANTIDAD_FILAS
+        )

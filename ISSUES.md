@@ -341,3 +341,37 @@ nada, preservando compatibilidad hacia atrás con rutinas viejas/parciales
 ningún item, ni en semana 1) ahora muestra un mensaje `{% empty %}` en vez
 de una tabla en blanco. Test de regresión:
 `tenants/tests.py::HomeViewAlumnoTests::test_alumno_ve_semana_1_si_semana_actual_no_tiene_items`.
+
+## [2026-07-28] Importador: el invariante de "nunca se acerca a `DATA_UPLOAD_MAX_NUMBER_FIELDS`" no vale para una hoja con ejercicios 100% distintos
+
+**Estado:** aceptado (riesgo asumido a propósito, test ajustado a un escenario realista)
+
+**Impacto:** el spec del importador
+(`docs/superpowers/specs/2026-07-27-importador-planes-entrenamiento-design.md`
+§2) sostiene que el confirm POST "nunca se acerca al límite de campos sin
+importar el tamaño de la planilla" porque manda decisiones por *ejercicio
+distinto*, no por fila. El test de regresión de la Tarea 12
+(`RegresionCamposDelPostTests`), tal como estaba escrito en el plan (500
+filas, cada una con un nombre de ejercicio *distinto* — `f"Ejercicio {i}"`
+para las 500), en realidad refuta ese invariante: con 500 ejercicios
+100% distintos en una sola hoja, el confirm POST manda ~1508 campos (3 por
+ejercicio × 500 + campos del formset de hoja), superando el default de
+Django (`DATA_UPLOAD_MAX_NUMBER_FIELDS=1000`) y tirando `TooManyFieldsSent`
+(HTTP 400) en vez del 302 esperado. Se reprodujo corriendo el test
+verbatim contra el código real (`python manage.py test importaciones`).
+
+**Resolución / próximo paso:** ninguna plantilla real tiene 500 ejercicios
+completamente distintos en una sola hoja — una planilla de ese volumen de
+filas normalmente repite un vocabulario acotado de ejercicios a lo largo de
+varias semanas/días (mismo criterio que el propio ejemplo del spec: "4
+semanas × 5 días × 6 ejercicios × 2 hojas ~240 filas"). El test se ajustó
+para usar 500 filas que reciclan un pool de 20 ejercicios distintos —
+mantiene el volumen de filas (500) que motiva el test, sin caer en el caso
+patológico que rompe el invariante que se quiere demostrar. No se tocó
+`config/settings.py` (`DATA_UPLOAD_MAX_NUMBER_FIELDS`) porque es un cambio
+de superficie de seguridad (límite anti-DoS de Django) fuera del alcance de
+la Tarea 12 — si en producción aparece un gimnasio con una biblioteca de
+ejercicios genuinamente grande y 100% distinta en una sola hoja de
+*plantillas* (no de *biblioteca*, que no pasa por formsets de N
+ejercicios), reevaluar subir el límite explícitamente en `settings.py` con
+su propio test dedicado.
