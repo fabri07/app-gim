@@ -4,6 +4,7 @@ fixtures de este repo."""
 import io
 
 import openpyxl
+from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase
 
@@ -28,6 +29,11 @@ from importaciones.parsing import (
     parsear_archivo_biblioteca,
     parsear_archivo_plantillas,
 )
+from importaciones.services import (
+    ImportacionInvalida,
+    previsualizar_importacion_plantillas,
+)
+from rutinas.models import RutinaPlantilla
 from tenants.models import Gimnasio
 
 
@@ -338,3 +344,66 @@ class ConstruirIndiceEjerciciosTests(TestCase):
         )
         indice = construir_indice_ejercicios(gimnasio_a)
         self.assertEqual(indice, {"press de banca": ejercicio_a})
+
+
+class PrevisualizarImportacionPlantillasTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user(username="staff", password="clave12345")
+        self.ejercicio_existente = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Sentadilla",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+
+    def _archivo_dos_hojas(self):
+        wb = openpyxl.Workbook()
+        ws1 = wb.active
+        ws1.title = "Hombres"
+        ws1.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws1.append([1, "Press de banca", 4, "8-12"])
+        ws1.append([1, "sentadila", 3, "10"])  # typo de un ejercicio ya cargado
+        ws2 = wb.create_sheet("Mujeres")
+        ws2.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws2.append([1, "Press de banca", 3, "10-12"])  # mismo ejercicio nuevo, otra hoja
+        return _archivo_xlsx(wb)
+
+    def test_crea_importacion_en_revision_sin_tocar_rutinaplantilla(self):
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=self._archivo_dos_hojas(), usuario=self.usuario,
+        )
+        self.assertEqual(importacion.tipo, Importacion.Tipo.PLANTILLAS)
+        self.assertEqual(importacion.estado, Importacion.Estado.EN_REVISION)
+        self.assertEqual(importacion.gimnasio, self.gimnasio)
+        self.assertEqual(importacion.creado_por, self.usuario)
+        self.assertEqual(RutinaPlantilla.objects.count(), 0)
+
+    def test_resultado_tiene_una_entrada_por_hoja(self):
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=self._archivo_dos_hojas(), usuario=self.usuario,
+        )
+        nombres_hoja = {h["nombre_hoja"] for h in importacion.resultado["hojas"]}
+        self.assertEqual(nombres_hoja, {"Hombres", "Mujeres"})
+
+    def test_ejercicio_repetido_entre_hojas_se_resuelve_una_sola_vez(self):
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=self._archivo_dos_hojas(), usuario=self.usuario,
+        )
+        # "Press de banca" aparece en las dos hojas -> una sola entrada en ejercicios_distintos
+        self.assertIn("press de banca", importacion.resultado["ejercicios_distintos"])
+        entrada = importacion.resultado["ejercicios_distintos"]["press de banca"]
+        self.assertEqual(entrada["tipo"], "nuevo")
+
+    def test_typo_de_ejercicio_existente_da_ambiguo_con_candidato(self):
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=self._archivo_dos_hojas(), usuario=self.usuario,
+        )
+        entrada = importacion.resultado["ejercicios_distintos"]["sentadila"]
+        self.assertEqual(entrada["tipo"], "ambiguo")
+        self.assertEqual(entrada["candidato_id"], self.ejercicio_existente.pk)
+
+    def test_archivo_no_valido_lanza_importacioninvalida(self):
+        archivo_roto = SimpleUploadedFile("plan.xlsx", b"esto no es un xlsx")
+        with self.assertRaises(ImportacionInvalida):
+            previsualizar_importacion_plantillas(
+                gimnasio=self.gimnasio, archivo=archivo_roto, usuario=self.usuario,
+            )
