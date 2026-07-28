@@ -208,10 +208,20 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
         )
 
     def _pendientes(self, importacion):
-        return [
-            item for item in importacion.resultado["items"]
-            if item["match"]["tipo"] != "exacto" and not item["grupo_muscular_resuelto"]
-        ]
+        # Un item pendiente puede necesitar UNA de las dos decisiones, o
+        # ambas: `needs_accion` (match ambiguo -- usar existente o crear
+        # nuevo) y/o `needs_grupo` (grupo_muscular sin auto-resolver). Se
+        # devuelven juntas en una sola lista para que el template arme UNA
+        # fila por ejercicio pendiente, no dos secciones separadas que
+        # dupliquen filas para el caso ambiguo+sin-grupo.
+        pendientes = []
+        for item in importacion.resultado["items"]:
+            tipo = item["match"]["tipo"]
+            needs_accion = tipo == "ambiguo"
+            needs_grupo = tipo != "exacto" and not item["grupo_muscular_resuelto"]
+            if needs_accion or needs_grupo:
+                pendientes.append({**item, "needs_accion": needs_accion, "needs_grupo": needs_grupo})
+        return pendientes
 
     def get(self, request, *args, **kwargs):
         importacion = self.get_importacion()
@@ -231,23 +241,38 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
         if not form.is_valid():
             return self._render(request, importacion, form)
 
-        resueltos_a_mano = form.cleaned_data["resoluciones"]
-        faltantes = [
-            item["nombre_original"] for item in self._pendientes(importacion)
-            if item["nombre_normalizado"] not in resueltos_a_mano
-        ]
+        resoluciones = form.cleaned_data["resoluciones"]
+        faltantes = []
+        for item in importacion.resultado["items"]:
+            tipo = item["match"]["tipo"]
+            if tipo == "exacto":
+                continue
+            entrada = resoluciones.get(item["nombre_normalizado"], {})
+            if tipo == "ambiguo":
+                accion = entrada.get("accion")
+                if accion not in ("usar_existente", "crear_nuevo"):
+                    faltantes.append(item["nombre_original"])
+                    continue
+                if accion == "usar_existente":
+                    continue  # no crea nada -> no necesita grupo_muscular
+            if not item["grupo_muscular_resuelto"] and not entrada.get("grupo_muscular"):
+                faltantes.append(item["nombre_original"])
         if faltantes:
-            form.add_error(
-                None, f"Falta resolver el grupo muscular de: {', '.join(faltantes)}.",
-            )
+            form.add_error(None, f"Falta resolver: {', '.join(faltantes)}.")
             return self._render(request, importacion, form)
 
         decisiones = {"items": {
             item["nombre_normalizado"]: {
-                "incluir": item["match"]["tipo"] != "exacto",
+                "incluir": (
+                    item["match"]["tipo"] != "exacto"
+                    and not (
+                        item["match"]["tipo"] == "ambiguo"
+                        and resoluciones.get(item["nombre_normalizado"], {}).get("accion") == "usar_existente"
+                    )
+                ),
                 "grupo_muscular": (
                     item["grupo_muscular_resuelto"]
-                    or resueltos_a_mano.get(item["nombre_normalizado"])
+                    or resoluciones.get(item["nombre_normalizado"], {}).get("grupo_muscular")
                 ),
             }
             for item in importacion.resultado["items"]

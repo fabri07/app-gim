@@ -84,7 +84,12 @@ class ResolucionesJSONForm(forms.Form):
     pendiente) por un único campo con las resoluciones serializadas en
     JSON -- así el conteo de campos del POST de confirmación de biblioteca
     no escala con la cantidad de ejercicios sin match (una biblioteca real
-    puede traer miles; ver ISSUES.md [2026-07-28] y su seguimiento)."""
+    puede traer miles; ver ISSUES.md [2026-07-28] y su seguimiento). El
+    payload es {nombre: {"grupo_muscular": str|None, "accion": str|None}}
+    -- "accion" (usar_existente/crear_nuevo) resuelve un match ambiguo,
+    "grupo_muscular" resuelve un ejercicio sin grupo muscular en el
+    archivo; un mismo ejercicio pendiente puede necesitar una, la otra, o
+    ambas claves a la vez (Tarea 14)."""
     resoluciones = forms.CharField(widget=forms.HiddenInput, required=False)
 
     def clean(self):
@@ -105,8 +110,16 @@ class ResolucionesJSONForm(forms.Form):
             self.add_error(None, "Formato de resoluciones inválido.")
             return cleaned
         for clave, valor in datos.items():
-            if not isinstance(clave, str) or valor not in Ejercicio.GrupoMuscular.values:
+            if not isinstance(clave, str) or not isinstance(valor, dict):
+                self.add_error(None, "Formato de resoluciones inválido.")
+                return cleaned
+            grupo_muscular = valor.get("grupo_muscular")
+            if grupo_muscular is not None and grupo_muscular not in Ejercicio.GrupoMuscular.values:
                 self.add_error(None, "Grupo muscular inválido.")
+                return cleaned
+            accion = valor.get("accion")
+            if accion is not None and accion not in ("usar_existente", "crear_nuevo"):
+                self.add_error(None, "Acción inválida.")
                 return cleaned
         cleaned["resoluciones"] = datos
         return cleaned

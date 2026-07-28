@@ -411,3 +411,41 @@ ver la entrada de arriba. Test de regresión:
 `importaciones/tests.py::RegresionCamposPostBibliotecaTests::test_600_ejercicios_pendientes_no_rompe_el_confirm_post`
 (600 ejercicios pendientes, POST real vía test client, confirma 302 y 600
 `Ejercicio` creados).
+
+## [2026-07-28] Importador: biblioteca ignoraba el match ambiguo de `rapidfuzz` — creaba duplicados en vez de ofrecer "usar existente"
+
+**Estado:** resuelto
+
+**Impacto:** una revisión final de rama (post Tarea 13) encontró que
+`PreviewBibliotecaView` calculaba el match ambiguo (`resolver_nombre`,
+`matching.py`, Tarea 5) pero lo trataba igual que un match "nuevo": nunca le
+ofrecía al staff la opción de "usar existente". Con "Sentadilla" ya cargada
+en la biblioteca, importar "Sentadila" (typo, score ~94 por `WRatio`)
+creaba un `Ejercicio` duplicado sin ningún aviso. Esto contradecía el
+Global Constraint ("matches ambiguos quedan pre-marcados en 'usar
+existente', el staff elige activamente 'crear nuevo' si corresponde"), que
+el flujo de *plantillas* sí cumple desde la Tarea 6.
+
+**Resolución:** se agregó la misma decisión de plantillas (usar
+existente/crear nuevo, con nombre del candidato y score visibles) sin
+reintroducir un formset — la restricción de la Tarea 13 (POST de biblioteca
+no puede escalar con la cantidad de ejercicios pendientes) sigue vigente.
+La resolución de "accion" viaja en el MISMO campo JSON que ya llevaba
+`grupo_muscular` (`ResolucionesJSONForm.resoluciones`), ahora con forma
+anidada `{nombre: {"grupo_muscular": str|None, "accion": str|None}}` en vez
+de `{nombre: grupo_muscular_str}` — ruptura de payload que obligó a
+actualizar dos tests existentes que posteaban el formato viejo (además de
+uno tercero, `test_resoluciones_con_grupo_muscular_invalido_no_confirma_y_muestra_error`,
+que el plan original no había marcado pero que rompía igual al validar
+`isinstance(valor, dict)`). `previsualizar_importacion_biblioteca` ahora
+agrega `candidato_nombre` al `match_json` de tipo "ambiguo" (mismo patrón
+que ya usaba `previsualizar_importacion_plantillas`). El guard existente de
+`confirmar_importacion_biblioteca` (`if not decision["incluir"] or
+item["match"]["tipo"] == "exacto": continue`) no necesitó ningún cambio:
+una vez que la vista calcula `incluir=False` para un ambiguo resuelto como
+"usar_existente", el guard ya lo salteaba correctamente sin crear nada.
+Tests nuevos en `ImportacionBibliotecaViewsTests`:
+`test_preview_muestra_candidato_y_score_para_match_ambiguo`,
+`test_ambiguo_usar_existente_no_crea_ejercicio_nuevo`,
+`test_ambiguo_crear_nuevo_requiere_grupo_muscular_y_crea_ejercicio`,
+`test_ambiguo_sin_resolver_no_confirma`.

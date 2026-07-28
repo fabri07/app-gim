@@ -43,17 +43,28 @@
     {% endif %}
     {% if pendientes %}
       <div class="tarjeta">
-        <h2>Grupos musculares a resolver</h2>
+        <h2>Ejercicios a resolver</h2>
         {% for item in pendientes %}
-          <p>
-            {{ item.nombre_original }}
-            <select class="js-grupo-muscular" data-valor-original="{{ item.nombre_normalizado }}">
-              <option value="">---------</option>
-              {% for valor, etiqueta in grupo_muscular_choices %}
-                <option value="{{ valor }}">{{ etiqueta }}</option>
-              {% endfor %}
-            </select>
-          </p>
+          <div>
+            <p>{{ item.nombre_original }}</p>
+            {% if item.needs_accion %}
+              <select class="js-accion" data-valor-original="{{ item.nombre_normalizado }}">
+                <option value="">---------</option>
+                <option value="usar_existente">
+                  Usar existente: {{ item.match.candidato_nombre }} ({{ item.match.score }}% de similitud)
+                </option>
+                <option value="crear_nuevo">Crear como nuevo ejercicio</option>
+              </select>
+            {% endif %}
+            {% if item.needs_grupo %}
+              <select class="js-grupo-muscular" data-valor-original="{{ item.nombre_normalizado }}">
+                <option value="">---------</option>
+                {% for valor, etiqueta in grupo_muscular_choices %}
+                  <option value="{{ valor }}">{{ etiqueta }}</option>
+                {% endfor %}
+              </select>
+            {% endif %}
+          </div>
         {% endfor %}
       </div>
     {% endif %}
@@ -63,10 +74,15 @@
     <script>
       document.currentScript.closest("form").addEventListener("submit", function () {
         var resoluciones = {};
+        function entrada(nombre) {
+          if (!resoluciones[nombre]) { resoluciones[nombre] = {}; }
+          return resoluciones[nombre];
+        }
         document.querySelectorAll(".js-grupo-muscular").forEach(function (select) {
-          if (select.value) {
-            resoluciones[select.dataset.valorOriginal] = select.value;
-          }
+          if (select.value) { entrada(select.dataset.valorOriginal).grupo_muscular = select.value; }
+        });
+        document.querySelectorAll(".js-accion").forEach(function (select) {
+          if (select.value) { entrada(select.dataset.valorOriginal).accion = select.value; }
         });
         document.getElementById("id_resoluciones").value = JSON.stringify(resoluciones);
       });

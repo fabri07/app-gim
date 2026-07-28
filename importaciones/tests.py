@@ -1049,7 +1049,7 @@ class ImportacionBibliotecaViewsTests(TestCase):
         )
         self.assertContains(response, "hip thrust")
 
-        datos = {"resoluciones": json.dumps({"hip thrust": "piernas"})}
+        datos = {"resoluciones": json.dumps({"hip thrust": {"grupo_muscular": "piernas"}})}
         response = self.client.post(
             reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
         )
@@ -1105,7 +1105,7 @@ class ImportacionBibliotecaViewsTests(TestCase):
 
         response = self.client.post(
             reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
-            {"resoluciones": json.dumps({"hip thrust": "no_existe"})},
+            {"resoluciones": json.dumps({"hip thrust": {"grupo_muscular": "no_existe"}})},
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Grupo muscular inválido.")
@@ -1144,6 +1144,82 @@ class ImportacionBibliotecaViewsTests(TestCase):
         self.assertEqual(response.url, reverse("importaciones:biblioteca_subir"))
         importacion.refresh_from_db()
         self.assertEqual(importacion.estado, Importacion.Estado.DESCARTADA)
+
+    def _archivo_con_ambiguo(self, gimnasio):
+        Ejercicio.objects.create(
+            gimnasio=gimnasio, nombre="Sentadilla", grupo_muscular="piernas",
+        )
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre"])
+        ws.append(["Sentadila"])  # typo -> match ambiguo contra "Sentadilla"
+        return _archivo_xlsx(wb)
+
+    def test_preview_muestra_candidato_y_score_para_match_ambiguo(self):
+        self.client.login(username="staff_a", password="clave12345")
+        self.client.post(
+            reverse("importaciones:biblioteca_subir"),
+            {"archivo": self._archivo_con_ambiguo(self.gimnasio_a)},
+        )
+        importacion = Importacion.objects.get()
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "Sentadilla")  # nombre del candidato
+        # Score de rapidfuzz para "sentadila" vs "sentadilla" (WRatio),
+        # confirmado corriendo `resolver_nombre` directamente: 94.
+        self.assertContains(response, "94")
+
+    def test_ambiguo_usar_existente_no_crea_ejercicio_nuevo(self):
+        self.client.login(username="staff_a", password="clave12345")
+        self.client.post(
+            reverse("importaciones:biblioteca_subir"),
+            {"archivo": self._archivo_con_ambiguo(self.gimnasio_a)},
+        )
+        importacion = Importacion.objects.get()
+        datos = {
+            "resoluciones": json.dumps({"sentadila": {"accion": "usar_existente"}}),
+        }
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.filter(gimnasio=self.gimnasio_a).count(), 1)
+
+    def test_ambiguo_crear_nuevo_requiere_grupo_muscular_y_crea_ejercicio(self):
+        self.client.login(username="staff_a", password="clave12345")
+        self.client.post(
+            reverse("importaciones:biblioteca_subir"),
+            {"archivo": self._archivo_con_ambiguo(self.gimnasio_a)},
+        )
+        importacion = Importacion.objects.get()
+        datos = {
+            "resoluciones": json.dumps(
+                {"sentadila": {"accion": "crear_nuevo", "grupo_muscular": "piernas"}}
+            ),
+        }
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.filter(gimnasio=self.gimnasio_a).count(), 2)
+        self.assertTrue(
+            Ejercicio.objects.filter(gimnasio=self.gimnasio_a, nombre="Sentadila").exists()
+        )
+
+    def test_ambiguo_sin_resolver_no_confirma(self):
+        self.client.login(username="staff_a", password="clave12345")
+        self.client.post(
+            reverse("importaciones:biblioteca_subir"),
+            {"archivo": self._archivo_con_ambiguo(self.gimnasio_a)},
+        )
+        importacion = Importacion.objects.get()
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": "{}"},
+        )
+        self.assertEqual(response.status_code, 200)  # re-renderiza con error
+        self.assertEqual(Ejercicio.objects.filter(gimnasio=self.gimnasio_a).count(), 1)
 
 
 class RegresionCamposDelPostTests(TestCase):
@@ -1242,7 +1318,9 @@ class RegresionCamposPostBibliotecaTests(TestCase):
         importacion = Importacion.objects.get()
         self.assertEqual(len(importacion.resultado["items"]), 600)
 
-        resoluciones = {f"ejercicio {i}": "cuerpo_completo" for i in range(600)}
+        resoluciones = {
+            f"ejercicio {i}": {"grupo_muscular": "cuerpo_completo"} for i in range(600)
+        }
         response = self.client.post(
             reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
             {"resoluciones": json.dumps(resoluciones)},

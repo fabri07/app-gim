@@ -280,7 +280,12 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
         match_json = (
             {"tipo": "exacto", "ejercicio_id": match.ejercicio.pk}
             if match.tipo == "exacto"
-            else {"tipo": "ambiguo", "candidato_id": match.candidato.pk, "score": match.score}
+            else {
+                "tipo": "ambiguo",
+                "candidato_id": match.candidato.pk,
+                "candidato_nombre": match.candidato.nombre,
+                "score": match.score,
+            }
             if match.tipo == "ambiguo"
             else {"tipo": "nuevo"}
         )
