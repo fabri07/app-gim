@@ -245,19 +245,20 @@ class LeerHojaBibliotecaTests(SimpleTestCase):
         ws.append(["Nombre", "Grupo Muscular", "Video"])
         ws.append(["Press de banca", "Pecho", "https://youtube.com/x"])
         ws.append(["Sentadilla", "Piernas", ""])
-        items, invalidas = leer_hoja_biblioteca(ws)
+        items, invalidas, advertencias = leer_hoja_biblioteca(ws)
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0]["nombre_original"], "Press de banca")
         self.assertEqual(items[0]["grupo_muscular_original"], "Pecho")
         self.assertEqual(items[0]["url_video"], "https://youtube.com/x")
         self.assertEqual(invalidas, [])
+        self.assertEqual(advertencias, [])
 
     def test_fila_sin_nombre_se_saltea_con_motivo(self):
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.append(["Nombre", "Grupo Muscular"])
         ws.append(["", "Pecho"])
-        items, invalidas = leer_hoja_biblioteca(ws)
+        items, invalidas, _ = leer_hoja_biblioteca(ws)
         self.assertEqual(items, [])
         self.assertEqual(len(invalidas), 1)
 
@@ -266,7 +267,7 @@ class LeerHojaBibliotecaTests(SimpleTestCase):
         ws = wb.active
         ws.append(["Nombre"])
         ws.append(["Press de banca"])
-        items, _ = leer_hoja_biblioteca(ws)
+        items, _, _ = leer_hoja_biblioteca(ws)
         self.assertIsNone(items[0]["grupo_muscular_original"])
 
 
@@ -293,9 +294,10 @@ class ParsearArchivoBibliotecaTests(SimpleTestCase):
         ws = wb.active
         ws.append(["Nombre", "Grupo Muscular"])
         ws.append(["Press de banca", "Pecho"])
-        items, invalidas = parsear_archivo_biblioteca(_archivo_xlsx(wb))
+        items, invalidas, advertencias = parsear_archivo_biblioteca(_archivo_xlsx(wb))
         self.assertEqual(len(items), 1)
         self.assertEqual(invalidas, [])
+        self.assertEqual(advertencias, [])
 
 
 class ResolverNombreTests(SimpleTestCase):
@@ -1247,3 +1249,295 @@ class RegresionCamposPostBibliotecaTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Ejercicio.objects.count(), 600)
+
+
+class SinDefaultSilenciosoDeGrupoMuscularYNivelTests(TestCase):
+    """Fix post-review, hallazgo 1: ni `grupo_muscular` (ejercicio nuevo) ni
+    `nivel` (hoja) pueden quedar con una opción real pre-seleccionada en el
+    <select> -- eso viola el constraint no negociable de que el staff SIEMPRE
+    elige el grupo muscular de un ejercicio nuevo a mano. Antes del fix, el
+    <select> no tenía ninguna opción en blanco, así que el navegador
+    pre-seleccionaba (y mandaba) la primera choice real ("pecho" /
+    "principiante") sin que el staff la tocara."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+
+    def _importacion_con_ejercicio_nuevo(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Hombres"
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Press de banca", 4, "8-12"])
+        self.client.post(
+            reverse("importaciones:plantillas_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        return Importacion.objects.get()
+
+    def test_preview_no_preselecciona_ninguna_opcion_real_en_los_selects(self):
+        importacion = self._importacion_con_ejercicio_nuevo()
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        # La opción en blanco es la que queda "selected" -- ni "pecho" (1ra
+        # choice de grupo_muscular) ni "principiante" (1ra choice de nivel).
+        self.assertContains(response, '<option value="" selected>---------</option>', count=2)
+        self.assertNotContains(response, '<option value="pecho" selected>')
+        self.assertNotContains(response, '<option value="principiante" selected>')
+
+    def test_confirmar_sin_elegir_grupo_muscular_no_crea_nada(self):
+        # Simula un navegador real: el staff no tocó el <select>, así que
+        # se manda la opción en blanco pre-seleccionada, no "pecho".
+        importacion = self._importacion_con_ejercicio_nuevo()
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_hoja": "Hombres", "form-0-incluir": "on",
+            "form-0-objetivo": "Hipertrofia", "form-0-nivel": "principiante",
+            "ejercicios-TOTAL_FORMS": "1", "ejercicios-INITIAL_FORMS": "1",
+            "ejercicios-0-nombre_normalizado": "press de banca",
+            "ejercicios-0-accion": "crear_nuevo",
+            "ejercicios-0-grupo_muscular": "",
+        }
+        response = self.client.post(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 200)  # re-renderiza con error, no redirige
+        self.assertContains(response, "Elegí un grupo muscular")
+        self.assertEqual(RutinaPlantilla.objects.count(), 0)
+        self.assertEqual(Ejercicio.objects.count(), 0)
+
+
+class HojaExcluidaPorColumnaFaltanteTests(TestCase):
+    """Fix post-review, hallazgo 2: una hoja sin una columna requerida
+    (ejercicio/series/repeticiones) queda con 0 items -- antes, sin ningún
+    motivo registrado, y con `incluir` pre-tildado por default, así que
+    confirmarla creaba una `RutinaPlantilla` vacía en silencio."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+
+    def _archivo_con_columna_ejercicio_mal_escrita(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Hombres"
+        ws.append(["Dia", "Ejercico", "Series", "Repeticiones"])  # typo: "Ejercico"
+        ws.append([1, "Press de banca", 4, "8-12"])
+        return _archivo_xlsx(wb)
+
+    def test_preview_registra_y_muestra_el_motivo_de_exclusion(self):
+        response = self.client.post(
+            reverse("importaciones:plantillas_subir"),
+            {"archivo": self._archivo_con_columna_ejercicio_mal_escrita()},
+        )
+        importacion = Importacion.objects.get()
+        hoja = importacion.resultado["hojas"][0]
+        self.assertEqual(hoja["items"], [])
+        self.assertIsNotNone(hoja["motivo_exclusion"])
+        self.assertIn("ejercicio", hoja["motivo_exclusion"])
+
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "No se pudo importar")
+
+    def test_preview_no_marca_incluir_por_default_para_hoja_excluida(self):
+        response = self.client.post(
+            reverse("importaciones:plantillas_subir"),
+            {"archivo": self._archivo_con_columna_ejercicio_mal_escrita()},
+        )
+        importacion = Importacion.objects.get()
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        hoja_formset = response.context["hoja_formset"]
+        self.assertFalse(hoja_formset.forms[0].initial["incluir"])
+
+    def test_confirmar_sin_marcar_incluir_no_crea_plantilla_vacia(self):
+        response = self.client.post(
+            reverse("importaciones:plantillas_subir"),
+            {"archivo": self._archivo_con_columna_ejercicio_mal_escrita()},
+        )
+        importacion = Importacion.objects.get()
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_hoja": "Hombres",
+            # "incluir" deliberadamente ausente -- checkbox sin marcar, ya
+            # que el default ahora es no incluir una hoja sin ejercicios.
+            "form-0-objetivo": "Hipertrofia", "form-0-nivel": "principiante",
+            "ejercicios-TOTAL_FORMS": "0", "ejercicios-INITIAL_FORMS": "0",
+        }
+        response = self.client.post(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(RutinaPlantilla.objects.count(), 0)
+
+    def test_confirmar_incluir_forzado_en_hoja_vacia_falla_en_el_service(self):
+        # Defensa en profundidad: aunque alguien arme un POST a mano con
+        # `incluir=True` para una hoja de 0 items, el service la rechaza.
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio,
+            archivo=self._archivo_con_columna_ejercicio_mal_escrita(),
+            usuario=self.staff,
+        )
+        decisiones = {
+            "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
+            "ejercicios": {},
+        }
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_plantillas(
+                importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+        self.assertEqual(RutinaPlantilla.objects.count(), 0)
+
+
+class AdvertenciasColumnasLlegaAlStaffTests(TestCase):
+    """Fix post-review, hallazgo 3: `detectar_columnas` calcula advertencias
+    de columnas duplicadas pero antes se descartaban antes de llegar al
+    staff (`services.py` hardcodeaba `"advertencias_columnas": []`)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+
+    def test_plantillas_columna_ejercicio_duplicada_se_muestra_en_el_preview(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Hombres"
+        # Dos columnas "Ejercicio" -- ambas matchean el mismo alias.
+        ws.append(["Dia", "Ejercicio", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Press de banca", "otra cosa", 4, "8-12"])
+
+        response = self.client.post(
+            reverse("importaciones:plantillas_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+        self.assertTrue(importacion.resultado["advertencias_columnas"])
+
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "Advertencia")
+        self.assertContains(response, "ejercicio")
+
+    def test_biblioteca_columna_nombre_duplicada_se_muestra_en_el_preview(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        # Dos columnas "Nombre" -- ambas matchean el alias de "nombre".
+        ws.append(["Nombre", "Nombre", "Grupo Muscular"])
+        ws.append(["Press de banca", "otra cosa", "Pecho"])
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+        self.assertTrue(importacion.resultado["advertencias_columnas"])
+
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "Advertencia")
+        self.assertContains(response, "nombre")
+
+
+class BibliotecaDedupeDentroDelArchivoTests(TestCase):
+    """Fix post-review, hallazgo 5: si el MISMO archivo trae dos filas que
+    normalizan al mismo nombre (p. ej. "Press de banca" y "PRESS DE
+    BANCA"), antes se creaban dos `Ejercicio` -- `Ejercicio` no tiene
+    `unique_together`, así que no había ningún otro chequeo que lo evitara."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+
+    def _archivo_con_duplicado(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Grupo Muscular"])
+        ws.append(["Press de banca", "Pecho"])
+        ws.append(["PRESS DE BANCA", "Pecho"])  # mismo nombre normalizado
+        return _archivo_xlsx(wb)
+
+    def test_previsualizar_deja_solo_la_primera_aparicion_y_lista_la_otra_como_invalida(self):
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo_con_duplicado(), usuario=self.staff,
+        )
+        self.assertEqual(len(importacion.resultado["items"]), 1)
+        self.assertEqual(importacion.resultado["items"][0]["nombre_original"], "Press de banca")
+        self.assertEqual(len(importacion.resultado["filas_invalidas"]), 1)
+        self.assertIn(
+            "duplicado", importacion.resultado["filas_invalidas"][0]["motivo"].lower(),
+        )
+
+    def test_confirmar_crea_un_solo_ejercicio_para_el_duplicado(self):
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": self._archivo_con_duplicado()},
+        )
+        importacion = Importacion.objects.get()
+
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "duplicado")
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": "{}"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            Ejercicio.objects.filter(nombre__iexact="press de banca").count(), 1
+        )
+
+
+class EjercicioResolucionMuestraContextoTests(TestCase):
+    """Fix post-review, hallazgo 6: la sección "Ejercicios a resolver" del
+    preview de plantillas mostraba el nombre NORMALIZADO (lowercase) en vez
+    del original, y renderizaba el form completo -- incluyendo
+    `ejercicio_existente_id` como un <input type="number"> crudo, sin
+    ninguna explicación de qué es esa PK. El spec pide nombre original,
+    candidato sugerido y score para los matches ambiguos."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.ejercicio_existente = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Sentadilla",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+        self.client.login(username="staff", password="clave12345")
+
+    def test_preview_muestra_nombre_original_candidato_y_score_para_match_ambiguo(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Hombres"
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Sentadila", 3, "10"])  # typo -> match ambiguo con "Sentadilla"
+
+        self.client.post(
+            reverse("importaciones:plantillas_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+        entrada = importacion.resultado["ejercicios_distintos"]["sentadila"]
+        self.assertEqual(entrada["tipo"], "ambiguo")
+
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "Sentadila")  # nombre ORIGINAL, no "sentadila"
+        self.assertContains(response, entrada["candidato_nombre"])
+        self.assertContains(response, str(entrada["score"]))
+        # El pk crudo de `ejercicio_existente_id` ya no puede quedar
+        # expuesto como un <input type="number"> editable sin etiqueta.
+        self.assertNotContains(response, 'type="number"')

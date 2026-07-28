@@ -57,7 +57,16 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
     def _formsets_iniciales(self, importacion):
         resultado = importacion.resultado
         hojas_initial = [
-            {"nombre_hoja": h["nombre_hoja"], "incluir": True, "objetivo": "", "nivel": ""}
+            {
+                "nombre_hoja": h["nombre_hoja"],
+                # Una hoja sin items (p. ej. excluida por falta de columna
+                # requerida, `motivo_exclusion` != None) no debe venir
+                # pre-tildada -- confirmar así crearía una `RutinaPlantilla`
+                # vacía en silencio (fix post-review, hallazgo 2).
+                "incluir": not h.get("motivo_exclusion"),
+                "objetivo": "",
+                "nivel": "",
+            }
             for h in resultado["hojas"]
         ]
         ejercicios_initial = [
@@ -78,6 +87,41 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
         hoja_formset, ejercicio_formset = self._formsets_iniciales(importacion)
         return self.render(request, importacion, hoja_formset, ejercicio_formset)
 
+    def _nombre_original(self, resultado, nombre_normalizado):
+        # `ejercicios_distintos` está keyeado por nombre NORMALIZADO
+        # (lowercase, sin tildes) -- para mostrarle al staff el nombre tal
+        # como lo escribió en el Excel hay que ir a buscarlo a la primera
+        # fila de `hojas[].items` que matchee (mismo lookup que ya hace
+        # `confirmar_importacion_plantillas` para crear el `Ejercicio`).
+        return next(
+            (
+                item["ejercicio_original"]
+                for hoja in resultado["hojas"]
+                for item in hoja["items"]
+                if item["ejercicio_normalizado"] == nombre_normalizado
+            ),
+            nombre_normalizado,
+        )
+
+    def _ejercicios_con_form(self, importacion, ejercicio_formset):
+        # Empareja cada form del formset con SU entrada de
+        # `ejercicios_distintos` (nombre original, candidato sugerido y
+        # score si es un match ambiguo) -- antes el template solo mostraba
+        # el nombre normalizado y el form crudo, sin ese contexto (fix
+        # post-review, hallazgo 6). Se busca por valor de campo (no por
+        # índice) para que funcione tanto con el formset recién armado
+        # desde `initial` (GET) como con uno reconstruido desde
+        # `request.POST` tras un error de validación.
+        resultado = importacion.resultado
+        ejercicios_distintos = resultado["ejercicios_distintos"]
+        filas = []
+        for f in ejercicio_formset.forms:
+            nombre_normalizado = f["nombre_normalizado"].value()
+            info = dict(ejercicios_distintos.get(nombre_normalizado, {}))
+            info["nombre_original"] = self._nombre_original(resultado, nombre_normalizado)
+            filas.append((info, f))
+        return filas
+
     def render(self, request, importacion, hoja_formset, ejercicio_formset):
         # `hoja_formset.forms` preserva el orden de `hojas_initial`, que a
         # su vez preserva el orden de `resultado["hojas"]` -- zippearlos es
@@ -90,6 +134,7 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
             "hojas_con_form": list(zip(importacion.resultado["hojas"], hoja_formset.forms)),
             "hoja_formset": hoja_formset,
             "ejercicio_formset": ejercicio_formset,
+            "ejercicios_con_form": self._ejercicios_con_form(importacion, ejercicio_formset),
         })
 
     def post(self, request, *args, **kwargs):

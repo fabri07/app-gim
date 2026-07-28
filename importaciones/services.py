@@ -88,11 +88,17 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
                     for item in hoja.items
                 ],
                 "filas_invalidas": [asdict(f) for f in hoja.filas_invalidas],
+                "motivo_exclusion": hoja.motivo_exclusion,
             }
             for hoja in hojas
         ],
         "ejercicios_distintos": ejercicios_distintos,
-        "advertencias_columnas": [],
+        # Campo a nivel archivo (no por hoja) -- agregamos las advertencias
+        # de todas las hojas, mismo criterio que usa el import de
+        # biblioteca (un solo archivo/hoja).
+        "advertencias_columnas": [
+            advertencia for hoja in hojas for advertencia in hoja.advertencias_columnas
+        ],
     }
 
     return Importacion.objects.create(
@@ -191,6 +197,16 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
         for hoja, decision_hoja in zip(resultado["hojas"], decisiones_hojas):
             if not decision_hoja["incluir"]:
                 continue
+            if not hoja["items"]:
+                # Defensa en profundidad: el default de `incluir` para una
+                # hoja sin items ya es `False` en `PreviewPlantillasView`
+                # (Tarea 9, fix post-review hallazgo 2), pero esto cubre un
+                # POST armado a mano que fuerce `incluir=True` para una
+                # hoja vacía -- nunca crear una `RutinaPlantilla` sin
+                # ningún ejercicio.
+                raise ImportacionInvalida(
+                    f"La hoja «{hoja['nombre_hoja']}» no tiene ejercicios y no se puede incluir."
+                )
             nivel = decision_hoja["nivel"]
             if nivel not in RutinaPlantilla.Nivel.values:
                 raise ImportacionInvalida(f"Nivel inválido: «{nivel}».")
@@ -230,16 +246,36 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
     muscular opcional + video opcional), sin días/semanas/series. Igual que
     en plantillas, no crea nada todavía -- solo arma el preview."""
     try:
-        items_parseados, filas_invalidas = parsear_archivo_biblioteca(archivo)
+        items_parseados, filas_invalidas, advertencias_columnas = parsear_archivo_biblioteca(archivo)
     except ERRORES_ARCHIVO_INVALIDO:
         raise ImportacionInvalida(
             "No se pudo leer el archivo. Verificá que sea un .xlsx válido."
         )
 
     indice = construir_indice_ejercicios(gimnasio)
+    filas_invalidas_json = [asdict(f) for f in filas_invalidas]
     items = []
+    primera_fila_por_nombre = {}  # nombre_normalizado -> fila_excel de la 1ra aparición
     for item in items_parseados:
         nombre_normalizado = normalizar_texto(item["nombre_original"])
+        if nombre_normalizado in primera_fila_por_nombre:
+            # Dos filas del MISMO archivo que normalizan al mismo nombre
+            # (p. ej. "Press de banca" y "PRESS DE BANCA") -- `Ejercicio`
+            # no tiene `unique_together`, así que sin este chequeo
+            # `confirmar_importacion_biblioteca` crearía un registro por
+            # cada fila (fix post-review, hallazgo 5). Se descarta acá, en
+            # el preview, para que `confirmar_importacion_biblioteca` ni
+            # siquiera vea la fila duplicada.
+            filas_invalidas_json.append({
+                "fila_excel": item["fila_excel"],
+                "motivo": (
+                    "Ejercicio duplicado en el archivo (ya aparece en la fila "
+                    f"{primera_fila_por_nombre[nombre_normalizado]})"
+                ),
+            })
+            continue
+        primera_fila_por_nombre[nombre_normalizado] = item["fila_excel"]
+
         match = resolver_nombre(nombre_normalizado, indice)
         match_json = (
             {"tipo": "exacto", "ejercicio_id": match.ejercicio.pk}
@@ -262,7 +298,8 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
 
     resultado_json = {
         "items": items,
-        "filas_invalidas": [asdict(f) for f in filas_invalidas],
+        "filas_invalidas": filas_invalidas_json,
+        "advertencias_columnas": advertencias_columnas,
     }
 
     return Importacion.objects.create(

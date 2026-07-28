@@ -5,6 +5,13 @@
 {% block content %}
 <div class="contenido--ancho">
   <h1>Revisar antes de confirmar</h1>
+  {% if importacion.resultado.advertencias_columnas %}
+    <div class="tarjeta">
+      {% for advertencia in importacion.resultado.advertencias_columnas %}
+        <p class="texto-suave">Advertencia: {{ advertencia }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
   <form method="post" hx-boost="false">
     {% csrf_token %}
     {{ hoja_formset.management_form }}
@@ -12,6 +19,9 @@
       <div class="tarjeta">
         <h2>{{ hoja.nombre_hoja }}</h2>
         <p class="texto-suave">{{ hoja.items|length }} ejercicios detectados</p>
+        {% if hoja.motivo_exclusion %}
+          <p class="texto-error">{{ hoja.motivo_exclusion }}</p>
+        {% endif %}
         {{ hoja_form }}
         {% if hoja.items %}
           <table class="tabla">
@@ -45,9 +55,22 @@
     {% if ejercicio_formset.forms %}
       <div class="tarjeta">
         <h2>Ejercicios a resolver</h2>
-        {% for f in ejercicio_formset %}
-          <p>{{ f.nombre_normalizado.value }}</p>
-          {{ f }}
+        {% for info, f in ejercicios_con_form %}
+          <div class="tarjeta">
+            <p>
+              <strong>{{ info.nombre_original }}</strong>
+              {% if info.tipo == "ambiguo" %}
+                — ¿Es "{{ info.candidato_nombre }}"? (coincidencia {{ info.score }}%)
+              {% endif %}
+            </p>
+            {{ f.nombre_normalizado }}
+            {{ f.accion }}
+            {{ f.grupo_muscular }}
+            {% for error in f.grupo_muscular.errors %}
+              <p class="texto-error">{{ error }}</p>
+            {% endfor %}
+            {{ f.ejercicio_existente_id.as_hidden }}
+          </div>
         {% endfor %}
       </div>
     {% endif %}

@@ -5,6 +5,13 @@
 {% block content %}
 <div class="contenido--ancho">
   <h1>Revisar antes de confirmar</h1>
+  {% if importacion.resultado.advertencias_columnas %}
+    <div class="tarjeta">
+      {% for advertencia in importacion.resultado.advertencias_columnas %}
+        <p class="texto-suave">Advertencia: {{ advertencia }}</p>
+      {% endfor %}
+    </div>
+  {% endif %}
   <form method="post" hx-boost="false">
     {% csrf_token %}
     <table class="tabla">

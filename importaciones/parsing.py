@@ -90,6 +90,16 @@ class HojaParseada:
     dias_por_semana: int
     items: list = field(default_factory=list)
     filas_invalidas: list = field(default_factory=list)
+    # Por qué la hoja quedó con 0 items cuando falta una columna requerida
+    # (`None` en el caso normal, con items). Sin esto, una hoja excluida por
+    # falta de columna se ve idéntica a una hoja válida pero vacía -- el
+    # staff no tiene forma de saber por qué (constraint no negociable:
+    # "se excluye con motivo", fix post-review, hallazgo 2).
+    motivo_exclusion: str | None = None
+    # Advertencias de `detectar_columnas` (p. ej. columna duplicada) --
+    # antes se calculaban y se descartaban sin llegar nunca al staff (fix
+    # post-review, hallazgo 3).
+    advertencias_columnas: list = field(default_factory=list)
 
 
 def _mapa_merges(ws):
@@ -122,8 +132,14 @@ def leer_hoja_plantilla(ws):
     encabezados = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
     campos, advertencias = detectar_columnas(encabezados, ALIAS_PLANTILLA)
 
-    if "ejercicio" not in campos or "series" not in campos or "repeticiones" not in campos:
-        return HojaParseada(nombre_hoja=ws.title, dias_por_semana=0)
+    for campo in ("ejercicio", "series", "repeticiones"):
+        if campo not in campos:
+            return HojaParseada(
+                nombre_hoja=ws.title,
+                dias_por_semana=0,
+                motivo_exclusion=f"No se pudo importar: falta la columna '{campo}'",
+                advertencias_columnas=advertencias,
+            )
 
     mapa_merges = _mapa_merges(ws)
     ncols = len(encabezados)
@@ -191,6 +207,7 @@ def leer_hoja_plantilla(ws):
         dias_por_semana=dias_por_semana,
         items=items,
         filas_invalidas=filas_invalidas,
+        advertencias_columnas=advertencias,
     )
 
 
@@ -198,10 +215,10 @@ def leer_hoja_biblioteca(ws):
     """Parsea una hoja del import de BIBLIOTECA: solo nombre + grupo
     muscular (opcional) + video (opcional), sin días/semanas/series."""
     encabezados = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
-    campos, _ = detectar_columnas(encabezados, ALIAS_BIBLIOTECA)
+    campos, advertencias = detectar_columnas(encabezados, ALIAS_BIBLIOTECA)
 
     if "nombre" not in campos:
-        return [], []
+        return [], [], advertencias
 
     mapa_merges = _mapa_merges(ws)
     ncols = len(encabezados)
@@ -222,12 +239,13 @@ def leer_hoja_biblioteca(ws):
         url_video = valores[campos["url_video"]] if "url_video" in campos else None
 
         items.append({
+            "fila_excel": fila_idx,
             "nombre_original": str(nombre).strip(),
             "grupo_muscular_original": str(grupo_muscular).strip() if grupo_muscular else None,
             "url_video": str(url_video).strip() if url_video else "",
         })
 
-    return items, filas_invalidas
+    return items, filas_invalidas, advertencias
 
 
 def parsear_archivo_plantillas(archivo):

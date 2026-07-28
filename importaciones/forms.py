@@ -9,6 +9,7 @@ import json
 
 from django import forms
 from django.core.validators import FileExtensionValidator
+from django.db.models import BLANK_CHOICE_DASH
 
 from ejercicios.models import Ejercicio
 from rutinas.models import RutinaPlantilla
@@ -36,7 +37,12 @@ class HojaMetadataForm(forms.Form):
     nombre_hoja = forms.CharField(widget=forms.HiddenInput)
     incluir = forms.BooleanField(required=False, initial=True)
     objetivo = forms.CharField(max_length=120)
-    nivel = forms.ChoiceField(choices=RutinaPlantilla.Nivel.choices)
+    # `BLANK_CHOICE_DASH` al frente evita que el navegador pre-seleccione
+    # la primera choice real ("principiante") cuando el staff no toca el
+    # <select> -- sin esto el HTML no tiene ninguna opción "sin elegir" y
+    # el browser simplemente muestra/envía la primera de la lista (mismo
+    # bug que `grupo_muscular` en `ResolucionEjercicioForm`, ver ahí).
+    nivel = forms.ChoiceField(choices=BLANK_CHOICE_DASH + RutinaPlantilla.Nivel.choices)
 
 
 HojaMetadataFormSet = forms.formset_factory(HojaMetadataForm, extra=0)
@@ -49,8 +55,16 @@ class ResolucionEjercicioForm(forms.Form):
         ("crear_nuevo", "Crear como nuevo"),
     ])
     ejercicio_existente_id = forms.IntegerField(required=False)
+    # Constraint no negociable: "todo ejercicio nuevo requiere que el staff
+    # lo elija en el preview, nunca un default silencioso". Sin
+    # `BLANK_CHOICE_DASH` al frente, el <select> no tiene ninguna opción
+    # vacía, así que el navegador pre-selecciona (y manda) la primera
+    # choice real ("pecho") aunque el staff nunca haya tocado el campo --
+    # el guard de `clean()` de abajo nunca llegaba a dispararse desde un
+    # POST real de navegador, solo desde un POST armado a mano sin el
+    # campo (fix post-review, hallazgo 1).
     grupo_muscular = forms.ChoiceField(
-        choices=Ejercicio.GrupoMuscular.choices, required=False,
+        choices=BLANK_CHOICE_DASH + Ejercicio.GrupoMuscular.choices, required=False,
     )
 
     def clean(self):
