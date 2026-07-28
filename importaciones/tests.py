@@ -1,13 +1,18 @@
 """Tests de `importaciones`. Ver `rutinas/tests.py` para el estilo de
 fixtures de este repo."""
 
+import openpyxl
 from django.test import SimpleTestCase, TestCase
 
 from importaciones.models import Importacion
 from importaciones.parsing import (
     ALIAS_BIBLIOTECA,
     ALIAS_PLANTILLA,
+    FilaInvalida,
+    HojaParseada,
+    ItemParseado,
     detectar_columnas,
+    leer_hoja_plantilla,
     normalizar_texto,
 )
 from tenants.models import Gimnasio
@@ -104,3 +109,94 @@ class DetectarColumnasTests(SimpleTestCase):
         encabezados = ["Nombre", "Grupo Muscular", "Video"]
         campos, _ = detectar_columnas(encabezados, ALIAS_BIBLIOTECA)
         self.assertEqual(campos, {"nombre": 0, "grupo_muscular": 1, "url_video": 2})
+
+
+def _hoja_plantilla_basica():
+    """Workbook en memoria con encabezados + 2 filas válidas, sin celdas
+    combinadas. Reutilizado por varios tests de este módulo."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones", "Descanso", "Notas"])
+    ws.append([1, 1, "Press de banca", 4, "8-12", "90s", ""])
+    ws.append([1, 1, "Sentadilla", 3, "10", "60s", "Cuidar la técnica"])
+    return ws
+
+
+class LeerHojaPlantillaTests(SimpleTestCase):
+    def test_lee_filas_validas(self):
+        hoja = leer_hoja_plantilla(_hoja_plantilla_basica())
+        self.assertEqual(len(hoja.items), 2)
+        self.assertEqual(hoja.items[0], ItemParseado(
+            semana=1, dia=1, orden=1, ejercicio_original="Press de banca",
+            series=4, repeticiones="8-12", descanso="90s", notas="",
+        ))
+        self.assertEqual(hoja.items[1].orden, 2)  # segundo item del mismo (semana, dia)
+        self.assertEqual(hoja.filas_invalidas, [])
+
+    def test_dias_por_semana_es_el_maximo_dia_de_filas_validas(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Press de banca", 4, "8-12"])
+        ws.append([3, "Sentadilla", 3, "10"])
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(hoja.dias_por_semana, 3)
+
+    def test_fila_sin_semana_cae_en_semana_1(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])  # sin columna Semana
+        ws.append([1, "Press de banca", 4, "8-12"])
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(hoja.items[0].semana, 1)
+
+    def test_fila_con_series_invalida_se_saltea_con_motivo(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Press de banca", "cuatro", "8-12"])  # "series" no numérico
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(hoja.items, [])
+        self.assertEqual(len(hoja.filas_invalidas), 1)
+        self.assertEqual(hoja.filas_invalidas[0].fila_excel, 2)  # fila 1 = header
+        self.assertIn("series", hoja.filas_invalidas[0].motivo.lower())
+
+    def test_fila_totalmente_vacia_se_saltea_sin_motivo_ruidoso(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Press de banca", 4, "8-12"])
+        ws.append([None, None, None, None])
+        ws.append([1, "Sentadilla", 3, "10"])
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(len(hoja.items), 2)
+        self.assertEqual(hoja.filas_invalidas, [])  # vacía != inválida, se ignora en silencio
+
+    def test_columna_ejercicio_ausente_devuelve_hoja_sin_items(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Dia", "Series", "Repeticiones"])  # sin "Ejercicio"
+        ws.append([1, 4, "8-12"])
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(hoja.items, [])
+        self.assertEqual(hoja.dias_por_semana, 0)
+
+    def test_orden_secuencial_dentro_de_semana_y_dia(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, 1, "Press de banca", 4, "8-12"])
+        ws.append([1, 1, "Sentadilla", 3, "10"])
+        ws.append([2, 1, "Peso muerto", 3, "8"])  # otra semana: orden vuelve a 1
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual([i.orden for i in hoja.items], [1, 2, 1])
+
+    def test_celda_combinada_de_semana_se_resuelve_por_el_ancla(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, 1, "Press de banca", 4, "8-12"])
+        ws.append([None, 2, "Sentadilla", 3, "10"])  # "Semana" mergeada con la fila de arriba
+        ws.merge_cells("A2:A3")
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(hoja.items[1].semana, 1)

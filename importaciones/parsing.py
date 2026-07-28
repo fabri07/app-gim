@@ -10,6 +10,7 @@ importa desde acá para normalizar nombres de ejercicio -- un solo lugar.
 """
 
 import unicodedata
+from dataclasses import dataclass, field
 
 ALIAS_PLANTILLA = {
     "semana": ["semana", "week", "sem"],
@@ -61,3 +62,131 @@ def detectar_columnas(encabezados, alias_por_campo):
                 f"'{campo}'; se usó la columna {indices[0] + 1}."
             )
     return campos, advertencias
+
+
+@dataclass(frozen=True)
+class ItemParseado:
+    semana: int
+    dia: int
+    orden: int
+    ejercicio_original: str
+    series: int
+    repeticiones: str
+    descanso: str
+    notas: str
+
+
+@dataclass(frozen=True)
+class FilaInvalida:
+    fila_excel: int
+    motivo: str
+
+
+@dataclass(frozen=True)
+class HojaParseada:
+    nombre_hoja: str
+    dias_por_semana: int
+    items: list = field(default_factory=list)
+    filas_invalidas: list = field(default_factory=list)
+
+
+def _mapa_merges(ws):
+    """(fila, col) 1-indexed -> (fila_ancla, col_ancla) para cada celda
+    dentro de un rango combinado. openpyxl devuelve `None` para toda celda
+    de un merge salvo la esquina superior-izquierda; sin este mapa, una
+    columna mergeada verticalmente (típico de "Semana 1" armada a mano)
+    se leería como si esas filas no tuvieran valor."""
+    mapa = {}
+    for rango in ws.merged_cells.ranges:
+        ancla = (rango.min_row, rango.min_col)
+        for fila in range(rango.min_row, rango.max_row + 1):
+            for col in range(rango.min_col, rango.max_col + 1):
+                mapa[(fila, col)] = ancla
+    return mapa
+
+
+def _valor_celda(ws, fila, col, mapa_merges):
+    fila_ancla, col_ancla = mapa_merges.get((fila, col), (fila, col))
+    return ws.cell(row=fila_ancla, column=col_ancla).value
+
+
+def _fila_vacia(valores):
+    return all(v is None or str(v).strip() == "" for v in valores)
+
+
+def leer_hoja_plantilla(ws):
+    """Parsea una hoja de un archivo de PLANTILLAS. `ws` es una worksheet
+    de `openpyxl` ya abierta (no toca el filesystem acá)."""
+    encabezados = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    campos, advertencias = detectar_columnas(encabezados, ALIAS_PLANTILLA)
+
+    if "ejercicio" not in campos or "series" not in campos or "repeticiones" not in campos:
+        return HojaParseada(nombre_hoja=ws.title, dias_por_semana=0)
+
+    mapa_merges = _mapa_merges(ws)
+    ncols = len(encabezados)
+    items = []
+    filas_invalidas = []
+    contador_orden = {}  # (semana, dia) -> próximo orden
+
+    for fila_idx in range(2, ws.max_row + 1):
+        valores = [_valor_celda(ws, fila_idx, c, mapa_merges) for c in range(1, ncols + 1)]
+        if _fila_vacia(valores):
+            continue
+
+        ejercicio = valores[campos["ejercicio"]]
+        if not ejercicio or not str(ejercicio).strip():
+            filas_invalidas.append(FilaInvalida(fila_idx, "Falta el nombre del ejercicio"))
+            continue
+
+        series_raw = valores[campos["series"]]
+        try:
+            series = int(series_raw)
+        except (TypeError, ValueError):
+            filas_invalidas.append(
+                FilaInvalida(fila_idx, "La columna 'series' no es un número")
+            )
+            continue
+
+        repeticiones = valores[campos["repeticiones"]]
+        if repeticiones is None or not str(repeticiones).strip():
+            filas_invalidas.append(FilaInvalida(fila_idx, "Falta 'repeticiones'"))
+            continue
+
+        semana_raw = valores[campos["semana"]] if "semana" in campos else None
+        try:
+            semana = int(semana_raw) if semana_raw is not None else 1
+        except (TypeError, ValueError):
+            semana = 1
+
+        dia_raw = valores[campos["dia"]] if "dia" in campos else None
+        try:
+            dia = int(dia_raw) if dia_raw is not None else 1
+        except (TypeError, ValueError):
+            filas_invalidas.append(FilaInvalida(fila_idx, "La columna 'dia' no es un número"))
+            continue
+
+        clave_orden = (semana, dia)
+        contador_orden[clave_orden] = contador_orden.get(clave_orden, 0) + 1
+
+        descanso = valores[campos["descanso"]] if "descanso" in campos else None
+        notas = valores[campos["notas"]] if "notas" in campos else None
+
+        items.append(ItemParseado(
+            semana=semana,
+            dia=dia,
+            orden=contador_orden[clave_orden],
+            ejercicio_original=str(ejercicio).strip(),
+            series=series,
+            repeticiones=str(repeticiones).strip(),
+            descanso=str(descanso).strip() if descanso else "",
+            notas=str(notas).strip() if notas else "",
+        ))
+
+    dias_por_semana = max((i.dia for i in items), default=0)
+    return HojaParseada(
+        nombre_hoja=ws.title,
+        dias_por_semana=dias_por_semana,
+        items=items,
+        filas_invalidas=filas_invalidas,
+    )
