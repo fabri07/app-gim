@@ -1,7 +1,10 @@
 """Tests de `importaciones`. Ver `rutinas/tests.py` para el estilo de
 fixtures de este repo."""
 
+import io
+
 import openpyxl
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase
 
 from importaciones.models import Importacion
@@ -12,10 +15,25 @@ from importaciones.parsing import (
     HojaParseada,
     ItemParseado,
     detectar_columnas,
+    leer_hoja_biblioteca,
     leer_hoja_plantilla,
     normalizar_texto,
+    parsear_archivo_biblioteca,
+    parsear_archivo_plantillas,
 )
 from tenants.models import Gimnasio
+
+
+def _archivo_xlsx(wb):
+    """Serializa un Workbook de openpyxl a un SimpleUploadedFile, como
+    llegaría desde un <input type=file>."""
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return SimpleUploadedFile(
+        "plan.xlsx", buffer.read(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 class ImportacionModeloTests(TestCase):
@@ -200,3 +218,63 @@ class LeerHojaPlantillaTests(SimpleTestCase):
         ws.merge_cells("A2:A3")
         hoja = leer_hoja_plantilla(ws)
         self.assertEqual(hoja.items[1].semana, 1)
+
+
+class LeerHojaBibliotecaTests(SimpleTestCase):
+    def test_lee_ejercicios_validos(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Grupo Muscular", "Video"])
+        ws.append(["Press de banca", "Pecho", "https://youtube.com/x"])
+        ws.append(["Sentadilla", "Piernas", ""])
+        items, invalidas = leer_hoja_biblioteca(ws)
+        self.assertEqual(len(items), 2)
+        self.assertEqual(items[0]["nombre_original"], "Press de banca")
+        self.assertEqual(items[0]["grupo_muscular_original"], "Pecho")
+        self.assertEqual(items[0]["url_video"], "https://youtube.com/x")
+        self.assertEqual(invalidas, [])
+
+    def test_fila_sin_nombre_se_saltea_con_motivo(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Grupo Muscular"])
+        ws.append(["", "Pecho"])
+        items, invalidas = leer_hoja_biblioteca(ws)
+        self.assertEqual(items, [])
+        self.assertEqual(len(invalidas), 1)
+
+    def test_columna_grupo_muscular_es_opcional(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre"])
+        ws.append(["Press de banca"])
+        items, _ = leer_hoja_biblioteca(ws)
+        self.assertIsNone(items[0]["grupo_muscular_original"])
+
+
+class ParsearArchivoPlantillasTests(SimpleTestCase):
+    def test_multi_hoja_produce_una_hojaparseada_por_hoja(self):
+        wb = openpyxl.Workbook()
+        ws1 = wb.active
+        ws1.title = "Hombres"
+        ws1.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws1.append([1, "Press de banca", 4, "8-12"])
+        ws2 = wb.create_sheet("Mujeres")
+        ws2.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws2.append([1, "Sentadilla", 3, "10"])
+
+        hojas = parsear_archivo_plantillas(_archivo_xlsx(wb))
+
+        self.assertEqual(len(hojas), 2)
+        self.assertEqual({h.nombre_hoja for h in hojas}, {"Hombres", "Mujeres"})
+
+
+class ParsearArchivoBibliotecaTests(SimpleTestCase):
+    def test_usa_la_primera_hoja(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Grupo Muscular"])
+        ws.append(["Press de banca", "Pecho"])
+        items, invalidas = parsear_archivo_biblioteca(_archivo_xlsx(wb))
+        self.assertEqual(len(items), 1)
+        self.assertEqual(invalidas, [])

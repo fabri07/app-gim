@@ -12,6 +12,8 @@ importa desde acá para normalizar nombres de ejercicio -- un solo lugar.
 import unicodedata
 from dataclasses import dataclass, field
 
+import openpyxl
+
 ALIAS_PLANTILLA = {
     "semana": ["semana", "week", "sem"],
     "dia": ["dia", "día", "day"],
@@ -190,3 +192,53 @@ def leer_hoja_plantilla(ws):
         items=items,
         filas_invalidas=filas_invalidas,
     )
+
+
+def leer_hoja_biblioteca(ws):
+    """Parsea una hoja del import de BIBLIOTECA: solo nombre + grupo
+    muscular (opcional) + video (opcional), sin días/semanas/series."""
+    encabezados = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
+    campos, _ = detectar_columnas(encabezados, ALIAS_BIBLIOTECA)
+
+    if "nombre" not in campos:
+        return [], []
+
+    mapa_merges = _mapa_merges(ws)
+    ncols = len(encabezados)
+    items = []
+    filas_invalidas = []
+
+    for fila_idx in range(2, ws.max_row + 1):
+        valores = [_valor_celda(ws, fila_idx, c, mapa_merges) for c in range(1, ncols + 1)]
+        if _fila_vacia(valores):
+            continue
+
+        nombre = valores[campos["nombre"]]
+        if not nombre or not str(nombre).strip():
+            filas_invalidas.append(FilaInvalida(fila_idx, "Falta el nombre del ejercicio"))
+            continue
+
+        grupo_muscular = valores[campos["grupo_muscular"]] if "grupo_muscular" in campos else None
+        url_video = valores[campos["url_video"]] if "url_video" in campos else None
+
+        items.append({
+            "nombre_original": str(nombre).strip(),
+            "grupo_muscular_original": str(grupo_muscular).strip() if grupo_muscular else None,
+            "url_video": str(url_video).strip() if url_video else "",
+        })
+
+    return items, filas_invalidas
+
+
+def parsear_archivo_plantillas(archivo):
+    """Abre `archivo` (un `UploadedFile` de Django) y devuelve una
+    `HojaParseada` por cada hoja del workbook (decisión 7 del spec:
+    multi-hoja -> multi-plantilla)."""
+    wb = openpyxl.load_workbook(archivo, data_only=True)
+    return [leer_hoja_plantilla(wb[nombre]) for nombre in wb.sheetnames]
+
+
+def parsear_archivo_biblioteca(archivo):
+    """El import de biblioteca usa solo la primera hoja del archivo."""
+    wb = openpyxl.load_workbook(archivo, data_only=True)
+    return leer_hoja_biblioteca(wb[wb.sheetnames[0]])
