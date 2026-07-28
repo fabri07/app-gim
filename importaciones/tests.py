@@ -946,3 +946,148 @@ class ImportacionPlantillasViewsTests(TestCase):
         self.assertEqual(response.status_code, 302)
         importacion.refresh_from_db()
         self.assertEqual(importacion.estado, Importacion.Estado.DESCARTADA)
+
+
+@override_settings(ROOT_URLCONF="importaciones.tests")
+class ImportacionBibliotecaViewsTests(TestCase):
+    def setUp(self):
+        self.gimnasio_a = Gimnasio.objects.create(nombre="Gym A", slug="gym-a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="Gym B", slug="gym-b")
+
+        self.staff_a = User.objects.create_user(username="staff_a", password="clave12345")
+        Perfil.objects.create(usuario=self.staff_a, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF)
+
+        self.usuario_alumno = User.objects.create_user(username="usuario_alumno", password="clave12345")
+        Perfil.objects.create(usuario=self.usuario_alumno, gimnasio=self.gimnasio_a, rol=Perfil.Rol.ALUMNO)
+
+    def _archivo_valido(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Grupo Muscular"])
+        ws.append(["Press de banca", "Pecho"])
+        return _archivo_xlsx(wb)
+
+    def test_anonimo_redirige_a_login(self):
+        response = self.client.get(reverse("importaciones:biblioteca_subir"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/accounts/login/", response.url)
+
+    def test_alumno_recibe_403(self):
+        self.client.login(username="usuario_alumno", password="clave12345")
+        response = self.client.get(reverse("importaciones:biblioteca_subir"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_subir_archivo_invalido_no_crea_importacion(self):
+        self.client.login(username="staff_a", password="clave12345")
+        archivo = SimpleUploadedFile("ejercicios.txt", b"nada")
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": archivo},
+        )
+        self.assertEqual(response.status_code, 200)  # re-renderiza con error
+        self.assertEqual(Importacion.objects.count(), 0)
+
+    def test_preview_de_otro_gimnasio_da_404(self):
+        importacion = Importacion.objects.create(
+            gimnasio=self.gimnasio_b, tipo=Importacion.Tipo.BIBLIOTECA, resultado={"items": []},
+        )
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_preview_de_importacion_ya_confirmada_da_404(self):
+        importacion = Importacion.objects.create(
+            gimnasio=self.gimnasio_a, tipo=Importacion.Tipo.BIBLIOTECA,
+            estado=Importacion.Estado.CONFIRMADA, resultado={"items": []},
+        )
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_flujo_completo_subir_preview_confirmar(self):
+        self.client.login(username="staff_a", password="clave12345")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Grupo Muscular"])
+        ws.append(["Press de banca", "Pecho"])
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        self.assertEqual(response.status_code, 302)
+        importacion = Importacion.objects.get()
+        self.assertRedirects(
+            response, reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+
+        response = self.client.get(response.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Press de banca")
+
+        datos = {
+            "form-TOTAL_FORMS": "0", "form-INITIAL_FORMS": "0",
+            # "Press de banca" resolvió grupo_muscular automáticamente ("pecho")
+            # y no necesita entrada en el formset de resolución manual.
+        }
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.filter(nombre="Press de banca").count(), 1)
+        importacion.refresh_from_db()
+        self.assertEqual(importacion.estado, Importacion.Estado.CONFIRMADA)
+
+        # Reabrir el preview de una importación ya confirmada da 404.
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_flujo_con_resolucion_manual_de_grupo_muscular(self):
+        # "hip thrust" no tiene grupo muscular en el archivo -> requiere
+        # entrada en el formset de resolución manual del preview.
+        self.client.login(username="staff_a", password="clave12345")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre"])
+        ws.append(["Hip thrust"])
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "hip thrust")
+
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-valor_original": "hip thrust",
+            "form-0-grupo_muscular": "piernas",
+        }
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.filter(nombre="Hip thrust").count(), 1)
+        self.assertEqual(
+            Ejercicio.objects.get(nombre="Hip thrust").grupo_muscular, "piernas"
+        )
+
+    def test_descartar_marca_la_importacion_como_descartada_y_redirige_a_subir(self):
+        importacion = Importacion.objects.create(
+            gimnasio=self.gimnasio_a, tipo=Importacion.Tipo.BIBLIOTECA, resultado={"items": []},
+        )
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(
+            reverse("importaciones:biblioteca_descartar", args=[importacion.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("importaciones:biblioteca_subir"))
+        importacion.refresh_from_db()
+        self.assertEqual(importacion.estado, Importacion.Estado.DESCARTADA)

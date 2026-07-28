@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Revisar biblioteca · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <h1>Revisar antes de confirmar</h1>
+  <form method="post" hx-boost="false">
+    {% csrf_token %}
+    <table class="tabla">
+      <thead><tr><th>Nombre</th><th>Grupo muscular</th><th>Estado</th></tr></thead>
+      <tbody>
+        {% for item in importacion.resultado.items %}
+          <tr>
+            <td>{{ item.nombre_original }}</td>
+            <td>{{ item.grupo_muscular_resuelto|default:"—" }}</td>
+            <td>
+              {% if item.match.tipo == "exacto" %}Ya existe{% else %}Nuevo{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {{ formset.management_form }}
+    {% if formset.forms %}
+      <div class="tarjeta">
+        <h2>Grupos musculares a resolver</h2>
+        {% for f in formset %}
+          <p>{{ f.valor_original.value }}</p>
+          {{ f }}
+        {% endfor %}
+      </div>
+    {% endif %}
+    <button type="submit" class="boton">Confirmar importación</button>
+  </form>
+  <form method="post" action="{% url 'importaciones:biblioteca_descartar' importacion.pk %}" hx-boost="false">
+    {% csrf_token %}
+    <button type="submit" class="boton-peligro">Descartar</button>
+  </form>
+</div>
+{% endblock %}

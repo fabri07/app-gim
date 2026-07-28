@@ -7,11 +7,19 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import FormView, View
 
 from core.mixins import TenantScopedMixin
-from importaciones.forms import HojaMetadataFormSet, ResolucionEjercicioFormSet, SubirPlantillasForm
+from importaciones.forms import (
+    HojaMetadataFormSet,
+    ResolucionEjercicioFormSet,
+    ResolucionGrupoMuscularFormSet,
+    SubirBibliotecaForm,
+    SubirPlantillasForm,
+)
 from importaciones.models import Importacion
 from importaciones.services import (
     ImportacionInvalida,
+    confirmar_importacion_biblioteca,
     confirmar_importacion_plantillas,
+    previsualizar_importacion_biblioteca,
     previsualizar_importacion_plantillas,
 )
 from tenants.mixins import StaffRequiredMixin
@@ -125,6 +133,81 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
         return redirect("rutinas:plantilla_listado")
 
 
+class SubirBibliotecaView(StaffRequiredMixin, TenantScopedMixin, FormView):
+    form_class = SubirBibliotecaForm
+    template_name = "importaciones/biblioteca_subir.html"
+
+    def form_valid(self, form):
+        try:
+            importacion = previsualizar_importacion_biblioteca(
+                gimnasio=self.gimnasio,
+                archivo=form.cleaned_data["archivo"],
+                usuario=self.request.user,
+            )
+        except ImportacionInvalida as exc:
+            form.add_error(None, str(exc))
+            return self.form_invalid(form)
+        return redirect("importaciones:biblioteca_preview", pk=importacion.pk)
+
+
+class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
+    template_name = "importaciones/biblioteca_preview.html"
+
+    def get_importacion(self):
+        return get_object_or_404(
+            Importacion.objects.for_gimnasio(self.gimnasio),
+            pk=self.kwargs["pk"],
+            tipo=Importacion.Tipo.BIBLIOTECA,
+            estado=Importacion.Estado.EN_REVISION,
+        )
+
+    def get(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        pendientes_initial = [
+            {"valor_original": item["nombre_normalizado"]}
+            for item in importacion.resultado["items"]
+            if item["match"]["tipo"] != "exacto" and not item["grupo_muscular_resuelto"]
+        ]
+        formset = ResolucionGrupoMuscularFormSet(initial=pendientes_initial, prefix="form")
+        return self._render(request, importacion, formset)
+
+    def _render(self, request, importacion, formset):
+        return render(request, self.template_name, {
+            "importacion": importacion, "formset": formset,
+        })
+
+    def post(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        formset = ResolucionGrupoMuscularFormSet(request.POST, prefix="form")
+        if not formset.is_valid():
+            return self._render(request, importacion, formset)
+
+        resueltos_a_mano = {
+            f["valor_original"]: f["grupo_muscular"] for f in formset.cleaned_data
+        }
+        decisiones = {"items": {
+            item["nombre_normalizado"]: {
+                "incluir": item["match"]["tipo"] != "exacto",
+                "grupo_muscular": (
+                    item["grupo_muscular_resuelto"]
+                    or resueltos_a_mano.get(item["nombre_normalizado"])
+                ),
+            }
+            for item in importacion.resultado["items"]
+        }}
+
+        try:
+            creados = confirmar_importacion_biblioteca(
+                importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+        except ImportacionInvalida as exc:
+            messages.error(request, str(exc))
+            return self._render(request, importacion, formset)
+
+        messages.success(request, f"Se crearon {len(creados)} ejercicio(s).")
+        return redirect("ejercicios:listado")
+
+
 class DescartarImportacionView(StaffRequiredMixin, TenantScopedMixin, View):
     def post(self, request, *args, **kwargs):
         importacion = get_object_or_404(
@@ -134,4 +217,6 @@ class DescartarImportacionView(StaffRequiredMixin, TenantScopedMixin, View):
         importacion.estado = Importacion.Estado.DESCARTADA
         importacion.save(update_fields=["estado"])
         messages.success(request, "Importación descartada.")
+        if importacion.tipo == Importacion.Tipo.BIBLIOTECA:
+            return redirect("importaciones:biblioteca_subir")
         return redirect("importaciones:plantillas_subir")
