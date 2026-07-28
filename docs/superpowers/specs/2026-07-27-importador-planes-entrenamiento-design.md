@@ -274,13 +274,14 @@ ALIAS_BIBLIOTECA = {
 **Casos límite:**
 
 - **Columna requerida ausente en toda la hoja** (`ejercicio`, `series`,
-  `repeticiones`, `dia` en plantillas; `nombre` en biblioteca): esa hoja
+  `repeticiones` en plantillas; `nombre` en biblioteca): esa hoja
   queda sin items válidos y se excluye del preview con un motivo explícito
   ("no se pudo importar: falta la columna 'X'") — no puede crear una
-  `RutinaPlantilla` con 0 items. Campos opcionales ausentes (`semana`,
+  `RutinaPlantilla` con 0 items. Campos opcionales ausentes (`dia`, `semana`,
   `descanso`, `notas`; `grupo_muscular`, `url_video` en biblioteca) se
   tratan como ausentes en todas las filas (mismo criterio que la decisión 9
-  para `semana`).
+  para `semana`: si la columna `dia` no existe, todas las filas van a
+  `dia=1`).
 - **Columna duplicada** (dos columnas matchean el mismo alias): se usa la
   primera de izquierda a derecha y se agrega una advertencia a
   `resultado["advertencias_columnas"]`, no bloqueante.
@@ -495,9 +496,10 @@ original, candidato sugerido si lo hay, y score.
   columna opcional ausente → filas con default; columna duplicada → usa la
   primera + advertencia; celdas combinadas resueltas vía el mapa de rangos
   (test construyendo un `openpyxl.Workbook()` en memoria con
-  `ws.merge_cells(...)`); fila inválida (falta ejercicio/series/dia) cae a
-  `filas_invalidas` sin frenar el resto; `semana` ausente → todas las filas
-  en 1; `dias_por_semana` = `max(dia)` solo sobre filas válidas; `orden`
+  `ws.merge_cells(...)`); fila inválida (falta ejercicio/series/repeticiones)
+  cae a `filas_invalidas` sin frenar el resto; `dia`/`semana` ausentes →
+  todas las filas en 1; `dias_por_semana` = `max(dia)` solo sobre filas
+  válidas; `orden`
   secuencial dentro de `(semana, dia)`; multi-hoja produce una
   `HojaParseada` por hoja con `nombre_hoja` correcto.
 - **`matching.py`**: `normalizar_texto` (mayúsculas/acentos → mismo
