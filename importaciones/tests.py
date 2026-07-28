@@ -745,3 +745,72 @@ class ImportacionBibliotecaTests(TestCase):
         self.assertEqual(
             Ejercicio.objects.filter(gimnasio=self.gimnasio, nombre="sentadila").count(), 1,
         )
+
+
+class SubirPlantillasFormTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+
+    def test_acepta_xlsx(self):
+        wb = openpyxl.Workbook()
+        archivo = _archivo_xlsx(wb)
+        from importaciones.forms import SubirPlantillasForm
+        form = SubirPlantillasForm(data={}, files={"archivo": archivo}, gimnasio=self.gimnasio)
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_rechaza_extension_invalida(self):
+        archivo = SimpleUploadedFile("plan.csv", b"a,b,c", content_type="text/csv")
+        from importaciones.forms import SubirPlantillasForm
+        form = SubirPlantillasForm(data={}, files={"archivo": archivo}, gimnasio=self.gimnasio)
+        self.assertFalse(form.is_valid())
+        self.assertIn("archivo", form.errors)
+
+    def test_biblioteca_tambien_valida_extension(self):
+        archivo = SimpleUploadedFile("plan.txt", b"nada")
+        from importaciones.forms import SubirBibliotecaForm
+        form = SubirBibliotecaForm(data={}, files={"archivo": archivo}, gimnasio=self.gimnasio)
+        self.assertFalse(form.is_valid())
+
+
+class HojaMetadataFormSetTests(SimpleTestCase):
+    def test_requiere_objetivo_y_nivel(self):
+        from importaciones.forms import HojaMetadataFormSet
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_hoja": "Hombres", "form-0-incluir": "on",
+            "form-0-objetivo": "", "form-0-nivel": "",
+        }
+        formset = HojaMetadataFormSet(datos)
+        self.assertFalse(formset.is_valid())
+
+    def test_valido_con_todos_los_campos(self):
+        from importaciones.forms import HojaMetadataFormSet
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_hoja": "Hombres", "form-0-incluir": "on",
+            "form-0-objetivo": "Hipertrofia", "form-0-nivel": "principiante",
+        }
+        formset = HojaMetadataFormSet(datos)
+        self.assertTrue(formset.is_valid(), formset.errors)
+
+
+class ResolucionEjercicioFormSetTests(SimpleTestCase):
+    def test_crear_nuevo_requiere_grupo_muscular(self):
+        from importaciones.forms import ResolucionEjercicioFormSet
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_normalizado": "hip thrust", "form-0-accion": "crear_nuevo",
+            "form-0-grupo_muscular": "",
+        }
+        formset = ResolucionEjercicioFormSet(datos)
+        self.assertFalse(formset.is_valid())
+
+    def test_usar_existente_no_requiere_grupo_muscular(self):
+        from importaciones.forms import ResolucionEjercicioFormSet
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_normalizado": "sentadila", "form-0-accion": "usar_existente",
+            "form-0-ejercicio_existente_id": "7", "form-0-grupo_muscular": "",
+        }
+        formset = ResolucionEjercicioFormSet(datos)
+        self.assertTrue(formset.is_valid(), formset.errors)
