@@ -11,9 +11,17 @@ from django.utils import timezone
 from openpyxl.utils.exceptions import InvalidFileException
 
 from ejercicios.models import Ejercicio
-from importaciones.matching import construir_indice_ejercicios, resolver_nombre
+from importaciones.matching import (
+    construir_indice_ejercicios,
+    resolver_grupo_muscular,
+    resolver_nombre,
+)
 from importaciones.models import Importacion
-from importaciones.parsing import normalizar_texto, parsear_archivo_plantillas
+from importaciones.parsing import (
+    normalizar_texto,
+    parsear_archivo_biblioteca,
+    parsear_archivo_plantillas,
+)
 from rutinas.models import RutinaPlantilla, RutinaPlantillaItem
 
 # Un .xlsx corrupto o que en realidad no es un .xlsx (otra extensión
@@ -214,3 +222,95 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
         importacion.save(update_fields=["estado", "confirmado_en"])
 
     return plantillas_creadas
+
+
+def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
+    """Análogo a `previsualizar_importacion_plantillas` pero para el import
+    de biblioteca: cada fila es un ejercicio suelto (nombre + grupo
+    muscular opcional + video opcional), sin días/semanas/series. Igual que
+    en plantillas, no crea nada todavía -- solo arma el preview."""
+    try:
+        items_parseados, filas_invalidas = parsear_archivo_biblioteca(archivo)
+    except ERRORES_ARCHIVO_INVALIDO:
+        raise ImportacionInvalida(
+            "No se pudo leer el archivo. Verificá que sea un .xlsx válido."
+        )
+
+    indice = construir_indice_ejercicios(gimnasio)
+    items = []
+    for item in items_parseados:
+        nombre_normalizado = normalizar_texto(item["nombre_original"])
+        match = resolver_nombre(nombre_normalizado, indice)
+        match_json = (
+            {"tipo": "exacto", "ejercicio_id": match.ejercicio.pk}
+            if match.tipo == "exacto"
+            else {"tipo": "ambiguo", "candidato_id": match.candidato.pk, "score": match.score}
+            if match.tipo == "ambiguo"
+            else {"tipo": "nuevo"}
+        )
+        grupo_resuelto = (
+            resolver_grupo_muscular(item["grupo_muscular_original"])
+            if item["grupo_muscular_original"]
+            else None
+        )
+        items.append({
+            **item,
+            "nombre_normalizado": nombre_normalizado,
+            "grupo_muscular_resuelto": grupo_resuelto,
+            "match": match_json,
+        })
+
+    resultado_json = {
+        "items": items,
+        "filas_invalidas": [asdict(f) for f in filas_invalidas],
+    }
+
+    return Importacion.objects.create(
+        gimnasio=gimnasio,
+        tipo=Importacion.Tipo.BIBLIOTECA,
+        archivo=archivo,
+        resultado=resultado_json,
+        creado_por=usuario,
+    )
+
+
+def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
+    """Mismo patrón anti-TOCTOU que `confirmar_importacion_plantillas` (Task 7,
+    fix post-review): el guard de tenant/estado corre DENTRO de la
+    transacción, contra una fila re-leída con `select_for_update()` -- dos
+    confirmaciones concurrentes de la misma Importacion no deben poder crear
+    ejercicios duplicados. `grupo_muscular` se valida contra las choices
+    reales antes de crear (Ejercicio.objects.create() no llama a
+    full_clean(), así que un valor fuera de las 8 choices cerradas se
+    guardaría en silencio sin esta validación)."""
+    creados = []
+    with transaction.atomic():
+        importacion = Importacion.objects.select_for_update().get(pk=importacion.pk)
+        if importacion.gimnasio_id != gimnasio.id:
+            raise ImportacionInvalida("Esta importación no pertenece a tu gimnasio.")
+        if importacion.estado != Importacion.Estado.EN_REVISION:
+            raise ImportacionInvalida("Esta importación ya fue procesada.")
+
+        for item in importacion.resultado["items"]:
+            decision = decisiones["items"][item["nombre_normalizado"]]
+            if not decision["incluir"] or item["match"]["tipo"] == "exacto":
+                # "exacto" ya existe en la biblioteca: no se recrea.
+                continue
+            grupo_muscular = decision["grupo_muscular"]
+            if grupo_muscular not in Ejercicio.GrupoMuscular.values:
+                raise ImportacionInvalida(
+                    f"Grupo muscular inválido para '{item['nombre_original']}'."
+                )
+            ejercicio = Ejercicio.objects.create(
+                gimnasio=gimnasio,
+                nombre=item["nombre_original"],
+                grupo_muscular=grupo_muscular,
+                url_video=item["url_video"],
+            )
+            creados.append(ejercicio)
+
+        importacion.estado = Importacion.Estado.CONFIRMADA
+        importacion.confirmado_en = timezone.now()
+        importacion.save(update_fields=["estado", "confirmado_en"])
+
+    return creados

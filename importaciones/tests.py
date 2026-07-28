@@ -31,7 +31,9 @@ from importaciones.parsing import (
 )
 from importaciones.services import (
     ImportacionInvalida,
+    confirmar_importacion_biblioteca,
     confirmar_importacion_plantillas,
+    previsualizar_importacion_biblioteca,
     previsualizar_importacion_plantillas,
 )
 from rutinas.models import RutinaPlantilla, RutinaPlantillaItem
@@ -625,3 +627,61 @@ class ConfirmarImportacionPlantillasTests(TestCase):
         self.assertEqual(Ejercicio.objects.count(), ejercicios_antes)
         importacion.refresh_from_db()
         self.assertEqual(importacion.estado, Importacion.Estado.EN_REVISION)
+
+
+class ImportacionBibliotecaTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user(username="staff", password="clave12345")
+        self.ejercicio_existente = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Sentadilla",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+
+    def _archivo(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Grupo Muscular", "Video"])
+        ws.append(["Press de banca", "Pecho", "https://youtube.com/x"])
+        ws.append(["sentadila", "Piernas", ""])  # typo de la ya existente
+        return _archivo_xlsx(wb)
+
+    def test_previsualizar_no_crea_ejercicios(self):
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
+        )
+        self.assertEqual(importacion.tipo, Importacion.Tipo.BIBLIOTECA)
+        self.assertEqual(Ejercicio.objects.count(), 1)  # solo la que ya existía
+
+    def test_previsualizar_resuelve_grupo_muscular_automaticamente(self):
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
+        )
+        item = next(i for i in importacion.resultado["items"] if i["nombre_original"] == "Press de banca")
+        self.assertEqual(item["grupo_muscular_resuelto"], "pecho")
+
+    def test_confirmar_crea_solo_los_ejercicios_nuevos(self):
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
+        )
+        creados = confirmar_importacion_biblioteca(
+            importacion=importacion, gimnasio=self.gimnasio,
+            decisiones={"items": {
+                "press de banca": {"incluir": True, "grupo_muscular": "pecho"},
+                "sentadila": {"incluir": False, "grupo_muscular": None},
+            }},
+        )
+        self.assertEqual(len(creados), 1)
+        self.assertEqual(Ejercicio.objects.filter(gimnasio=self.gimnasio).count(), 2)
+
+    def test_confirmar_dos_veces_falla(self):
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
+        )
+        decisiones = {"items": {
+            "press de banca": {"incluir": True, "grupo_muscular": "pecho"},
+            "sentadila": {"incluir": False, "grupo_muscular": None},
+        }}
+        confirmar_importacion_biblioteca(importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones)
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_biblioteca(importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones)
