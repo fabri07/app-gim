@@ -2852,3 +2852,351 @@ Agregar una entrada nueva (no editar la de `[2026-07-28]`, que documenta el caso
 git add importaciones/forms.py importaciones/views.py templates/importaciones/biblioteca_preview.html importaciones/tests.py ISSUES.md
 git commit -m "fix(importaciones): resolución de grupo muscular de biblioteca vía campo JSON (evita TooManyFieldsSent con bibliotecas grandes)"
 ```
+
+---
+
+### Task 14: Biblioteca — resolución de matches ambiguos (usar existente vs crear nuevo)
+
+**Contexto (no estaba en el plan original — surge de la revisión final de rama completa, después de la Tarea 13):** la revisión final encontró que el flujo de biblioteca calcula un match ambiguo por `rapidfuzz` (`resolver_nombre`, `matching.py`, ya construido en la Tarea 5) pero lo ignora por completo: `PreviewBibliotecaView.post()` trata cualquier item que no sea `tipo == "exacto"` como "crear nuevo", sin ofrecerle al staff la opción de "usar existente" que SÍ tiene el flujo de plantillas. Ejemplo reproducido: con "Sentadilla" ya en la biblioteca, importar "Sentadila" (typo, score ~94) crea un `Ejercicio` duplicado sin que el staff se entere. Esto contradice el Global Constraint ("Matches ambiguos... quedan pre-marcados en 'usar existente' — el staff elige activamente 'crear nuevo' si corresponde"), que el flujo de plantillas sí cumple. El dueño del producto pidió agregar la misma UI que plantillas (mostrar candidato + score, dejar elegir usar existente/crear nuevo) en vez de aceptarlo como riesgo documentado.
+
+**Restricción de diseño (por qué esto no es un simple copy-paste de la UI de plantillas):** el flujo de plantillas resuelve esto con `ResolucionEjercicioFormSet` (un form de Django por ejercicio pendiente). La Tarea 13 reemplazó ese mismo patrón en biblioteca por un único campo JSON precisamente porque una biblioteca real puede traer miles de ejercicios y un form-por-pendiente rompe el límite de campos de Django (`DATA_UPLOAD_MAX_NUMBER_FIELDS`). Esta tarea NO puede reintroducir un formset — la resolución de "usar existente / crear nuevo" tiene que viajar en el MISMO campo JSON que ya lleva `grupo_muscular`, no en un mecanismo aparte.
+
+**Files:**
+- Modify: `importaciones/forms.py`, `importaciones/views.py`, `importaciones/services.py`, `templates/importaciones/biblioteca_preview.html`, `importaciones/tests.py`
+
+**Interfaces:**
+- `confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones)` (Task 8, `services.py`) **no cambia** — su guard existente (`if not decision["incluir"] or item["match"]["tipo"] == "exacto": continue`) ya hace lo correcto una vez que la vista calcula `incluir=False` también para un ambiguo resuelto como "usar_existente" (no solo para "exacto"). Confirmar esto releyendo la función antes de tocar nada — si no es así, hay que ajustarla, pero el diseño de referencia de abajo asume que no hace falta.
+- `previsualizar_importacion_biblioteca` (`services.py`) gana un campo nuevo en el `match_json` de tipo "ambiguo": `candidato_nombre` (ya existe el patrón idéntico en `previsualizar_importacion_plantillas`, `services.py` línea ~74-76 — mismo criterio, biblioteca no lo tenía).
+- El payload del campo `resoluciones` de `ResolucionesJSONForm` **cambia de forma**: de `{nombre_normalizado: grupo_muscular_str}` a `{nombre_normalizado: {"grupo_muscular": str|null, "accion": "usar_existente"|"crear_nuevo"|null}}`. Esto es una ruptura de compatibilidad con el payload de la Tarea 13 — hay que actualizar los tests existentes que postean el formato viejo (`ImportacionBibliotecaViewsTests.test_flujo_con_resolucion_manual_de_grupo_muscular`, `RegresionCamposPostBibliotecaTests.test_600_ejercicios_pendientes_no_rompe_el_confirm_post`), no solo agregar tests nuevos.
+
+- [ ] **Step 1: Escribir los tests que fallan**
+
+En `importaciones/tests.py`, actualizar los dos tests existentes que postean el formato viejo de `resoluciones`:
+
+```python
+    def test_flujo_con_resolucion_manual_de_grupo_muscular(self):
+        # ... (setUp y subida sin cambios) ...
+        datos = {"resoluciones": json.dumps({"hip thrust": {"grupo_muscular": "piernas"}})}
+        # ... (resto sin cambios) ...
+```
+
+```python
+    def test_600_ejercicios_pendientes_no_rompe_el_confirm_post(self):
+        # ... (setUp y subida sin cambios) ...
+        resoluciones = {
+            f"ejercicio {i}": {"grupo_muscular": "cuerpo_completo"} for i in range(600)
+        }
+        # ... (resto sin cambios) ...
+```
+
+Agregar tests nuevos a `ImportacionBibliotecaViewsTests`:
+
+```python
+    def _archivo_con_ambiguo(self, gimnasio):
+        Ejercicio.objects.create(
+            gimnasio=gimnasio, nombre="Sentadilla", grupo_muscular="piernas",
+        )
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre"])
+        ws.append(["Sentadila"])  # typo -> match ambiguo contra "Sentadilla"
+        return _archivo_xlsx(wb)
+
+    def test_preview_muestra_candidato_y_score_para_match_ambiguo(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"),
+            {"archivo": self._archivo_con_ambiguo(self.gimnasio_a)},
+        )
+        importacion = Importacion.objects.get()
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "Sentadilla")  # nombre del candidato
+        self.assertContains(response, "94")  # score (rapidfuzz determinístico para este par)
+
+    def test_ambiguo_usar_existente_no_crea_ejercicio_nuevo(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"),
+            {"archivo": self._archivo_con_ambiguo(self.gimnasio_a)},
+        )
+        importacion = Importacion.objects.get()
+        datos = {
+            "resoluciones": json.dumps({"sentadila": {"accion": "usar_existente"}}),
+        }
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.filter(gimnasio=self.gimnasio_a).count(), 1)
+
+    def test_ambiguo_crear_nuevo_requiere_grupo_muscular_y_crea_ejercicio(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"),
+            {"archivo": self._archivo_con_ambiguo(self.gimnasio_a)},
+        )
+        importacion = Importacion.objects.get()
+        datos = {
+            "resoluciones": json.dumps(
+                {"sentadila": {"accion": "crear_nuevo", "grupo_muscular": "piernas"}}
+            ),
+        }
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.filter(gimnasio=self.gimnasio_a).count(), 2)
+        self.assertTrue(
+            Ejercicio.objects.filter(gimnasio=self.gimnasio_a, nombre="Sentadila").exists()
+        )
+
+    def test_ambiguo_sin_resolver_no_confirma(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"),
+            {"archivo": self._archivo_con_ambiguo(self.gimnasio_a)},
+        )
+        importacion = Importacion.objects.get()
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": "{}"},
+        )
+        self.assertEqual(response.status_code, 200)  # re-renderiza con error
+        self.assertEqual(Ejercicio.objects.filter(gimnasio=self.gimnasio_a).count(), 1)
+```
+
+(El score exacto de rapidfuzz para "sentadila" vs "sentadilla" puede no ser 94 — correr el test una vez con un assert flojo o imprimir `match.score` para confirmar el valor real antes de fijar el assert; el punto del test es que ALGÚN número aparece, no un valor mágico exacto. Si el score no es determinístico entre corridas, usar `assertRegex` con un rango o directamente no fijar el número exacto en el assert.)
+
+- [ ] **Step 2: Correr los tests y verificar que fallan**
+
+Run: `python manage.py test importaciones.tests.ImportacionBibliotecaViewsTests importaciones.tests.RegresionCamposPostBibliotecaTests -v 2`
+Expected: fallos — los dos tests actualizados porque el payload viejo (`{"hip thrust": "piernas"}`) ya no matchea lo que la vista actual espera vs. lo que se necesita después del cambio (dependiendo del orden de implementación esto puede pasar en rojo por razones distintas; lo importante es que fallen ANTES del Step 3 y pasen DESPUÉS), y los 4 tests nuevos porque no existe manejo de "ambiguo" en absoluto todavía (sin `candidato_nombre` en el preview, sin decisión de `accion` posible, `usar_existente` para un ambiguo no evita la creación).
+
+- [ ] **Step 3: Implementar**
+
+`importaciones/services.py` — en `previsualizar_importacion_biblioteca`, agregar `candidato_nombre` al `match_json` de tipo "ambiguo" (mismo patrón que `previsualizar_importacion_plantillas`):
+
+```python
+        match_json = (
+            {"tipo": "exacto", "ejercicio_id": match.ejercicio.pk}
+            if match.tipo == "exacto"
+            else {
+                "tipo": "ambiguo",
+                "candidato_id": match.candidato.pk,
+                "candidato_nombre": match.candidato.nombre,
+                "score": match.score,
+            }
+            if match.tipo == "ambiguo"
+            else {"tipo": "nuevo"}
+        )
+```
+
+`importaciones/forms.py` — reescribir `ResolucionesJSONForm.clean()` para el nuevo payload anidado:
+
+```python
+class ResolucionesJSONForm(forms.Form):
+    """... (docstring existente, sin cambios de intención -- sigue siendo
+    un único campo JSON por la misma razón de escalabilidad; el payload
+    ahora es {nombre: {"grupo_muscular": str|None, "accion": str|None}}
+    para poder cargar también la decisión usar_existente/crear_nuevo de un
+    match ambiguo sin volver a un formset por ejercicio)."""
+    resoluciones = forms.CharField(widget=forms.HiddenInput, required=False)
+
+    def clean(self):
+        cleaned = super().clean()
+        crudo = cleaned.get("resoluciones") or "{}"
+        try:
+            datos = json.loads(crudo)
+        except (json.JSONDecodeError, TypeError):
+            self.add_error(None, "Formato de resoluciones inválido.")
+            return cleaned
+        if not isinstance(datos, dict):
+            self.add_error(None, "Formato de resoluciones inválido.")
+            return cleaned
+        for clave, valor in datos.items():
+            if not isinstance(clave, str) or not isinstance(valor, dict):
+                self.add_error(None, "Formato de resoluciones inválido.")
+                return cleaned
+            grupo_muscular = valor.get("grupo_muscular")
+            if grupo_muscular is not None and grupo_muscular not in Ejercicio.GrupoMuscular.values:
+                self.add_error(None, "Grupo muscular inválido.")
+                return cleaned
+            accion = valor.get("accion")
+            if accion is not None and accion not in ("usar_existente", "crear_nuevo"):
+                self.add_error(None, "Acción inválida.")
+                return cleaned
+        cleaned["resoluciones"] = datos
+        return cleaned
+```
+
+`importaciones/views.py` — reescribir `PreviewBibliotecaView`:
+
+```python
+class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
+    template_name = "importaciones/biblioteca_preview.html"
+
+    def get_importacion(self):
+        return get_object_or_404(
+            Importacion.objects.for_gimnasio(self.gimnasio),
+            pk=self.kwargs["pk"],
+            tipo=Importacion.Tipo.BIBLIOTECA,
+            estado=Importacion.Estado.EN_REVISION,
+        )
+
+    def _pendientes(self, importacion):
+        # Un item pendiente puede necesitar UNA de las dos decisiones, o
+        # ambas: `needs_accion` (match ambiguo -- usar existente o crear
+        # nuevo) y/o `needs_grupo` (grupo_muscular sin auto-resolver). Se
+        # devuelven juntas en una sola lista para que el template arme UNA
+        # fila por ejercicio pendiente, no dos secciones separadas que
+        # dupliquen filas para el caso ambiguo+sin-grupo.
+        pendientes = []
+        for item in importacion.resultado["items"]:
+            tipo = item["match"]["tipo"]
+            needs_accion = tipo == "ambiguo"
+            needs_grupo = tipo != "exacto" and not item["grupo_muscular_resuelto"]
+            if needs_accion or needs_grupo:
+                pendientes.append({**item, "needs_accion": needs_accion, "needs_grupo": needs_grupo})
+        return pendientes
+
+    def get(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        return self._render(request, importacion, ResolucionesJSONForm())
+
+    def _render(self, request, importacion, form):
+        return render(request, self.template_name, {
+            "importacion": importacion,
+            "pendientes": self._pendientes(importacion),
+            "grupo_muscular_choices": Ejercicio.GrupoMuscular.choices,
+            "form": form,
+        })
+
+    def post(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        form = ResolucionesJSONForm(request.POST)
+        if not form.is_valid():
+            return self._render(request, importacion, form)
+
+        resoluciones = form.cleaned_data["resoluciones"]
+        faltantes = []
+        for item in importacion.resultado["items"]:
+            tipo = item["match"]["tipo"]
+            if tipo == "exacto":
+                continue
+            entrada = resoluciones.get(item["nombre_normalizado"], {})
+            if tipo == "ambiguo":
+                accion = entrada.get("accion")
+                if accion not in ("usar_existente", "crear_nuevo"):
+                    faltantes.append(item["nombre_original"])
+                    continue
+                if accion == "usar_existente":
+                    continue  # no crea nada -> no necesita grupo_muscular
+            if not item["grupo_muscular_resuelto"] and not entrada.get("grupo_muscular"):
+                faltantes.append(item["nombre_original"])
+        if faltantes:
+            form.add_error(None, f"Falta resolver: {', '.join(faltantes)}.")
+            return self._render(request, importacion, form)
+
+        decisiones = {"items": {
+            item["nombre_normalizado"]: {
+                "incluir": (
+                    item["match"]["tipo"] != "exacto"
+                    and not (
+                        item["match"]["tipo"] == "ambiguo"
+                        and resoluciones.get(item["nombre_normalizado"], {}).get("accion") == "usar_existente"
+                    )
+                ),
+                "grupo_muscular": (
+                    item["grupo_muscular_resuelto"]
+                    or resoluciones.get(item["nombre_normalizado"], {}).get("grupo_muscular")
+                ),
+            }
+            for item in importacion.resultado["items"]
+        }}
+
+        try:
+            creados = confirmar_importacion_biblioteca(
+                importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+        except ImportacionInvalida as exc:
+            messages.error(request, str(exc))
+            return self._render(request, importacion, form)
+
+        messages.success(request, f"Se crearon {len(creados)} ejercicio(s).")
+        return redirect("ejercicios:listado")
+```
+
+(Verificar antes de tocar `services.py::confirmar_importacion_biblioteca`: con `incluir=False` para un ambiguo resuelto como "usar_existente", su guard existente `if not decision["incluir"] or item["match"]["tipo"] == "exacto": continue` ya salta ese item sin crear nada -- no debería hacer falta ningún cambio ahí. Si al correr los tests del Step 4 algo no cierra, ese es el lugar a mirar.)
+
+`templates/importaciones/biblioteca_preview.html` — reemplazar el bloque `{% if pendientes %}` (la sección "Grupos musculares a resolver") por:
+
+```html
+    {% if pendientes %}
+      <div class="tarjeta">
+        <h2>Ejercicios a resolver</h2>
+        {% for item in pendientes %}
+          <div>
+            <p>{{ item.nombre_original }}</p>
+            {% if item.needs_accion %}
+              <select class="js-accion" data-valor-original="{{ item.nombre_normalizado }}">
+                <option value="">---------</option>
+                <option value="usar_existente">
+                  Usar existente: {{ item.match.candidato_nombre }} ({{ item.match.score }}% de similitud)
+                </option>
+                <option value="crear_nuevo">Crear como nuevo ejercicio</option>
+              </select>
+            {% endif %}
+            {% if item.needs_grupo %}
+              <select class="js-grupo-muscular" data-valor-original="{{ item.nombre_normalizado }}">
+                <option value="">---------</option>
+                {% for valor, etiqueta in grupo_muscular_choices %}
+                  <option value="{{ valor }}">{{ etiqueta }}</option>
+                {% endfor %}
+              </select>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+```
+
+Y el `<script>` de más abajo (mismo `<form>`, reemplaza el bloque de script existente):
+
+```html
+    <script>
+      document.currentScript.closest("form").addEventListener("submit", function () {
+        var resoluciones = {};
+        function entrada(nombre) {
+          if (!resoluciones[nombre]) { resoluciones[nombre] = {}; }
+          return resoluciones[nombre];
+        }
+        document.querySelectorAll(".js-grupo-muscular").forEach(function (select) {
+          if (select.value) { entrada(select.dataset.valorOriginal).grupo_muscular = select.value; }
+        });
+        document.querySelectorAll(".js-accion").forEach(function (select) {
+          if (select.value) { entrada(select.dataset.valorOriginal).accion = select.value; }
+        });
+        document.getElementById("id_resoluciones").value = JSON.stringify(resoluciones);
+      });
+    </script>
+```
+
+(El resto del template -- tabla de items, filas inválidas, advertencias de columnas, botón de confirmar, form de descartar -- no cambia.)
+
+- [ ] **Step 4: Correr los tests y verificar que pasan**
+
+Run: `python manage.py test importaciones -v 2`
+Expected: PASS (toda la suite).
+
+- [ ] **Step 5: Agregar entrada a `ISSUES.md`**
+
+Agregar una entrada nueva (no editar las de `[2026-07-28]`) documentando que el flujo de biblioteca ahora ofrece "usar existente / crear nuevo" para matches ambiguos, igual que plantillas, cerrando el gap encontrado en la revisión final de rama.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add importaciones/forms.py importaciones/views.py importaciones/services.py templates/importaciones/biblioteca_preview.html importaciones/tests.py ISSUES.md
+git commit -m "feat(importaciones): biblioteca ofrece usar existente/crear nuevo para matches ambiguos"
+```
