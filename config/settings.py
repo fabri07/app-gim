@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     #   ejercicios -> Ejercicio (sin dependencias de dominio)
     #   alumnos    -> Alumno (sin dependencias de dominio)
     #   rutinas    -> RutinaPlantilla/Item, RutinaAsignada/Item (FK a ejercicios y alumnos)
+    #   importaciones -> Importacion (FK a gymnastasio, usuario)
     #   pagos      -> PagoMensual (FK a alumnos)
     #   novedades  -> Novedad (sin dependencias de dominio)
     #   turnos     -> ConfiguracionTurnos/HorarioAtencion/CupoExcepcion/Reserva (FK a alumnos)
@@ -80,6 +81,7 @@ INSTALLED_APPS = [
     'ejercicios',
     'alumnos',
     'rutinas',
+    'importaciones',
     'pagos',
     'novedades',
     'turnos',
