@@ -6,7 +6,6 @@ import io
 import openpyxl
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
 from ejercicios.models import Ejercicio
@@ -509,3 +508,120 @@ class ConfirmarImportacionPlantillasTests(TestCase):
         )
         self.assertEqual(plantillas, [])
         self.assertEqual(RutinaPlantilla.objects.count(), 0)
+
+    def test_decisiones_hojas_incompletas_falla(self):
+        # Simula un form de confirmación (Tarea 9) donde faltó la decisión
+        # de una hoja -- p. ej. un checkbox sin marcar que no llegó en el
+        # POST. No debe saltearse en silencio.
+        decisiones = self._decisiones_completas()
+        decisiones["hojas"] = []
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_plantillas(
+                importacion=self.importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+        self.assertEqual(RutinaPlantilla.objects.count(), 0)
+        self.importacion.refresh_from_db()
+        self.assertEqual(self.importacion.estado, Importacion.Estado.EN_REVISION)
+
+    def test_grupo_muscular_invalido_falla(self):
+        decisiones = self._decisiones_completas()
+        decisiones["ejercicios"]["press de banca"]["grupo_muscular"] = "banana"
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_plantillas(
+                importacion=self.importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+
+    def test_nivel_invalido_falla(self):
+        decisiones = self._decisiones_completas()
+        decisiones["hojas"][0]["nivel"] = "experto-supremo"
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_plantillas(
+                importacion=self.importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+
+    def test_usar_existente_con_ejercicio_de_otro_gimnasio_falla(self):
+        otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        ejercicio_de_otro_gimnasio = Ejercicio.objects.create(
+            gimnasio=otro_gimnasio, nombre="Sentadilla",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+        decisiones = self._decisiones_completas(accion_sentadila="usar_existente")
+        decisiones["ejercicios"]["sentadila"]["ejercicio_id"] = ejercicio_de_otro_gimnasio.pk
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_plantillas(
+                importacion=self.importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+        self.assertEqual(RutinaPlantilla.objects.count(), 0)
+
+    def test_mismo_ejercicio_nuevo_en_dos_hojas_crea_uno_solo(self):
+        # A diferencia del fixture de setUp (una sola hoja), acá el mismo
+        # nombre aparece en DOS hojas distintas -- el memo de
+        # `_obtener_ejercicio` tiene que estar scopeado a todo el confirm,
+        # no por hoja.
+        wb = openpyxl.Workbook()
+        ws1 = wb.active
+        ws1.title = "Hombres"
+        ws1.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws1.append([1, "Peso muerto", 4, "8-12"])
+        ws2 = wb.create_sheet("Mujeres")
+        ws2.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws2.append([1, "Peso muerto", 3, "10"])
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+        decisiones = {
+            "hojas": [
+                {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
+                {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
+            ],
+            "ejercicios": {
+                "peso muerto": {"accion": "crear_nuevo", "grupo_muscular": "piernas"},
+            },
+        }
+        plantillas = confirmar_importacion_plantillas(
+            importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+        )
+        self.assertEqual(
+            Ejercicio.objects.filter(gimnasio=self.gimnasio, nombre="Peso muerto").count(), 1
+        )
+        ejercicio = Ejercicio.objects.get(gimnasio=self.gimnasio, nombre="Peso muerto")
+        items = RutinaPlantillaItem.objects.filter(ejercicio=ejercicio)
+        self.assertEqual(items.count(), 2)
+        self.assertEqual({p.pk for p in plantillas}, set(items.values_list("rutina_id", flat=True)))
+
+    def test_falla_a_mitad_de_transaccion_no_deja_datos_parciales(self):
+        # Dos hojas: la primera es válida y alcanzaría a crear su plantilla
+        # e ítems antes de que la segunda dispare la validación de grupo
+        # muscular. Todo el atomic() tiene que revertirse, no solo la
+        # segunda hoja.
+        wb = openpyxl.Workbook()
+        ws1 = wb.active
+        ws1.title = "Hombres"
+        ws1.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws1.append([1, "Press de banca", 4, "8-12"])
+        ws2 = wb.create_sheet("Mujeres")
+        ws2.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws2.append([1, "Peso muerto", 3, "8"])
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+        ejercicios_antes = Ejercicio.objects.count()
+        decisiones = {
+            "hojas": [
+                {"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"},
+                {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
+            ],
+            "ejercicios": {
+                "press de banca": {"accion": "crear_nuevo", "grupo_muscular": "pecho"},
+                "peso muerto": {"accion": "crear_nuevo", "grupo_muscular": "banana"},
+            },
+        }
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_plantillas(
+                importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+        self.assertEqual(RutinaPlantilla.objects.count(), 0)
+        self.assertEqual(RutinaPlantillaItem.objects.count(), 0)
+        self.assertEqual(Ejercicio.objects.count(), ejercicios_antes)
+        importacion.refresh_from_db()
+        self.assertEqual(importacion.estado, Importacion.Estado.EN_REVISION)

@@ -100,52 +100,97 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
     """Crea las `RutinaPlantilla`/`RutinaPlantillaItem`/`Ejercicio` reales a
     partir del preview persistido en `importacion.resultado` y las
     decisiones del staff. Es la única función de esta app que escribe en el
-    catálogo permanente del gimnasio -- todo dentro de una transacción,
-    con el chequeo de idempotencia (¿ya se confirmó?) ANTES de escribir
-    nada. Mismo patrón que `RutinaAsignada.crear_desde_plantilla`
-    (`rutinas/models.py`) y la validación de estado antes de mutar de
-    `turnos/services.py`."""
-    if importacion.gimnasio_id != gimnasio.id:
-        raise ImportacionInvalida("Esta importación no pertenece a tu gimnasio.")
-    if importacion.estado != Importacion.Estado.EN_REVISION:
-        raise ImportacionInvalida("Esta importación ya fue procesada.")
+    catálogo permanente del gimnasio -- todo dentro de una transacción, con
+    el chequeo de idempotencia (¿ya se confirmó?) ANTES de escribir nada.
 
-    resultado = importacion.resultado
-    ejercicios_por_nombre = {}  # nombre_normalizado -> Ejercicio, resuelto una vez
-
-    def _obtener_ejercicio(nombre_normalizado):
-        if nombre_normalizado in ejercicios_por_nombre:
-            return ejercicios_por_nombre[nombre_normalizado]
-        decision = decisiones["ejercicios"][nombre_normalizado]
-        if decision["accion"] == "usar_existente":
-            ejercicio = Ejercicio.objects.get(
-                pk=decision["ejercicio_id"], gimnasio=gimnasio,
-            )
-        else:
-            nombre_original = next(
-                item["ejercicio_original"]
-                for hoja in resultado["hojas"]
-                for item in hoja["items"]
-                if item["ejercicio_normalizado"] == nombre_normalizado
-            )
-            ejercicio = Ejercicio.objects.create(
-                gimnasio=gimnasio,
-                nombre=nombre_original,
-                grupo_muscular=decision["grupo_muscular"],
-            )
-        ejercicios_por_nombre[nombre_normalizado] = ejercicio
-        return ejercicio
-
-    plantillas_creadas = []
+    El re-fetch con `select_for_update()` ANTES de validar (en vez de
+    validar sobre la instancia que ya trae el caller) es necesario porque
+    dos confirmaciones concurrentes de la MISMA importación (p. ej. un
+    doble click -- `hx-boost` no deduplica submits) verían ambas
+    `EN_REVISION` si sólo mirásemos el objeto en memoria: mismo patrón que
+    `crear_reserva` en `turnos/services.py`. En SQLite (backend de test)
+    `select_for_update()` no toma un lock real -- Django lo ejecuta como un
+    SELECT normal dentro de la transacción -- así que no hace falta simular
+    concurrencia real acá; en Postgres (producción) sí aplica el lock (ver
+    docstring de `turnos/tests.py` para el mismo caveat)."""
     with transaction.atomic():
-        for hoja, decision_hoja in zip(resultado["hojas"], decisiones["hojas"]):
+        importacion = Importacion.objects.select_for_update().get(pk=importacion.pk)
+        if importacion.gimnasio_id != gimnasio.id:
+            raise ImportacionInvalida("Esta importación no pertenece a tu gimnasio.")
+        if importacion.estado != Importacion.Estado.EN_REVISION:
+            raise ImportacionInvalida("Esta importación ya fue procesada.")
+
+        resultado = importacion.resultado
+        decisiones_hojas = decisiones["hojas"]
+        if len(decisiones_hojas) != len(resultado["hojas"]):
+            # P. ej. checkboxes sin marcar en el form de confirmación
+            # (Tarea 9) simplemente no llegan en el POST -- sin este chequeo
+            # las hojas sobrantes se saltearían en silencio y la importación
+            # igual quedaría CONFIRMADA (ya no se podría reintentar).
+            raise ImportacionInvalida("Datos de confirmación incompletos.")
+
+        ejercicios_por_nombre = {}  # nombre_normalizado -> Ejercicio, resuelto una vez
+
+        def _obtener_ejercicio(nombre_normalizado):
+            if nombre_normalizado in ejercicios_por_nombre:
+                return ejercicios_por_nombre[nombre_normalizado]
+            try:
+                decision = decisiones["ejercicios"][nombre_normalizado]
+            except KeyError:
+                raise ImportacionInvalida(
+                    f"Falta la decisión para el ejercicio «{nombre_normalizado}»."
+                )
+            if decision["accion"] == "usar_existente":
+                try:
+                    ejercicio = Ejercicio.objects.get(
+                        pk=decision["ejercicio_id"], gimnasio=gimnasio,
+                    )
+                except Ejercicio.DoesNotExist:
+                    raise ImportacionInvalida(
+                        "El ejercicio elegido para reusar no existe en este gimnasio."
+                    )
+            else:
+                grupo_muscular = decision["grupo_muscular"]
+                if grupo_muscular not in Ejercicio.GrupoMuscular.values:
+                    # `.create()` no llama a `full_clean()` y Django no
+                    # aplica `choices` a nivel de base de datos -- sin este
+                    # chequeo un valor inválido quedaría persistido y ese
+                    # ejercicio se volvería invisible para el filtro por
+                    # grupo muscular de la app `ejercicios`.
+                    raise ImportacionInvalida(
+                        f"Grupo muscular inválido: «{grupo_muscular}»."
+                    )
+                try:
+                    nombre_original = next(
+                        item["ejercicio_original"]
+                        for hoja in resultado["hojas"]
+                        for item in hoja["items"]
+                        if item["ejercicio_normalizado"] == nombre_normalizado
+                    )
+                except StopIteration:
+                    raise ImportacionInvalida(
+                        f"No se encontró el ejercicio «{nombre_normalizado}» en el archivo."
+                    )
+                ejercicio = Ejercicio.objects.create(
+                    gimnasio=gimnasio,
+                    nombre=nombre_original,
+                    grupo_muscular=grupo_muscular,
+                )
+            ejercicios_por_nombre[nombre_normalizado] = ejercicio
+            return ejercicio
+
+        plantillas_creadas = []
+        for hoja, decision_hoja in zip(resultado["hojas"], decisiones_hojas):
             if not decision_hoja["incluir"]:
                 continue
+            nivel = decision_hoja["nivel"]
+            if nivel not in RutinaPlantilla.Nivel.values:
+                raise ImportacionInvalida(f"Nivel inválido: «{nivel}».")
             plantilla = RutinaPlantilla.objects.create(
                 gimnasio=gimnasio,
                 nombre=hoja["nombre_hoja"],
                 objetivo=decision_hoja["objetivo"],
-                nivel=decision_hoja["nivel"],
+                nivel=nivel,
                 dias_por_semana=hoja["dias_por_semana"],
             )
             RutinaPlantillaItem.objects.bulk_create([
