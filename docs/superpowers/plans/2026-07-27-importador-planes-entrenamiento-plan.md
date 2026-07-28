@@ -403,7 +403,7 @@ git commit -m "feat(importaciones): normalizar_texto + detectar_columnas"
 
 **Interfaces:**
 - Consumes: `normalizar_texto`, `detectar_columnas`, `ALIAS_PLANTILLA` (Task 2).
-- Produces: dataclasses `ItemParseado`, `FilaInvalida`, `HojaParseada`; función `resolver_valor_celda(ws, fila, col, mapa_merges) -> object`; función `leer_hoja_plantilla(ws) -> HojaParseada`. Consumidas por `parsear_archivo_plantillas` (Task 4) y por `services.py` (Task 6).
+- Produces: dataclasses `ItemParseado`, `FilaInvalida`, `HojaParseada`; helpers privados `_mapa_merges(ws)`, `_valor_celda(ws, fila, col, mapa_merges) -> object`, `_fila_vacia(valores) -> bool`; función `leer_hoja_plantilla(ws) -> HojaParseada`. Consumidas por `leer_hoja_biblioteca`/`parsear_archivo_plantillas`/`parsear_archivo_biblioteca` (Task 4, que reusa `_mapa_merges`/`_valor_celda`/`_fila_vacia` para el import de biblioteca también) y por `services.py` (Task 6).
 
 - [ ] **Step 1: Escribir los tests que fallan**
 
@@ -783,12 +783,13 @@ def leer_hoja_biblioteca(ws):
     if "nombre" not in campos:
         return [], []
 
+    mapa_merges = _mapa_merges(ws)
     ncols = len(encabezados)
     items = []
     filas_invalidas = []
 
     for fila_idx in range(2, ws.max_row + 1):
-        valores = [ws.cell(row=fila_idx, column=c).value for c in range(1, ncols + 1)]
+        valores = [_valor_celda(ws, fila_idx, c, mapa_merges) for c in range(1, ncols + 1)]
         if _fila_vacia(valores):
             continue
 
