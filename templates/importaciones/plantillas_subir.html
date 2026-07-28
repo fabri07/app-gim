@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}Importar plantillas · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <h1>Importar plantillas de rutina</h1>
+  <div class="tarjeta">
+    <p class="texto-suave">
+      Subí un archivo .xlsx con tus planes de entrenamiento. Cada hoja del
+      archivo se convierte en una plantilla reutilizable — vas a poder
+      revisar todo antes de confirmar.
+    </p>
+    <form method="post" enctype="multipart/form-data" hx-boost="false">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="boton">Subir y previsualizar</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

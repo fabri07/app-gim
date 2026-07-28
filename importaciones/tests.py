@@ -6,8 +6,10 @@ import io
 import openpyxl
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import include, path, reverse
 
+from config.urls import urlpatterns as _urlpatterns_produccion
 from ejercicios.models import Ejercicio
 from importaciones.matching import (
     MatchResultado,
@@ -37,7 +39,21 @@ from importaciones.services import (
     previsualizar_importacion_plantillas,
 )
 from rutinas.models import RutinaPlantilla, RutinaPlantillaItem
-from tenants.models import Gimnasio
+from tenants.models import Gimnasio, Perfil
+
+
+# `importaciones.urls` todavía no está incluido en `config/urls.py` -- eso
+# es la Tarea 12 (wiring final), fuera del alcance de esta tarea. Pero los
+# tests de vistas de acá abajo necesitan poder resolver
+# `reverse("importaciones:...")` (y, para el caso anónimo, `reverse("login")`
+# vía `LOGIN_URL`) igual. En vez de tocar `config/urls.py` antes de tiempo,
+# este módulo se usa a sí mismo como un ROOT_URLCONF alternativo (solo bajo
+# `@override_settings`, solo para `ImportacionPlantillasViewsTests`):
+# reexporta el urlconf real de producción (`config.urls`, sin modificarlo)
+# más el include que la Tarea 12 va a agregar ahí de forma definitiva.
+urlpatterns = list(_urlpatterns_produccion) + [
+    path("importaciones/", include("importaciones.urls")),
+]
 
 
 def _archivo_xlsx(wb):
@@ -814,3 +830,119 @@ class ResolucionEjercicioFormSetTests(SimpleTestCase):
         }
         formset = ResolucionEjercicioFormSet(datos)
         self.assertTrue(formset.is_valid(), formset.errors)
+
+
+@override_settings(ROOT_URLCONF="importaciones.tests")
+class ImportacionPlantillasViewsTests(TestCase):
+    def setUp(self):
+        self.gimnasio_a = Gimnasio.objects.create(nombre="Gym A", slug="gym-a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="Gym B", slug="gym-b")
+
+        self.staff_a = User.objects.create_user(username="staff_a", password="clave12345")
+        Perfil.objects.create(usuario=self.staff_a, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF)
+
+        self.staff_b = User.objects.create_user(username="staff_b", password="clave12345")
+        Perfil.objects.create(usuario=self.staff_b, gimnasio=self.gimnasio_b, rol=Perfil.Rol.STAFF)
+
+        self.usuario_alumno = User.objects.create_user(username="usuario_alumno", password="clave12345")
+        Perfil.objects.create(usuario=self.usuario_alumno, gimnasio=self.gimnasio_a, rol=Perfil.Rol.ALUMNO)
+
+    def _archivo_valido(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Hombres"
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Press de banca", 4, "8-12"])
+        return _archivo_xlsx(wb)
+
+    def test_anonimo_redirige_a_login(self):
+        response = self.client.get(reverse("importaciones:plantillas_subir"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/accounts/login/", response.url)
+
+    def test_alumno_recibe_403(self):
+        self.client.login(username="usuario_alumno", password="clave12345")
+        response = self.client.get(reverse("importaciones:plantillas_subir"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_subir_archivo_invalido_no_crea_importacion(self):
+        self.client.login(username="staff_a", password="clave12345")
+        archivo = SimpleUploadedFile("plan.txt", b"nada")
+        response = self.client.post(
+            reverse("importaciones:plantillas_subir"), {"archivo": archivo},
+        )
+        self.assertEqual(response.status_code, 200)  # re-renderiza con error
+        self.assertEqual(Importacion.objects.count(), 0)
+
+    def test_preview_de_otro_gimnasio_da_404(self):
+        importacion = Importacion.objects.create(
+            gimnasio=self.gimnasio_b, tipo=Importacion.Tipo.PLANTILLAS, resultado={"hojas": [], "ejercicios_distintos": {}},
+        )
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_preview_de_importacion_ya_confirmada_da_404(self):
+        importacion = Importacion.objects.create(
+            gimnasio=self.gimnasio_a, tipo=Importacion.Tipo.PLANTILLAS,
+            estado=Importacion.Estado.CONFIRMADA, resultado={"hojas": [], "ejercicios_distintos": {}},
+        )
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_flujo_completo_subir_preview_confirmar(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        response = self.client.post(
+            reverse("importaciones:plantillas_subir"), {"archivo": self._archivo_valido()},
+        )
+        self.assertEqual(response.status_code, 302)
+        importacion = Importacion.objects.get()
+        self.assertRedirects(
+            response, reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+
+        response = self.client.get(response.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Hombres")
+        self.assertContains(response, "Press de banca")
+
+        datos_confirmacion = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_hoja": "Hombres", "form-0-incluir": "on",
+            "form-0-objetivo": "Hipertrofia", "form-0-nivel": "principiante",
+            "ejercicios-TOTAL_FORMS": "1", "ejercicios-INITIAL_FORMS": "1",
+            "ejercicios-0-nombre_normalizado": "press de banca",
+            "ejercicios-0-accion": "crear_nuevo",
+            "ejercicios-0-grupo_muscular": "pecho",
+        }
+        response = self.client.post(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk]), datos_confirmacion,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(RutinaPlantilla.objects.count(), 1)
+        importacion.refresh_from_db()
+        self.assertEqual(importacion.estado, Importacion.Estado.CONFIRMADA)
+
+        # Reabrir el preview de una importación ya confirmada da 404.
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_descartar_marca_la_importacion_como_descartada(self):
+        importacion = Importacion.objects.create(
+            gimnasio=self.gimnasio_a, tipo=Importacion.Tipo.PLANTILLAS, resultado={"hojas": [], "ejercicios_distintos": {}},
+        )
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(
+            reverse("importaciones:plantillas_descartar", args=[importacion.pk])
+        )
+        self.assertEqual(response.status_code, 302)
+        importacion.refresh_from_db()
+        self.assertEqual(importacion.estado, Importacion.Estado.DESCARTADA)

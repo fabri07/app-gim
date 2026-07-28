@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Revisar importación · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <h1>Revisar antes de confirmar</h1>
+  <form method="post" hx-boost="false">
+    {% csrf_token %}
+    {{ hoja_formset.management_form }}
+    {% for hoja, hoja_form in hojas_con_form %}
+      <div class="tarjeta">
+        <h2>{{ hoja.nombre_hoja }}</h2>
+        <p class="texto-suave">{{ hoja.items|length }} ejercicios detectados</p>
+        {{ hoja_form }}
+        {% if hoja.items %}
+          <table class="tabla">
+            <thead><tr><th>Día</th><th>Ejercicio</th><th>Series</th><th>Repeticiones</th></tr></thead>
+            <tbody>
+              {% for item in hoja.items %}
+                <tr>
+                  <td>{{ item.dia }}</td>
+                  <td>{{ item.ejercicio_original }}</td>
+                  <td>{{ item.series }}</td>
+                  <td>{{ item.repeticiones }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+        {% if hoja.filas_invalidas %}
+          <table class="tabla">
+            <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
+            <tbody>
+              {% for fila in hoja.filas_invalidas %}
+                <tr><td>{{ fila.fila_excel }}</td><td>{{ fila.motivo }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    {{ ejercicio_formset.management_form }}
+    {% if ejercicio_formset.forms %}
+      <div class="tarjeta">
+        <h2>Ejercicios a resolver</h2>
+        {% for f in ejercicio_formset %}
+          <p>{{ f.nombre_normalizado.value }}</p>
+          {{ f }}
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <button type="submit" class="boton">Confirmar importación</button>
+  </form>
+  <form method="post" action="{% url 'importaciones:plantillas_descartar' importacion.pk %}" hx-boost="false">
+    {% csrf_token %}
+    <button type="submit" class="boton-peligro">Descartar</button>
+  </form>
+</div>
+{% endblock %}
