@@ -5,6 +5,8 @@ siempre lo inyecta -- mismo patrón que `AsignarRutinaForm` en
 `rutinas/forms.py`. Los formsets de preview usan `forms.formset_factory`
 (mecanismo idiomático de Django para N repeticiones de un sub-form)."""
 
+import json
+
 from django import forms
 from django.core.validators import FileExtensionValidator
 
@@ -63,9 +65,23 @@ class ResolucionEjercicioForm(forms.Form):
 ResolucionEjercicioFormSet = forms.formset_factory(ResolucionEjercicioForm, extra=0)
 
 
-class ResolucionGrupoMuscularForm(forms.Form):
-    valor_original = forms.CharField(widget=forms.HiddenInput)
-    grupo_muscular = forms.ChoiceField(choices=Ejercicio.GrupoMuscular.choices)
+class ResolucionesJSONForm(forms.Form):
+    """Reemplaza a `ResolucionGrupoMuscularFormSet` (un form por ejercicio
+    pendiente) por un único campo con las resoluciones serializadas en
+    JSON -- así el conteo de campos del POST de confirmación de biblioteca
+    no escala con la cantidad de ejercicios sin match (una biblioteca real
+    puede traer miles; ver ISSUES.md [2026-07-28] y su seguimiento)."""
+    resoluciones = forms.CharField(widget=forms.HiddenInput, required=False)
 
-
-ResolucionGrupoMuscularFormSet = forms.formset_factory(ResolucionGrupoMuscularForm, extra=0)
+    def clean_resoluciones(self):
+        crudo = self.cleaned_data.get("resoluciones") or "{}"
+        try:
+            datos = json.loads(crudo)
+        except (json.JSONDecodeError, TypeError):
+            raise forms.ValidationError("Formato de resoluciones inválido.")
+        if not isinstance(datos, dict):
+            raise forms.ValidationError("Formato de resoluciones inválido.")
+        for clave, valor in datos.items():
+            if not isinstance(clave, str) or valor not in Ejercicio.GrupoMuscular.values:
+                raise forms.ValidationError("Grupo muscular inválido.")
+        return datos

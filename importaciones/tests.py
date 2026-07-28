@@ -2,6 +2,7 @@
 fixtures de este repo."""
 
 import io
+import json
 
 import openpyxl
 from django.contrib.auth.models import User
@@ -1010,11 +1011,9 @@ class ImportacionBibliotecaViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Press de banca")
 
-        datos = {
-            "form-TOTAL_FORMS": "0", "form-INITIAL_FORMS": "0",
-            # "Press de banca" resolvió grupo_muscular automáticamente ("pecho")
-            # y no necesita entrada en el formset de resolución manual.
-        }
+        # "Press de banca" resolvió grupo_muscular automáticamente ("pecho")
+        # y no necesita entrada en las resoluciones manuales.
+        datos = {"resoluciones": "{}"}
         response = self.client.post(
             reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
         )
@@ -1048,11 +1047,7 @@ class ImportacionBibliotecaViewsTests(TestCase):
         )
         self.assertContains(response, "hip thrust")
 
-        datos = {
-            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
-            "form-0-valor_original": "hip thrust",
-            "form-0-grupo_muscular": "piernas",
-        }
+        datos = {"resoluciones": json.dumps({"hip thrust": "piernas"})}
         response = self.client.post(
             reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
         )
@@ -1061,6 +1056,24 @@ class ImportacionBibliotecaViewsTests(TestCase):
         self.assertEqual(
             Ejercicio.objects.get(nombre="Hip thrust").grupo_muscular, "piernas"
         )
+
+    def test_falta_resolver_un_pendiente_no_confirma(self):
+        self.client.login(username="staff_a", password="clave12345")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre"])
+        ws.append(["Hip thrust"])
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": "{}"},  # "hip thrust" queda sin resolver
+        )
+        self.assertEqual(response.status_code, 200)  # re-renderiza con error
+        self.assertEqual(Ejercicio.objects.count(), 0)
 
     def test_preview_lista_filas_invalidas_con_motivo(self):
         # Regla global no negociable: "filas inválidas se saltean y se
@@ -1164,3 +1177,39 @@ class RegresionCamposDelPostTests(TestCase):
         self.assertEqual(
             RutinaPlantilla.objects.get().items.count(), self.CANTIDAD_FILAS
         )
+
+
+class RegresionCamposPostBibliotecaTests(TestCase):
+    """El confirm POST de biblioteca manda las resoluciones como un único
+    campo JSON -- a diferencia de plantillas (ver ISSUES.md [2026-07-28]),
+    el conteo de campos del POST no escala con la cantidad de ejercicios
+    pendientes de resolución manual, así que una biblioteca inicial de
+    miles de ejercicios (escenario real, a diferencia de una plantilla)
+    no puede romper contra DATA_UPLOAD_MAX_NUMBER_FIELDS."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+
+    def test_600_ejercicios_pendientes_no_rompe_el_confirm_post(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre"])  # sin columna Grupo Muscular -> todos pendientes
+        for i in range(600):
+            ws.append([f"Ejercicio {i}"])
+
+        self.client.login(username="staff", password="clave12345")
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+        self.assertEqual(len(importacion.resultado["items"]), 600)
+
+        resoluciones = {f"ejercicio {i}": "cuerpo_completo" for i in range(600)}
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps(resoluciones)},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.count(), 600)

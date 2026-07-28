@@ -375,3 +375,39 @@ ejercicios genuinamente grande y 100% distinta en una sola hoja de
 *plantillas* (no de *biblioteca*, que no pasa por formsets de N
 ejercicios), reevaluar subir el límite explícitamente en `settings.py` con
 su propio test dedicado.
+
+## [2026-07-28] Importador: biblioteca sí corría el riesgo real que plantillas descartó — resuelto con un campo JSON, no aceptado
+
+**Estado:** resuelto
+
+**Impacto:** la entrada anterior de este mismo día documenta que, para
+*plantillas*, el escenario de 500+ ejercicios 100% distintos en una sola
+hoja es patológico (no ocurre con datos reales) y se aceptó tal cual. El
+flujo de **biblioteca** (`PreviewBibliotecaView`) es distinto: el dueño del
+producto confirmó que una carga inicial real puede traer 1000+ ejercicios,
+y a diferencia de plantillas, en una biblioteca vacía la mayoría no tiene
+forma de auto-resolver `grupo_muscular` (no hay alias de nombre que lo
+infiera) — terminan todos en la resolución manual del staff. Con el diseño
+original (`ResolucionGrupoMuscularFormSet`, 2 campos de POST por ejercicio
+pendiente), el techo real era ~498 ejercicios pendientes antes de superar
+`DATA_UPLOAD_MAX_NUMBER_FIELDS=1000` y recibir un `TooManyFieldsSent` (HTTP
+400) crudo en vez de un error en español — no un caso patológico, sino el
+caso esperado de una primera carga.
+
+**Resolución / próximo paso:** por pedido explícito del dueño del producto
+(la opción de mayor alcance, no un parche puntual), el POST de confirmación
+de biblioteca ahora manda todas las resoluciones de grupo muscular como un
+único campo JSON (`ResolucionesJSONForm.resoluciones`, `importaciones/forms.py`)
+en vez de N pares de campos de formset — el conteo de campos del POST queda
+constante sin importar cuántos ejercicios pendientes haya, y el límite
+relevante pasa a ser `DATA_UPLOAD_MAX_MEMORY_SIZE` (default 2.5MB), que un
+JSON de miles de entradas cortas no se acerca a rozar. No se tocó
+`DATA_UPLOAD_MAX_NUMBER_FIELDS` (afectaría todas las vistas del proyecto,
+no solo esta) ni se construyó un flujo de reintento por lotes.
+`ResolucionGrupoMuscularForm`/`FormSet` se eliminaron de `forms.py` (código
+muerto tras el cambio). El flujo de *plantillas* (`ResolucionEjercicioFormSet`,
+`HojaMetadataFormSet`) no se tocó — ese invariante sigue aceptado tal cual,
+ver la entrada de arriba. Test de regresión:
+`importaciones/tests.py::RegresionCamposPostBibliotecaTests::test_600_ejercicios_pendientes_no_rompe_el_confirm_post`
+(600 ejercicios pendientes, POST real vía test client, confirma 302 y 600
+`Ejercicio` creados).

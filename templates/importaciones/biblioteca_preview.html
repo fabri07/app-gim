@@ -34,17 +34,36 @@
         </table>
       </div>
     {% endif %}
-    {{ formset.management_form }}
-    {% if formset.forms %}
+    {% if pendientes %}
       <div class="tarjeta">
         <h2>Grupos musculares a resolver</h2>
-        {% for f in formset %}
-          <p>{{ f.valor_original.value }}</p>
-          {{ f }}
+        {% for item in pendientes %}
+          <p>
+            {{ item.nombre_original }}
+            <select class="js-grupo-muscular" data-valor-original="{{ item.nombre_normalizado }}">
+              <option value="">---------</option>
+              {% for valor, etiqueta in grupo_muscular_choices %}
+                <option value="{{ valor }}">{{ etiqueta }}</option>
+              {% endfor %}
+            </select>
+          </p>
         {% endfor %}
       </div>
     {% endif %}
+    {{ form.resoluciones }}
+    {% for error in form.non_field_errors %}<p class="texto-error">{{ error }}</p>{% endfor %}
     <button type="submit" class="boton">Confirmar importación</button>
+    <script>
+      document.currentScript.closest("form").addEventListener("submit", function () {
+        var resoluciones = {};
+        document.querySelectorAll(".js-grupo-muscular").forEach(function (select) {
+          if (select.value) {
+            resoluciones[select.dataset.valorOriginal] = select.value;
+          }
+        });
+        document.getElementById("id_resoluciones").value = JSON.stringify(resoluciones);
+      });
+    </script>
   </form>
   <form method="post" action="{% url 'importaciones:biblioteca_descartar' importacion.pk %}" hx-boost="false">
     {% csrf_token %}

@@ -7,10 +7,11 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import FormView, View
 
 from core.mixins import TenantScopedMixin
+from ejercicios.models import Ejercicio
 from importaciones.forms import (
     HojaMetadataFormSet,
     ResolucionEjercicioFormSet,
-    ResolucionGrupoMuscularFormSet,
+    ResolucionesJSONForm,
     SubirBibliotecaForm,
     SubirPlantillasForm,
 )
@@ -161,30 +162,41 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
             estado=Importacion.Estado.EN_REVISION,
         )
 
-    def get(self, request, *args, **kwargs):
-        importacion = self.get_importacion()
-        pendientes_initial = [
-            {"valor_original": item["nombre_normalizado"]}
-            for item in importacion.resultado["items"]
+    def _pendientes(self, importacion):
+        return [
+            item for item in importacion.resultado["items"]
             if item["match"]["tipo"] != "exacto" and not item["grupo_muscular_resuelto"]
         ]
-        formset = ResolucionGrupoMuscularFormSet(initial=pendientes_initial, prefix="form")
-        return self._render(request, importacion, formset)
 
-    def _render(self, request, importacion, formset):
+    def get(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        return self._render(request, importacion, ResolucionesJSONForm())
+
+    def _render(self, request, importacion, form):
         return render(request, self.template_name, {
-            "importacion": importacion, "formset": formset,
+            "importacion": importacion,
+            "pendientes": self._pendientes(importacion),
+            "grupo_muscular_choices": Ejercicio.GrupoMuscular.choices,
+            "form": form,
         })
 
     def post(self, request, *args, **kwargs):
         importacion = self.get_importacion()
-        formset = ResolucionGrupoMuscularFormSet(request.POST, prefix="form")
-        if not formset.is_valid():
-            return self._render(request, importacion, formset)
+        form = ResolucionesJSONForm(request.POST)
+        if not form.is_valid():
+            return self._render(request, importacion, form)
 
-        resueltos_a_mano = {
-            f["valor_original"]: f["grupo_muscular"] for f in formset.cleaned_data
-        }
+        resueltos_a_mano = form.cleaned_data["resoluciones"]
+        faltantes = [
+            item["nombre_original"] for item in self._pendientes(importacion)
+            if item["nombre_normalizado"] not in resueltos_a_mano
+        ]
+        if faltantes:
+            form.add_error(
+                None, f"Falta resolver el grupo muscular de: {', '.join(faltantes)}.",
+            )
+            return self._render(request, importacion, form)
+
         decisiones = {"items": {
             item["nombre_normalizado"]: {
                 "incluir": item["match"]["tipo"] != "exacto",
@@ -202,7 +214,7 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
             )
         except ImportacionInvalida as exc:
             messages.error(request, str(exc))
-            return self._render(request, importacion, formset)
+            return self._render(request, importacion, form)
 
         messages.success(request, f"Se crearon {len(creados)} ejercicio(s).")
         return redirect("ejercicios:listado")
