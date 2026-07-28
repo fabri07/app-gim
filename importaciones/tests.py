@@ -6,6 +6,7 @@ import io
 import openpyxl
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
 from ejercicios.models import Ejercicio
@@ -31,9 +32,10 @@ from importaciones.parsing import (
 )
 from importaciones.services import (
     ImportacionInvalida,
+    confirmar_importacion_plantillas,
     previsualizar_importacion_plantillas,
 )
-from rutinas.models import RutinaPlantilla
+from rutinas.models import RutinaPlantilla, RutinaPlantillaItem
 from tenants.models import Gimnasio
 
 
@@ -407,3 +409,103 @@ class PrevisualizarImportacionPlantillasTests(TestCase):
             previsualizar_importacion_plantillas(
                 gimnasio=self.gimnasio, archivo=archivo_roto, usuario=self.usuario,
             )
+
+
+class ConfirmarImportacionPlantillasTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user(username="staff", password="clave12345")
+        self.ejercicio_existente = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Sentadilla",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Hombres"
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Press de banca", 4, "8-12"])
+        ws.append([1, "sentadila", 3, "10"])
+        self.importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+
+    def _decisiones_completas(self, accion_sentadila="usar_existente"):
+        return {
+            "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
+            "ejercicios": {
+                "press de banca": {"accion": "crear_nuevo", "grupo_muscular": "pecho"},
+                "sentadila": {
+                    "accion": accion_sentadila,
+                    "ejercicio_id": self.ejercicio_existente.pk if accion_sentadila == "usar_existente" else None,
+                    "grupo_muscular": "piernas" if accion_sentadila == "crear_nuevo" else None,
+                },
+            },
+        }
+
+    def test_crea_una_plantilla_por_hoja_incluida(self):
+        plantillas = confirmar_importacion_plantillas(
+            importacion=self.importacion, gimnasio=self.gimnasio,
+            decisiones=self._decisiones_completas(),
+        )
+        self.assertEqual(len(plantillas), 1)
+        self.assertEqual(plantillas[0].nombre, "Hombres")
+        self.assertEqual(plantillas[0].objetivo, "Hipertrofia")
+        self.assertEqual(plantillas[0].nivel, "principiante")
+        self.assertEqual(plantillas[0].dias_por_semana, 1)
+        self.assertEqual(plantillas[0].items.count(), 2)
+
+    def test_usar_existente_no_duplica_el_ejercicio(self):
+        confirmar_importacion_plantillas(
+            importacion=self.importacion, gimnasio=self.gimnasio,
+            decisiones=self._decisiones_completas(accion_sentadila="usar_existente"),
+        )
+        self.assertEqual(Ejercicio.objects.filter(nombre__iexact="sentadilla").count(), 1)
+        item_sentadilla = RutinaPlantillaItem.objects.get(ejercicio=self.ejercicio_existente)
+        self.assertEqual(item_sentadilla.series, 3)
+
+    def test_crear_nuevo_crea_exactamente_un_ejercicio(self):
+        confirmar_importacion_plantillas(
+            importacion=self.importacion, gimnasio=self.gimnasio,
+            decisiones=self._decisiones_completas(),
+        )
+        self.assertEqual(
+            Ejercicio.objects.filter(gimnasio=self.gimnasio, nombre="Press de banca").count(), 1
+        )
+
+    def test_marca_la_importacion_como_confirmada(self):
+        confirmar_importacion_plantillas(
+            importacion=self.importacion, gimnasio=self.gimnasio,
+            decisiones=self._decisiones_completas(),
+        )
+        self.importacion.refresh_from_db()
+        self.assertEqual(self.importacion.estado, Importacion.Estado.CONFIRMADA)
+        self.assertIsNotNone(self.importacion.confirmado_en)
+
+    def test_confirmar_dos_veces_falla_sin_duplicar(self):
+        confirmar_importacion_plantillas(
+            importacion=self.importacion, gimnasio=self.gimnasio,
+            decisiones=self._decisiones_completas(),
+        )
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_plantillas(
+                importacion=self.importacion, gimnasio=self.gimnasio,
+                decisiones=self._decisiones_completas(),
+            )
+        self.assertEqual(RutinaPlantilla.objects.count(), 1)
+
+    def test_importacion_de_otro_gimnasio_falla(self):
+        otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_plantillas(
+                importacion=self.importacion, gimnasio=otro_gimnasio,
+                decisiones=self._decisiones_completas(),
+            )
+
+    def test_hoja_no_incluida_no_crea_plantilla(self):
+        decisiones = self._decisiones_completas()
+        decisiones["hojas"][0]["incluir"] = False
+        plantillas = confirmar_importacion_plantillas(
+            importacion=self.importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+        )
+        self.assertEqual(plantillas, [])
+        self.assertEqual(RutinaPlantilla.objects.count(), 0)
