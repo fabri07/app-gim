@@ -827,7 +827,7 @@ def parsear_archivo_biblioteca(archivo):
 - [ ] **Step 4: Correr los tests y verificar que pasan**
 
 Run: `python manage.py test importaciones.tests.LeerHojaBibliotecaTests importaciones.tests.ParsearArchivoPlantillasTests importaciones.tests.ParsearArchivoBibliotecaTests -v 2`
-Expected: PASS (7 tests). Correr también toda la clase de parsing (`importaciones.tests` filtrando las clases de Tasks 2-4) para confirmar que nada se rompió.
+Expected: PASS (5 tests). Correr también toda la clase de parsing (`importaciones.tests` filtrando las clases de Tasks 2-4) para confirmar que nada se rompió.
 
 - [ ] **Step 5: Commit**
 
