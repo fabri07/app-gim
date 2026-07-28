@@ -336,7 +336,11 @@ class HomeViewAlumnoTests(TestCase):
         self.client.login(username="lucia", password="clave-123456")
         response = self.client.get(reverse("home"))
 
-        self.assertContains(response, "Semana 4 de 4")
+        # El header debe reflejar la semana MOSTRADA (1, por el fallback),
+        # no la semana_actual calculada (4) -- mostrar "Semana 4 de 4" junto
+        # a ejercicios de semana 1 sería engañoso para el alumno.
+        self.assertContains(response, "Semana 1 de 4")
+        self.assertNotContains(response, "Semana 4 de 4")
         self.assertContains(response, "Sentadilla semana 1")
 
     def test_alumno_sin_rutina_ve_mensaje_no_tecnico(self):
