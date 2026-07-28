@@ -2580,3 +2580,275 @@ git commit -m "feat(importaciones): wiring final (urls, nav) + test de regresió
 - [ ] **Step 8: Chequeo manual**
 
 Levantar `python manage.py runserver`, loguearse como staff, entrar a "Importar rutinas", subir un `.xlsx` de prueba con 2 hojas (una con datos limpios, otra con una fila con "series" en texto y una celda de semana combinada verticalmente), confirmar que el preview muestra las hojas + la fila inválida + los ejercicios a resolver, completar objetivo/nivel/grupo muscular, confirmar, y verificar en `rutinas:plantilla_listado` que las plantillas quedaron creadas con los items/semanas correctos. Repetir con "Importar ejercicios" y un archivo simple de biblioteca.
+
+---
+
+### Task 13: Biblioteca — resolución de grupo muscular vía un único campo JSON (fix de escalabilidad del confirm POST)
+
+**Contexto (no estaba en el plan original — surge de la Tarea 12):** el test de regresión de la Tarea 12 (`RegresionCamposDelPostTests`) probó, y el dueño del producto confirmó, que una planilla de **plantillas** nunca va a tener más de ~300 ejercicios distintos (el invariante "el confirm POST nunca se acerca al límite de campos" queda aceptado tal cual para ese flujo, documentado en `ISSUES.md` `[2026-07-28]`). Pero una planilla de **biblioteca** sí puede traer 1000+ ejercicios — y a diferencia de plantillas, en una carga inicial (biblioteca vacía) la mayoría de esos ejercicios no tiene forma de auto-resolver `grupo_muscular` (no hay alias de nombre que lo infiera), así que terminan en el formset de resolución manual. Con el diseño actual (`ResolucionGrupoMuscularFormSet`, 2 campos de POST por ejercicio pendiente: `valor_original` + `grupo_muscular`), el techo real es ~498 ejercicios pendientes antes de superar `DATA_UPLOAD_MAX_NUMBER_FIELDS=1000` y recibir un `TooManyFieldsSent` (HTTP 400) crudo de Django en vez de un error en español. El dueño del producto pidió específicamente la opción de mayor alcance: en vez de tocar el límite global (afecta TODAS las vistas del proyecto) o construir un flujo de reintento por lotes, **rediseñar el POST de confirmación de biblioteca para mandar las resoluciones como un único campo JSON** en vez de N pares de campos — así el conteo de campos del POST queda constante sin importar cuántos ejercicios pendientes haya (el límite relevante pasa a ser `DATA_UPLOAD_MAX_MEMORY_SIZE`, default 2.5MB, que un JSON de miles de entradas cortas no se acerca a rozar).
+
+**Alcance:** solo el flujo de **biblioteca** (`PreviewBibliotecaView`, `templates/importaciones/biblioteca_preview.html`, `ResolucionGrupoMuscularForm`/`FormSet` en `forms.py`). El flujo de plantillas (`ResolucionEjercicioFormSet`, `HojaMetadataFormSet`) NO se toca — ese invariante quedó aceptado tal cual está.
+
+**Files:**
+- Modify: `importaciones/forms.py`, `importaciones/views.py`, `templates/importaciones/biblioteca_preview.html`, `importaciones/tests.py`, `ISSUES.md`
+
+**Interfaces:**
+- `confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones)` (Task 8, `services.py`) **no cambia** — sigue esperando `decisiones = {"items": {nombre_normalizado: {"incluir": bool, "grupo_muscular": str|None}}}` para TODOS los items de `importacion.resultado["items"]`. Esta tarea solo cambia CÓMO `PreviewBibliotecaView.post()` arma ese dict a partir del POST (antes: parseando un formset; ahora: parseando un único campo JSON), no el contrato de `services.py`.
+- `ResolucionGrupoMuscularForm`/`ResolucionGrupoMuscularFormSet` quedan sin usar en ningún otro lugar del repo (verificado: `grep -rn "ResolucionGrupoMuscular" --include="*.py" --include="*.html" .` solo los encuentra en `forms.py` y `views.py`, ningún test los ejercita directamente) — se **eliminan** de `forms.py`, no se dejan como código muerto.
+
+- [ ] **Step 1: Escribir los tests que fallan**
+
+En `importaciones/tests.py`, actualizar `ImportacionBibliotecaViewsTests` (el formato de POST cambia — estos dos tests existentes van a fallar hasta el Step 3):
+
+```python
+    def test_flujo_completo_subir_preview_confirmar(self):
+        # ... (setUp y subida sin cambios) ...
+        datos = {"resoluciones": "{}"}  # "Press de banca" se resolvió solo
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.filter(nombre="Press de banca").count(), 1)
+        # ... (resto sin cambios) ...
+
+    def test_flujo_con_resolucion_manual_de_grupo_muscular(self):
+        # ... (setUp y subida sin cambios) ...
+        datos = {"resoluciones": json.dumps({"hip thrust": "piernas"})}
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.filter(nombre="Hip thrust").count(), 1)
+        self.assertEqual(
+            Ejercicio.objects.get(nombre="Hip thrust").grupo_muscular, "piernas"
+        )
+```
+
+(Agregar `import json` al principio de `importaciones/tests.py` si no está ya.)
+
+Agregar un test nuevo, de resolución faltante (reemplaza la validación "required" que antes daba gratis el formset):
+
+```python
+    def test_falta_resolver_un_pendiente_no_confirma(self):
+        self.client.login(username="staff_a", password="clave12345")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre"])
+        ws.append(["Hip thrust"])
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": "{}"},  # "hip thrust" queda sin resolver
+        )
+        self.assertEqual(response.status_code, 200)  # re-renderiza con error
+        self.assertEqual(Ejercicio.objects.count(), 0)
+```
+
+Y el test de regresión de escalabilidad (el objetivo real de esta tarea — prueba que el invariante que la Tarea 12 tuvo que aceptar como falso para plantillas SÍ vale para biblioteca después de este fix):
+
+```python
+class RegresionCamposPostBibliotecaTests(TestCase):
+    """El confirm POST de biblioteca manda las resoluciones como un único
+    campo JSON -- a diferencia de plantillas (ver ISSUES.md [2026-07-28]),
+    el conteo de campos del POST no escala con la cantidad de ejercicios
+    pendientes de resolución manual, así que una biblioteca inicial de
+    miles de ejercicios (escenario real, a diferencia de una plantilla)
+    no puede romper contra DATA_UPLOAD_MAX_NUMBER_FIELDS."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+
+    def test_600_ejercicios_pendientes_no_rompe_el_confirm_post(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre"])  # sin columna Grupo Muscular -> todos pendientes
+        for i in range(600):
+            ws.append([f"Ejercicio {i}"])
+
+        self.client.login(username="staff", password="clave12345")
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+        self.assertEqual(len(importacion.resultado["items"]), 600)
+
+        resoluciones = {f"ejercicio {i}": "cuerpo_completo" for i in range(600)}
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps(resoluciones)},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.count(), 600)
+```
+
+- [ ] **Step 2: Correr los tests y verificar que fallan**
+
+Run: `python manage.py test importaciones.tests.ImportacionBibliotecaViewsTests importaciones.tests.RegresionCamposPostBibliotecaTests -v 2`
+Expected: fallos — los dos tests actualizados porque `PreviewBibliotecaView` todavía espera un formset (`resoluciones` no es un campo que la vista actual entienda, va a crear ejercicios sin resolver o pedir el formset), el test nuevo de "falta resolver" porque no hay validación de pendientes-faltantes con el formato viejo, y el de 600 ejercicios porque con el formset actual ese POST directamente daría `TooManyFieldsSent` (400) en vez de 302.
+
+- [ ] **Step 3: Implementar**
+
+`importaciones/forms.py` — reemplazar `ResolucionGrupoMuscularForm`/`ResolucionGrupoMuscularFormSet` (eliminar ambos) por:
+
+```python
+import json
+
+
+class ResolucionesJSONForm(forms.Form):
+    """Reemplaza a `ResolucionGrupoMuscularFormSet` (un form por ejercicio
+    pendiente) por un único campo con las resoluciones serializadas en
+    JSON -- así el conteo de campos del POST de confirmación de biblioteca
+    no escala con la cantidad de ejercicios sin match (una biblioteca real
+    puede traer miles; ver ISSUES.md [2026-07-28] y su seguimiento)."""
+    resoluciones = forms.CharField(widget=forms.HiddenInput, required=False)
+
+    def clean_resoluciones(self):
+        crudo = self.cleaned_data.get("resoluciones") or "{}"
+        try:
+            datos = json.loads(crudo)
+        except (json.JSONDecodeError, TypeError):
+            raise forms.ValidationError("Formato de resoluciones inválido.")
+        if not isinstance(datos, dict):
+            raise forms.ValidationError("Formato de resoluciones inválido.")
+        for clave, valor in datos.items():
+            if not isinstance(clave, str) or valor not in Ejercicio.GrupoMuscular.values:
+                raise forms.ValidationError("Grupo muscular inválido.")
+        return datos
+```
+
+(`Ejercicio` ya está importado en `forms.py` — sin cambios en ese import.)
+
+`importaciones/views.py` — agregar `from ejercicios.models import Ejercicio` a los imports, reemplazar `ResolucionGrupoMuscularFormSet` por `ResolucionesJSONForm` en el import de `importaciones.forms`, y reescribir `PreviewBibliotecaView`:
+
+```python
+class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
+    template_name = "importaciones/biblioteca_preview.html"
+
+    def get_importacion(self):
+        return get_object_or_404(
+            Importacion.objects.for_gimnasio(self.gimnasio),
+            pk=self.kwargs["pk"],
+            tipo=Importacion.Tipo.BIBLIOTECA,
+            estado=Importacion.Estado.EN_REVISION,
+        )
+
+    def _pendientes(self, importacion):
+        return [
+            item for item in importacion.resultado["items"]
+            if item["match"]["tipo"] != "exacto" and not item["grupo_muscular_resuelto"]
+        ]
+
+    def get(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        return self._render(request, importacion, ResolucionesJSONForm())
+
+    def _render(self, request, importacion, form):
+        return render(request, self.template_name, {
+            "importacion": importacion,
+            "pendientes": self._pendientes(importacion),
+            "grupo_muscular_choices": Ejercicio.GrupoMuscular.choices,
+            "form": form,
+        })
+
+    def post(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        form = ResolucionesJSONForm(request.POST)
+        if not form.is_valid():
+            return self._render(request, importacion, form)
+
+        resueltos_a_mano = form.cleaned_data["resoluciones"]
+        faltantes = [
+            item["nombre_original"] for item in self._pendientes(importacion)
+            if item["nombre_normalizado"] not in resueltos_a_mano
+        ]
+        if faltantes:
+            form.add_error(
+                None, f"Falta resolver el grupo muscular de: {', '.join(faltantes)}.",
+            )
+            return self._render(request, importacion, form)
+
+        decisiones = {"items": {
+            item["nombre_normalizado"]: {
+                "incluir": item["match"]["tipo"] != "exacto",
+                "grupo_muscular": (
+                    item["grupo_muscular_resuelto"]
+                    or resueltos_a_mano.get(item["nombre_normalizado"])
+                ),
+            }
+            for item in importacion.resultado["items"]
+        }}
+
+        try:
+            creados = confirmar_importacion_biblioteca(
+                importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+        except ImportacionInvalida as exc:
+            messages.error(request, str(exc))
+            return self._render(request, importacion, form)
+
+        messages.success(request, f"Se crearon {len(creados)} ejercicio(s).")
+        return redirect("ejercicios:listado")
+```
+
+`templates/importaciones/biblioteca_preview.html` — reemplazar el bloque `{{ formset.management_form }}` / `{% for f in formset %}` por selects planos (sin `name`, así el navegador NO los manda como parte del POST nativo) más un script mínimo que junta sus valores en el campo JSON oculto antes de enviar:
+
+```html
+    {% if pendientes %}
+      <div class="tarjeta">
+        <h2>Grupos musculares a resolver</h2>
+        {% for item in pendientes %}
+          <p>
+            {{ item.nombre_original }}
+            <select class="js-grupo-muscular" data-valor-original="{{ item.nombre_normalizado }}">
+              <option value="">---------</option>
+              {% for valor, etiqueta in grupo_muscular_choices %}
+                <option value="{{ valor }}">{{ etiqueta }}</option>
+              {% endfor %}
+            </select>
+          </p>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {{ form.resoluciones }}
+    {% for error in form.non_field_errors %}<p class="texto-error">{{ error }}</p>{% endfor %}
+```
+
+Y, antes de `</form>` (o en cualquier punto dentro del mismo `<form>`), agregar:
+
+```html
+    <script>
+      document.currentScript.closest("form").addEventListener("submit", function () {
+        var resoluciones = {};
+        document.querySelectorAll(".js-grupo-muscular").forEach(function (select) {
+          if (select.value) {
+            resoluciones[select.dataset.valorOriginal] = select.value;
+          }
+        });
+        document.getElementById("id_resoluciones").value = JSON.stringify(resoluciones);
+      });
+    </script>
+```
+
+(El resto del template -- tabla de items, filas inválidas, botón de confirmar, form de descartar -- no cambia.)
+
+- [ ] **Step 4: Correr los tests y verificar que pasan**
+
+Run: `python manage.py test importaciones -v 2`
+Expected: PASS (toda la suite).
+
+- [ ] **Step 5: Agregar entrada a `ISSUES.md`**
+
+Agregar una entrada nueva (no editar la de `[2026-07-28]`, que documenta el caso de plantillas que quedó aceptado tal cual) documentando que el caso de biblioteca, a diferencia de plantillas, sí se consideró un riesgo real (biblioteca inicial con miles de ejercicios es un escenario esperado, no patológico) y se resolvió con el campo JSON en vez de aceptarlo como riesgo o tocar `DATA_UPLOAD_MAX_NUMBER_FIELDS`.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add importaciones/forms.py importaciones/views.py templates/importaciones/biblioteca_preview.html importaciones/tests.py ISSUES.md
+git commit -m "fix(importaciones): resolución de grupo muscular de biblioteca vía campo JSON (evita TooManyFieldsSent con bibliotecas grandes)"
+```
