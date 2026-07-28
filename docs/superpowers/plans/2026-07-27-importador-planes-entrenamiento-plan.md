@@ -1598,22 +1598,36 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
 
 
 def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
-    if importacion.gimnasio_id != gimnasio.id:
-        raise ImportacionInvalida("Esta importación no pertenece a tu gimnasio.")
-    if importacion.estado != Importacion.Estado.EN_REVISION:
-        raise ImportacionInvalida("Esta importación ya fue procesada.")
-
+    """Mismo patrón anti-TOCTOU que `confirmar_importacion_plantillas` (Task 7,
+    fix post-review): el guard de tenant/estado corre DENTRO de la
+    transacción, contra una fila re-leída con `select_for_update()` -- dos
+    confirmaciones concurrentes de la misma Importacion no deben poder crear
+    ejercicios duplicados. `grupo_muscular` se valida contra las choices
+    reales antes de crear (Ejercicio.objects.create() no llama a
+    full_clean(), así que un valor fuera de las 8 choices cerradas se
+    guardaría en silencio sin esta validación)."""
     creados = []
     with transaction.atomic():
+        importacion = Importacion.objects.select_for_update().get(pk=importacion.pk)
+        if importacion.gimnasio_id != gimnasio.id:
+            raise ImportacionInvalida("Esta importación no pertenece a tu gimnasio.")
+        if importacion.estado != Importacion.Estado.EN_REVISION:
+            raise ImportacionInvalida("Esta importación ya fue procesada.")
+
         for item in importacion.resultado["items"]:
             decision = decisiones["items"][item["nombre_normalizado"]]
             if not decision["incluir"] or item["match"]["tipo"] == "exacto":
                 # "exacto" ya existe en la biblioteca: no se recrea.
                 continue
+            grupo_muscular = decision["grupo_muscular"]
+            if grupo_muscular not in Ejercicio.GrupoMuscular.values:
+                raise ImportacionInvalida(
+                    f"Grupo muscular inválido para '{item['nombre_original']}'."
+                )
             ejercicio = Ejercicio.objects.create(
                 gimnasio=gimnasio,
                 nombre=item["nombre_original"],
-                grupo_muscular=decision["grupo_muscular"],
+                grupo_muscular=grupo_muscular,
                 url_video=item["url_video"],
             )
             creados.append(ejercicio)
