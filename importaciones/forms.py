@@ -73,15 +73,26 @@ class ResolucionesJSONForm(forms.Form):
     puede traer miles; ver ISSUES.md [2026-07-28] y su seguimiento)."""
     resoluciones = forms.CharField(widget=forms.HiddenInput, required=False)
 
-    def clean_resoluciones(self):
-        crudo = self.cleaned_data.get("resoluciones") or "{}"
+    def clean(self):
+        # Validado en `clean()` (no en `clean_resoluciones`) para poder usar
+        # `add_error(None, ...)`: un error de campo en `resoluciones` no se
+        # ve en ningún lado (el campo es un `HiddenInput` y el template solo
+        # renderiza `form.non_field_errors`) -- sin esto, un POST manipulado
+        # o un bug del JS de serialización re-renderiza 200 sin ningún
+        # mensaje visible para el staff (fix post-review, Tarea 13).
+        cleaned = super().clean()
+        crudo = cleaned.get("resoluciones") or "{}"
         try:
             datos = json.loads(crudo)
         except (json.JSONDecodeError, TypeError):
-            raise forms.ValidationError("Formato de resoluciones inválido.")
+            self.add_error(None, "Formato de resoluciones inválido.")
+            return cleaned
         if not isinstance(datos, dict):
-            raise forms.ValidationError("Formato de resoluciones inválido.")
+            self.add_error(None, "Formato de resoluciones inválido.")
+            return cleaned
         for clave, valor in datos.items():
             if not isinstance(clave, str) or valor not in Ejercicio.GrupoMuscular.values:
-                raise forms.ValidationError("Grupo muscular inválido.")
-        return datos
+                self.add_error(None, "Grupo muscular inválido.")
+                return cleaned
+        cleaned["resoluciones"] = datos
+        return cleaned

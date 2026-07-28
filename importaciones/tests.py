@@ -1075,6 +1075,40 @@ class ImportacionBibliotecaViewsTests(TestCase):
         self.assertEqual(response.status_code, 200)  # re-renderiza con error
         self.assertEqual(Ejercicio.objects.count(), 0)
 
+    def test_resoluciones_con_json_invalido_no_confirma_y_muestra_error(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": self._archivo_valido()},
+        )
+        importacion = Importacion.objects.get()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": "not json"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Formato de resoluciones inválido.")
+        self.assertEqual(Ejercicio.objects.count(), 0)
+
+    def test_resoluciones_con_grupo_muscular_invalido_no_confirma_y_muestra_error(self):
+        self.client.login(username="staff_a", password="clave12345")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre"])
+        ws.append(["Hip thrust"])
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": _archivo_xlsx(wb)},
+        )
+        importacion = Importacion.objects.get()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps({"hip thrust": "no_existe"})},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Grupo muscular inválido.")
+        self.assertEqual(Ejercicio.objects.count(), 0)
+
     def test_preview_lista_filas_invalidas_con_motivo(self):
         # Regla global no negociable: "filas inválidas se saltean y se
         # listan con motivo" -- nunca se descartan en silencio.
