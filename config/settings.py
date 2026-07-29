@@ -15,9 +15,10 @@ import os
 import sys
 from pathlib import Path
 
-import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
+
+from config.db import database_config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -125,22 +126,13 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# SQLite en dev (sin DATABASE_URL seteado); Postgres en producción (Render la
-# inyecta automáticamente vía Blueprint -- ver render.yaml). `conn_max_age`
-# reusa conexiones entre requests (evita el costo de abrir una nueva conexión
-# TCP+TLS a Postgres en cada request, importante en un plan free con recursos
-# limitados). `ssl_require=not DEBUG`: Postgres de Render exige TLS.
-if os.environ.get("DATABASE_URL"):
-    DATABASES = {
-        "default": dj_database_url.config(conn_max_age=600, ssl_require=not DEBUG)
-    }
-else:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
+# SQLite en dev (sin DATABASE_URL seteada); Postgres en producción (Neon -- la
+# URL se carga a mano en el dashboard de Render, ver render.yaml). La lógica
+# vive en `config/db.py` para poder testearla sin recargar settings con otro
+# entorno -- ver `config/tests.py`.
+DATABASES = {
+    "default": database_config(os.environ.get("DATABASE_URL"), DEBUG, BASE_DIR)
+}
 
 
 # Hashing de contraseñas: PBKDF2 (el default de Django) es lento a propósito
