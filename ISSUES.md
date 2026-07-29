@@ -449,3 +449,20 @@ Tests nuevos en `ImportacionBibliotecaViewsTests`:
 `test_ambiguo_usar_existente_no_crea_ejercicio_nuevo`,
 `test_ambiguo_crear_nuevo_requiere_grupo_muscular_y_crea_ejercicio`,
 `test_ambiguo_sin_resolver_no_confirma`.
+
+## [2026-07-29] El `.env` local escribe al mismo bucket R2 que producción
+**Estado:** aceptado (riesgo asumido a propósito)
+**Impacto:** el `.env` de desarrollo tiene las 4 `R2_*` seteadas, así que
+`STORAGES["default"]` es `S3Storage` también en local (el directorio `media/`
+ni siquiera existe). Un logo o un `.xlsx` subido corriendo `runserver`
+aterriza en `app-gim-media`, el MISMO bucket que usa producción. La base de
+datos sí está separada (SQLite local vs Postgres de Render), así que esos
+archivos quedan huérfanos: nadie los referencia desde prod. No hay riesgo de
+pisar un archivo ajeno — `AWS_S3_FILE_OVERWRITE = False` hace que
+django-storages sufije los nombres colisionados en vez de sobrescribir.
+**Resolución / próximo paso:** se acepta así por ahora (tener R2 activo en
+local es justamente lo que permite probar el flujo real de subida sin
+desplegar). Si la basura acumulada molesta, la salida es crear un segundo
+bucket de dev y cambiar `R2_BUCKET_NAME` en el `.env` local — no borrar las
+credenciales, porque eso devuelve el comportamiento a `FileSystemStorage` y
+deja de ejercitar el mismo backend que producción.

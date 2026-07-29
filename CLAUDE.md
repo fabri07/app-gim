@@ -13,12 +13,11 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: código de Fases 0-6 completo en `main`, deploy real
-pendiente.** El código de producción está listo (Postgres, WhiteNoise, R2,
-`render.yaml`) pero falta la parte que no puedo hacer yo: crear el bucket de
-R2 en Cloudflare, aplicar el Blueprint en el dashboard de Render, y cargar
-las env vars `GOOGLE_*` (cuentas/pagos de terceros). Ver "Deploy (Fase 5)"
-más abajo para el estado exacto y los pasos manuales que quedan. Fases 0-4
+**Fase actual: código de Fases 0-6 completo en `main` y desplegado.** La app
+vive en `https://app-gim.onrender.com` (Render, free tier) y el bucket de
+Cloudflare R2 (`app-gim-media`) ya está creado y en uso — los pasos manuales
+de Fase 5 que dependían de cuentas de terceros están hechos. Ver "Deploy
+(Fase 5)" más abajo para el estado exacto y lo que sigue pendiente. Fases 0-4
 (esqueleto, modelos, vistas de staff, portal del alumno, UX/white-label)
 completas — un dueño puede usar el sistema de punta a punta desde el panel
 web sin tocar `/admin/`. Además del scope original del ROADMAP ya están
@@ -429,9 +428,9 @@ existente; este tratamiento es exclusivo de `landing.html`.
 
 ## Deploy (Fase 5)
 
-**Estado (2026-07-08): código listo, falta la parte manual en Render y
-Cloudflare** (cuentas/pagos de terceros — eso no lo puedo hacer yo). Repo en
-`https://github.com/fabri07/app-gim` (privado).
+**Estado (2026-07-29): desplegado.** App en `https://app-gim.onrender.com`
+(Render free tier, Blueprint aplicado), media en el bucket R2
+`app-gim-media`. Repo en `https://github.com/fabri07/app-gim` (privado).
 
 - **Plan elegido: arrancar en el free tier de Render, upgradear cuando entre
   el primer gimnasio pago** (decisión del usuario, coincide con "primero se
@@ -441,27 +440,43 @@ Cloudflare** (cuentas/pagos de terceros — eso no lo puedo hacer yo). Repo en
   (free). El cron de `generar_pagos` queda comentado en el archivo — **Render
   no tiene plan free para cron jobs**, hace falta upgradear a Starter (o
   correr el comando a mano desde la Shell de Render) hasta entonces.
-- **Pasos manuales que quedan** (no los puedo hacer yo — cuentas de
-  terceros):
-  1. En Cloudflare: crear un bucket R2 + un token de API (Account API Token
-     con permiso de Object Read & Write sobre ese bucket). Anotar: nombre
-     del bucket, Access Key ID, Secret Access Key, y el endpoint S3
-     (`https://<account_id>.r2.cloudflarestorage.com`).
-  2. En Render: "New" → "Blueprint" → conectar `fabri07/app-gim` → aplicar
-     `render.yaml`. Después del primer deploy, completar a mano en el
-     dashboard las env vars marcadas `sync: false` en el Blueprint:
-     `DJANGO_ALLOWED_HOSTS`/`DJANGO_CSRF_TRUSTED_ORIGINS` (con la URL real
-     que Render asigna) y las 4 `R2_*` (con lo del paso 1).
-  3. Verificar: la app levanta, el login funciona, un logo/comprobante
-     subido efectivamente aparece en el bucket de R2 (no en el filesystem
-     de Render).
-  4. Opcional (integración con Google Calendar): crear credenciales OAuth
-     "Web application" en Google Cloud Console, y setear en Render las 4 env
-     vars `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`/
-     `GOOGLE_OAUTH_REDIRECT_URI`/`GOOGLE_TOKEN_ENCRYPTION_KEY` (las 4 o
-     ninguna — settings.py revienta al arrancar si están parciales). Sin
-     esto la app funciona igual; simplemente el alumno no ve la opción de
-     conectar su calendario (`GOOGLE_CALENDAR_ENABLED = False`).
+- **Cloudflare R2 — creado y en uso.** Bucket `app-gim-media`, endpoint
+  `https://<account_id>.r2.cloudflarestorage.com`. Las 4 credenciales
+  (`R2_BUCKET_NAME`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/
+  `R2_ENDPOINT_URL`) están en el `.env` local y en el dashboard de Render
+  (van marcadas `sync: false` en el Blueprint, así que no se leen del repo —
+  verificarlas ahí, no acá).
+- **Qué se guarda en R2 y qué no** (pregunta recurrente): R2 guarda SOLO los
+  archivos subidos por usuarios, que son exactamente tres campos —
+  `Gimnasio.logo` (`logos/`), `PagoMensual.comprobante` (`comprobantes/`) e
+  `Importacion.archivo` (`importaciones/`, el `.xlsx` original). **Todo el
+  resto de los datos vive en Postgres**: alumnos, rutinas, ejercicios, pagos,
+  novedades, turnos/reservas, tokens de Google Calendar, usuarios, y el
+  `resultado` JSON de cada importación. Los estáticos (`static/css/app.css`,
+  etc.) tampoco van a R2 — los sirve WhiteNoise desde el propio contenedor.
+- **Gotcha: en local también se escribe al bucket de producción.** Como el
+  `.env` de desarrollo tiene las 4 `R2_*`, `STORAGES["default"]` es
+  `S3Storage` también en tu máquina (no existe ni se usa `media/`): un logo o
+  un `.xlsx` subido corriendo `runserver` aterriza en el MISMO bucket que
+  usa producción. La DB sí está separada (SQLite local vs Postgres en
+  Render), así que quedan archivos huérfanos sin fila que los referencie —
+  molesto pero inofensivo. Si algún día molesta, la salida es un bucket
+  aparte para dev (cambiar `R2_BUCKET_NAME` en el `.env` local), no borrar
+  las credenciales.
+- **Google Calendar (opcional) — credenciales creadas.** Las 4 env vars
+  `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`/
+  `GOOGLE_OAUTH_REDIRECT_URI`/`GOOGLE_TOKEN_ENCRYPTION_KEY` están en el
+  `.env` local (redirect a `http://localhost:8000/calendario/callback/`); en
+  Render el redirect tiene que ser el de producción
+  (`https://app-gim.onrender.com/calendario/callback/`) y estar dado de alta
+  en la consola de Google Cloud. Las 4 o ninguna — `settings.py` revienta al
+  arrancar si están parciales; sin ellas la app funciona igual, el alumno
+  simplemente no ve la opción de conectar su calendario
+  (`GOOGLE_CALENDAR_ENABLED = False`).
+- **Lo que sigue pendiente**: (a) el cron de `generar_pagos` (Render no lo da
+  en free — hoy hay que correrlo a mano desde la Shell, ver arriba); (b) el
+  Postgres free expira a los 90 días desde su creación; (c) smoke test manual
+  end-to-end de turnos → Google Calendar contra producción.
 - **Settings de producción** (`config/settings.py`): `DATABASE_URL` (Postgres
   si está seteada, SQLite si no — mismo criterio que el resto del archivo),
   `STORAGES["default"]` cambia a `storages.backends.s3.S3Storage` solo si
