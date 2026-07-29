@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}{{ gimnasio.nombre }}{% endblock %}
+{% block main_class %}{% endblock %}
+
+{% block content %}
+<div class="landing" style="--color-primario: {{ gimnasio.color_primario|default:'#2563eb' }}; --color-secundario: {{ gimnasio.color_secundario|default:'#1e40af' }}; font-family: {{ gimnasio.tipografia_css_family|safe }};">
+  <section class="landing__hero">
+    <div class="landing__hero-contenido">
+      {% if gimnasio.logo %}
+        <span class="landing__logo-marco">
+          <img src="{{ gimnasio.logo.url }}" alt="{{ gimnasio.nombre }}" class="landing__logo">
+        </span>
+      {% endif %}
+      <h1 class="landing__titulo">{{ gimnasio.nombre }}</h1>
+      {% if gimnasio.texto_bienvenida %}
+        <p class="landing__bienvenida">{{ gimnasio.texto_bienvenida }}</p>
+      {% endif %}
+      {% if gimnasio.link_whatsapp %}
+        <a class="landing__cta" href="{{ gimnasio.link_whatsapp }}" target="_blank" rel="noopener">Escribinos por WhatsApp</a>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="landing__seccion">
+    <div class="landing__ancho">
+      <div class="landing__contacto tarjeta">
+        <h2>Sumate</h2>
+        <p class="texto-suave">Contanos qué buscás y te ayudamos a arrancar.</p>
+        <div class="landing__botones">
+          {% if gimnasio.link_whatsapp %}
+            <a class="boton" href="{{ gimnasio.link_whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>
+          {% endif %}
+          {% if gimnasio.link_instagram %}
+            <a class="boton-secundario" href="{{ gimnasio.link_instagram }}" target="_blank" rel="noopener">Instagram</a>
+          {% endif %}
+        </div>
+        {% if gimnasio.contacto %}
+          <p class="texto-suave landing__contacto-texto">{{ gimnasio.contacto }}</p>
+        {% endif %}
+      </div>
+
+      <div class="landing__acceso">
+        <p class="texto-suave">¿Ya sos alumno de {{ gimnasio.nombre }}?</p>
+        <a class="boton-secundario" href="{% url 'login' %}">Iniciar sesión</a>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}

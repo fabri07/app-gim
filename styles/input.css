@@ -394,4 +394,68 @@
   .tabla-detalle .tabla {
     @apply mt-3;
   }
+
+  /* Landing pública (subproyecto 5): primera superficie "Persuade" del
+     proyecto -- hero a todo el ancho con los colores del gimnasio (modo
+     Committed de la skill dataviz/impeccable: el color de marca ocupa una
+     región entera, no un acento suelto), el resto de la página vuelve a la
+     paleta neutra del sitio. --color-primario/--color-secundario los pisa
+     el `style` inline del contenedor `.landing`; como son variables CSS
+     heredadas, `.boton`/`.boton-secundario`/`a` reusan automáticamente el
+     color de ESTE gimnasio adentro de `.landing`, sin tocar el `:root`
+     global (ese es para cuando hay un usuario logueado). */
+  .landing__hero {
+    @apply w-full text-center px-4 py-20 sm:py-28;
+    background-image: linear-gradient(135deg, var(--color-primario), var(--color-secundario));
+  }
+
+  .landing__hero-contenido {
+    @apply max-w-2xl mx-auto;
+  }
+
+  .landing__logo-marco {
+    @apply inline-flex items-center justify-center bg-white rounded-2xl p-3 mb-6 shadow-sm;
+  }
+
+  .landing__logo {
+    @apply h-14 w-auto;
+  }
+
+  .landing__titulo {
+    @apply text-4xl sm:text-5xl font-bold text-white mb-4;
+  }
+
+  .landing__bienvenida {
+    @apply text-lg text-white/90 mb-8 max-w-lg mx-auto;
+  }
+
+  .landing__cta {
+    @apply inline-flex items-center justify-center rounded-md bg-white px-6 py-3
+      text-base font-semibold no-underline transition hover:opacity-90;
+    color: var(--color-primario);
+  }
+
+  .landing__seccion {
+    @apply px-4 py-12;
+  }
+
+  .landing__ancho {
+    @apply max-w-md mx-auto text-center;
+  }
+
+  .landing__contacto {
+    @apply text-left;
+  }
+
+  .landing__botones {
+    @apply flex flex-wrap gap-3 mb-3;
+  }
+
+  .landing__contacto-texto {
+    @apply mt-2;
+  }
+
+  .landing__acceso {
+    @apply text-center pt-8;
+  }
 }

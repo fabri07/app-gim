@@ -15,7 +15,7 @@ from django.db import transaction
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.utils.text import slugify
-from django.views.generic import FormView, TemplateView, UpdateView
+from django.views.generic import DetailView, FormView, TemplateView, UpdateView
 
 from tenants.forms import GimnasioForm, RegistroForm
 from tenants.mixins import StaffRequiredMixin
@@ -224,3 +224,34 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         response = super().form_valid(form)
         messages.success(self.request, "Datos del gimnasio actualizados.")
         return response
+
+
+class GimnasioLandingView(DetailView):
+    """Landing pública de un gimnasio (subproyecto 5): la primera vista del
+    proyecto sin ningún mixin de autenticación -- accesible por cualquiera,
+    logueado o no.
+
+    Sin subdominios por gimnasio (principio no negociable del proyecto): la
+    URL se resuelve por `Gimnasio.slug`, que ya existía desde Fase 1 sin
+    ningún uso público hasta ahora.
+
+    `get_queryset` filtra `activo=True` para que un gimnasio desactivado (o
+    un slug que nunca existió) dé 404 -- no tiene sentido publicitar la
+    landing de un gimnasio que ya no opera, y un 404 no revela si el slug
+    alguna vez existió.
+
+    No hay alta de leads propia ni formulario de contacto: el staff asigna
+    usuario/contraseña a mano (ver `alumnos/views.py::CrearAccesoView`), así
+    que un visitante nuevo no puede autoregistrarse como alumno -- la
+    landing solo ofrece contactar al gimnasio (WhatsApp/Instagram/teléfono,
+    campos que ya existían) o, si ya es alumno, ir al login de siempre.
+    """
+
+    model = Gimnasio
+    template_name = "tenants/landing.html"
+    context_object_name = "gimnasio"
+    slug_field = "slug"
+    slug_url_kwarg = "slug"
+
+    def get_queryset(self):
+        return Gimnasio.objects.filter(activo=True)

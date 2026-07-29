@@ -390,6 +390,43 @@ plan original).
   MISMO scope de `x-data`, si no el toggle no hace nada). No se usó para
   nada más ("solo si hace falta", ROADMAP Fase 4).
 
+## Landing pública (subproyecto 5, más allá del ROADMAP original)
+
+`tenants.views.GimnasioLandingView` (ruta `g/<slug>/`, `tenants/urls.py`) es
+la **primera vista del proyecto sin ningún mixin de autenticación** —
+accesible logueado o no. Sin subdominios por gimnasio (principio no
+negociable #6): la URL se resuelve por `Gimnasio.slug`, que existía desde
+Fase 1 sin ningún uso público hasta ahora. `get_queryset` filtra
+`activo=True`: un gimnasio desactivado o un slug inexistente dan 404 por
+igual (no revela cuál de los dos casos es).
+
+No hay alta de leads propia ni formulario de contacto — decisión explícita
+del dueño del producto: los alumnos NO pueden autoregistrarse (el staff
+asigna usuario/contraseña a mano, ver `alumnos/views.py::CrearAccesoView`),
+así que la landing solo ofrece contactar al gimnasio (`link_whatsapp`/
+`link_instagram`/`contacto`, campos que ya existían desde Fase 1) o, si ya
+es alumno, ir al login de siempre.
+
+**Blanco-etiquetado sin tocar el `:root` global**: `templates/tenants/
+landing.html` pisa `--color-primario`/`--color-secundario` y `font-family`
+con un `style` inline en su propio `<div class="landing">` — como son
+variables CSS heredadas, `.boton`/`.boton-secundario`/`a` reusan
+automáticamente el color de ESE gimnasio adentro del `.landing`, sin mutar
+las variables globales que usa `base.html` cuando hay un usuario logueado
+(esas dependen de `user.perfil.gimnasio`, que un visitante anónimo no
+tiene). El `<main>` de `base.html` no envuelve esta página en
+`.contenido`/`.contenido--ancho` (`{% block main_class %}` vacío): el hero
+necesita ir a todo el ancho de la pantalla, algo que ningún otro template
+del proyecto necesitaba hasta ahora.
+
+**Modo "Persuade"** (skill impeccable/dataviz): a diferencia del resto del
+sitio (paneles de gestión, modo "Operate"), esta es la primera superficie
+pensada para persuadir, no para operar — hero a todo el ancho con un
+degradé de los dos colores del gimnasio (estrategia de color "Committed":
+el color de marca ocupa una región entera, no un acento suelto) y un único
+CTA primario (WhatsApp). El resto del sitio sigue en la paleta neutra
+existente; este tratamiento es exclusivo de `landing.html`.
+
 ## Deploy (Fase 5)
 
 **Estado (2026-07-08): código listo, falta la parte manual en Render y

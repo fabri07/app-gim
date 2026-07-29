@@ -601,6 +601,56 @@ class HomeViewAlumnoTests(TestCase):
         self.assertContains(response, reverse("turnos:mis_turnos"))
 
 
+class GimnasioLandingViewTests(TestCase):
+    """Landing pública (subproyecto 5): la primera vista sin ningún mixin de
+    autenticación. Foco: accesible sin login, 404 para gimnasio inactivo o
+    slug inexistente (no revela cuál de los dos casos es), y que el
+    contenido de contacto/login esté presente."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio Central",
+            slug="central",
+            texto_bienvenida="¡Sumate a entrenar con nosotros!",
+            contacto="011-1234-5678",
+            link_whatsapp="https://wa.me/5491112345678",
+            link_instagram="https://instagram.com/gimnasiocentral",
+        )
+        self.gimnasio_inactivo = Gimnasio.objects.create(
+            nombre="Gimnasio Cerrado", slug="cerrado", activo=False
+        )
+
+    def test_anonimo_puede_ver_la_landing(self):
+        response = self.client.get(reverse("landing_gimnasio", args=["central"]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Gimnasio Central")
+        self.assertContains(response, "¡Sumate a entrenar con nosotros!")
+
+    def test_muestra_los_links_de_contacto_y_el_login(self):
+        response = self.client.get(reverse("landing_gimnasio", args=["central"]))
+        self.assertContains(response, "https://wa.me/5491112345678")
+        self.assertContains(response, "https://instagram.com/gimnasiocentral")
+        self.assertContains(response, reverse("login"))
+
+    def test_gimnasio_inactivo_da_404(self):
+        response = self.client.get(reverse("landing_gimnasio", args=["cerrado"]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_slug_inexistente_da_404(self):
+        response = self.client.get(reverse("landing_gimnasio", args=["no-existe"]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_staff_logueado_tambien_puede_verla(self):
+        """La landing es pública -- estar logueado como staff de OTRO
+        gimnasio no debería bloquear el acceso (no es una vista de gestión)."""
+        otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        staff = User.objects.create_user("dueno-otro", password="clave-123456")
+        Perfil.objects.create(usuario=staff, gimnasio=otro_gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="dueno-otro", password="clave-123456")
+        response = self.client.get(reverse("landing_gimnasio", args=["central"]))
+        self.assertEqual(response.status_code, 200)
+
+
 class GimnasioUpdateViewTests(TestCase):
     """Fase 4: personalización white-label. Sin pk en la URL -- get_object
     siempre devuelve el gimnasio del Perfil logueado."""
