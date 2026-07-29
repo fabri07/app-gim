@@ -1,251 +1,450 @@
-# Graph Report - .  (2026-07-06)
+# Graph Report - .  (2026-07-28)
 
 ## Corpus Check
-- Corpus is ~26,360 words - fits in a single context window. You may not need a graph.
+- 95 files · ~88,839 words
+- Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 660 nodes · 1326 edges · 66 communities (50 shown, 16 thin omitted)
-- Extraction: 89% EXTRACTED · 11% INFERRED · 0% AMBIGUOUS · INFERRED: 140 edges (avg confidence: 0.71)
-- Token cost: 420,205 input · 0 output
+- 1532 nodes · 3399 edges · 137 communities (91 shown, 46 thin omitted)
+- Extraction: 84% EXTRACTED · 16% INFERRED · 0% AMBIGUOUS · INFERRED: 551 edges (avg confidence: 0.63)
+- Token cost: 635,565 input · 112,158 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Alumnos Gestión y Accesos|Alumnos: Gestión y Accesos]]
-- [[_COMMUNITY_Rutinas Modelos y Admin|Rutinas: Modelos y Admin]]
-- [[_COMMUNITY_Docs Decisiones e Issues|Docs: Decisiones e Issues]]
-- [[_COMMUNITY_Biblioteca de Ejercicios|Biblioteca de Ejercicios]]
-- [[_COMMUNITY_Tests de Aislamiento|Tests de Aislamiento]]
-- [[_COMMUNITY_Portal del Alumno|Portal del Alumno]]
-- [[_COMMUNITY_Gestión de Novedades|Gestión de Novedades]]
-- [[_COMMUNITY_AppConfigs Django|AppConfigs Django]]
-- [[_COMMUNITY_Núcleo Multi-tenant|Núcleo Multi-tenant]]
-- [[_COMMUNITY_Vistas de Rutinas|Vistas de Rutinas]]
-- [[_COMMUNITY_Build Tailwind CSS|Build Tailwind CSS]]
-- [[_COMMUNITY_Tenant Gimnasio y Perfil|Tenant: Gimnasio y Perfil]]
-- [[_COMMUNITY_Tenant Scoping (Mixins)|Tenant Scoping (Mixins)]]
-- [[_COMMUNITY_White-label y Personalización|White-label y Personalización]]
-- [[_COMMUNITY_Tests Vistas Rutinas|Tests Vistas Rutinas]]
-- [[_COMMUNITY_Tests Tenancy Base|Tests Tenancy Base]]
-- [[_COMMUNITY_Cron Generar Pagos|Cron Generar Pagos]]
-- [[_COMMUNITY_Modelo PagoMensual|Modelo PagoMensual]]
-- [[_COMMUNITY_Items de Plantilla|Items de Plantilla]]
-- [[_COMMUNITY_Modelo Novedad|Modelo Novedad]]
-- [[_COMMUNITY_Tests Vistas Alumnos|Tests Vistas Alumnos]]
-- [[_COMMUNITY_Visibilidad de Novedades|Visibilidad de Novedades]]
-- [[_COMMUNITY_Vistas de Pagos|Vistas de Pagos]]
-- [[_COMMUNITY_Tests TenantScopedMixin|Tests TenantScopedMixin]]
-- [[_COMMUNITY_Tests Vistas Pagos|Tests Vistas Pagos]]
-- [[_COMMUNITY_Registro Self-serve|Registro Self-serve]]
-- [[_COMMUNITY_CRUD Plantillas Rutina|CRUD Plantillas Rutina]]
-- [[_COMMUNITY_Ocultar Novedad|Ocultar Novedad]]
-- [[_COMMUNITY_Vencimiento de Pagos|Vencimiento de Pagos]]
-- [[_COMMUNITY_Asignación de Rutinas|Asignación de Rutinas]]
-- [[_COMMUNITY_Tests White-label|Tests White-label]]
-- [[_COMMUNITY_Señal de Activación|Señal de Activación]]
-- [[_COMMUNITY_Deploy Render + R2|Deploy Render + R2]]
-- [[_COMMUNITY_URLconfs de Apps|URLconfs de Apps]]
-- [[_COMMUNITY_Tests Staff Novedades|Tests Staff Novedades]]
-- [[_COMMUNITY_Tests Modelo Pago|Tests Modelo Pago]]
-- [[_COMMUNITY_Settings Django|Settings Django]]
-- [[_COMMUNITY_Entry Point manage.py|Entry Point manage.py]]
-- [[_COMMUNITY_Migración Alumnos Inicial|Migración Alumnos Inicial]]
-- [[_COMMUNITY_Migración Acceso Alumno|Migración Acceso Alumno]]
-- [[_COMMUNITY_Config ASGI|Config ASGI]]
-- [[_COMMUNITY_URLs Raíz|URLs Raíz]]
-- [[_COMMUNITY_Config WSGI|Config WSGI]]
-- [[_COMMUNITY_Migración Inicial (app)|Migración Inicial (app)]]
-- [[_COMMUNITY_Migración Inicial (app)|Migración Inicial (app)]]
-- [[_COMMUNITY_Migración Inicial (app)|Migración Inicial (app)]]
-- [[_COMMUNITY_Módulo Auxiliar|Módulo Auxiliar]]
+- [[_COMMUNITY_Templates & UI Components|Templates & UI Components]]
+- [[_COMMUNITY_Biblioteca Matching & Parsing|Biblioteca Matching & Parsing]]
+- [[_COMMUNITY_Rutinas Plantilla Views|Rutinas Plantilla Views]]
+- [[_COMMUNITY_Calendario & Turnos Views|Calendario & Turnos Views]]
+- [[_COMMUNITY_Tenants Portal Tests|Tenants Portal Tests]]
+- [[_COMMUNITY_Biblioteca Import Views Tests|Biblioteca Import Views Tests]]
+- [[_COMMUNITY_ROADMAP & Tenants Views|ROADMAP & Tenants Views]]
+- [[_COMMUNITY_Turnos Agenda & Cancel Tests|Turnos Agenda & Cancel Tests]]
+- [[_COMMUNITY_Biblioteca Preview Flow|Biblioteca Preview Flow]]
+- [[_COMMUNITY_Excel Parsing Core|Excel Parsing Core]]
+- [[_COMMUNITY_Novedades Views & AlumnoRequiredMixin|Novedades Views & AlumnoRequiredMixin]]
+- [[_COMMUNITY_Pagos URLs & Tenant Mixins|Pagos URLs & Tenant Mixins]]
+- [[_COMMUNITY_Turnos Models & Services Core|Turnos Models & Services Core]]
+- [[_COMMUNITY_Pagos Cron Command|Pagos Cron Command]]
+- [[_COMMUNITY_Tenant-Scoped Forms Base|Tenant-Scoped Forms Base]]
+- [[_COMMUNITY_Ejercicios Model & Biblioteca Resolution|Ejercicios Model & Biblioteca Resolution]]
+- [[_COMMUNITY_Novedad Model & Personal Tests|Novedad Model & Personal Tests]]
+- [[_COMMUNITY_Reservas Desencajadas Reconciliation|Reservas Desencajadas Reconciliation]]
+- [[_COMMUNITY_Turnos Grilla Semanal|Turnos Grilla Semanal]]
+- [[_COMMUNITY_Rutinas Snapshot Models|Rutinas Snapshot Models]]
+- [[_COMMUNITY_Calendario & Tenant Isolation Tests|Calendario & Tenant Isolation Tests]]
+- [[_COMMUNITY_RutinaAsignada.crear_desde_plantilla Tests|RutinaAsignada.crear_desde_plantilla Tests]]
+- [[_COMMUNITY_Google Calendar Signal Sync Tests|Google Calendar Signal Sync Tests]]
+- [[_COMMUNITY_Confirmar Importación Plantillas Tests|Confirmar Importación Plantillas Tests]]
+- [[_COMMUNITY_Turnos Forms & Franjas del Día|Turnos Forms & Franjas del Día]]
+- [[_COMMUNITY_Crear Reserva Service & Tests|Crear Reserva Service & Tests]]
+- [[_COMMUNITY_Alumno Acceso Forms & Tests|Alumno Acceso Forms & Tests]]
+- [[_COMMUNITY_Novedad Lecturas & Conteo Tests|Novedad Lecturas & Conteo Tests]]
+- [[_COMMUNITY_Tenant-Scoped Model Validation|Tenant-Scoped Model Validation]]
+- [[_COMMUNITY_Confirmar Importación Biblioteca|Confirmar Importación Biblioteca]]
+- [[_COMMUNITY_Tenants Admin & Gimnasio Models|Tenants Admin & Gimnasio Models]]
+- [[_COMMUNITY_Django Apps Config|Django Apps Config]]
+- [[_COMMUNITY_Importación Model & Admin|Importación Model & Admin]]
+- [[_COMMUNITY_package.json (Tailwind Build)|package.json (Tailwind Build)]]
+- [[_COMMUNITY_Rutinas Views Isolation Tests|Rutinas Views Isolation Tests]]
+- [[_COMMUNITY_Marcar Novedad Leída Tests|Marcar Novedad Leída Tests]]
+- [[_COMMUNITY_Fecha Activación Signal|Fecha Activación Signal]]
+- [[_COMMUNITY_Calendario Encrypted Fields & Sync Status|Calendario Encrypted Fields & Sync Status]]
+- [[_COMMUNITY_Calendario Sync Services|Calendario Sync Services]]
+- [[_COMMUNITY_Google Calendar & Aviso Personal Docs|Google Calendar & Aviso Personal Docs]]
+- [[_COMMUNITY_Ejercicios CRUD Views|Ejercicios CRUD Views]]
+- [[_COMMUNITY_MedioCobro Model & Portal|MedioCobro Model & Portal]]
+- [[_COMMUNITY_MedioCobro Views Tests|MedioCobro Views Tests]]
+- [[_COMMUNITY_Google Calendar Event Sync|Google Calendar Event Sync]]
+- [[_COMMUNITY_Calendario Best-Effort Error Handling|Calendario Best-Effort Error Handling]]
+- [[_COMMUNITY_Rutinas Aislamiento Tenant Tests|Rutinas Aislamiento Tenant Tests]]
+- [[_COMMUNITY_Turnos Access Control Tests|Turnos Access Control Tests]]
+- [[_COMMUNITY_Alumno Views Tests|Alumno Views Tests]]
+- [[_COMMUNITY_App Configs & Signals|App Configs & Signals]]
+- [[_COMMUNITY_Google OAuth PKCE Flow|Google OAuth PKCE Flow]]
+- [[_COMMUNITY_Cancelar Reserva Service|Cancelar Reserva Service]]
+- [[_COMMUNITY_Previsualizar Importación Plantillas|Previsualizar Importación Plantillas]]
+- [[_COMMUNITY_NovedadLeida Model Tests|NovedadLeida Model Tests]]
+- [[_COMMUNITY_Franja Reservable Logic|Franja Reservable Logic]]
+- [[_COMMUNITY_Reservar View Tests|Reservar View Tests]]
+- [[_COMMUNITY_Alumno Acceso Views Tests|Alumno Acceso Views Tests]]
+- [[_COMMUNITY_TenantScopedMixin Core Tests|TenantScopedMixin Core Tests]]
+- [[_COMMUNITY_PagoMensual Views Tests|PagoMensual Views Tests]]
+- [[_COMMUNITY_RutinaAsignada Semana Actual|RutinaAsignada Semana Actual]]
+- [[_COMMUNITY_ConfiguracionTurnos Get-or-Create|ConfiguracionTurnos Get-or-Create]]
+- [[_COMMUNITY_Franjas de Rango Logic|Franjas de Rango Logic]]
+- [[_COMMUNITY_Detectar Columnas por Alias|Detectar Columnas por Alias]]
+- [[_COMMUNITY_Es Franja Vigente Logic|Es Franja Vigente Logic]]
+- [[_COMMUNITY_Reconciliación Genera Novedades Tests|Reconciliación Genera Novedades Tests]]
+- [[_COMMUNITY_Alumno Model & Admin|Alumno Model & Admin]]
+- [[_COMMUNITY_Google Calendar OAuth Callback Tests|Google Calendar OAuth Callback Tests]]
+- [[_COMMUNITY_Portal Calendar UI Tests|Portal Calendar UI Tests]]
+- [[_COMMUNITY_Hoja Excluida por Columna Faltante|Hoja Excluida por Columna Faltante]]
+- [[_COMMUNITY_Duplicar Plantilla Tests|Duplicar Plantilla Tests]]
+- [[_COMMUNITY_Novedad Visibilidad QuerySet|Novedad Visibilidad QuerySet]]
+- [[_COMMUNITY_Pagos & Tenant Forms|Pagos & Tenant Forms]]
+- [[_COMMUNITY_Vacantes de Franja Logic|Vacantes de Franja Logic]]
+- [[_COMMUNITY_Calendario OAuth Callback View|Calendario OAuth Callback View]]
+- [[_COMMUNITY_Conectar Calendario View Tests|Conectar Calendario View Tests]]
+- [[_COMMUNITY_PKCE Code Verifier Tests|PKCE Code Verifier Tests]]
+- [[_COMMUNITY_Biblioteca Dedupe Dentro del Archivo|Biblioteca Dedupe Dentro del Archivo]]
+- [[_COMMUNITY_Sin Default Silencioso Grupo Muscular|Sin Default Silencioso Grupo Muscular]]
+- [[_COMMUNITY_Novedad Staff Views Tests|Novedad Staff Views Tests]]
+- [[_COMMUNITY_Rutinas Semana Item Tests|Rutinas Semana Item Tests]]
+- [[_COMMUNITY_CupoExcepcion Create View Tests|CupoExcepcion Create View Tests]]
+- [[_COMMUNITY_Novedad Ocultar View Tests|Novedad Ocultar View Tests]]
+- [[_COMMUNITY_Novedad Tenant Isolation Views|Novedad Tenant Isolation Views]]
+- [[_COMMUNITY_Novedad Views Access Tests|Novedad Views Access Tests]]
+- [[_COMMUNITY_Agenda View Access Tests|Agenda View Access Tests]]
+- [[_COMMUNITY_HorarioAtencion Create View Tests|HorarioAtencion Create View Tests]]
+- [[_COMMUNITY_HorarioAtencion Model Tests|HorarioAtencion Model Tests]]
+- [[_COMMUNITY_Turnos Tenant Isolation Tests|Turnos Tenant Isolation Tests]]
+- [[_COMMUNITY_Reserva Model Tests|Reserva Model Tests]]
+- [[_COMMUNITY_app_gim Reuse Source (README)|app_gim Reuse Source (README)]]
+- [[_COMMUNITY_EncryptedTextField Tests|EncryptedTextField Tests]]
+- [[_COMMUNITY_Config Settings Env Helpers|Config Settings Env Helpers]]
+- [[_COMMUNITY_ConfiguracionTurnos Model Tests|ConfiguracionTurnos Model Tests]]
+- [[_COMMUNITY_CupoExcepcion Eliminar View Tests|CupoExcepcion Eliminar View Tests]]
+- [[_COMMUNITY_HorarioAtencion Eliminar View Tests|HorarioAtencion Eliminar View Tests]]
+- [[_COMMUNITY_manage.py Entry Point|manage.py Entry Point]]
+- [[_COMMUNITY_Alumnos Initial Migration|Alumnos Initial Migration]]
+- [[_COMMUNITY_Alumnos Perfil Migration|Alumnos Perfil Migration]]
+- [[_COMMUNITY_configasgi.py|config/asgi.py]]
+- [[_COMMUNITY_configurls.py Root|config/urls.py Root]]
+- [[_COMMUNITY_configwsgi.py|config/wsgi.py]]
+- [[_COMMUNITY_Ejercicios Initial Migration|Ejercicios Initial Migration]]
+- [[_COMMUNITY_Pagos Initial Migration|Pagos Initial Migration]]
+- [[_COMMUNITY_Rutinas Initial Migration|Rutinas Initial Migration]]
+- [[_COMMUNITY_Rutinas Item Options Migration|Rutinas Item Options Migration]]
+- [[_COMMUNITY_Turnos Initial Migration|Turnos Initial Migration]]
+- [[_COMMUNITY_config asgi application|config asgi application]]
+- [[_COMMUNITY_config wsgi application|config wsgi application]]
+- [[_COMMUNITY_ejercicios urlpatterns|ejercicios urlpatterns]]
+- [[_COMMUNITY_package.json buildcss script|package.json build:css script]]
+- [[_COMMUNITY_rutinas urlpatterns|rutinas urlpatterns]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `Alumno` - 68 edges
-2. `TenantScopedMixin` - 51 edges
-3. `StaffRequiredMixin` - 40 edges
-4. `Perfil` - 33 edges
-5. `Gimnasio` - 28 edges
-6. `PagoMensual` - 27 edges
-7. `templates/base.html (layout global)` - 27 edges
-8. `RutinaAsignada` - 26 edges
-9. `CrearAccesoView` - 25 edges
-10. `CrearAccesoForm` - 24 edges
+1. `StaffRequiredMixin` - 63 edges
+2. `ImportacionInvalida` - 53 edges
+3. `AlumnoRequiredMixin` - 41 edges
+4. `reconciliar_reservas_desencajadas()` - 39 edges
+5. `SubirPlantillasForm` - 37 edges
+6. `SubirBibliotecaForm` - 36 edges
+7. `GoogleCalendarCredential` - 34 edges
+8. `ReservaCalendarEvent` - 34 edges
+9. `crear_reserva()` - 33 edges
+10. `TenantScopedMixin` - 33 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `templates/alumnos/alumno_list.html` --shares_data_with--> `Alumno`  [INFERRED]
-  templates/alumnos/alumno_list.html → alumnos/models.py
 - `Retiro soft de ejercicios via activo=False (sin vista de borrado)` --semantically_similar_to--> `NovedadOcultarView`  [INFERRED] [semantically similar]
   ejercicios/views.py → novedades/views.py
-- `CrearAccesoView` --references--> `templates/alumnos/acceso_form.html (crear acceso / cambiar contraseña)`  [INFERRED]
-  alumnos/views.py → templates/alumnos/acceso_form.html
-- `TenantScopedMixin` --semantically_similar_to--> `StaffRequiredMixin`  [INFERRED] [semantically similar]
-  core/mixins.py → tenants/mixins.py
-- `Ejercicio` --semantically_similar_to--> `Novedad`  [INFERRED] [semantically similar]
-  ejercicios/models.py → novedades/models.py
+- `RutinaAsignada` --implements--> `Patrón snapshot de rutina asignada`  [EXTRACTED]
+  rutinas/models.py → ROADMAP.md
+- `templates/alumnos/alumno_detail.html (ficha del alumno)` --shares_data_with--> `Alumno (model)`  [INFERRED]
+  templates/alumnos/alumno_detail.html → alumnos/models.py
+- `templates/alumnos/alumno_detail.html (ficha del alumno)` --shares_data_with--> `PagoMensual`  [INFERRED]
+  templates/alumnos/alumno_detail.html → pagos/models.py
+- `templates/alumnos/alumno_detail.html (ficha del alumno)` --shares_data_with--> `RutinaAsignada`  [INFERRED]
+  templates/alumnos/alumno_detail.html → rutinas/models.py
 
 ## Import Cycles
 - None detected.
 
 ## Hyperedges (group relationships)
-- **Flujo de acceso del alumno Fase 3 (alta de credenciales por el staff + activación en primer login)** — alumnos_views_crearaccesoview, alumnos_views_cambiarpasswordalumnoview, alumnos_forms_crearaccesoform, alumnos_forms_cambiarpasswordalumnoform, alumnos_models_alumno, tenants_models_perfil, alumnos_signals_registrar_primera_activacion [EXTRACTED 1.00]
-- **Patrón StaffRequiredMixin + TenantScopedMixin en todas las vistas de gestión de alumnos** — tenants_mixins_staffrequiredmixin, core_mixins_tenantscopedmixin, alumnos_views_alumnolistview, alumnos_views_alumnocreateview, alumnos_views_alumnoupdateview, alumnos_views_alumnodetailview, alumnos_views_alumnotoggleestadoview, alumnos_views_crearaccesoview, alumnos_views_cambiarpasswordalumnoview [EXTRACTED 1.00]
-- **Pipeline de deploy Fase 5 (Render Blueprint + Postgres + WhiteNoise + Cloudflare R2 + CSS precompilado)** — render_blueprint, config_settings_storages, config_wsgi_application, requirements_dependencies, package_build_css [EXTRACTED 1.00]
-- **Row-level multi-tenant isolation mechanism (model + view + form layers)** — core_models_tenantownedmodel, core_models_tenantqueryset, core_mixins_tenantscopedmixin, core_forms_tenantscopedmodelform [EXTRACTED 1.00]
-- **Repeated pattern: user without Perfil raises PermissionDenied (403, not 500)** — core_mixins_tenantscopedmixin, tenants_mixins_staffrequiredmixin, tenants_views_homeview [INFERRED 0.95]
-- **Self-serve gym registration flow (form -> atomic User+Gimnasio+Perfil -> login)** — tenants_forms_registroform, tenants_views_registerview, tenants_models_gimnasio, tenants_models_perfil [EXTRACTED 1.00]
+- **Google OAuth connect/callback flow** — calendario_views_conectarcalendarioview, calendario_views_calendariocallbackview, calendario_services_build_authorization_url, calendario_services_intercambiar_code, calendario_services_guardar_credencial [EXTRACTED 0.95]
+- **Reserva-to-GoogleCalendar sync via signals** — calendario_signals_sync_reserva_guardada, calendario_signals_sync_reserva_borrada, calendario_services_crear_evento, calendario_services_actualizar_evento, calendario_services_borrar_evento [EXTRACTED 0.95]
+- **Models scoped via FK instead of TenantOwnedModel (precedent pattern)** — core_models_tenantownedmodel, calendario_models_googlecalendarcredential, calendario_models_reservacalendarevent, novedades_models_novedadleida [INFERRED 0.85]
+- **Importador Excel: subir -> previsualizar -> confirmar** — importaciones_models_importacion, importaciones_services_previsualizar_importacion_plantillas, importaciones_services_confirmar_importacion_plantillas, importaciones_parsing_parsear_archivo_plantillas, importaciones_matching_resolver_nombre, importaciones_views_previewplantillasview [INFERRED 0.85]
+- **Patrón anti-TOCTOU en confirmación de Importacion (select_for_update antes de validar)** — importaciones_services_confirmar_importacion_plantillas, importaciones_services_confirmar_importacion_biblioteca, turnos_services_crear_reserva [EXTRACTED 1.00]
+- **Novedad personal + read-receipt (NovedadLeida) para avisos dirigidos a un alumno** — novedades_models_novedad, novedades_models_novedadqueryset, novedades_models_novedadleida, novedades_views_novedadmarcarleidaview [EXTRACTED 0.90]
+- **Config + horarios + excepciones forman la grilla de turnos** — turnos_models_configuracionturnos, turnos_models_horarioatencion, turnos_models_cupoexcepcion, turnos_models_reserva [EXTRACTED 0.90]
+- **Dashboard de staff agrega datos de alumnos, pagos, rutinas y novedades** — tenants_views_homeview__metricas_dashboard, pagos_models_pagomensual, rutinas_models_rutinaasignada, alumnos_models_alumno, novedades_models_novedad [INFERRED 0.85]
+- **Portal del alumno agrega rutina, cuota, medios de cobro y novedades** — tenants_views_homeview__portal_alumno, pagos_models_mediocobro, rutinas_models_rutinaasignada, novedades_models_novedad [INFERRED 0.85]
+- **Trabajo en tres partes: reconciliación (A) + aviso Novedad personal (B) + Google Calendar (C)** — docs_superpowers_specs_2026_07_06_migracion_reservas_desencajadas_design, docs_superpowers_specs_2026_07_07_aviso_alumno_novedad_personal_design, docs_superpowers_specs_2026_07_07_google_calendar_alumno_design, turnos_services_reconciliar_reservas_desencajadas [EXTRACTED 1.00]
+- **Reconciliación de reservas genera Novedad personal dentro de la misma transacción, y el staff ve el resumen agregado** — turnos_services_reconciliar_reservas_desencajadas, turnos_services__generar_novedades_personales, novedades_models_novedad, turnos_views_reconciliareservasmixin [EXTRACTED 1.00]
+- **Progresión semanal como prerequisito del importador de Excel, con la biblioteca resolviendo su propio límite de escala** — docs_superpowers_specs_2026_07_27_progresion_semanal_rutinas_design, docs_superpowers_specs_2026_07_27_importador_planes_entrenamiento_design, docs_superpowers_plans_2026_07_27_importador_planes_entrenamiento_plan, concept_importador_biblioteca_json_field [INFERRED 0.85]
+- **Templates that opt out of htmx boosting (multipart upload / cross-origin redirect)** — templates_importaciones_biblioteca_preview, templates_importaciones_biblioteca_subir, templates_importaciones_plantillas_preview, templates_importaciones_plantillas_subir, templates_turnos_mis_turnos, concept_hx_boost_false_pattern [EXTRACTED 1.00]
+- **Tailwind @apply component-class system (.tarjeta/.boton/.tabla/.badge)** — concept_tarjeta_component, concept_boton_component, concept_tabla_component, concept_badge_component [INFERRED 0.85]
+- **Ambiguous exercise-match resolution during Excel import (rapidfuzz + two divergent UI patterns)** — templates_importaciones_biblioteca_preview, templates_importaciones_plantillas_preview, requirements_rapidfuzz, concept_formset_resolution_pattern, concept_json_resolution_pattern [INFERRED 0.85]
 - **Vistas de gestion staff: StaffRequiredMixin + TenantScopedMixin en toda vista de dominio** — ejercicios_views_ejerciciolistview, ejercicios_views_ejerciciocreateview, ejercicios_views_ejercicioupdateview, novedades_views_novedadlistview, novedades_views_novedadcreateview, novedades_views_novedadupdateview, novedades_views_novedadocultarview, tenants_mixins_staffrequiredmixin, core_mixins_tenantscopedmixin [EXTRACTED 1.00]
-- **Regla 'visible ahora' de Novedad: definida una vez en NovedadQuerySet.visibles() y reusada por vista y tests** — novedades_models_regla_visibles, novedades_models_novedadqueryset, novedades_views_novedadlistview, novedades_tests_novedadvisiblestests, novedades_tests_novedadlistadovisibleahoratests [EXTRACTED 1.00]
 - **Patron de tests de aislamiento por gimnasio (referencia tenants/tests.py::TenantIsolationTests)** — ejercicios_tests_ejerciciotenantisolationtests, novedades_tests_novedadtenantisolationtests, novedades_tests_novedadtenantisolationviewstests, core_models_tenantqueryset [EXTRACTED 1.00]
-- **Ciclo mensual de pagos autogenerados por cron** — pagos_management_commands_generar_pagos_command, pagos_models_generar_pagos_pendientes, pagos_models_marcar_vencidos, pagos_models_pagomensual, pagos_views_confirmarpagoview [EXTRACTED 1.00]
-- **Flujo de asignacion de rutina por snapshot congelado** — rutinas_views_asignarrutinaview, rutinas_forms_asignarrutinaform, rutinas_models_rutinaplantilla, rutinas_models_rutinaasignada, rutinas_models_rutinaasignadaitem [EXTRACTED 1.00]
 - **Patron StaffRequiredMixin + TenantScopedMixin en vistas de gestion** — tenants_mixins_staffrequiredmixin, core_mixins_tenantscopedmixin, pagos_views_pagomensuallistview, pagos_views_confirmarpagoview, rutinas_views_rutinaplantillalistview, rutinas_views_rutinaplantillacreateview, rutinas_views_rutinaplantillaupdateview, rutinas_views_rutinaplantilladetailview, rutinas_views_rutinaplantilladuplicarview, rutinas_views_asignarrutinaview, rutinas_views_rutinaasignadadetailview [EXTRACTED 1.00]
-- **Templates anchos que sobreescriben el block main_class a contenido--ancho** — templates_base_block_main_class, templates_alumnos_alumno_list, templates_alumnos_alumno_detail, templates_ejercicios_ejercicio_list, templates_novedades_novedad_list, templates_pagos_pago_list, templates_rutinas_plantilla_list, templates_rutinas_plantilla_detail, templates_rutinas_asignada_detail, templates_tenants_home [EXTRACTED 1.00]
-- **Fase 5: deploy a Render + R2 y sus issues asociados** — app_gim_roadmap_fase_5, app_gim_roadmap_object_storage_r2, app_gim_issues_free_tier_render, app_gim_issues_input_css_collectstatic, app_gim_issues_whitenoise_manifest_debug [EXTRACTED 1.00]
-- **Patrón compartido de badges de estado de pago (pagado/pendiente/vencido)** — templates_tenants_home, templates_pagos_pago_list, templates_alumnos_alumno_detail, pagos_models_pagomensual [INFERRED 0.85]
 
-## Communities (66 total, 16 thin omitted)
+## Communities (137 total, 46 thin omitted)
 
-### Community 0 - "Alumnos: Gestión y Accesos"
-Cohesion: 0.05
-Nodes (41): AlumnoAdmin, AlumnoForm, CambiarPasswordAlumnoForm, CrearAccesoForm, Meta, Form de alta/edición de alumnos de un gimnasio.  `fecha_activacion` queda afuera, Alta del login (usuario/contraseña) de un alumno que todavía no     tiene uno. V, Reseteo de la contraseña de un alumno que ya tiene login. Mismo     criterio de (+33 more)
+### Community 0 - "Templates & UI Components"
+Cohesion: 0.08
+Nodes (40): URLs de gestión de alumnos (Fase 2).  No se incluye acá en `config/urls.py` -- e, alumnos URLconf (namespace alumnos), CrearAccesoView, Acceso del alumno: usuario/contraseña asignados por el staff (no magic-link), Fase 3 — Portal del alumno, .badge/.badge--ok/.badge--riesgo/.badge--alerta component classes, .boton/.boton-secundario/.boton-peligro component classes, Formset-per-ejercicio para resolver matches ambiguos (plantillas) (+32 more)
 
-### Community 1 - "Rutinas: Modelos y Admin"
-Cohesion: 0.06
-Nodes (36): Audita creación y última modificación de cualquier fila.      Se separa de la ló, TimeStampedModel, RutinaAsignadaAdmin, RutinaAsignadaItemAdmin, RutinaAsignadaItemInline, RutinaPlantillaAdmin, RutinaPlantillaItemAdmin, RutinaPlantillaItemInline (+28 more)
-
-### Community 2 - "Docs: Decisiones e Issues"
-Cohesion: 0.06
-Nodes (46): ISSUES.md (registro de problemas y riesgos), Issue: arranque en free tier de Render (Postgres expira a 90 días, sin cron), Issue: input.css dentro de static/ rompía collectstatic, Issue: generar_pagos_pendientes crea PagoMensual con monto=0, Decisión Fase 4: redefinir clases existentes con @apply en vez de reescribir templates, Issue: manifest de WhiteNoise rompía {% static %} en dev/tests, REUSO.md (Fase 0: extracción del esqueleto), gestor-pedidos (repo fuente real del esqueleto Django) (+38 more)
-
-### Community 3 - "Biblioteca de Ejercicios"
+### Community 1 - "Biblioteca Matching & Parsing"
 Cohesion: 0.07
-Nodes (22): EjercicioAdmin, EjercicioForm, Meta, Form de alta/edición de ejercicios de la biblioteca de un gimnasio.  Hereda de `, Biblioteca de ejercicios por gimnasio (no global), Ejercicio, GrupoMuscular, Meta (+14 more)
+Nodes (30): Bug resuelto: biblioteca ignoraba matches ambiguos de rapidfuzz (creaba duplicados), construir_indice_ejercicios(), MatchResultado, Matching difuso de nombres de ejercicio y de grupo muscular (Proyecto 2). Ver sp, `indice` es un dict `{nombre_normalizado: Ejercicio}` ya armado     (ver `constr, Única función de este módulo que toca DB., Normaliza y matchea contra las choices de `Ejercicio.GrupoMuscular`     + el dic, resolver_grupo_muscular() (+22 more)
 
-### Community 4 - "Tests de Aislamiento"
+### Community 2 - "Rutinas Plantilla Views"
+Cohesion: 0.07
+Nodes (30): TenantScopedMixin, CreateView, DetailView, HojaMetadataForm, HojaMetadataFormSet, AsignarRutinaForm, Meta, Forms de gestión de rutinas (Fase 2).  `RutinaPlantillaForm` y `RutinaPlantillaI (+22 more)
+
+### Community 3 - "Calendario & Turnos Views"
+Cohesion: 0.07
+Nodes (31): GoogleCalendarCredential, Tokens OAuth de un alumno para su Google Calendar + el id del calendario     sec, Vínculo 1:1 entre una `Reserva` y el evento que la representa en el     calendar, ReservaCalendarEvent, Rutas de la integración con Google Calendar (Parte C).  Namespace `calendario`., ConectarCalendarioView, DesconectarCalendarioView, Vistas de la integración con Google Calendar (Parte C).  Todas son del alumno (` (+23 more)
+
+### Community 4 - "Tenants Portal Tests"
+Cohesion: 0.07
+Nodes (8): AlumnoRequiredMixinTests, GimnasioUpdateViewTests, HomeViewAlumnoTests, LoginLogoutTests, Portal del alumno (Fase 3): rutina activa, cuota del mes, novedades., Fase 4: personalización white-label. Sin pk en la URL -- get_object     siempre, RegisterViewTests, StaffRequiredMixinTests
+
+### Community 5 - "Biblioteca Import Views Tests"
+Cohesion: 0.07
+Nodes (8): parsear_archivo_plantillas(), Abre `archivo` (un `UploadedFile` de Django) y devuelve una     `HojaParseada` p, AdvertenciasColumnasLlegaAlStaffTests, _archivo_xlsx(), ImportacionBibliotecaViewsTests, ImportacionPlantillasViewsTests, Fix post-review, hallazgo 3: `detectar_columnas` calcula advertencias     de col, Serializa un Workbook de openpyxl a un SimpleUploadedFile, como     llegaría des
+
+### Community 6 - "ROADMAP & Tenants Views"
+Cohesion: 0.06
+Nodes (31): ROADMAP.md (plan v2, fases 0-9), Fase 1 — Modelo de datos mínimo, Fase 2 — Backend funcional (flujos del staff), Fase 4 — UX/UI y white-label, Fase 5 — Deploy en Render, Fase 6 — Primer piloto pago (onboarding concierge), Fase 9 — Features posteriores (solo con clientes pagos), Media en Cloudflare R2, nunca en el filesystem de Render (+23 more)
+
+### Community 7 - "Turnos Agenda & Cancel Tests"
+Cohesion: 0.08
+Nodes (11): time, AgendaViewTests, CancelarReservaViewTests, ConfiguracionTurnosReconciliacionTests, CrearReservaSinConfiguracionPreviaTests, MisTurnosViewTests, Cambiar la configuración (vía la vista, no el service directo) debe     disparar, Regression: "Mis reservas" no debe depender de `sin_horarios`. Si         el sta (+3 more)
+
+### Community 8 - "Biblioteca Preview Flow"
+Cohesion: 0.13
+Nodes (15): FormView, Forms del importador (Proyecto 2). Los de subida son `forms.Form` planos (no `Mo, Reemplaza a `ResolucionGrupoMuscularFormSet` (un form por ejercicio     pendient, ResolucionesJSONForm, SubirArchivoForm, SubirBibliotecaForm, SubirPlantillasForm, SubirPlantillasFormTests (+7 more)
+
+### Community 9 - "Excel Parsing Core"
+Cohesion: 0.11
+Nodes (20): _fila_vacia, _mapa_merges, _valor_celda, _fila_vacia(), FilaInvalida, ItemParseado, leer_hoja_biblioteca(), leer_hoja_plantilla() (+12 more)
+
+### Community 10 - "Novedades Views & AlumnoRequiredMixin"
 Cohesion: 0.09
-Nodes (13): EjercicioTenantIsolationTests, Confirma que la biblioteca de ejercicios de un gimnasio no se mezcla     con la, NovedadModelTests, NovedadTenantIsolationTests, NovedadTenantIsolationViewsTests, NovedadViewsAccesoTests, NovedadVisiblesTests, Tests de Fase 1 para el modelo `Novedad`: creación básica, la regla de "visible (+5 more)
+Nodes (18): LoginRequiredMixin, NovedadForm, novedades 0002_novedadleida migration, Migration, NovedadLeida, Registro de que un alumno leyó una novedad. NO es TenantOwnedModel -- se     sco, URLs de gestión de novedades (Fase 2).  No se incluye acá en `config/urls.py` --, NovedadCreateView (+10 more)
 
-### Community 5 - "Portal del Alumno"
+### Community 11 - "Pagos URLs & Tenant Mixins"
 Cohesion: 0.12
-Nodes (8): Late (in-method) imports of domain apps in HomeView, LoginRequiredMixin, HomeViewAlumnoTests, LoginLogoutTests, Portal del alumno (Fase 3): rutina activa, cuota del mes, novedades., HomeView, Página de inicio tras login.      Para `staff` es el dashboard de Fase 2 §1 (alu, Datos del portal de Fase 3: rutina activa, cuota del mes y novedades.          `
+Nodes (21): NovedadUpdateView, URLs de gestión de pagos mensuales (Fase 2 §6).  No se incluye acá en `config/ur, ConfirmarPagoView, MedioCobroCreateView, MedioCobroListView, MedioCobroUpdateView, PagoMensualListView, Vistas de gestión (Fase 2 §6) de pagos mensuales de un gimnasio.  Solo staff (`S (+13 more)
 
-### Community 6 - "Gestión de Novedades"
+### Community 12 - "Turnos Models & Services Core"
+Cohesion: 0.17
+Nodes (21): Tests de la integración con Google Calendar (Parte C), con la API de Google MOCK, Exception, ConfiguracionTurnosAdmin, CupoExcepcionAdmin, HorarioAtencionAdmin, ReservaAdmin, ConfiguracionTurnos, CupoExcepcion (+13 more)
+
+### Community 13 - "Pagos Cron Command"
+Cohesion: 0.14
+Nodes (13): BaseCommand, management command generar_pagos, Command de management que dispara la autogeneración mensual de pagos.  Este es e, Estado, generar_pagos_pendientes(), marcar_vencidos(), Meta, Modelo de dominio: pagos mensuales de cada alumno.  `PagoMensual` es un `TenantO (+5 more)
+
+### Community 14 - "Tenant-Scoped Forms Base"
+Cohesion: 0.11
+Nodes (16): FK-injection prevention via tenant-scoped form querysets, Form-base que cierra el hueco de FK-injection.  Stampar `gimnasio` en el objeto, TenantScopedModelForm, Meta, Abstracciones compartidas por todo el dominio.  Esta app NO define tablas propia, QuerySet con filtrado de tenant EXPLÍCITO.      Decisión: NO usamos thread-local, Base de toda entidad que pertenece a un Gimnasio (tenant).      Estrategia de mu, TenantOwnedModel (+8 more)
+
+### Community 15 - "Ejercicios Model & Biblioteca Resolution"
+Cohesion: 0.09
+Nodes (10): EjercicioAdmin, Ejercicio (external ref), EjercicioModelTests, EjercicioViewsTests, Tests de Fase 1 para la biblioteca de ejercicios: creación básica, choices de `g, Tests de punta a punta de las vistas de gestión de Fase 2., Retiro soft de ejercicios via activo=False (sin vista de borrado), ResolucionEjercicioForm (+2 more)
+
+### Community 16 - "Novedad Model & Personal Tests"
+Cohesion: 0.09
+Nodes (12): NovedadAdmin, NovedadLeidaAdmin, novedades 0003_novedad_alumno migration, Migration, _hoy, Novedad, Aviso publicado por el staff de un gimnasio.      `fecha_publicacion` es editabl, NovedadModelTests (+4 more)
+
+### Community 17 - "Reservas Desencajadas Reconciliation"
+Cohesion: 0.14
+Nodes (12): Gotcha: hx-boost traga clicks que redirigen cross-origin, Riesgo aceptado: reconciliación de turnos sin lock, Decisión de producto: arrancar deploy en el free tier de Render, Concepto: reserva 'desencajada' tras cambio de grilla de horarios, Plan: Migración de reservas desencajadas (Parte A), Spec: Migración automática de reservas desencajadas (Parte A), render.yaml (Render Blueprint), _franja_mas_cercana() (+4 more)
+
+### Community 18 - "Turnos Grilla Semanal"
+Cohesion: 0.13
+Nodes (14): Plan: Turnos + lectura de novedades + Mensualidad, TemplateView, grilla_semanal(), Para cada fecha en `[desde, desde+dias)`, arma la lista de `Franja` del     día, Para la agenda staff: reservas del gimnasio en `[desde, hasta]`,     agrupadas p, reservas_por_franja(), GrillaSemanalTests, `grilla_semanal` debe precargar horarios/excepciones en bloque en         vez de (+6 more)
+
+### Community 19 - "Rutinas Snapshot Models"
+Cohesion: 0.11
+Nodes (17): ItemPedido.precio_unitario (gestor-pedidos, external repo), RutinaAsignadaAdmin, RutinaAsignadaItemAdmin, RutinaAsignadaItemInline, RutinaPlantillaAdmin, RutinaPlantillaItemAdmin, RutinaPlantillaItemInline, Meta (+9 more)
+
+### Community 20 - "Calendario & Tenant Isolation Tests"
+Cohesion: 0.10
+Nodes (10): DesconectarViewTests, IntegracionActivaTests, EjercicioTenantIsolationTests, Confirma que la biblioteca de ejercicios de un gimnasio no se mezcla     con la, NovedadTenantIsolationTests, Confirma que `for_gimnasio()` aísla novedades entre gimnasios., TestCase, CupoExcepcionModelTests (+2 more)
+
+### Community 21 - "RutinaAsignada.crear_desde_plantilla Tests"
+Cohesion: 0.22
+Nodes (7): date, Copia la plantilla (y sus items) al momento de la asignación.          Editar la, CrearDesdePlantillaTests, `crear_desde_plantilla` copia lo que corresponde, y solo eso., El invariante clave: la asignación es un snapshot congelado., El punto de no tener FK viva a Ejercicio en el item asignado., RutinaAsignadaSnapshotTests
+
+### Community 22 - "Google Calendar Signal Sync Tests"
+Cohesion: 0.29
+Nodes (4): _mock_service(), C2: los signals sincronizan la reserva con Calendar (API mockeada)., Un cliente de Calendar mockeado con respuestas verosímiles., SyncReservasSignalsTests
+
+### Community 23 - "Confirmar Importación Plantillas Tests"
+Cohesion: 0.29
+Nodes (5): confirmar_importacion_plantillas(), ImportacionInvalida, Crea las `RutinaPlantilla`/`RutinaPlantillaItem`/`Ejercicio` reales a     partir, Mensaje en español listo para messages.error() -- análoga a     ErrorDeReserva e, ConfirmarImportacionPlantillasTests
+
+### Community 24 - "Turnos Forms & Franjas del Día"
+Cohesion: 0.16
+Nodes (10): ConfiguracionTurnosForm, CupoExcepcionForm, HorarioAtencionForm, Meta, Forms de gestión de turnos.  Task 4: configuración general (duración de clase y, `ConfiguracionTurnos` no tiene FK a otro `TenantOwnedModel` (solo el     `gimnas, franjas_del_dia(), Junta las franjas de TODOS los `HorarioAtencion` del gimnasio para ese     `dia_ (+2 more)
+
+### Community 25 - "Crear Reserva Service & Tests"
 Cohesion: 0.18
-Nodes (10): Meta, NovedadForm, Form de alta/edición de novedades (comunicados) de un gimnasio.  Incluye `activa, URLs de gestión de novedades (Fase 2).  No se incluye acá en `config/urls.py` --, NovedadCreateView, NovedadUpdateView, Vistas de gestión (Fase 2) de novedades: publicar, editar y ocultar avisos para, Autorización por rol en la capa de vista.  Separado de `core.mixins.TenantScoped (+2 more)
+Nodes (8): Solo parsea `fecha`/`hora_inicio` del POST de reserva del alumno     (Task 5). D, ReservaForm, crear_reserva(), Valida y crea una `Reserva`, en este orden:      1. `TurnoInexistente` si `hora_, TurnoCerrado, CrearReservaTests, Las franjas se generan en grilla de 15' cubriendo casi todo el día     (00:00-23, Caso borde decidido: a las 17:00 se puede reservar el turno de las         18:00
 
-### Community 7 - "AppConfigs Django"
-Cohesion: 0.12
-Nodes (8): AlumnosConfig, AppConfig, CoreConfig, EjerciciosConfig, NovedadesConfig, PagosConfig, RutinasConfig, TenantsConfig
+### Community 26 - "Alumno Acceso Forms & Tests"
+Cohesion: 0.14
+Nodes (8): CambiarPasswordAlumnoForm, CrearAccesoForm, Alta del login (usuario/contraseña) de un alumno que todavía no     tiene uno. V, Reseteo de la contraseña de un alumno que ya tiene login. Mismo     criterio de, AlumnoTests, Tests de `Alumno`: creación básica, valores por defecto y aislamiento de tenant, Confirma que dos gimnasios no comparten alumnos., TenantIsolationTests
 
-### Community 8 - "Núcleo Multi-tenant"
-Cohesion: 0.18
-Nodes (12): CLAUDE.md (app_gim project guide), Multi-tenancy: base compartida + aislamiento por fila (FK gimnasio), FK-injection prevention via tenant-scoped form querysets, Shared DB + row-level tenant isolation via gimnasio FK, Form-base que cierra el hueco de FK-injection.  Stampar `gimnasio` en el objeto, TenantScopedModelForm, Meta, Abstracciones compartidas por todo el dominio.  Esta app NO define tablas propia (+4 more)
+### Community 27 - "Novedad Lecturas & Conteo Tests"
+Cohesion: 0.11
+Nodes (7): NovedadLecturasViewTests, NovedadListadoVisibleAhoraTests, NovedadListViewConteoLecturasTests, Tests de Fase 1 para el modelo `Novedad`: creación básica, la regla de "visible, El listado marca correctamente qué novedades son visibles ahora,     reusando `N, `NovedadListView` expone `lecturas_count` por novedad (annotate) y     `alumnos_, `NovedadLecturasView`: detalle de qué alumnos leyeron una novedad     (Fase 5, F
 
-### Community 9 - "Vistas de Rutinas"
-Cohesion: 0.19
-Nodes (10): DetailView, RutinaPlantillaItemForm, URLs de gestión de rutinas (Fase 2): plantillas, sus items, duplicar y asignació, Vistas de gestión (Fase 2) de rutinas: CRUD de plantillas, alta/edición/borrado, POST-only: crea una copia independiente de la plantilla (y sus items)     vía `R, RutinaAsignadaDetailView, RutinaPlantillaDetailView, RutinaPlantillaDuplicarView (+2 more)
+### Community 28 - "Tenant-Scoped Model Validation"
+Cohesion: 0.15
+Nodes (6): Valida, para usar en `clean()`, que cada instancia en `relaciones`     (nombre_d, validar_gimnasio_de(), PagoMensual, La cuota de un alumno para un mes/año calendario puntual.      `unique_together`, PagoMensualModelTests, templates/pagos/pago_confirmar.html (confirmar pago + comprobante)
 
-### Community 10 - "Build Tailwind CSS"
+### Community 29 - "Confirmar Importación Biblioteca"
+Cohesion: 0.29
+Nodes (5): confirmar_importacion_biblioteca(), previsualizar_importacion_biblioteca(), Análogo a `previsualizar_importacion_plantillas` pero para el import     de bibl, Mismo patrón anti-TOCTOU que `confirmar_importacion_plantillas` (Task 7,     fix, ImportacionBibliotecaTests
+
+### Community 30 - "Tenants Admin & Gimnasio Models"
+Cohesion: 0.16
+Nodes (12): GimnasioAdmin, PerfilAdmin, GimnasioForm, Meta, Forms de `tenants`: registro (alta de un gimnasio) y personalización white-label, Personalización del gimnasio (Fase 4, "Personalización por     gimnasio"). No es, RegistroForm, tenants migration 0001_initial (+4 more)
+
+### Community 31 - "Django Apps Config"
+Cohesion: 0.13
+Nodes (8): AppConfig, CoreConfig, EjerciciosConfig, NovedadesConfig, PagosConfig, RutinasConfig, TenantsConfig, TurnosConfig
+
+### Community 32 - "Importación Model & Admin"
+Cohesion: 0.15
+Nodes (9): ImportacionAdmin, importaciones 0001_initial migration, Migration, Estado, Importacion, Meta, Staging de importaciones desde Excel (Proyecto 2).  `Importacion` persiste el ar, Tipo (+1 more)
+
+### Community 33 - "package.json (Tailwind Build)"
 Cohesion: 0.13
 Nodes (14): author, description, devDependencies, tailwindcss, @tailwindcss/cli, keywords, license, main (+6 more)
 
-### Community 11 - "Tenant: Gimnasio y Perfil"
-Cohesion: 0.19
-Nodes (9): Perfil: composition over inheritance for auth User, GimnasioAdmin, PerfilAdmin, tenants migration 0001_initial, tenants migration 0002 (white-label fields), Gimnasio, Perfil, Un gimnasio/entrenador que usa el sistema. Unidad de aislamiento de     datos (t (+1 more)
+### Community 36 - "Fecha Activación Signal"
+Cohesion: 0.17
+Nodes (5): AlumnosConfig, Registra `Alumno.fecha_activacion` en el primer login exitoso.  Se activa acá (s, registrar_primera_activacion(), FechaActivacionSignalTests, Fase 3: `fecha_activacion` se registra en el primer login exitoso del     alumno
 
-### Community 12 - "Tenant Scoping (Mixins)"
-Cohesion: 0.15
-Nodes (8): Explicit tenant filtering (for_gimnasio) over thread-local middleware, Authorization (role) separated from tenant isolation, Server-side gimnasio stamping in form_valid, Scoping de tenant en la capa de vista (no en el modelo).  Decisión (ver CLAUDE.m, Gimnasio del usuario autenticado. 403 si no tiene Perfil.          El panel oper, TenantScopedMixin, QuerySet con filtrado de tenant EXPLÍCITO.      Decisión: NO usamos thread-local, TenantQuerySet
-
-### Community 13 - "White-label y Personalización"
-Cohesion: 0.20
-Nodes (10): White-label per-gym customization, GimnasioForm, Meta, Forms de `tenants`: registro (alta de un gimnasio) y personalización white-label, Personalización del gimnasio (Fase 4, "Personalización por     gimnasio"). No es, RegistroForm, GimnasioUpdateView, Vista de registro: alta self-serve de un gimnasio nuevo (rol staff/dueño), y vis (+2 more)
-
-### Community 15 - "Tests Tenancy Base"
-Cohesion: 0.19
-Nodes (7): TemplateView, Tests de Fase 0: registro, login y aislamiento básico de datos entre gimnasios., Vista mínima de prueba; no se registra en urls., Confirma que dos gimnasios no comparten datos ni perfiles., StaffRequiredMixinTests, TenantIsolationTests, _VistaDeStaff
-
-### Community 16 - "Cron Generar Pagos"
+### Community 37 - "Calendario Encrypted Fields & Sync Status"
 Cohesion: 0.22
-Nodes (7): BaseCommand, management command generar_pagos, Command de management que dispara la autogeneración mensual de pagos.  Este es e, generar_pagos_pendientes(), Crea un `PagoMensual` PENDIENTE para cada alumno activo de cada     gimnasio act, GenerarPagosPendientesTests, Tests de Fase 1 para `PagoMensual`: creación básica, unicidad por (gimnasio, alu
+Nodes (7): EncryptedTextField, Campo de modelo que cifra su contenido en reposo (Parte C).  Se usa para los tok, `TextField` cuyo valor se persiste cifrado con Fernet.      El cifrado es no det, Migration, Meta, Modelos de la integración con Google Calendar (Parte C).  Ninguno es `TenantOwne, SyncStatus
 
-### Community 17 - "Modelo PagoMensual"
-Cohesion: 0.19
-Nodes (9): PagoMensualAdmin, Meta, Form de confirmación de pago (Fase 2 §6).  El staff NUNCA crea un `PagoMensual`, Estado, Meta, PagoMensual, Modelo de dominio: pagos mensuales de cada alumno.  `PagoMensual` es un `TenantO, La cuota de un alumno para un mes/año calendario puntual.      `unique_together` (+1 more)
+### Community 38 - "Calendario Sync Services"
+Cohesion: 0.17
+Nodes (13): _credencial_conectada(), integracion_activa(), La credencial conectada del alumno, o None si la integración está apagada,     e, Backfill: crea los eventos de las reservas futuras que YA existían cuando     el, Cuando el staff cambia `ConfiguracionTurnos.duracion_minutos`, actualiza el, True solo si están las 4 credenciales GOOGLE_* (ver settings)., _reservas_futuras(), resync_duracion() (+5 more)
 
-### Community 18 - "Items de Plantilla"
-Cohesion: 0.21
-Nodes (6): ItemPlantillaMixin, Mixin común a los views de `RutinaPlantillaItem`.      Resuelve la `RutinaPlanti, POST-only: no hay página de confirmación por GET, el botón de borrar     ya es l, RutinaPlantillaItemDeleteView, RutinaPlantillaItemUpdateView, UpdateView
+### Community 39 - "Google Calendar & Aviso Personal Docs"
+Cohesion: 0.18
+Nodes (11): Plan: Aviso proactivo via Novedad personal (Parte B), Plan: Google Calendar del alumno (Parte C), Spec: Aviso proactivo al alumno via Novedad personal (Parte B), Spec: Integración con Google Calendar del alumno (Parte C), EventoReconciliacion, _generar_novedades_personales(), Arma la URL de template de Google Calendar para agendar la reserva., Detalle de lo que le pasó a UNA reserva durante la reconciliación     (Parte B). (+3 more)
 
-### Community 19 - "Modelo Novedad"
-Cohesion: 0.21
-Nodes (8): NovedadAdmin, Migration, _hoy(), Meta, Novedad, Comunicados que el staff publica para sus alumnos (avisos de gimnasio cerrado, c, Aviso publicado por el staff de un gimnasio.      `fecha_publicacion` es editabl, templates/novedades/novedad_list.html
+### Community 40 - "Ejercicios CRUD Views"
+Cohesion: 0.23
+Nodes (7): EjercicioForm, URLs de gestión de la biblioteca de ejercicios (Fase 2).  No se incluye acá en `, EjercicioCreateView, EjercicioListView, EjercicioUpdateView, Vistas de gestión (Fase 2) de la biblioteca de ejercicios de un gimnasio.  Solo, ListView
 
-### Community 21 - "Visibilidad de Novedades"
+### Community 41 - "MedioCobro Model & Portal"
+Cohesion: 0.17
+Nodes (8): MedioCobroAdmin, PagoMensualAdmin, pagos 0002_mediocobro migration, Migration, MedioCobro, Alias/CBU al que los alumnos transfieren la cuota. Solo datos exhibidos en el, MedioCobroModelTests, HomeView._portal_alumno
+
+### Community 43 - "Google Calendar Event Sync"
+Cohesion: 0.24
+Nodes (12): actualizar_evento(), asegurar_calendario_secundario(), crear_evento(), _event_body(), get_calendar_service(), _google_credentials(), _marcar_ok(), Cliente de la API de Calendar para ese alumno, refrescando el access     token s (+4 more)
+
+### Community 44 - "Calendario Best-Effort Error Handling"
 Cohesion: 0.20
-Nodes (7): NovedadQuerySet, Extiende `TenantQuerySet` (core) con reglas propias de `Novedad`.      No se agr, Novedades que corresponde mostrarle HOY a un alumno.          "Visible" = activa, Regla de visibilidad de Novedad (visibles()), NovedadListadoVisibleAhoraTests, El listado marca correctamente qué novedades son visibles ahora,     reusando `N, NovedadListView
+Nodes (12): borrar_calendario_secundario(), borrar_evento(), Best-effort sync degradation pattern, _marcar_error(), Exception, Revoca el token en Google (best-effort)., Borra el calendario secundario creado por la app (elimina todos sus     eventos, Borra un evento del calendario del alumno por id. Best-effort. Se le pasa     el (+4 more)
 
-### Community 22 - "Vistas de Pagos"
+### Community 45 - "Rutinas Aislamiento Tenant Tests"
+Cohesion: 0.20
+Nodes (7): AislamientoTenantTests, ModeloBasicoTests, Tests de `rutinas`.  Fase 1 (arriba): el test más importante de todo este archiv, Base con el fixture común: un gimnasio, un alumno y dos ejercicios., `for_gimnasio` no debe mezclar datos entre gimnasios., Creación y `__str__` básicos de los cuatro modelos., RutinasTestCase
+
+### Community 46 - "Turnos Access Control Tests"
+Cohesion: 0.21
+Nodes (4): Anónimo -> redirect a login; alumno -> 403, en las 5 rutas de gestión     nuevas, Anónimo -> redirect a login; staff -> 403, en mis_turnos/reservar/cancelar     (, TurnosAlumnoViewsAccesoTests, TurnosViewsAccesoTests
+
+### Community 48 - "App Configs & Signals"
+Cohesion: 0.22
+Nodes (7): CalendarioConfig, capturar_duracion_vieja(), Signals que enganchan las reservas con Google Calendar (Parte C2).  Van acá y no, sync_reserva_guardada(), INSTALLED_APPS (app dependency order), Root urlpatterns, ImportacionesConfig
+
+### Community 49 - "Google OAuth PKCE Flow"
 Cohesion: 0.25
-Nodes (6): ConfirmarPagoForm, Pagos autogenerados por cron (staff solo confirma), URLs de gestión de pagos mensuales (Fase 2 §6).  No se incluye acá en `config/ur, ConfirmarPagoView, PagoMensualListView, Vistas de gestión (Fase 2 §6) de pagos mensuales de un gimnasio.  Solo staff (`S
+Nodes (10): build_authorization_url(), build_flow(), _client_config(), intercambiar_code(), _marcar_revocada(), Lógica de la integración con Google Calendar (Parte C).  Dos bloques:  1. OAuth, El refresh token dejó de servir (revocado por el usuario o expirado):     marca, URL a la que mandar al alumno + el `state` (anti-CSRF) + el `code_verifier` (+2 more)
 
-### Community 23 - "Tests TenantScopedMixin"
+### Community 50 - "Cancelar Reserva Service"
+Cohesion: 0.20
+Nodes (7): datetime, _ahora_local(), cancelar_reserva(), Ahora' como `datetime` NAIVE en hora local de Argentina.      Se usa `timezone.l, Borra la reserva. Solo permitido si la franja NO pasó todavía -- se     puede ca, True si el instante de inicio ya pasó (vs. timezone.localtime())., CancelarReservaTests
+
+### Community 51 - "Previsualizar Importación Plantillas"
+Cohesion: 0.33
+Nodes (3): previsualizar_importacion_plantillas(), Parsea `archivo`, resuelve cada nombre de ejercicio DISTINTO contra     el catál, PrevisualizarImportacionPlantillasTests
+
+### Community 52 - "NovedadLeida Model Tests"
+Cohesion: 0.18
+Nodes (6): NovedadLeidaModelTests, Tests del modelo `NovedadLeida` (Feature B: read-receipts).      Cubre: creación, NovedadLeida se crea correctamente y __str__ devuelve el formato esperado., Crear dos NovedadLeida con el mismo par (novedad, alumno) lanza IntegrityError., Borrar una Novedad borra en cascada sus NovedadLeida., La novedad y el alumno deben ser del mismo gimnasio -- `NovedadLeida`         no
+
+### Community 53 - "Franja Reservable Logic"
+Cohesion: 0.25
+Nodes (4): Franja, False si llena, pasada, o si falta menos de CIERRE_RESERVA para el inicio., FranjaTests, Las propiedades de `Franja` no dependen de la DB, pero se agrupan acá     (TestC
+
+### Community 56 - "TenantScopedMixin Core Tests"
 Cohesion: 0.31
 Nodes (4): _AlumnoListView, Tests de `TenantScopedMixin` (capa de vista) contra un `TenantOwnedModel` de dom, Vista mínima de prueba; no se registra en urls., TenantScopedMixinTests
 
-### Community 25 - "Registro Self-serve"
+### Community 58 - "RutinaAsignada Semana Actual"
+Cohesion: 0.31
+Nodes (3): Semana del ciclo (1-4) que le toca a esta asignación hoy, según         `fecha_i, `RutinaAsignada.semana_actual`: calculada por fecha, clampeada en 4,     sin loo, SemanaActualTests
+
+### Community 59 - "ConfiguracionTurnos Get-or-Create"
+Cohesion: 0.22
+Nodes (4): obtener_configuracion(), Única vía de acceso a la config de un gimnasio: garantiza que la fila exista, ConfiguracionTurnosViewTests, ObtenerConfiguracionTests
+
+### Community 60 - "Franjas de Rango Logic"
+Cohesion: 0.24
+Nodes (7): _franjas_de_horarios(), franjas_de_rango(), Corta `[hora_desde, hora_hasta)` en franjas de `duracion_minutos`.      La aritm, Corta una lista de `HorarioAtencion` (ya filtrada a un solo día) en     franjas, FranjasDeRangoTests, Función pura, sin DB: corte de un rango horario en franjas., 11:00 + 90' = 12:30 == hora_hasta -> SÍ entra (regla `hora_fin <=         hora_h
+
+### Community 61 - "Detectar Columnas por Alias"
+Cohesion: 0.36
+Nodes (3): detectar_columnas(), Devuelve (campo_canonico -> índice de columna, advertencias).      Para cada cam, DetectarColumnasTests
+
+### Community 62 - "Es Franja Vigente Logic"
+Cohesion: 0.36
+Nodes (4): es_franja_vigente(), True si `(fecha.weekday(), hora_inicio)` aparece en `franjas_del_dia()`     para, EsFranjaVigenteTests, Próxima fecha (a partir de una fecha ancla cualquiera) que caiga         en `dia
+
+### Community 64 - "Alumno Model & Admin"
+Cohesion: 0.36
+Nodes (6): AlumnoAdmin, AlumnoForm, Meta, Form de alta/edición de alumnos de un gimnasio.  `fecha_activacion` queda afuera, Alumno (model), templates/alumnos/alumno_list.html
+
+### Community 68 - "Duplicar Plantilla Tests"
 Cohesion: 0.25
-Nodes (4): Atomic self-serve gym registration, templates/registration/register.html (registrar gimnasio), RegisterViewTests, RegisterView
+Nodes (3): Crea una copia independiente de esta plantilla y sus items.          ROADMAP Fas, DuplicarPlantillaTests, `RutinaPlantilla.duplicar()` crea una copia independiente.
 
-### Community 26 - "CRUD Plantillas Rutina"
-Cohesion: 0.25
-Nodes (4): CreateView, RutinaPlantillaForm, RutinaPlantillaCreateView, RutinaPlantillaUpdateView
-
-### Community 27 - "Ocultar Novedad"
-Cohesion: 0.25
-Nodes (4): NovedadOcultarViewTests, El atajo de un clic "ocultar" solo acepta POST y apaga `activa`., NovedadOcultarView, Atajo de un clic desde el listado: pone `activa=False` sin abrir el     form com
-
-### Community 28 - "Vencimiento de Pagos"
-Cohesion: 0.46
-Nodes (3): marcar_vencidos(), Pasa a VENCIDO todo `PagoMensual` PENDIENTE cuyo mes/año sea     estrictamente a, MarcarVencidosTests
-
-### Community 29 - "Asignación de Rutinas"
+### Community 69 - "Novedad Visibilidad QuerySet"
 Cohesion: 0.29
-Nodes (5): FormView, AsignarRutinaForm, Elegir alumno + plantilla + fecha de inicio para generar el snapshot     (ROADMA, AsignarRutinaView, `RutinaAsignada` no se crea vía `form.save()` (no es un `ModelForm`):     la cre
+Nodes (5): Query: ¿El modelo B2B2C staff/alumno se cumple en el código?, NovedadQuerySet, Extiende `TenantQuerySet` (core) con reglas propias de `Novedad`.      No se agr, Novedades que corresponde mostrarle HOY a un alumno.          "Visible" = activa, Novedades dirigidas a `alumno`: los broadcasts del gimnasio         (`alumno` nu
 
-### Community 31 - "Señal de Activación"
+### Community 70 - "Pagos & Tenant Forms"
 Cohesion: 0.33
-Nodes (4): Registra `Alumno.fecha_activacion` en el primer login exitoso.  Se activa acá (s, Meta, Núcleo de la arquitectura multi-tenant.  `Gimnasio` ES el tenant. `Perfil` conec, Rol
+Nodes (6): ConfirmarPagoForm, MedioCobroForm, Meta, Form de confirmación de pago (Fase 2 §6).  El staff NUNCA crea un `PagoMensual`, Alta/edición de un medio de cobro. Incluye `activo` a propósito: no     hay `Del, TenantScopedModelForm
 
-### Community 32 - "Deploy Render + R2"
-Cohesion: 0.33
-Nodes (6): Config R2 todo-o-nada (fail-fast si faltan variables), STORAGES / configuración R2-WhiteNoise, WSGI application, npm scripts build:css/watch:css (Tailwind), Render Blueprint (web free + Postgres free, cron comentado), requirements.txt (Django 5.2 + stack Fase 5: gunicorn, whitenoise, django-storages, psycopg, dj-database-url)
+### Community 71 - "Vacantes de Franja Logic"
+Cohesion: 0.38
+Nodes (3): Busca `CupoExcepcion(gimnasio, dia_semana, hora_inicio)`; si existe,     devuelv, vacantes_de_franja(), VacantesDeFranjaTests
 
-### Community 33 - "URLconfs de Apps"
-Cohesion: 0.33
-Nodes (6): URLconf raíz, ejercicios URLconf, novedades URLconf, pagos URLconf, rutinas URLconf, tenants URLconf
+### Community 72 - "Calendario OAuth Callback View"
+Cohesion: 0.40
+Nodes (4): guardar_credencial(), Crea/actualiza la `GoogleCalendarCredential` del alumno con los tokens.      Si, CalendarioCallbackView, Callback de Google: valida el `state`, intercambia el code, guarda la     creden
 
-### Community 36 - "Settings Django"
+### Community 88 - "app_gim Reuse Source (README)"
+Cohesion: 0.67
+Nodes (4): REUSO.md (Fase 0: extracción del esqueleto), gestor-pedidos (repo fuente real del esqueleto Django), Vektor (fuente equivocada asumida por el ROADMAP), Fase 0 — Extracción del esqueleto reutilizable
+
+### Community 90 - "Config Settings Env Helpers"
 Cohesion: 0.50
 Nodes (3): _env_bool(), Django settings for config project.  Generated by 'django-admin startproject' us, Lee un booleano de entorno de forma tolerante ("1"/"true"/"yes"/"on").
 
 ## Knowledge Gaps
-- **54 isolated node(s):** `Migration`, `Migration`, `Estado`, `Meta`, `Meta` (+49 more)
+- **84 isolated node(s):** `Migration`, `Migration`, `Meta`, `Migration`, `Meta` (+79 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **16 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **46 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Alumno` connect `Alumnos: Gestión y Accesos` to `Rutinas: Modelos y Admin`, `Docs: Decisiones e Issues`, `Portal del Alumno`, `Núcleo Multi-tenant`, `Vistas de Rutinas`, `Tenant: Gimnasio y Perfil`, `White-label y Personalización`, `Tests Vistas Rutinas`, `Tests Tenancy Base`, `Cron Generar Pagos`, `Modelo PagoMensual`, `Tests Vistas Alumnos`, `Tests TenantScopedMixin`, `Tests Vistas Pagos`, `Registro Self-serve`, `CRUD Plantillas Rutina`, `Vencimiento de Pagos`, `Asignación de Rutinas`, `Tests White-label`, `Tests Modelo Pago`?**
-  _High betweenness centrality (0.233) - this node is a cross-community bridge._
-- **Why does `TenantScopedMixin` connect `Tenant Scoping (Mixins)` to `Alumnos: Gestión y Accesos`, `Docs: Decisiones e Issues`, `Biblioteca de Ejercicios`, `Portal del Alumno`, `Gestión de Novedades`, `Núcleo Multi-tenant`, `Vistas de Rutinas`, `Tenant: Gimnasio y Perfil`, `Items de Plantilla`, `Visibilidad de Novedades`, `Vistas de Pagos`, `Tests TenantScopedMixin`, `CRUD Plantillas Rutina`, `Ocultar Novedad`, `Asignación de Rutinas`?**
-  _High betweenness centrality (0.099) - this node is a cross-community bridge._
-- **Why does `Perfil` connect `Tenant: Gimnasio y Perfil` to `Alumnos: Gestión y Accesos`, `Rutinas: Modelos y Admin`, `Docs: Decisiones e Issues`, `Biblioteca de Ejercicios`, `Tests de Aislamiento`, `Portal del Alumno`, `Gestión de Novedades`, `Núcleo Multi-tenant`, `Tenant Scoping (Mixins)`, `White-label y Personalización`, `Tests Tenancy Base`, `Cron Generar Pagos`, `Tests TenantScopedMixin`, `Registro Self-serve`, `Señal de Activación`?**
-  _High betweenness centrality (0.086) - this node is a cross-community bridge._
-- **Are the 49 inferred relationships involving `Alumno` (e.g. with `AlumnoAdmin` and `AlumnoForm`) actually correct?**
-  _`Alumno` has 49 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 32 inferred relationships involving `TenantScopedMixin` (e.g. with `AlumnoCreateView` and `AlumnoDetailView`) actually correct?**
-  _`TenantScopedMixin` has 32 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `Form de alta/edición de alumnos de un gimnasio.  `fecha_activacion` queda afuera`, `Alta del login (usuario/contraseña) de un alumno que todavía no     tiene uno. V`, `Reseteo de la contraseña de un alumno que ya tiene login. Mismo     criterio de` to the rest of the system?**
-  _173 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Alumnos: Gestión y Accesos` be split into smaller, more focused modules?**
-  _Cohesion score 0.05238095238095238 - nodes in this community are weakly interconnected._
+- **Why does `StaffRequiredMixin` connect `Pagos URLs & Tenant Mixins` to `Rutinas Plantilla Views`, `Calendario & Turnos Views`, `Tenants Portal Tests`, `Novedad Visibilidad QuerySet`, `ROADMAP & Tenants Views`, `Ejercicios CRUD Views`, `Biblioteca Preview Flow`, `Novedades Views & AlumnoRequiredMixin`, `Turnos Grilla Semanal`, `Turnos Forms & Franjas del Día`?**
+  _High betweenness centrality (0.101) - this node is a cross-community bridge._
+- **Why does `base.html (site-wide layout)` connect `Templates & UI Components` to `Alumno Model & Admin`, `Tenant-Scoped Model Validation`, `ROADMAP & Tenants Views`, `Ejercicios Model & Biblioteca Resolution`?**
+  _High betweenness centrality (0.077) - this node is a cross-community bridge._
+- **Why does `crear_reserva()` connect `Crear Reserva Service & Tests` to `Calendario & Turnos Views`, `Turnos Agenda & Cancel Tests`, `Vacantes de Franja Logic`, `Turnos Models & Services Core`, `Turnos Grilla Semanal`, `Cancelar Reserva Service`, `RutinaAsignada.crear_desde_plantilla Tests`, `Reservar View Tests`, `Confirmar Importación Plantillas Tests`, `Turnos Forms & Franjas del Día`, `ConfiguracionTurnos Get-or-Create`, `Es Franja Vigente Logic`?**
+  _High betweenness centrality (0.048) - this node is a cross-community bridge._
+- **Are the 82 inferred relationships involving `time` (e.g. with `.test_muestra_reintentar_si_hay_evento_en_error()` and `.setUp()`) actually correct?**
+  _`time` has 82 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 38 inferred relationships involving `StaffRequiredMixin` (e.g. with `DescartarImportacionView` and `PreviewBibliotecaView`) actually correct?**
+  _`StaffRequiredMixin` has 38 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 44 inferred relationships involving `ImportacionInvalida` (e.g. with `AdvertenciasColumnasLlegaAlStaffTests` and `BibliotecaDedupeDentroDelArchivoTests`) actually correct?**
+  _`ImportacionInvalida` has 44 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 29 inferred relationships involving `AlumnoRequiredMixin` (e.g. with `CalendarioCallbackView` and `ConectarCalendarioView`) actually correct?**
+  _`AlumnoRequiredMixin` has 29 INFERRED edges - model-reasoned connections that need verification._
