@@ -148,9 +148,23 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
   `user.perfil.rol == "staff"`.
 - **Dashboard**: `tenants.views.HomeView` (ruta `home`) — bifurca por
   `perfil.rol`. Para `staff`: métricas de Fase 2 §1 (alumnos activos, alumnos
-  con pago pendiente, pagos del mes, rutinas activas, últimas novedades).
-  Para `alumno`: el portal de Fase 3 (su rutina activa, su cuota del mes,
-  últimas novedades) — ver más abajo.
+  con pago pendiente, pagos del mes, rutinas activas, últimas novedades) +
+  analítica (subproyecto 4, agregada después de Fase 6): asistencia por
+  día/hora, alumnos por género y RPE por ejercicio. La agregación vive en
+  `tenants/analitica.py` (no en la vista) porque cruza 3 apps (turnos,
+  alumnos, rutinas) y se testea mejor sola. Asistencia agrupa TODO el
+  historial de `Reserva` por día de semana + hora (no una ventana de
+  tiempo) para revelar el patrón recurrente de horas pico — decisión
+  explícita del dueño del producto. Los 3 gráficos siguen la skill
+  `dataviz`: la grilla de calor de asistencia es HTML/CSS puro (color
+  secuencial azul; Chart.js no trae heatmap nativo sin plugin aparte),
+  género es una barra Chart.js de un solo color (las categorías ya se
+  identifican por el eje), y RPE por ejercicio es una barra apilada
+  horizontal **divergente** azul↔rojo (mismo tratamiento que una escala
+  Likert) — cargada por CDN solo en `home.html`, no en todo el sitio. Cada
+  gráfico tiene su "Ver como tabla" (`<details>`, sin JS) como equivalente
+  accesible. Para `alumno`: el portal de Fase 3 (su rutina activa, su cuota
+  del mes, últimas novedades) — ver más abajo.
 - **`RutinaPlantillaItem`/`RutinaAsignadaItem`** no son `TenantOwnedModel`
   (no tienen `gimnasio` propio): sus vistas resuelven el aislamiento
   buscando primero el padre vía `for_gimnasio()` antes de tocar el item — ver

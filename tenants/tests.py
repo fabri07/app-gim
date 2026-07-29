@@ -6,7 +6,7 @@ patrón de ~/gestor-pedidos/core/tests.py — en Fase 0 todavía no existe ning�
 TenantOwnedModel concreto para ejercitarlos.
 """
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 from django.contrib.auth.models import AnonymousUser, User
 from django.core.exceptions import PermissionDenied
@@ -719,3 +719,127 @@ class GimnasioUpdateViewTests(TestCase):
         self.client.login(username="dueno", password="clave-123456")
         response = self.client.get(reverse("home"))
         self.assertNotContains(response, "fonts.googleapis.com")
+
+
+class AnaliticaTests(TestCase):
+    """Agregaciones del dashboard de analítica (subproyecto 4): asistencia
+    por día/hora, distribución por género, RPE por ejercicio. El foco es el
+    aislamiento por gimnasio -- ninguna de las 3 debe mezclar datos de otro
+    gimnasio."""
+
+    def setUp(self):
+        from turnos.models import Reserva
+
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Pérez",
+            sexo=Alumno.Sexo.FEMENINO,
+        )
+        self.otro_alumno_mismo_gym = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Bruno", apellido="Gómez",
+            sexo=Alumno.Sexo.MASCULINO,
+        )
+        self.alumno_sin_sexo = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Carla", apellido="Ruiz",
+        )
+        self.alumno_de_otro_gym = Alumno.objects.create(
+            gimnasio=self.otro_gimnasio, nombre="Dario", apellido="Sosa",
+            sexo=Alumno.Sexo.MASCULINO,
+        )
+
+        # 2026-01-05 es lunes.
+        Reserva.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            fecha=date(2026, 1, 5), hora_inicio="09:00",
+        )
+        Reserva.objects.create(
+            gimnasio=self.gimnasio, alumno=self.otro_alumno_mismo_gym,
+            fecha=date(2026, 1, 5), hora_inicio="09:00",
+        )
+        Reserva.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            fecha=date(2026, 1, 6), hora_inicio="18:00",  # martes
+        )
+        Reserva.objects.create(
+            gimnasio=self.otro_gimnasio, alumno=self.alumno_de_otro_gym,
+            fecha=date(2026, 1, 5), hora_inicio="09:00",
+        )
+
+        self.asignada = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            nombre_snapshot="Rutina", objetivo_snapshot="Hipertrofia",
+            fecha_inicio=date(2026, 1, 1), activa=True,
+        )
+        self.otra_asignada = RutinaAsignada.objects.create(
+            gimnasio=self.otro_gimnasio, alumno=self.alumno_de_otro_gym,
+            nombre_snapshot="Rutina", objetivo_snapshot="Hipertrofia",
+            fecha_inicio=date(2026, 1, 1), activa=True,
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada, ejercicio_nombre_snapshot="Sentadilla",
+            semana=1, dia=1, orden=1, series=4, repeticiones="8-12",
+            rpe=RutinaAsignadaItem.RPE.AL_LIMITE,
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada, ejercicio_nombre_snapshot="Sentadilla",
+            semana=2, dia=1, orden=1, series=4, repeticiones="8-12",
+            rpe=RutinaAsignadaItem.RPE.BAJAR_INTENSIDAD,
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada, ejercicio_nombre_snapshot="Press banca",
+            semana=1, dia=1, orden=2, series=4, repeticiones="6-10",
+            rpe="",  # sin calificar -- no debe contarse
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.otra_asignada, ejercicio_nombre_snapshot="Sentadilla",
+            semana=1, dia=1, orden=1, series=4, repeticiones="8-12",
+            rpe=RutinaAsignadaItem.RPE.MAS_INTENSO,
+        )
+
+    def test_asistencia_agrupa_por_dia_y_hora_y_no_mezcla_gimnasios(self):
+        from tenants.analitica import asistencia_por_dia_y_hora
+
+        resultado = asistencia_por_dia_y_hora(self.gimnasio)
+        self.assertEqual(resultado["horas"], [9, 18])
+        self.assertEqual(resultado["maximo"], 2)
+
+        por_nombre = {dia["nombre"]: dia["celdas"] for dia in resultado["dias"]}
+        # Lunes 9h tiene 2 reservas (alumno + otro_alumno_mismo_gym); lunes
+        # 18h ninguna (esa es un martes).
+        self.assertEqual(por_nombre["Lunes"][0]["valor"], 2)
+        self.assertEqual(por_nombre["Lunes"][0]["nivel"], 4)
+        self.assertEqual(por_nombre["Lunes"][1]["valor"], 0)
+        self.assertEqual(por_nombre["Lunes"][1]["nivel"], 0)
+        # Martes 18h tiene 1 reserva (nivel intermedio, no el máximo).
+        self.assertEqual(por_nombre["Martes"][1]["valor"], 1)
+        self.assertEqual(por_nombre["Martes"][1]["nivel"], 2)
+
+    def test_asistencia_sin_reservas_devuelve_estado_vacio(self):
+        from tenants.analitica import asistencia_por_dia_y_hora
+
+        gimnasio_nuevo = Gimnasio.objects.create(nombre="Nuevo", slug="nuevo")
+        resultado = asistencia_por_dia_y_hora(gimnasio_nuevo)
+        self.assertEqual(resultado, {"horas": [], "dias": [], "maximo": 0})
+
+    def test_genero_incluye_no_informado_y_no_mezcla_gimnasios(self):
+        from tenants.analitica import distribucion_por_genero
+
+        resultado = {fila["etiqueta"]: fila["total"] for fila in distribucion_por_genero(self.gimnasio)}
+        self.assertEqual(resultado["Femenino"], 1)
+        self.assertEqual(resultado["Masculino"], 1)
+        self.assertEqual(resultado["No informado"], 1)
+        self.assertEqual(resultado["Prefiere no decir"], 0)
+
+    def test_rpe_agrupa_por_nombre_ordena_por_total_y_no_mezcla_gimnasios(self):
+        from tenants.analitica import rpe_por_ejercicio
+
+        resultado = rpe_por_ejercicio(self.gimnasio)
+        self.assertEqual(len(resultado), 1)  # Press banca sin calificar no aparece.
+        fila = resultado[0]
+        self.assertEqual(fila["ejercicio"], "Sentadilla")
+        self.assertEqual(fila["total"], 2)  # no las 3 (la de otro_gimnasio no cuenta).
+        self.assertEqual(fila["niveles"]["al_limite"], 1)
+        self.assertEqual(fila["niveles"]["bajar_intensidad"], 1)
+        self.assertEqual(fila["niveles"]["mas_intenso"], 0)

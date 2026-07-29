@@ -167,6 +167,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         from novedades.models import Novedad
         from pagos.models import PagoMensual
         from rutinas.models import RutinaAsignada
+        from tenants import analitica
 
         hoy = timezone.now().date()
 
@@ -189,6 +190,10 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "ultimas_novedades": Novedad.objects.for_gimnasio(gimnasio)
             .visibles()
             .filter(alumno__isnull=True)[:5],
+            # Analítica (subproyecto 4): asistencia, género, RPE por ejercicio.
+            "asistencia": analitica.asistencia_por_dia_y_hora(gimnasio),
+            "genero_stats": analitica.distribucion_por_genero(gimnasio),
+            "rpe_por_ejercicio": analitica.rpe_por_ejercicio(gimnasio),
         }
 
 

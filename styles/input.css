@@ -329,4 +329,69 @@
   .config-preview__mensaje {
     @apply text-sm text-gray-700 mb-3;
   }
+
+  /* Dashboard de analítica (subproyecto 4): asistencia, género, RPE.
+     Colores siguen la skill dataviz -- rampa secuencial azul documentada
+     (pasos 150/300/450/600), no los colores de marca por gimnasio: la
+     paleta de datos es un canal de codificación distinto del branding. */
+  .calor-grilla {
+    @apply grid gap-0.5 text-xs overflow-x-auto;
+  }
+
+  .calor-etiqueta-hora,
+  .calor-etiqueta-dia {
+    @apply flex items-center justify-center text-gray-500 px-1 py-1.5;
+  }
+
+  .calor-etiqueta-dia {
+    @apply justify-start font-medium text-gray-700 pr-2;
+  }
+
+  .calor-celda {
+    @apply flex items-center justify-center rounded text-[11px] min-w-8 py-1.5;
+  }
+
+  .calor-celda--0 {
+    @apply bg-gray-50 text-gray-300;
+  }
+
+  .calor-celda--1 {
+    background-color: #b7d3f6;
+    @apply text-gray-700;
+  }
+
+  .calor-celda--2 {
+    background-color: #6da7ec;
+    @apply text-white;
+  }
+
+  .calor-celda--3 {
+    background-color: #2a78d6;
+    @apply text-white;
+  }
+
+  .calor-celda--4 {
+    background-color: #184f95;
+    @apply text-white;
+  }
+
+  .grafico-contenedor {
+    @apply relative w-full h-64;
+  }
+
+  .tabla-detalle {
+    @apply mt-3;
+  }
+
+  .tabla-detalle summary {
+    @apply text-sm text-[var(--color-primario)] cursor-pointer select-none;
+  }
+
+  .tabla-detalle summary:hover {
+    @apply underline;
+  }
+
+  .tabla-detalle .tabla {
+    @apply mt-3;
+  }
 }

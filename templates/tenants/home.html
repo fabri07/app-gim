@@ -67,6 +67,170 @@
       <p class="texto-suave">No hay novedades publicadas todavía.</p>
     {% endfor %}
   </div>
+
+  <div class="tarjeta">
+    <h2>Asistencia por día y horario</h2>
+    <p class="texto-suave">Todo el historial de reservas, para ver el patrón recurrente de horas pico.</p>
+    {% if asistencia.dias %}
+      <div class="calor-grilla" style="grid-template-columns: auto repeat({{ asistencia.horas|length }}, minmax(2rem, 1fr));">
+        <div></div>
+        {% for hora in asistencia.horas %}
+          <div class="calor-etiqueta-hora">{{ hora }}h</div>
+        {% endfor %}
+        {% for dia in asistencia.dias %}
+          <div class="calor-etiqueta-dia">{{ dia.nombre }}</div>
+          {% for celda in dia.celdas %}
+            <div class="calor-celda calor-celda--{{ celda.nivel }}" title="{{ dia.nombre }} {{ celda.hora }}h: {{ celda.valor }} reserva(s)">{{ celda.valor }}</div>
+          {% endfor %}
+        {% endfor %}
+      </div>
+      <details class="tabla-detalle">
+        <summary>Ver como tabla</summary>
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Día</th>
+              {% for hora in asistencia.horas %}<th>{{ hora }}h</th>{% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for dia in asistencia.dias %}
+              <tr>
+                <td>{{ dia.nombre }}</td>
+                {% for celda in dia.celdas %}<td>{{ celda.valor }}</td>{% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+    {% else %}
+      <p class="texto-suave">Todavía no hay reservas registradas.</p>
+    {% endif %}
+  </div>
+
+  <div class="tarjeta">
+    <h2>Alumnos por género</h2>
+    {% if genero_stats %}
+      <div class="grafico-contenedor">
+        <canvas id="grafico-genero"></canvas>
+      </div>
+      <details class="tabla-detalle">
+        <summary>Ver como tabla</summary>
+        <table class="tabla">
+          <thead><tr><th>Género</th><th>Alumnos</th></tr></thead>
+          <tbody>
+            {% for fila in genero_stats %}
+              <tr><td>{{ fila.etiqueta }}</td><td>{{ fila.total }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+    {% endif %}
+  </div>
+
+  <div class="tarjeta">
+    <h2>RPE reportado por ejercicio</h2>
+    <p class="texto-suave">Qué tan intensos sintieron los alumnos cada ejercicio — útil para detectar ejercicios sub o sobrecargados.</p>
+    {% if rpe_por_ejercicio %}
+      <div class="grafico-contenedor">
+        <canvas id="grafico-rpe"></canvas>
+      </div>
+      <details class="tabla-detalle">
+        <summary>Ver como tabla</summary>
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Ejercicio</th>
+              <th>Podría más intenso</th>
+              <th>Podría seguir así</th>
+              <th>Al límite</th>
+              <th>Debería bajar</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for fila in rpe_por_ejercicio %}
+              <tr>
+                <td>{{ fila.ejercicio }}</td>
+                <td>{{ fila.niveles.mas_intenso }}</td>
+                <td>{{ fila.niveles.seguir_intensidad }}</td>
+                <td>{{ fila.niveles.al_limite }}</td>
+                <td>{{ fila.niveles.bajar_intensidad }}</td>
+                <td>{{ fila.total }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+    {% else %}
+      <p class="texto-suave">Todavía no hay ejercicios calificados con RPE.</p>
+    {% endif %}
+  </div>
+
+  {{ genero_stats|json_script:"genero-data" }}
+  {{ rpe_por_ejercicio|json_script:"rpe-data" }}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+  <script>
+    (function () {
+      var generoData = JSON.parse(document.getElementById("genero-data").textContent);
+      var elGenero = document.getElementById("grafico-genero");
+      if (elGenero && generoData.length) {
+        new Chart(elGenero, {
+          type: "bar",
+          data: {
+            labels: generoData.map(function (d) { return d.etiqueta; }),
+            datasets: [{
+              data: generoData.map(function (d) { return d.total; }),
+              backgroundColor: "#2a78d6",
+              borderRadius: 4,
+              maxBarThickness: 24,
+            }],
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+          },
+        });
+      }
+
+      var rpeData = JSON.parse(document.getElementById("rpe-data").textContent);
+      var elRpe = document.getElementById("grafico-rpe");
+      if (elRpe && rpeData.length) {
+        // Diverging azul<->rojo (skill dataviz): mas_intenso/seguir_intensidad
+        // del lado azul (pasos secuenciales documentados 450/250), al_limite/
+        // bajar_intensidad del lado rojo (único hex de rojo documentado; sin
+        // rampa roja documentada, el tono "claro" se logra con alpha en vez
+        // de inventar un hex nuevo).
+        var NIVELES = [
+          { clave: "mas_intenso", etiqueta: "Podría hacer más intenso", color: "#2a78d6" },
+          { clave: "seguir_intensidad", etiqueta: "Podría seguir con esta intensidad", color: "#86b6ef" },
+          { clave: "al_limite", etiqueta: "Estoy al límite", color: "rgba(227, 73, 72, 0.55)" },
+          { clave: "bajar_intensidad", etiqueta: "Debería bajar la intensidad", color: "#e34948" },
+        ];
+        new Chart(elRpe, {
+          type: "bar",
+          data: {
+            labels: rpeData.map(function (d) { return d.ejercicio; }),
+            datasets: NIVELES.map(function (nivel) {
+              return {
+                label: nivel.etiqueta,
+                data: rpeData.map(function (d) { return d.niveles[nivel.clave]; }),
+                backgroundColor: nivel.color,
+              };
+            }),
+          },
+          options: {
+            indexAxis: "y",
+            scales: {
+              x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+              y: { stacked: true },
+            },
+            plugins: { legend: { position: "bottom" } },
+          },
+        });
+      }
+    })();
+  </script>
 {% else %}
   <div class="tarjeta">
     <h1>Hola, {{ user.username }}</h1>
