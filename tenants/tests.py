@@ -630,6 +630,7 @@ class GimnasioUpdateViewTests(TestCase):
                 "nombre": "Gimnasio Central",
                 "color_primario": "#112233",
                 "color_secundario": "#445566",
+                "tipografia": "sistema",
                 "texto_bienvenida": "¡Bienvenido!",
                 "contacto": "011-1234-5678",
                 "link_instagram": "https://instagram.com/gimnasiocentral",
@@ -647,3 +648,74 @@ class GimnasioUpdateViewTests(TestCase):
         self.client.login(username="dueno", password="clave-123456")
         response = self.client.get(reverse("home"))
         self.assertContains(response, "#abcdef")
+
+    def test_tipografia_default_no_carga_google_fonts(self):
+        """`sistema` mapea a --font-sans y no dispara ninguna carga
+        externa -- un gimnasio nuevo/existente no cambia de aspecto ni
+        pierde performance hasta que el dueño elige una fuente."""
+        self.assertEqual(self.gimnasio.tipografia, Gimnasio.Tipografia.SISTEMA)
+        self.assertIsNone(self.gimnasio.tipografia_google_param)
+
+    def test_staff_actualiza_la_tipografia(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Gimnasio Central",
+                "color_primario": "",
+                "color_secundario": "",
+                "tipografia": "montserrat",
+                "texto_bienvenida": "",
+                "contacto": "",
+                "link_instagram": "",
+                "link_whatsapp": "",
+            },
+        )
+        self.assertRedirects(response, reverse("gimnasio_editar"))
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.tipografia, "montserrat")
+
+    def test_el_form_rechaza_una_tipografia_fuera_de_la_lista_curada(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Gimnasio Central",
+                "color_primario": "",
+                "color_secundario": "",
+                "tipografia": "comic-sans-libre",
+                "texto_bienvenida": "",
+                "contacto": "",
+                "link_instagram": "",
+                "link_whatsapp": "",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.tipografia, Gimnasio.Tipografia.SISTEMA)
+
+    def test_tipografia_elegida_carga_google_fonts_en_el_home(self):
+        self.gimnasio.tipografia = "oswald"
+        self.gimnasio.save()
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "Oswald")
+        self.assertContains(response, "fonts.googleapis.com")
+
+    def test_tipografia_con_comillas_no_queda_html_escapada(self):
+        """`<style>` es "raw text": el navegador no decodifica entidades ahí
+        adentro, así que si Django autoescapa las comillas de una familia
+        tipográfica (p.ej. 'Playfair Display') el CSS queda roto (&#x27;) en
+        vez de protegido. Blinda que --font-gimnasio salga con comillas
+        literales, no escapadas."""
+        self.gimnasio.tipografia = "playfair"
+        self.gimnasio.save()
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "--font-gimnasio: 'Playfair Display', Georgia, serif;")
+        self.assertNotContains(response, "&#x27;")
+
+    def test_tipografia_sistema_no_carga_google_fonts_en_el_home(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertNotContains(response, "fonts.googleapis.com")

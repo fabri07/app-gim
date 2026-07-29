@@ -29,6 +29,7 @@ class GimnasioForm(forms.ModelForm):
             "logo",
             "color_primario",
             "color_secundario",
+            "tipografia",
             "texto_bienvenida",
             "contacto",
             "link_instagram",

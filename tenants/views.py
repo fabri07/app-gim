@@ -205,6 +205,14 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
     def get_object(self, queryset=None):
         return self.request.user.perfil.gimnasio
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Única fuente de verdad (Gimnasio.TIPOGRAFIA_FUENTES) expuesta al
+        # preview en vivo del template -- evita que el JS reinvente el
+        # mapeo tipografía -> familia CSS por su cuenta.
+        context["tipografia_fuentes"] = Gimnasio.TIPOGRAFIA_FUENTES
+        return context
+
     def form_valid(self, form):
         response = super().form_valid(form)
         messages.success(self.request, "Datos del gimnasio actualizados.")

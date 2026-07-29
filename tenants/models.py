@@ -32,12 +32,55 @@ class Gimnasio(TimeStampedModel):
     slug = models.SlugField(max_length=140, unique=True)
     activo = models.BooleanField(default=True)
 
+    class Tipografia(models.TextChoices):
+        SISTEMA = "sistema", "Predeterminada (del sistema)"
+        INTER = "inter", "Inter — moderna y neutra"
+        MONTSERRAT = "montserrat", "Montserrat — deportiva, alto impacto"
+        POPPINS = "poppins", "Poppins — cálida y redondeada"
+        OSWALD = "oswald", "Oswald — condensada"
+        PLAYFAIR = "playfair", "Playfair Display — serif clásica, premium"
+
+    #: Única fuente de verdad para mapear cada opción de `tipografia` a su
+    #: familia CSS real y su query de Google Fonts (`base.html` y el preview
+    #: en vivo de `gimnasio_form.html` la consumen, no la duplican). `sistema`
+    #: no tiene `google_param` a propósito: no dispara ninguna carga externa,
+    #: mapea al `--font-sans` que Tailwind v4 ya aplica por preflight.
+    TIPOGRAFIA_FUENTES = {
+        Tipografia.SISTEMA: {"css_family": "var(--font-sans)", "google_param": None},
+        Tipografia.INTER: {
+            "css_family": "'Inter', var(--font-sans)",
+            "google_param": "Inter:wght@400;500;600;700",
+        },
+        Tipografia.MONTSERRAT: {
+            "css_family": "'Montserrat', var(--font-sans)",
+            "google_param": "Montserrat:wght@400;500;600;700",
+        },
+        Tipografia.POPPINS: {
+            "css_family": "'Poppins', var(--font-sans)",
+            "google_param": "Poppins:wght@400;500;600;700",
+        },
+        Tipografia.OSWALD: {
+            "css_family": "'Oswald', var(--font-sans)",
+            "google_param": "Oswald:wght@400;500;600;700",
+        },
+        Tipografia.PLAYFAIR: {
+            "css_family": "'Playfair Display', Georgia, serif",
+            "google_param": "Playfair+Display:wght@400;500;600;700",
+        },
+    }
+
     logo = models.ImageField(upload_to="logos/", blank=True)
     color_primario = models.CharField(
         max_length=7, blank=True, help_text="Hex, p.ej. #2563eb"
     )
     color_secundario = models.CharField(
         max_length=7, blank=True, help_text="Hex, p.ej. #1e40af"
+    )
+    tipografia = models.CharField(
+        max_length=20,
+        choices=Tipografia.choices,
+        default=Tipografia.SISTEMA,
+        help_text="Tipografía del panel y del portal del alumno.",
     )
     texto_bienvenida = models.CharField(max_length=280, blank=True)
     contacto = models.CharField(max_length=120, blank=True)
@@ -51,6 +94,14 @@ class Gimnasio(TimeStampedModel):
 
     def __str__(self):
         return self.nombre
+
+    @property
+    def tipografia_css_family(self):
+        return self.TIPOGRAFIA_FUENTES[self.tipografia]["css_family"]
+
+    @property
+    def tipografia_google_param(self):
+        return self.TIPOGRAFIA_FUENTES[self.tipografia]["google_param"]
 
 
 class Perfil(TimeStampedModel):

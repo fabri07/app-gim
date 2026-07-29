@@ -7,14 +7,25 @@
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   {% if user.is_authenticated and user.perfil.gimnasio %}
     {% with gimnasio=user.perfil.gimnasio %}
-      {% if gimnasio.color_primario or gimnasio.color_secundario %}
-        <style>
-          :root {
-            {% if gimnasio.color_primario %}--color-primario: {{ gimnasio.color_primario }};{% endif %}
-            {% if gimnasio.color_secundario %}--color-secundario: {{ gimnasio.color_secundario }};{% endif %}
-          }
-        </style>
+      {% if gimnasio.tipografia_google_param %}
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family={{ gimnasio.tipografia_google_param }}&display=swap" rel="stylesheet">
       {% endif %}
+      <style>
+        :root {
+          {% if gimnasio.color_primario %}--color-primario: {{ gimnasio.color_primario }};{% endif %}
+          {% if gimnasio.color_secundario %}--color-secundario: {{ gimnasio.color_secundario }};{% endif %}
+          {% comment %}
+            |safe: <style> es un elemento "raw text" -- el navegador no decodifica
+            entidades ahí adentro, así que el autoescape de Django (que convierte
+            las comillas de 'Playfair Display', Georgia, serif en &#x27;) rompe
+            el CSS en vez de protegerlo. El valor sale de TIPOGRAFIA_FUENTES, un
+            dict fijo del código, nunca de input de usuario.
+          {% endcomment %}
+          --font-gimnasio: {{ gimnasio.tipografia_css_family|safe }};
+        }
+      </style>
     {% endwith %}
   {% endif %}
   <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
@@ -46,8 +57,6 @@
       <a href="{% url 'alumnos:listado' %}">Alumnos</a>
       <a href="{% url 'ejercicios:listado' %}">Ejercicios</a>
       <a href="{% url 'rutinas:plantilla_listado' %}">Rutinas</a>
-      <a href="{% url 'importaciones:plantillas_subir' %}">Importar rutinas</a>
-      <a href="{% url 'importaciones:biblioteca_subir' %}">Importar ejercicios</a>
       <a href="{% url 'pagos:listado' %}">Pagos</a>
       <a href="{% url 'turnos:agenda' %}">Turnos</a>
       <a href="{% url 'novedades:listado' %}">Novedades</a>

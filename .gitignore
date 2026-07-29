@@ -42,3 +42,8 @@ node_modules/
 # Worktrees de desarrollo aislado (Claude Code)
 .worktrees/
 .superpowers/
+
+# Cache local de sesión de la skill impeccable (paths absolutos de máquina,
+# session ids) -- .impeccable/config.json (las reglas ignoradas del equipo)
+# SÍ se versiona.
+.impeccable/hook.cache.json

@@ -238,6 +238,16 @@ plan original).
   `confirmar_importacion_*` recién ahí escribe, adentro de una transacción
   con `select_for_update()` sobre la `Importacion` (mismo patrón anti-TOCTOU
   que el resto del repo — evita doble confirmación concurrente).
+- **Entrada al importador desde el listado, no desde el nav**: `Importar
+  rutinas`/`Importar ejercicios` ya no son items propios del nav-staff
+  (`base.html`) — el alta manual y la importación desde Excel de cada
+  dominio quedan juntas en su pantalla de listado (`rutinas/plantilla_list.
+  html`, `ejercicios/ejercicio_list.html`), un botón `.boton` ("Nueva
+  plantilla"/"Nuevo ejercicio") junto a uno `.boton-secundario` ("Importar
+  desde Excel") en el mismo `.acciones-lista`, mismo patrón que ya usaba
+  `pagos/pago_list.html` con dos acciones secundarias. Acorta el nav de 10 a
+  8 items y pone las dos formas de cargar datos en el mismo lugar en vez de
+  dispersas.
 - **`parsing.py`** es Django-free a propósito (testeable con
   `SimpleTestCase`, sin DB) — lee el `.xlsx` con `openpyxl`, resuelve celdas
   combinadas, detecta columnas por alias (case/acentos-insensible) y arma
@@ -292,11 +302,39 @@ plan original).
   gimnasio logueado tiene colores propios. El resto de la UI los referencia
   vía `bg-[var(--color-primario)]` (clases arbitrarias) o, para lo ya
   existente, a través de `.boton`/`.tabla th`/etc.
+- **Tipografía por gimnasio**: `Gimnasio.tipografia` es un `TextChoices` con
+  6 opciones curadas de Google Fonts (Inter, Montserrat, Poppins, Oswald,
+  Playfair Display) más `sistema` como default — texto libre queda afuera a
+  propósito, mismo criterio que `grupo_muscular` de `Ejercicio`: un catálogo
+  cerrado evita que el dueño rompa la estética con una fuente ilegible. El
+  default `sistema` no carga ningún recurso externo: mapea a `var(--font-sans)`,
+  el stack que Tailwind v4 ya aplica por preflight, así que un gimnasio
+  existente no cambia de aspecto hasta que el dueño elige explícitamente. Las
+  demás opciones se sirven desde Google Fonts CDN, no auto-hospedadas (mismo
+  criterio que Alpine.js/htmx por CDN) — se reevalúa si el tráfico lo
+  justifica. El mapeo tipografía → (familia CSS, query de Google Fonts) vive
+  en `Gimnasio.TIPOGRAFIA_FUENTES`, única fuente de verdad para `base.html` y
+  el preview en vivo de `gimnasio_form.html`. La variable `--font-gimnasio`
+  sigue el mismo patrón que los colores (default en `input.css`, override
+  inline en `base.html`), aplicada vía `font-[family-name:var(--font-gimnasio)]`
+  en `body` — el hint `family-name:` es necesario porque sin él Tailwind
+  interpreta `font-[var(...)]` como `font-weight`, no `font-family` (ambigüedad
+  de la sintaxis de valores arbitrarios). **Gotcha de autoescape**: el valor de
+  `tipografia_css_family` se inyecta en `base.html` con `|safe` a propósito —
+  `<style>` es un elemento "raw text" y el navegador no decodifica entidades
+  ahí adentro, así que sin `|safe` el autoescape de Django convierte las
+  comillas de `'Playfair Display'` en `&#x27;` y rompe el CSS en vez de
+  protegerlo (el valor sale de un dict fijo del código, nunca de input de
+  usuario, por eso es seguro). Ver `tenants.tests.GimnasioUpdateViewTests.
+  test_tipografia_con_comillas_no_queda_html_escapada`.
 - **`tenants:gimnasio_editar`** (`GimnasioUpdateView`, sin pk en la URL —
-  siempre edita el gimnasio del `Perfil` logueado): logo, colores, texto de
-  bienvenida, contacto, redes. Es lo que le faltaba a Fase 1/2: el modelo
-  tenía estos campos desde Fase 1 pero no había ninguna vista para editarlos
-  fuera de `/admin/`.
+  siempre edita el gimnasio del `Perfil` logueado): logo, colores, tipografía,
+  texto de bienvenida, contacto, redes, con preview en vivo (JS vanilla sobre
+  el mismo `<form>`, sin depender de htmx porque el form ya tiene
+  `hx-boost="false"` por el upload de logo) de cómo el alumno va a ver esos
+  cambios antes de guardar. Es lo que le faltaba a Fase 1/2: el modelo tenía
+  estos campos desde Fase 1 pero no había ninguna vista para editarlos fuera
+  de `/admin/`.
 - **HTMX**: `hx-boost="true"` en `<body>` (`base.html`) — convierte toda
   navegación por `<a>`/`<form>` normal en transiciones AJAX sin reescribir
   ninguna vista (siguen devolviendo la página completa; htmx solo evita el

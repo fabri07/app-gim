@@ -1,20 +1,151 @@
 {% extends 'base.html' %}
 {% block title %}Mi gimnasio · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
 
 {% block content %}
-<div class="tarjeta">
+<div class="contenido--ancho">
   <h1>Personalizar mi gimnasio</h1>
   <p class="texto-suave">
-    Estos datos se ven en el portal del alumno y en la barra superior:
-    nombre, logo, colores, mensaje de bienvenida, contacto y redes.
+    Estos datos se ven en el portal del alumno y en la barra superior: logo,
+    colores, tipografía, mensaje de bienvenida, contacto y redes.
   </p>
-  <form method="post" enctype="multipart/form-data" novalidate hx-boost="false">
-    {% csrf_token %}
-    {% if object.logo %}
-      <p><img src="{{ object.logo.url }}" alt="{{ object.nombre }}" class="h-16 w-auto rounded mb-3"></p>
-    {% endif %}
-    {{ form.as_p }}
-    <button type="submit" class="boton">Guardar</button>
-  </form>
+
+  <div class="config-layout">
+    <form method="post" enctype="multipart/form-data" novalidate hx-boost="false" class="tarjeta" id="form-gimnasio">
+      {% csrf_token %}
+
+      <div class="config-grupo">
+        <h2>Identidad</h2>
+        {{ form.nombre.label_tag }}
+        {{ form.nombre }}
+        {% if form.nombre.errors %}<p class="config-error">{{ form.nombre.errors.0 }}</p>{% endif %}
+
+        {% if object.logo %}
+          <div class="config-logo-actual">
+            <img src="{{ object.logo.url }}" alt="{{ object.nombre }}">
+            <span class="texto-suave">Logo actual</span>
+          </div>
+        {% endif %}
+        <label for="{{ form.logo.id_for_label }}">Logo</label>
+        {{ form.logo }}
+        <p class="texto-suave">PNG o SVG con fondo transparente se ve mejor.</p>
+        {% if form.logo.errors %}<p class="config-error">{{ form.logo.errors.0 }}</p>{% endif %}
+      </div>
+
+      <div class="config-grupo">
+        <h2>Apariencia</h2>
+        <div class="config-fila">
+          <div>
+            {{ form.color_primario.label_tag }}
+            {{ form.color_primario }}
+          </div>
+          <div>
+            {{ form.color_secundario.label_tag }}
+            {{ form.color_secundario }}
+          </div>
+        </div>
+        {{ form.tipografia.label_tag }}
+        {{ form.tipografia }}
+        {% if form.tipografia.errors %}<p class="config-error">{{ form.tipografia.errors.0 }}</p>{% endif %}
+      </div>
+
+      <div class="config-grupo">
+        <h2>Mensaje y contacto</h2>
+        {{ form.texto_bienvenida.label_tag }}
+        {{ form.texto_bienvenida }}
+        {{ form.contacto.label_tag }}
+        {{ form.contacto }}
+        <div class="config-fila">
+          <div>
+            {{ form.link_instagram.label_tag }}
+            {{ form.link_instagram }}
+          </div>
+          <div>
+            {{ form.link_whatsapp.label_tag }}
+            {{ form.link_whatsapp }}
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="boton">Guardar cambios</button>
+    </form>
+
+    <aside class="config-preview" aria-label="Vista previa de tu marca">
+      <p class="config-preview__etiqueta">Así lo ve tu alumno</p>
+      <div class="config-preview__ventana" id="preview-ventana">
+        <div class="config-preview__chrome">
+          <span class="config-preview__punto"></span>
+          <span class="config-preview__punto"></span>
+          <span class="config-preview__punto"></span>
+        </div>
+        <div class="config-preview__topbar">
+          <img class="config-preview__logo" id="preview-logo" src="{% if object.logo %}{{ object.logo.url }}{% endif %}" alt="" {% if not object.logo %}hidden{% endif %}>
+          <span class="config-preview__marca" id="preview-nombre">{{ object.nombre }}</span>
+        </div>
+        <div class="config-preview__cuerpo">
+          <p class="config-preview__mensaje" id="preview-mensaje">{{ object.texto_bienvenida|default:"Mensaje de bienvenida para tus alumnos." }}</p>
+          <button type="button" class="boton" tabindex="-1">Ejemplo de botón</button>
+        </div>
+      </div>
+    </aside>
+  </div>
 </div>
+
+{{ tipografia_fuentes|json_script:"tipografia-fuentes-data" }}
+<script>
+  (function () {
+    var fuentes = JSON.parse(document.getElementById("tipografia-fuentes-data").textContent);
+    var ventana = document.getElementById("preview-ventana");
+
+    var nombre = document.getElementById("id_nombre");
+    if (nombre) {
+      nombre.addEventListener("input", function () {
+        document.getElementById("preview-nombre").textContent = nombre.value || "Mi gimnasio";
+      });
+    }
+
+    var bienvenida = document.getElementById("id_texto_bienvenida");
+    if (bienvenida) {
+      bienvenida.addEventListener("input", function () {
+        document.getElementById("preview-mensaje").textContent =
+          bienvenida.value || "Mensaje de bienvenida para tus alumnos.";
+      });
+    }
+
+    var colorPrimario = document.getElementById("id_color_primario");
+    if (colorPrimario) {
+      colorPrimario.addEventListener("input", function () {
+        ventana.style.setProperty("--color-primario", colorPrimario.value);
+      });
+    }
+
+    var colorSecundario = document.getElementById("id_color_secundario");
+    if (colorSecundario) {
+      colorSecundario.addEventListener("input", function () {
+        ventana.style.setProperty("--color-secundario", colorSecundario.value);
+      });
+    }
+
+    var tipografia = document.getElementById("id_tipografia");
+    if (tipografia) {
+      tipografia.addEventListener("change", function () {
+        var fuente = fuentes[tipografia.value];
+        if (fuente) {
+          ventana.style.setProperty("--font-gimnasio", fuente.css_family);
+        }
+      });
+    }
+
+    var logo = document.getElementById("id_logo");
+    if (logo) {
+      logo.addEventListener("change", function () {
+        var archivo = logo.files && logo.files[0];
+        if (!archivo) return;
+        var previewLogo = document.getElementById("preview-logo");
+        previewLogo.src = URL.createObjectURL(archivo);
+        previewLogo.hidden = false;
+      });
+    }
+  })();
+</script>
 {% endblock %}
