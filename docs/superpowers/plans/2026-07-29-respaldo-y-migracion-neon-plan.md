@@ -351,7 +351,7 @@ Anotarlos; se usan en Task 5. (Task 3 y 4 no usan actions de terceros.)
 
 - [ ] **Step 2: Crear `.github/workflows/backup.yml`**
 
-Reemplazar `17` por la major que reportó Neon en M1.
+Major de Neon confirmada: **18** (PostgreSQL 18.4, región sa-east-1).
 
 ```yaml
 name: Backup diario de Postgres
@@ -384,7 +384,7 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
           pg_dump --version
           gpg --version | head -1
           aws --version
@@ -532,7 +532,7 @@ jobs:
     timeout-minutes: 25
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: verify
@@ -562,7 +562,7 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
           pg_restore --version
           gpg --version | head -1
           aws --version

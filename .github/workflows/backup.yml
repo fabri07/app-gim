@@ -1,0 +1,128 @@
+# Backup diario de la base de producción (Neon) a Cloudflare R2.
+#
+# Ver el diseño completo en:
+#   docs/superpowers/specs/2026-07-29-respaldo-y-migracion-neon-design.md
+#
+# Decisiones que NO hay que revertir sin leer el spec:
+#  - `pg_dump`, nunca `dumpdata`: `calendario/signals.py` no chequea `raw`, así
+#    que un `loaddata` sincronizaría cada Reserva contra la API real de Google
+#    Calendar.
+#  - URL DIRECTA de Neon, no la pooled: el pooler no sostiene bien la sesión
+#    larga de un dump.
+#  - El dump nunca se sube como artifact: va cifrado directo a R2.
+
+name: Backup diario de Postgres
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 06:00 UTC = 03:00 ART, fuera de horario de gimnasio
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: backup-production
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      monthly: ${{ steps.subir.outputs.monthly }}
+      objeto: ${{ steps.subir.outputs.objeto }}
+    steps:
+      # La major va fija (Neon corre PostgreSQL 18): pg_dump no puede volcar un
+      # servidor de una major posterior a la suya, y ese error solo aparece
+      # contra la base real. Si Neon sube de major, actualizar acá primero.
+      - name: Instalar postgresql-client y verificar herramientas
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          pg_dump --version
+          gpg --version | head -1
+          aws --version
+
+      - name: Generar el dump
+        env:
+          PGURL: ${{ secrets.NEON_DATABASE_URL_DIRECT }}
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          pg_dump --format=custom --no-owner --no-privileges \
+            --file="app-gim-$STAMP.dump" "$PGURL"
+          ls -lh "app-gim-$STAMP.dump"
+
+      # `--pinentry-mode loopback` es obligatorio: sin él GnuPG 2.x intenta
+      # abrir pinentry y falla en un runner sin terminal. La passphrase entra
+      # por stdin, nunca como argumento (quedaría visible en `ps`).
+      - name: Cifrar y calcular checksum
+        env:
+          KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$KEY" | gpg --symmetric --batch --yes \
+            --pinentry-mode loopback --cipher-algo AES256 --passphrase-fd 0 \
+            --output "app-gim-$STAMP.dump.gpg" "app-gim-$STAMP.dump"
+          rm -f "app-gim-$STAMP.dump"
+          # Checksum sobre el archivo YA CIFRADO: lo que hay que detectar es una
+          # subida truncada, y así se verifica antes de intentar descifrar.
+          sha256sum "app-gim-$STAMP.dump.gpg" > "app-gim-$STAMP.dump.gpg.sha256"
+          cat "app-gim-$STAMP.dump.gpg.sha256"
+          ls -lh "app-gim-$STAMP.dump.gpg"
+
+      - name: Subir a R2
+        id: subir
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUPS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUPS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          ENDPOINT: ${{ secrets.R2_BACKUPS_ENDPOINT_URL }}
+          BUCKET: ${{ secrets.R2_BACKUPS_BUCKET_NAME }}
+        run: |
+          set -euo pipefail
+          OBJ="app-gim-$STAMP.dump.gpg"
+          for f in "$OBJ" "$OBJ.sha256"; do
+            aws s3 cp "$f" "s3://$BUCKET/daily/$f" --endpoint-url "$ENDPOINT"
+          done
+          echo "objeto=$OBJ" >> "$GITHUB_OUTPUT"
+          # El día 1 va también a monthly/, que tiene bucket lock a 12 meses.
+          # (daily/ NO puede tener lock: el lock gana sobre la lifecycle y la
+          # expiración a 30 días no ocurriría nunca.)
+          if [ "$(date -u +%d)" = "01" ]; then
+            for f in "$OBJ" "$OBJ.sha256"; do
+              aws s3 cp "$f" "s3://$BUCKET/monthly/$f" --endpoint-url "$ENDPOINT"
+            done
+            echo "monthly=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "monthly=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Solo si todo lo anterior salió bien. Healthchecks alerta por AUSENCIA
+      # de este ping: cubre el dump fallido, el workflow desactivado por
+      # inactividad del repo, y GitHub Actions caído. Un chequeo que corriera
+      # acá adentro no serviría -- si Actions no corre, tampoco correría él.
+      - name: Avisar a Healthchecks
+        run: curl -fsS -m 10 --retry 3 "${{ secrets.HEALTHCHECKS_URL_BACKUP }}"
+
+  # Encadenar acá (y no con un `schedule` propio) elimina una carrera real:
+  # GitHub no garantiza puntualidad en los cron, así que una verificación
+  # agendada "una hora después" podría correr antes de que el backup del día 1
+  # termine y terminar validando el del día anterior -- dando por sano un
+  # mensual que nunca se probó. Así se verifica EXACTAMENTE el objeto recién
+  # escrito, sin ventanas de tiempo ni heurísticas de antigüedad.
+  verificar:
+    needs: backup
+    if: needs.backup.outputs.monthly == 'true'
+    uses: ./.github/workflows/backup-verify.yml
+    with:
+      objeto: ${{ needs.backup.outputs.objeto }}
+      prefijo: monthly
+    secrets: inherit

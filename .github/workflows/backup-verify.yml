@@ -1,0 +1,143 @@
+# Verificación del backup restaurándolo DE VERDAD en un Postgres descartable.
+#
+# Un backup que nunca se restauró no está verificado: el archivo puede existir,
+# pesar lo esperado y ser inservible. Este workflow baja el objeto, valida el
+# checksum, lo descifra, lo restaura en un container y consulta el resultado.
+#
+# Es un reusable workflow (`workflow_call`) a propósito: lo invoca
+# `backup.yml` pasándole el nombre EXACTO del objeto que acaba de escribir, lo
+# que elimina cualquier carrera con el cron. Ver el spec en
+# docs/superpowers/specs/2026-07-29-respaldo-y-migracion-neon-design.md
+
+name: Verificación del backup (restore real)
+
+on:
+  workflow_call:
+    inputs:
+      objeto:
+        description: Nombre del archivo .dump.gpg a verificar
+        required: true
+        type: string
+      prefijo:
+        description: Prefijo en el bucket (daily | monthly)
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      objeto:
+        description: Nombre del .dump.gpg (vacío = el más reciente del prefijo)
+        required: false
+        type: string
+      prefijo:
+        description: Prefijo en el bucket (daily | monthly)
+        required: false
+        default: daily
+        type: string
+
+permissions: {}
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      # Postgres descartable: no se restaura en una branch de Neon para no
+      # consumir su cuota free ni tocar nada real. La major debe coincidir con
+      # la de Neon (18).
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: verify
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUPS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUPS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      ENDPOINT: ${{ secrets.R2_BACKUPS_ENDPOINT_URL }}
+      BUCKET: ${{ secrets.R2_BACKUPS_BUCKET_NAME }}
+      PGTARGET: postgresql://postgres:postgres@localhost:5432/verify
+      OBJETO_IN: ${{ inputs.objeto }}
+      PREFIJO: ${{ inputs.prefijo }}
+    steps:
+      - name: Instalar postgresql-client y verificar herramientas
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          pg_restore --version
+          gpg --version | head -1
+          aws --version
+
+      - name: Resolver y bajar el objeto
+        run: |
+          set -euo pipefail
+          PREF="${PREFIJO:-daily}"
+          OBJ="${OBJETO_IN:-}"
+          if [ -z "$OBJ" ]; then
+            # Solo en corrida manual sin argumento. La invocación automática
+            # SIEMPRE pasa el objeto exacto, así que acá no hay carrera posible.
+            OBJ="$(aws s3 ls "s3://$BUCKET/$PREF/" --endpoint-url "$ENDPOINT" \
+              | awk '{print $4}' | grep '\.dump\.gpg$' | sort | tail -1)"
+          fi
+          test -n "$OBJ"
+          echo "OBJ=$OBJ" >> "$GITHUB_ENV"
+          aws s3 cp "s3://$BUCKET/$PREF/$OBJ" . --endpoint-url "$ENDPOINT"
+          aws s3 cp "s3://$BUCKET/$PREF/$OBJ.sha256" . --endpoint-url "$ENDPOINT"
+          ls -lh "$OBJ"
+
+      - name: Verificar checksum
+        run: |
+          set -euo pipefail
+          sha256sum -c "$OBJ.sha256"
+
+      - name: Descifrar
+        env:
+          KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$KEY" | gpg --batch --yes --pinentry-mode loopback \
+            --passphrase-fd 0 --output restore.dump --decrypt "$OBJ"
+
+      - name: Restaurar en el container
+        run: |
+          set -euo pipefail
+          pg_restore --no-owner --no-privileges --dbname "$PGTARGET" restore.dump
+
+      - name: Validar el contenido restaurado
+        run: |
+          set -euo pipefail
+          Q() { psql "$PGTARGET" -tAc "$1" | tr -d '[:space:]'; }
+          ESENCIALES="$(Q "select count(*) from information_schema.tables
+            where table_schema='public' and table_name in (
+              'auth_user','tenants_gimnasio','tenants_perfil','alumnos_alumno',
+              'rutinas_rutinaasignada','pagos_pagomensual','turnos_reserva',
+              'novedades_novedad','importaciones_importacion','django_migrations')")"
+          MIGRACIONES="$(Q "select count(*) from django_migrations")"
+          USUARIOS="$(Q "select count(*) from auth_user")"
+          echo "tablas_esenciales=$ESENCIALES migraciones=$MIGRACIONES usuarios=$USUARIOS"
+          # Se nombran las 10 tablas esenciales en vez de exigir un total >= N:
+          # un umbral numérico pasa igual si falta justo la tabla que importa.
+          test "$ESENCIALES" -eq 10
+          # django_migrations poblada = el esquema se restauró completo. No se
+          # pinea el nombre de la última migración: cambia en cada feature y
+          # volvería frágil la verificación.
+          test "$MIGRACIONES" -ge 1
+          # No se exigen filas en tablas de dominio: un gimnasio recién dado de
+          # alta puede tener 0 alumnos legítimamente, y un falso positivo
+          # entrena a ignorar la alerta.
+          test "$USUARIOS" -ge 1
+
+      - name: Avisar a Healthchecks
+        run: curl -fsS -m 10 --retry 3 "${{ secrets.HEALTHCHECKS_URL_VERIFY }}"
