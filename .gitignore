@@ -47,3 +47,7 @@ node_modules/
 # session ids) -- .impeccable/config.json (las reglas ignoradas del equipo)
 # SÍ se versiona.
 .impeccable/hook.cache.json
+
+# Capturas de pantalla locales (dashboards de Render/Cloudflare, etc.) --
+# nunca deben subirse al repo, pueden mostrar valores revelados.
+capturas/
