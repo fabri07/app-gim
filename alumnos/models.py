@@ -36,6 +36,17 @@ class Alumno(TenantOwnedModel):
         ACTIVO = "activo", "Activo"
         INACTIVO = "inactivo", "Inactivo"
 
+    class Sexo(models.TextChoices):
+        MASCULINO = "masculino", "Masculino"
+        FEMENINO = "femenino", "Femenino"
+        NO_DECIR = "no_decir", "Prefiere no decir"
+
+    class FrecuenciaActividad(models.TextChoices):
+        DIARIA = "diaria", "Diaria"
+        VARIAS_POR_SEMANA = "varias_por_semana", "Varias veces por semana"
+        UNA_POR_SEMANA = "una_por_semana", "Una vez por semana"
+        OCASIONAL = "ocasional", "Ocasional"
+
     nombre = models.CharField(max_length=120)
     apellido = models.CharField(max_length=120)
     email = models.EmailField(blank=True)
@@ -44,6 +55,29 @@ class Alumno(TenantOwnedModel):
     estado = models.CharField(
         max_length=10, choices=Estado.choices, default=Estado.ACTIVO
     )
+    # Ficha de inscripción ampliada (cargada por el staff el día del alta):
+    # todos blank=True a propósito -- no todo alumno cuenta todo el detalle
+    # en el momento, y los alumnos ya existentes no tienen esta info.
+    sexo = models.CharField(max_length=10, choices=Sexo.choices, blank=True)
+    actividad_fisica_previa = models.BooleanField(
+        default=False, help_text="¿Hacía actividad física antes de anotarse?"
+    )
+    frecuencia_actividad_previa = models.CharField(
+        max_length=20,
+        choices=FrecuenciaActividad.choices,
+        blank=True,
+        help_text="Solo si hacía actividad física antes.",
+    )
+    deportes_practica = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text='Qué deporte(s) practica, o "ninguno". Texto libre: no '
+        "amerita un catálogo cerrado como sí lo tiene grupo_muscular.",
+    )
+    tiene_discapacidad = models.BooleanField(default=False)
+    discapacidad_detalle = models.CharField(max_length=200, blank=True)
+    tiene_enfermedad_cronica = models.BooleanField(default=False)
+    enfermedad_cronica_detalle = models.CharField(max_length=200, blank=True)
     observaciones = models.TextField(blank=True)
     fecha_activacion = models.DateTimeField(
         null=True,

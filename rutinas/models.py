@@ -243,6 +243,12 @@ class RutinaAsignadaItem(TimeStampedModel):
     histórica de un alumno.
     """
 
+    class RPE(models.TextChoices):
+        MAS_INTENSO = "mas_intenso", "Podría hacer más intenso"
+        SEGUIR_INTENSIDAD = "seguir_intensidad", "Podría seguir con esta intensidad"
+        AL_LIMITE = "al_limite", "Estoy al límite"
+        BAJAR_INTENSIDAD = "bajar_intensidad", "Debería bajar la intensidad"
+
     rutina_asignada = models.ForeignKey(
         RutinaAsignada,
         on_delete=models.CASCADE,
@@ -250,6 +256,14 @@ class RutinaAsignadaItem(TimeStampedModel):
     )
     ejercicio_nombre_snapshot = models.CharField(max_length=120)
     ejercicio_video_snapshot = models.URLField(blank=True)
+    rpe = models.CharField(
+        max_length=20,
+        choices=RPE.choices,
+        blank=True,
+        help_text="Cómo sintió el alumno la intensidad de este ejercicio "
+        "esta semana. Lo carga el propio alumno desde su portal, no el "
+        "staff. blank=True: recién se completa cuando el alumno lo califica.",
+    )
     semana = models.PositiveSmallIntegerField(
         default=1,
         validators=[MinValueValidator(1), MaxValueValidator(SEMANAS_POR_CICLO)],

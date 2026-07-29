@@ -15,6 +15,7 @@ de otro gimnasio, eso ya devuelve 404 antes de tocar ningún item.
 """
 
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views import View
@@ -23,8 +24,13 @@ from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
 from rutinas.forms import AsignarRutinaForm, RutinaPlantillaForm, RutinaPlantillaItemForm
-from rutinas.models import RutinaAsignada, RutinaPlantilla, RutinaPlantillaItem
-from tenants.mixins import StaffRequiredMixin
+from rutinas.models import (
+    RutinaAsignada,
+    RutinaAsignadaItem,
+    RutinaPlantilla,
+    RutinaPlantillaItem,
+)
+from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 
 
 # ---------------------------------------------------------------------------
@@ -216,3 +222,38 @@ class RutinaAsignadaDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView
         context = super().get_context_data(**kwargs)
         context["items"] = self.object.items.all()
         return context
+
+
+class RutinaAsignadaItemCalificarView(AlumnoRequiredMixin, View):
+    """El alumno califica el RPE de un ejercicio de su rutina ACTIVA.
+
+    Solo POST -- es una escritura, mismo criterio que
+    `novedades.views.NovedadMarcarLeidaView`. El item se busca acotado a
+    `rutina_asignada__alumno` Y `rutina_asignada__activa=True`: calificar una
+    rutina vieja/cerrada no tiene sentido (el staff ya no la está ajustando
+    en base a ese feedback), así que un intento contra un item de una
+    asignación inactiva da 404, igual que uno de otro alumno -- no es un
+    tema de permisos, es que ese item "no existe" para calificar desde la
+    perspectiva del alumno.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        if self.alumno is None:
+            raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
+        item = get_object_or_404(
+            RutinaAsignadaItem.objects.filter(
+                rutina_asignada__alumno=self.alumno,
+                rutina_asignada__activa=True,
+            ),
+            pk=kwargs["pk"],
+        )
+        valor = request.POST.get("rpe", "")
+        if valor not in RutinaAsignadaItem.RPE.values:
+            messages.error(request, "Esa opción de RPE no es válida.")
+            return redirect("home")
+        item.rpe = valor
+        item.save(update_fields=["rpe"])
+        messages.success(request, "Gracias, guardamos tu feedback.")
+        return redirect("home")

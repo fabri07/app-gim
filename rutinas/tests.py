@@ -879,3 +879,127 @@ class RutinasViewsTests(TestCase):
         self.assertContains(response, "Sentadilla A")
         self.assertEqual(response.context["asignada"], nueva_asignada)
         self.assertEqual(response.context["asignada"].fecha_inicio, date(2026, 4, 1))
+
+
+class RutinaAsignadaItemCalificarViewTests(TestCase):
+    """El alumno califica el RPE de un item de su rutina asignada ACTIVA
+    (Fase 7: ficha ampliada + RPE). Solo POST, y solo contra items propios de
+    una asignación activa -- mismo criterio de "no existe" (404, no 403) que
+    `NovedadMarcarLeidaView`."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+
+        self.usuario_alumno = User.objects.create_user(
+            "usuario_alumno", password="clave-123456"
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Pérez"
+        )
+        self.perfil_alumno = Perfil.objects.create(
+            usuario=self.usuario_alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno.perfil = self.perfil_alumno
+        self.alumno.save()
+
+        self.otro_alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Bruno", apellido="Gómez"
+        )
+
+        self.asignada_activa = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            nombre_snapshot="Rutina activa",
+            objetivo_snapshot="Hipertrofia",
+            fecha_inicio=date(2026, 1, 1),
+            activa=True,
+        )
+        self.item = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada_activa,
+            ejercicio_nombre_snapshot="Sentadilla",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=4,
+            repeticiones="8-12",
+        )
+
+        self.asignada_inactiva = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            nombre_snapshot="Rutina vieja",
+            objetivo_snapshot="Fuerza",
+            fecha_inicio=date(2025, 1, 1),
+            fecha_fin=date(2025, 12, 31),
+            activa=False,
+        )
+        self.item_inactivo = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada_inactiva,
+            ejercicio_nombre_snapshot="Peso muerto",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="5",
+        )
+
+        self.item_de_otro_alumno = RutinaAsignadaItem.objects.create(
+            rutina_asignada=RutinaAsignada.objects.create(
+                gimnasio=self.gimnasio,
+                alumno=self.otro_alumno,
+                nombre_snapshot="Rutina de Bruno",
+                objetivo_snapshot="Fuerza",
+                fecha_inicio=date(2026, 1, 1),
+                activa=True,
+            ),
+            ejercicio_nombre_snapshot="Press banca",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=4,
+            repeticiones="10",
+        )
+
+    def _url(self, item):
+        return reverse("rutinas:item_calificar", args=[item.pk])
+
+    def test_anonimo_redirige_a_login(self):
+        response = self.client.post(self._url(self.item), {"rpe": "al_limite"})
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_get_no_esta_permitido(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.get(self._url(self.item))
+        self.assertEqual(response.status_code, 405)
+
+    def test_alumno_califica_su_propio_item(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.post(self._url(self.item), {"rpe": "al_limite"})
+        self.assertRedirects(response, reverse("home"))
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.rpe, RutinaAsignadaItem.RPE.AL_LIMITE)
+
+    def test_valor_invalido_no_se_guarda(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.post(self._url(self.item), {"rpe": "no-es-una-opcion"})
+        self.assertRedirects(response, reverse("home"))
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.rpe, "")
+
+    def test_item_de_otro_alumno_da_404(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.post(
+            self._url(self.item_de_otro_alumno), {"rpe": "al_limite"}
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_item_de_rutina_inactiva_da_404(self):
+        """Calificar una rutina vieja/cerrada no tiene sentido: el staff ya
+        no la está ajustando en base a ese feedback."""
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.post(
+            self._url(self.item_inactivo), {"rpe": "al_limite"}
+        )
+        self.assertEqual(response.status_code, 404)

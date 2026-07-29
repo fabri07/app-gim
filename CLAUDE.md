@@ -87,7 +87,17 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
 
 ## Apps de dominio
 
-- **`alumnos`** — `Alumno(TenantOwnedModel)`.
+- **`alumnos`** — `Alumno(TenantOwnedModel)`. Además de los datos de contacto
+  de Fase 1, tiene una ficha de inscripción ampliada (agregada después de
+  Fase 6, fuera del scope original) que el staff carga el día del alta:
+  `sexo` y `frecuencia_actividad_previa` son catálogos cerrados (`TextChoices`,
+  mismo criterio que `grupo_muscular` de `Ejercicio`); `deportes_practica`,
+  `discapacidad_detalle` y `enfermedad_cronica_detalle` son texto libre a
+  propósito (no amerita un catálogo cerrado). Todos `blank=True`/opcionales:
+  no todo alumno cuenta todo el detalle en el momento, y los alumnos ya
+  existentes antes de esta feature no lo tienen cargado. La edad sigue
+  siendo `fecha_nacimiento` (ya existía) — no se agregó un campo `edad`
+  aparte para no duplicar el dato y arriesgar que se desincronice.
 - **`ejercicios`** — `Ejercicio(TenantOwnedModel)`, biblioteca por gimnasio
   (no global; ver docstring del módulo).
 - **`rutinas`** — `RutinaPlantilla`/`RutinaPlantillaItem` (editable) y
@@ -95,6 +105,21 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   hace con `RutinaAsignada.crear_desde_plantilla(...)` y
   `RutinaPlantilla.duplicar()` — ambas transaccionales. Los modelos "Item" NO
   son `TenantOwnedModel` (se acceden vía su padre, que ya está scopeado).
+  **RPE** (agregado después de Fase 6): `RutinaAsignadaItem.rpe` es un
+  `TextChoices` de 4 niveles ("Podría hacer más intenso" ... "Debería bajar
+  la intensidad") que el propio alumno carga desde su portal (`home.html`,
+  un `<select>` que se auto-envía a `rutinas:item_calificar`,
+  `RutinaAsignadaItemCalificarView` con `AlumnoRequiredMixin`, mismo patrón
+  que `NovedadMarcarLeidaView`) — solo puede calificar items de su rutina
+  **activa** (una vieja/cerrada da 404, igual que un item de otro alumno). El
+  staff lo ve de solo lectura en `rutinas:asignada_detalle`. **Riesgo
+  aceptado a propósito**: como `RutinaAsignadaItem` no tiene FK viva a
+  `Ejercicio` (es un snapshot, ver arriba), agregar el RPE por ejercicio para
+  el dashboard del dueño va a tener que agrupar por `ejercicio_nombre_snapshot`
+  (texto) — si un ejercicio se renombra en la biblioteca, el historial viejo
+  de RPE no se fusiona con el nombre nuevo. Es consecuencia directa de que el
+  RPE es una calificación por sesión/semana (lo que pidió el dueño del
+  producto), no una opinión general y estable del ejercicio.
 - **`pagos`** — `PagoMensual(TenantOwnedModel)` y `MedioCobro(TenantOwnedModel)`
   (alias/CBU/lo que el gimnasio muestra al alumno para pagar, editable por
   staff). `pagos/models.py` expone `generar_pagos_pendientes(mes, anio)` y
@@ -318,8 +343,9 @@ plan original).
   sigue el mismo patrón que los colores (default en `input.css`, override
   inline en `base.html`), aplicada vía `font-[family-name:var(--font-gimnasio)]`
   en `body` — el hint `family-name:` es necesario porque sin él Tailwind
-  interpreta `font-[var(...)]` como `font-weight`, no `font-family` (ambigüedad
-  de la sintaxis de valores arbitrarios). **Gotcha de autoescape**: el valor de
+  interpreta un valor arbitrario de font sin ese hint como `font-weight`, no
+  `font-family` (ambigüedad de la sintaxis de valores arbitrarios). **Gotcha
+  de autoescape**: el valor de
   `tipografia_css_family` se inyecta en `base.html` con `|safe` a propósito —
   `<style>` es un elemento "raw text" y el navegador no decodifica entidades
   ahí adentro, así que sin `|safe` el autoescape de Django convierte las

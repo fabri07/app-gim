@@ -39,6 +39,7 @@
           <th>Descanso</th>
           <th>Notas</th>
           <th>Video</th>
+          <th>RPE reportado</th>
         </tr>
       </thead>
       <tbody>
@@ -59,10 +60,17 @@
                 <span class="texto-suave">Sin video</span>
               {% endif %}
             </td>
+            <td>
+              {% if item.rpe %}
+                {{ item.get_rpe_display }}
+              {% else %}
+                <span class="texto-suave">Sin calificar</span>
+              {% endif %}
+            </td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="9" class="texto-suave">Esta rutina no tiene ejercicios.</td>
+            <td colspan="10" class="texto-suave">Esta rutina no tiene ejercicios.</td>
           </tr>
         {% endfor %}
       </tbody>

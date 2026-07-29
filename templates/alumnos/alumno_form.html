@@ -6,8 +6,54 @@
   <h1>{% if object %}Editar alumno{% else %}Nuevo alumno{% endif %}</h1>
   <form method="post" novalidate>
     {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">Guardar</button>
+
+    <div class="form-seccion">
+      <h2>Datos personales</h2>
+      {{ form.nombre.label_tag }}
+      {{ form.nombre }}
+      {{ form.apellido.label_tag }}
+      {{ form.apellido }}
+      {{ form.sexo.label_tag }}
+      {{ form.sexo }}
+      {{ form.fecha_nacimiento.label_tag }}
+      {{ form.fecha_nacimiento }}
+      {{ form.email.label_tag }}
+      {{ form.email }}
+      {{ form.telefono.label_tag }}
+      {{ form.telefono }}
+      {{ form.estado.label_tag }}
+      {{ form.estado }}
+    </div>
+
+    <div class="form-seccion">
+      <h2>Actividad física previa</h2>
+      {{ form.actividad_fisica_previa.label_tag }}
+      {{ form.actividad_fisica_previa }}
+      {{ form.frecuencia_actividad_previa.label_tag }}
+      {{ form.frecuencia_actividad_previa }}
+      {{ form.deportes_practica.label_tag }}
+      {{ form.deportes_practica }}
+    </div>
+
+    <div class="form-seccion">
+      <h2>Salud</h2>
+      {{ form.tiene_discapacidad.label_tag }}
+      {{ form.tiene_discapacidad }}
+      {{ form.discapacidad_detalle.label_tag }}
+      {{ form.discapacidad_detalle }}
+      {{ form.tiene_enfermedad_cronica.label_tag }}
+      {{ form.tiene_enfermedad_cronica }}
+      {{ form.enfermedad_cronica_detalle.label_tag }}
+      {{ form.enfermedad_cronica_detalle }}
+    </div>
+
+    <div class="form-seccion">
+      <h2>Notas</h2>
+      {{ form.observaciones.label_tag }}
+      {{ form.observaciones }}
+    </div>
+
+    <button type="submit" class="boton">Guardar</button>
   </form>
   <p><a href="{% url 'alumnos:listado' %}">Volver al listado</a></p>
 </div>

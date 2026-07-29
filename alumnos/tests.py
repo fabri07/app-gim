@@ -40,6 +40,21 @@ class AlumnoTests(TestCase):
         self.assertEqual(alumno.estado, Alumno.Estado.ACTIVO)
         self.assertIsNone(alumno.fecha_activacion)
 
+    def test_ficha_ampliada_por_defecto_vacia(self):
+        """Un alumno nuevo (o uno ya existente antes de esta feature) no
+        tiene ningún dato de la ficha ampliada cargado todavía."""
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        self.assertEqual(alumno.sexo, "")
+        self.assertFalse(alumno.actividad_fisica_previa)
+        self.assertEqual(alumno.frecuencia_actividad_previa, "")
+        self.assertEqual(alumno.deportes_practica, "")
+        self.assertFalse(alumno.tiene_discapacidad)
+        self.assertEqual(alumno.discapacidad_detalle, "")
+        self.assertFalse(alumno.tiene_enfermedad_cronica)
+        self.assertEqual(alumno.enfermedad_cronica_detalle, "")
+
 
 class FechaActivacionSignalTests(TestCase):
     """Fase 3: `fecha_activacion` se registra en el primer login exitoso del
@@ -198,6 +213,57 @@ class AlumnoViewsTests(TestCase):
         self.assertEqual(response.status_code, 302)
         nuevo.refresh_from_db()
         self.assertEqual(nuevo.apellido, "Alumno Editado")
+
+    def test_staff_carga_la_ficha_de_inscripcion_ampliada(self):
+        self.client.login(username="staff_a", password="clave12345")
+        datos = {
+            "nombre": "Nuevo",
+            "apellido": "Alumno",
+            "email": "",
+            "telefono": "",
+            "fecha_nacimiento": "",
+            "estado": Alumno.Estado.ACTIVO,
+            "sexo": Alumno.Sexo.FEMENINO,
+            "actividad_fisica_previa": "on",
+            "frecuencia_actividad_previa": Alumno.FrecuenciaActividad.VARIAS_POR_SEMANA,
+            "deportes_practica": "Running",
+            "tiene_discapacidad": "",
+            "discapacidad_detalle": "",
+            "tiene_enfermedad_cronica": "on",
+            "enfermedad_cronica_detalle": "Asma",
+            "observaciones": "",
+        }
+        response = self.client.post(reverse("alumnos:crear"), datos)
+        self.assertEqual(response.status_code, 302)
+        nuevo = Alumno.objects.get(apellido="Alumno", gimnasio=self.gimnasio_a)
+        self.assertEqual(nuevo.sexo, Alumno.Sexo.FEMENINO)
+        self.assertTrue(nuevo.actividad_fisica_previa)
+        self.assertEqual(
+            nuevo.frecuencia_actividad_previa,
+            Alumno.FrecuenciaActividad.VARIAS_POR_SEMANA,
+        )
+        self.assertEqual(nuevo.deportes_practica, "Running")
+        self.assertFalse(nuevo.tiene_discapacidad)
+        self.assertTrue(nuevo.tiene_enfermedad_cronica)
+        self.assertEqual(nuevo.enfermedad_cronica_detalle, "Asma")
+
+    def test_sexo_fuera_de_catalogo_es_rechazado(self):
+        self.client.login(username="staff_a", password="clave12345")
+        datos = {
+            "nombre": "Nuevo",
+            "apellido": "Alumno",
+            "email": "",
+            "telefono": "",
+            "fecha_nacimiento": "",
+            "estado": Alumno.Estado.ACTIVO,
+            "sexo": "no-es-una-opcion",
+            "observaciones": "",
+        }
+        response = self.client.post(reverse("alumnos:crear"), datos)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            Alumno.objects.filter(apellido="Alumno", gimnasio=self.gimnasio_a).exists()
+        )
 
     # 4. Aislamiento de tenant: alumno de otro gimnasio -> 404, no 403 ni leak.
     def test_aislamiento_de_tenant_devuelve_404_no_403(self):

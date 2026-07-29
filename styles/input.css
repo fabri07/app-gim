@@ -25,9 +25,9 @@
 
 @layer base {
   body {
-    /* family-name: -- sin el hint de tipo, Tailwind interpreta font-[var(...)]
-       como font-weight (el uso más común de font-[] arbitrario), no
-       font-family. */
+    /* el prefijo "family-name:" es necesario -- sin el hint de tipo,
+       Tailwind interpreta un valor arbitrario de font como font-weight (el
+       uso más común de esa utilidad arbitraria), no font-family. */
     @apply bg-gray-50 text-gray-900 font-[family-name:var(--font-gimnasio)];
   }
 
@@ -61,6 +61,10 @@
 
   input[type="color"] {
     @apply w-16 h-10 p-1;
+  }
+
+  input[type="checkbox"] {
+    @apply w-4 h-4 p-0 mb-3;
   }
 
   textarea {
@@ -259,12 +263,12 @@
     @apply grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_20rem] gap-8 items-start;
   }
 
-  .config-grupo {
+  .form-seccion {
     @apply pt-6 mt-6 border-t border-gray-100 first:pt-0 first:mt-0
       first:border-t-0;
   }
 
-  .config-grupo h2 {
+  .form-seccion h2 {
     @apply mb-4;
   }
 

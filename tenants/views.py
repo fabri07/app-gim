@@ -98,6 +98,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         """
         from novedades.models import Novedad
         from pagos.models import MedioCobro
+        from rutinas.models import RutinaAsignadaItem
 
         try:
             alumno = perfil.alumno
@@ -145,6 +146,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "rutina_actual": rutina_actual,
             "items_semana_actual": items_semana_actual,
             "semana_mostrada": semana_mostrada,
+            "rpe_choices": RutinaAsignadaItem.RPE.choices,
             "mensualidad_actual": alumno.pagos.filter(
                 mes=hoy.month, anio=hoy.year
             ).first(),

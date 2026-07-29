@@ -24,6 +24,14 @@ class AlumnoForm(TenantScopedModelForm):
             "telefono",
             "fecha_nacimiento",
             "estado",
+            "sexo",
+            "actividad_fisica_previa",
+            "frecuencia_actividad_previa",
+            "deportes_practica",
+            "tiene_discapacidad",
+            "discapacidad_detalle",
+            "tiene_enfermedad_cronica",
+            "enfermedad_cronica_detalle",
             "observaciones",
         ]
         widgets = {

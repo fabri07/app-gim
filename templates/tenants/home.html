@@ -117,6 +117,7 @@
               <th>Descanso</th>
               <th>Notas</th>
               <th>Video</th>
+              <th>RPE</th>
             </tr>
           </thead>
           <tbody>
@@ -135,9 +136,20 @@
                     <span class="texto-suave">Sin video</span>
                   {% endif %}
                 </td>
+                <td>
+                  <form method="post" action="{% url 'rutinas:item_calificar' item.pk %}">
+                    {% csrf_token %}
+                    <select name="rpe" onchange="this.form.submit()" aria-label="Calificar intensidad de {{ item.ejercicio_nombre_snapshot }}">
+                      <option value="" {% if not item.rpe %}selected{% endif %}>Sin calificar</option>
+                      {% for valor, etiqueta in rpe_choices %}
+                        <option value="{{ valor }}" {% if item.rpe == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                      {% endfor %}
+                    </select>
+                  </form>
+                </td>
               </tr>
             {% empty %}
-              <tr><td colspan="7" class="texto-suave">Todavía no hay ejercicios cargados en esta rutina.</td></tr>
+              <tr><td colspan="8" class="texto-suave">Todavía no hay ejercicios cargados en esta rutina.</td></tr>
             {% endfor %}
           </tbody>
         </table>
