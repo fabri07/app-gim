@@ -1271,10 +1271,17 @@ class SuplantacionVistasTests(TestCase):
         sesion[suplantacion.CLAVE_SESION] = datos
         sesion.save()
 
-        self.client.post(reverse("suplantacion_volver"))
+        response = self.client.post(reverse("suplantacion_volver"))
+
+        # 403 explícito, no "cualquier cosa menos el staff ajeno": sin esto el
+        # test pasaría igual con un 500 o si la sesión quedara en el alumno.
+        self.assertEqual(response.status_code, 403)
         self.assertNotEqual(
             int(self.client.session.get("_auth_user_id", 0)), staff_ajeno.pk
         )
+        # Fail-closed: la sesión se descarta entera.
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertNotIn(suplantacion.CLAVE_SESION, self.client.session)
 
     def test_el_panel_de_accesos_ofrece_entrar_como(self):
         response = self.client.get(reverse("alumnos:accesos"))
@@ -1298,3 +1305,103 @@ class SuplantacionVistasTests(TestCase):
         self.assertEqual(
             self.client.post(reverse("calendario:desconectar")).status_code, 403
         )
+
+
+class SuplantacionExpiracionTests(TestCase):
+    """`MAX_DURACION` era código muerto: `vencida()` no se llamaba desde
+    ningún lado, pero CLAUDE.md e ISSUES.md afirmaban un límite de 2 h.
+
+    Ahora lo aplica `tenants.middleware.ExpirarSuplantacionMiddleware`.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        crear_acceso(self.alumno, TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+        self.client.force_login(self.staff)
+
+    def _envejecer(self, horas):
+        sesion = self.client.session
+        datos = sesion[suplantacion.CLAVE_SESION]
+        datos["inicio"] = (timezone.now() - timedelta(hours=horas)).isoformat()
+        sesion[suplantacion.CLAVE_SESION] = datos
+        sesion.save()
+
+    def test_dentro_de_las_dos_horas_sigue_suplantando(self):
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+        self._envejecer(1)
+
+        self.client.get(reverse("home"))
+        self.assertIn(suplantacion.CLAVE_SESION, self.client.session)
+
+    def test_pasadas_las_dos_horas_vuelve_solo_a_la_cuenta_del_staff(self):
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+        self._envejecer(3)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(suplantacion.CLAVE_SESION, self.client.session)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.staff.pk)
+        self.assertIsNotNone(RegistroSuplantacion.objects.get().finalizada_en)
+
+    def test_si_no_se_puede_volver_la_sesion_se_descarta(self):
+        """Fail-closed: ante cualquier error, no dejar al staff dentro de la
+        cuenta del alumno.
+
+        Se corrompe la clave de sesión para que `volver()` levante algo que NO
+        maneja (un KeyError, no un PermissionDenied) y así ejercitar el
+        `except` del middleware. Borrar al staff no sirve como escenario: el
+        `PROTECT` de `RegistroSuplantacion` lo impide, que es justo lo que se
+        buscaba al diseñarlo.
+        """
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+        self._envejecer(3)
+
+        sesion = self.client.session
+        datos = sesion[suplantacion.CLAVE_SESION]
+        del datos["original_pk"]
+        sesion[suplantacion.CLAVE_SESION] = datos
+        sesion.save()
+
+        self.client.get(reverse("home"))
+
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertNotIn(suplantacion.CLAVE_SESION, self.client.session)
+
+
+class SuplantacionAccesoInactivoTests(TestCase):
+    """`login()` NO valida `is_active`: sin este guard la suplantación
+    "funcionaba" y el staff perdía su sesión en el request siguiente, sin
+    poder siquiera usar "Volver a mi cuenta"."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        crear_acceso(self.alumno, TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+        self.client.force_login(self.staff)
+
+    def test_no_se_puede_suplantar_a_un_usuario_desactivado(self):
+        # Se desactiva el User sin tocar `Alumno.estado`, que es el caso que
+        # el guard de `estado` no cubre (p.ej. desde /admin/).
+        User.objects.filter(pk=self.alumno.perfil.usuario.pk).update(is_active=False)
+
+        response = self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.staff.pk)
+        self.assertFalse(RegistroSuplantacion.objects.exists())

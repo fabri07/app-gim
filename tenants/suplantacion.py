@@ -31,6 +31,7 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model, login
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
+from django.db import transaction
 from django.utils import timezone
 
 from tenants.models import Perfil, RegistroSuplantacion
@@ -107,17 +108,25 @@ def iniciar(request, alumno):
     # escalar hacia una cuenta con privilegios de plataforma.
     if usuario.is_superuser or usuario.is_staff:
         raise PermissionDenied("No se puede entrar como una cuenta con privilegios.")
+    # `login()` NO valida `is_active`: si el usuario estuviera desactivado, la
+    # suplantación "funcionaría" y en el request siguiente `get_user()`
+    # devolvería AnonymousUser — el staff perdería su sesión y ni siquiera
+    # podría usar "Volver a mi cuenta", que exige estar logueado.
+    if not usuario.is_active:
+        raise PermissionDenied("El acceso de este alumno está desactivado.")
 
     staff_usuario = request.user
-    registro = RegistroSuplantacion.objects.create(
-        gimnasio=alumno.gimnasio,
-        staff_usuario=staff_usuario,
-        alumno=alumno,
-        ip=request.META.get("REMOTE_ADDR"),
-        user_agent=request.META.get("HTTP_USER_AGENT", "")[:200],
-    )
-
-    _cambiar_de_usuario(request, usuario)
+    # Atómico: si `login()` falla, no queda registrada una suplantación que
+    # nunca ocurrió.
+    with transaction.atomic():
+        registro = RegistroSuplantacion.objects.create(
+            gimnasio=alumno.gimnasio,
+            staff_usuario=staff_usuario,
+            alumno=alumno,
+            ip=request.META.get("REMOTE_ADDR"),
+            user_agent=request.META.get("HTTP_USER_AGENT", "")[:200],
+        )
+        _cambiar_de_usuario(request, usuario)
 
     # DESPUÉS de login(), nunca antes: el flush de sesión lo borraría.
     request.session[CLAVE_SESION] = {
@@ -173,8 +182,14 @@ def volver(request):
         request.session.flush()
         raise PermissionDenied("Tu usuario original es de otro gimnasio.")
 
+    # Se acota también por `staff_usuario` y `gimnasio`: la `registro_pk` sale
+    # de la sesión, que es justamente lo que no se está confiando acá. Sin
+    # esto, una sesión manipulada podría cerrar el registro de otro gimnasio.
     RegistroSuplantacion.objects.filter(
-        pk=datos["registro_pk"], finalizada_en__isnull=True
+        pk=datos["registro_pk"],
+        staff_usuario=staff_usuario,
+        gimnasio_id=perfil.gimnasio_id,
+        finalizada_en__isnull=True,
     ).update(finalizada_en=timezone.now())
 
     # `login()` flushea la sesión, así que `CLAVE_SESION` se borra sola.

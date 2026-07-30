@@ -55,6 +55,15 @@ def normalizar_telefono(valor):
     if not digitos:
         raise ValidationError("Escribí un número de teléfono.")
 
+    if tenia_mas and not digitos.startswith("54"):
+        # AR-only a propósito. Sin este corte, un `+1...` de EE.UU. terminaría
+        # convertido en `+541...`: una transformación silenciosa sobre el dato
+        # con el que el alumno inicia sesión.
+        raise ValidationError(
+            "Por ahora solo se aceptan teléfonos argentinos. Escribilo con "
+            "característica, por ejemplo 11 2233-4455."
+        )
+
     if tenia_mas or digitos.startswith("54"):
         digitos = digitos.removeprefix("54")
     else:

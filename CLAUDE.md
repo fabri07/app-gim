@@ -224,11 +224,22 @@ desarrollador. Spec y plan en `docs/superpowers/{specs,plans}/
   serializa en la sesión, que en este proyecto vive en la base de datos. El
   POST no redirige (se rompe PRG a propósito; el F5 lo cubre el guard de "este
   alumno ya tiene acceso").
-- **`Alumno.estado` es el maestro del acceso.** `AlumnoToggleEstadoView`
-  sincroniza `User.is_active` en la misma transacción. No hace falta invalidar
-  sesiones a mano: `ModelBackend.get_user()` revalida `is_active` en CADA
-  request. Regenerar la contraseña también expulsa al alumno, porque
-  `get_session_auth_hash()` deriva del hash.
+- **`Alumno.estado` es el maestro del acceso**, y la sincronización con
+  `User.is_active` vive en **un solo lugar**:
+  `alumnos/signals.py::sincronizar_acceso_con_estado` (`post_save` sobre
+  `Alumno`). **No la repitas en las vistas.** El estado se escribe desde tres
+  caminos —el botón de baja, el form de la ficha (donde `estado` es editable) y
+  `crear_acceso` sobre un alumno ya dado de baja— y ponerlo en cada vista
+  garantiza que alguna se olvide; una revisión encontró exactamente eso, con
+  dos de los tres caminos rotos. El receiver chequea `raw` para no repetir el
+  problema de `calendario/signals.py`.
+  - No hace falta invalidar sesiones a mano: `ModelBackend.get_user()`
+    revalida `is_active` en CADA request. Regenerar la contraseña también
+    expulsa al alumno, porque `get_session_auth_hash()` deriva del hash.
+  - `crear_acceso` toma `select_for_update()` sobre el `Alumno` y traduce
+    `IntegrityError` a `IdentificadorEnUso`: sin eso, un doble submit del form
+    (va boosteado por htmx) creaba dos `User`+`Perfil` y dejaba uno huérfano
+    que podía loguearse y no aparecía en ningún panel.
 - **Panel `alumnos:accesos`**, colgado del listado de alumnos y **no del nav**
   (ya tiene 8 ítems tras el esfuerzo de bajarlo de 10; mismo criterio que el
   importador). El `select_related("perfil__usuario")` no es cosmético: sin él
@@ -241,7 +252,13 @@ desarrollador. Spec y plan en `docs/superpowers/{specs,plans}/
 - **Suplantación** (`tenants/suplantacion.py`, servicio; auditada en
   `RegistroSuplantacion`, que SÍ es `TenantOwnedModel`). Reglas: solo staff,
   solo alumnos activos del propio gimnasio (404), nunca a otro staff ni a una
-  cuenta con privilegios, no anidable, POST-only, máximo 2 h.
+  cuenta con privilegios, no anidable, POST-only, y **máximo 2 h** — el límite
+  lo aplica `tenants/middleware.py::ExpirarSuplantacionMiddleware`, que es el
+  único middleware propio del proyecto: la expiración tiene que evaluarse en
+  cada request y no hay otro lugar donde hacerlo.
+  - `iniciar()` también chequea `usuario.is_active`, porque **`login()` no lo
+    valida**: con un usuario desactivado la suplantación "funcionaba" y el
+    staff perdía su sesión en el request siguiente, sin poder ni volver.
   - **Las dos trampas de `django.contrib.auth.login()`**, cada una con test de
     regresión. (1) `login()` hace `session.flush()` al cambiar de usuario: la
     clave de retorno se escribe **DESPUÉS**, nunca antes. (2) `login()` emite

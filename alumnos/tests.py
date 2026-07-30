@@ -10,11 +10,12 @@ alumno.
 """
 
 import datetime
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.validators import UnicodeUsernameValidator
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection
 from django.test import Client, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
@@ -944,3 +945,150 @@ class PanelAccesosTests(TestCase):
             self.client.get(url)
 
         self.assertEqual(len(muchas), len(pocas))
+
+
+class EspejoEstadoAccesoTests(TestCase):
+    """El espejo `Alumno.estado` <-> `User.is_active` tiene que valer por
+    CUALQUIER camino que escriba el estado, no solo por el botón de baja.
+
+    Hallazgos de la revisión del Frente B: `crear_acceso()` dejaba
+    `is_active=True` para un alumno ya dado de baja, y editar la ficha (donde
+    `estado` es un campo del form) cambiaba el estado sin tocar el acceso —
+    dejando un alumno que figura activo y no puede entrar, sin forma de
+    diagnosticarlo.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.force_login(self.staff)
+
+    def test_crear_acceso_a_un_alumno_dado_de_baja_no_lo_deja_entrar(self):
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Baja",
+            apellido="Test",
+            estado=Alumno.Estado.INACTIVO,
+        )
+        password = servicios.crear_acceso(
+            alumno, identidad.TIPO_EMAIL, "baja@ejemplo.com"
+        )
+        alumno.refresh_from_db()
+
+        self.assertFalse(alumno.perfil.usuario.is_active)
+        self.assertFalse(
+            Client().login(username="baja@ejemplo.com", password=password)
+        )
+
+    def test_editar_la_ficha_sincroniza_el_acceso(self):
+        """`estado` es un campo de `AlumnoForm`: cambiarlo desde la ficha tiene
+        que mover `is_active` igual que el botón de baja."""
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        servicios.crear_acceso(alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com")
+        alumno.refresh_from_db()
+
+        self.client.post(
+            reverse("alumnos:editar", args=[alumno.pk]),
+            {
+                "nombre": "Juan",
+                "apellido": "Pérez",
+                "estado": Alumno.Estado.INACTIVO,
+                "actividad_fisica_previa": False,
+                "tiene_discapacidad": False,
+                "tiene_enfermedad_cronica": False,
+            },
+        )
+
+        alumno.refresh_from_db()
+        self.assertEqual(alumno.estado, Alumno.Estado.INACTIVO)
+        self.assertFalse(alumno.perfil.usuario.is_active)
+
+    def test_reactivar_desde_la_ficha_devuelve_el_acceso(self):
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Juan",
+            apellido="Pérez",
+            estado=Alumno.Estado.INACTIVO,
+        )
+        servicios.crear_acceso(alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com")
+        alumno.refresh_from_db()
+        self.assertFalse(alumno.perfil.usuario.is_active)
+
+        self.client.post(
+            reverse("alumnos:editar", args=[alumno.pk]),
+            {
+                "nombre": "Juan",
+                "apellido": "Pérez",
+                "estado": Alumno.Estado.ACTIVO,
+                "actividad_fisica_previa": False,
+                "tiene_discapacidad": False,
+                "tiene_enfermedad_cronica": False,
+            },
+        )
+
+        alumno.refresh_from_db()
+        self.assertTrue(alumno.perfil.usuario.is_active)
+
+    def test_un_alumno_sin_acceso_no_rompe_al_guardarse(self):
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Sin", apellido="Acceso"
+        )
+        alumno.estado = Alumno.Estado.INACTIVO
+        alumno.save()  # no debe explotar
+
+
+class CrearAccesoConcurrenciaTests(TestCase):
+    """`crear_acceso` hacía `exists()` y después `create_user()` sin lock.
+
+    Un doble submit del form (que está boosteado por htmx y no deshabilita el
+    botón) llegaba al `UNIQUE` de `auth_user.username` como IntegrityError, o
+    sea un 500 en vez de un error de campo.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+
+    def test_un_integrityerror_de_username_se_traduce_a_identificador_en_uso(self):
+        """Se simula la carrera creando el `User` entre el chequeo y el insert."""
+        original = servicios.get_user_model().objects.create_user
+
+        def crear_pisando(*args, **kwargs):
+            # Emula al request concurrente que se adelantó.
+            servicios.get_user_model().objects.filter(
+                username=kwargs["username"]
+            ).delete()
+            original(username=kwargs["username"], password="otra-clave-larga-99")
+            return original(*args, **kwargs)
+
+        with patch.object(
+            servicios.get_user_model().objects, "create_user", crear_pisando
+        ):
+            with self.assertRaises(servicios.IdentificadorEnUso):
+                servicios.crear_acceso(
+                    self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com"
+                )
+
+        self.alumno.refresh_from_db()
+        self.assertIsNone(self.alumno.perfil)
+
+    def test_regenerar_password_rechaza_un_perfil_que_no_sea_alumno(self):
+        """Defensa en profundidad: un `Alumno.perfil` apuntando a un Perfil
+        STAFF (construible desde /admin/) dejaría a cualquier staff resetear
+        la contraseña de otro staff y entrar con ella."""
+        usuario_staff = User.objects.create_user("otro-staff", password="clave-larga-1")
+        perfil_staff = Perfil.objects.create(
+            usuario=usuario_staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno.perfil = perfil_staff
+        self.alumno.save(update_fields=["perfil"])
+
+        with self.assertRaises(PermissionDenied):
+            servicios.regenerar_password(self.alumno)

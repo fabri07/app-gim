@@ -645,3 +645,59 @@ expone.
 **Cómo cerrarlo si hiciera falta:** un `update()` sobre los registros sin
 finalizar cuya `creado` supere `MAX_DURACION`, corrido desde el mismo workflow
 de GitHub Actions que ya ejecuta `generar_pagos`.
+
+---
+
+## [2026-07-30] Revisión del Frente B: el espejo estado↔acceso valía en 1 de 3 caminos
+**Estado:** resuelto
+**Impacto:** la revisión de código de la rama encontró que la sincronización
+entre `Alumno.estado` y `User.is_active` estaba implementada **solo** en
+`AlumnoToggleEstadoView`. Los otros dos caminos que escriben el estado no la
+hacían, con dos síntomas opuestos y ambos malos:
+1. `crear_acceso()` creaba el `User` con `is_active=True` sin mirar el estado,
+   así que **un alumno dado de baja al que se le crea el acceso después podía
+   entrar** — exactamente el criterio de salida que el frente venía a cumplir.
+2. `estado` es un campo editable de `AlumnoForm`, así que reactivar a un alumno
+   desde la ficha lo dejaba en `estado=activo` + `is_active=False`: **el alumno
+   no podía entrar y nadie podía diagnosticarlo**, porque el listado decía
+   "activo" y el panel de accesos decía "dado de baja".
+**Resolución:** la invariante se movió de las vistas a **un solo punto**,
+`alumnos/signals.py::sincronizar_acceso_con_estado` (`post_save` sobre
+`Alumno`), que cubre además el admin, el shell y cualquier código futuro. La
+vista del toggle ya no sincroniza nada. El receiver chequea `raw` para no
+repetir el problema de `calendario/signals.py`.
+**Lección de proceso:** poner una invariante en las vistas garantiza que
+alguna se olvide. Si un dato tiene que mantenerse consistente con otro, el
+lugar es el modelo o una señal, no cada llamador.
+
+---
+
+## [2026-07-30] `login()` de Django no valida `is_active`
+**Estado:** resuelto
+**Impacto:** `suplantacion.iniciar()` chequeaba `Alumno.estado` pero no
+`User.is_active`, y `django.contrib.auth.login()` **no valida `is_active`** (a
+diferencia de `authenticate()`). Con un usuario desactivado, la suplantación
+"funcionaba": el POST devolvía 302, la sesión quedaba como el alumno, y en el
+request siguiente `ModelBackend.get_user()` devolvía `AnonymousUser`. El staff
+perdía su sesión **y no podía ni usar "Volver a mi cuenta"**, porque esa vista
+exige estar logueado. Encima el `RegistroSuplantacion` quedaba sin cerrar.
+**Resolución:** guard explícito de `usuario.is_active` en `iniciar()`. El
+template ya escondía el botón para alumnos dados de baja, pero eso es
+cosmético: el endpoint POST se puede llamar igual.
+
+---
+
+## [2026-07-30] `MAX_DURACION` de la suplantación era código muerto
+**Estado:** resuelto
+**Impacto:** `vencida()` existía pero **no se llamaba desde ningún lado**, así
+que el límite de 2 horas no se aplicaba nunca. Peor: `CLAUDE.md` e `ISSUES.md`
+afirmaban que sí. Documentar un control de seguridad que no corre es peor que
+no tenerlo — quien lea la documentación asume que está cubierto y no lo
+verifica.
+**Resolución:** se implementó en vez de borrarlo, vía
+`tenants/middleware.py::ExpirarSuplantacionMiddleware`. Es el único middleware
+propio del proyecto y la excepción está justificada: la expiración tiene que
+evaluarse en CADA request, y un mixin dejaría afuera cualquier vista que no lo
+use (`HomeView`, por ejemplo, solo lleva `LoginRequiredMixin`). Si falla el
+retorno, descarta la sesión entera en vez de dejar al staff dentro de la
+cuenta del alumno.

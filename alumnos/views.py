@@ -21,6 +21,7 @@ from django.contrib import messages
 from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.cache import add_never_cache_headers
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
@@ -123,9 +124,11 @@ class AlumnoToggleEstadoView(
     """Flip activo <-> inactivo. POST-only: muta estado, nunca debe
     dispararse con un GET (link, prefetch, etc).
 
-    El acceso del alumno es un ESPEJO de su estado, no un interruptor aparte:
-    dar de baja apaga `User.is_active` y reactivar lo devuelve. Antes no lo
-    hacía, así que un alumno dado de baja seguía entrando al portal.
+    El acceso del alumno es un ESPEJO de su estado: dar de baja apaga
+    `User.is_active` y reactivar lo devuelve. Esa sincronización NO se hace
+    acá sino en `alumnos/signals.py::sincronizar_acceso_con_estado`, porque
+    `estado` también se escribe desde el form de la ficha y desde
+    `crear_acceso` — repetirla en cada vista garantiza que alguna se olvide.
 
     No hace falta invalidar sesiones a mano: `ModelBackend.get_user()` llama a
     `user_can_authenticate()` en CADA request, así que apagar `is_active`
@@ -137,17 +140,12 @@ class AlumnoToggleEstadoView(
 
     def post(self, request, *args, **kwargs):
         alumno = self.get_object()
-        pasa_a_activo = alumno.estado != Alumno.Estado.ACTIVO
-
-        with transaction.atomic():
-            alumno.estado = (
-                Alumno.Estado.ACTIVO if pasa_a_activo else Alumno.Estado.INACTIVO
-            )
-            alumno.save(update_fields=["estado"])
-            if alumno.perfil_id is not None:
-                usuario = alumno.perfil.usuario
-                usuario.is_active = pasa_a_activo
-                usuario.save(update_fields=["is_active"])
+        alumno.estado = (
+            Alumno.Estado.ACTIVO
+            if alumno.estado != Alumno.Estado.ACTIVO
+            else Alumno.Estado.INACTIVO
+        )
+        alumno.save(update_fields=["estado"])
 
         messages.success(
             request, f"{alumno} ahora está {alumno.get_estado_display().lower()}."
@@ -161,8 +159,13 @@ def _render_credenciales(request, alumno, password, modo):
 
     Vive a nivel de módulo y no como método de una de las dos vistas para que
     ninguna tenga que alcanzar dentro de la otra.
+
+    `never_cache` no es paranoia: esta pantalla se abre en la computadora del
+    mostrador del gimnasio, que es compartida. Sin `no-store`, la contraseña
+    queda recuperable con el botón "atrás" del navegador después de que el
+    staff siguió con otra cosa.
     """
-    return render(
+    respuesta = render(
         request,
         "alumnos/acceso_credenciales.html",
         {
@@ -172,6 +175,8 @@ def _render_credenciales(request, alumno, password, modo):
             "modo": modo,
         },
     )
+    add_never_cache_headers(respuesta)
+    return respuesta
 
 
 class CrearAccesoView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):
