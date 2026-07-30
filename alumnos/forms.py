@@ -6,11 +6,10 @@ un campo que el staff edite a mano.
 """
 
 from django import forms
-from django.contrib.auth import get_user_model
-from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from core.forms import TenantScopedModelForm
+from alumnos import identidad
 from alumnos.models import Alumno
 
 
@@ -39,63 +38,37 @@ class AlumnoForm(TenantScopedModelForm):
         }
 
 
-_PASSWORD_HELP_TEXT = (
-    "Se muestra en texto plano a propósito: el staff necesita poder leerla "
-    "para comunicársela al alumno en persona o por WhatsApp. Django la "
-    "guarda hasheada — nadie, ni el staff, va a poder verla de nuevo "
-    "después de este paso."
-)
-
-
 class CrearAccesoForm(forms.Form):
-    """Alta del login (usuario/contraseña) de un alumno que todavía no
-    tiene uno. Ver `alumnos/views.py::CrearAccesoView` — Fase 3 reemplazó el
-    magic-link original por este flujo (ver ISSUES.md 2026-07-01)."""
+    """Alta del login de un alumno que todavía no tiene uno.
 
-    username = forms.CharField(max_length=150, label="Usuario")
-    password = forms.CharField(
-        label="Contraseña",
-        widget=forms.TextInput,
-        help_text=_PASSWORD_HELP_TEXT,
+    NO tiene campo de contraseña a propósito: la genera la app
+    (`alumnos/services.py::crear_acceso`). El staff solo elige con qué dato
+    entra el alumno — su email o su teléfono.
+
+    Tampoco valida acá que el identificador esté libre: eso es una carrera
+    (entre el `clean` y el `create_user` puede pasar cualquier cosa) y además
+    el servicio ya lo chequea. La vista traduce `IdentificadorEnUso` a un error
+    de campo.
+    """
+
+    tipo = forms.ChoiceField(
+        choices=identidad.TIPOS,
+        label="El alumno va a entrar con su",
+        initial=identidad.TIPO_EMAIL,
+    )
+    identificador = forms.CharField(
+        max_length=150,
+        label="Email o teléfono",
+        help_text="Es el usuario con el que va a iniciar sesión.",
     )
 
-    def clean_username(self):
-        username = self.cleaned_data["username"]
-        User = get_user_model()
-        # El username es GLOBAL a toda la plataforma (no hay namespacing por
-        # gimnasio en `User.username`): dos gimnasios distintos no pueden
-        # tener ambos un alumno "juan". No se renombra en silencio, se avisa.
-        if User.objects.filter(username=username).exists():
-            raise forms.ValidationError(
-                "Ese usuario ya está en uso (el nombre de usuario es único "
-                "en toda la plataforma, no solo en este gimnasio). Elegí "
-                "otro."
-            )
-        return username
-
-    def clean_password(self):
-        password = self.cleaned_data["password"]
+    def clean(self):
+        datos = super().clean()
+        tipo, valor = datos.get("tipo"), datos.get("identificador")
+        if not tipo or not valor:
+            return datos
         try:
-            validate_password(password)
+            datos["identificador"] = identidad.normalizar_identificador(tipo, valor)
         except DjangoValidationError as exc:
-            raise forms.ValidationError(exc.messages)
-        return password
-
-
-class CambiarPasswordAlumnoForm(forms.Form):
-    """Reseteo de la contraseña de un alumno que ya tiene login. Mismo
-    criterio de validación/visibilidad que `CrearAccesoForm.password`."""
-
-    password = forms.CharField(
-        label="Contraseña",
-        widget=forms.TextInput,
-        help_text=_PASSWORD_HELP_TEXT,
-    )
-
-    def clean_password(self):
-        password = self.cleaned_data["password"]
-        try:
-            validate_password(password)
-        except DjangoValidationError as exc:
-            raise forms.ValidationError(exc.messages)
-        return password
+            self.add_error("identificador", exc.messages)
+        return datos

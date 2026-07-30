@@ -12,8 +12,8 @@ from alumnos.views import (
     AlumnoListView,
     AlumnoToggleEstadoView,
     AlumnoUpdateView,
-    CambiarPasswordAlumnoView,
     CrearAccesoView,
+    RegenerarPasswordView,
 )
 
 app_name = "alumnos"
@@ -26,8 +26,8 @@ urlpatterns = [
     path("<int:pk>/activar/", AlumnoToggleEstadoView.as_view(), name="activar"),
     path("<int:pk>/acceso/crear/", CrearAccesoView.as_view(), name="acceso_crear"),
     path(
-        "<int:pk>/acceso/cambiar-password/",
-        CambiarPasswordAlumnoView.as_view(),
-        name="acceso_cambiar_password",
+        "<int:pk>/acceso/regenerar/",
+        RegenerarPasswordView.as_view(),
+        name="acceso_regenerar",
     ),
 ]

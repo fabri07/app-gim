@@ -349,9 +349,13 @@ class AlumnoViewsTests(TestCase):
 
 
 class AccesoAlumnoViewsTests(TestCase):
-    """Fase 3: `CrearAccesoView`/`CambiarPasswordAlumnoView` — el staff
-    asigna usuario/contraseña a mano (ver ISSUES.md 2026-07-01, ya no hay
-    magic-link)."""
+    """Vistas de acceso del alumno.
+
+    El staff ya NO inventa usuario ni contraseña: elige si el alumno entra con
+    su email o su teléfono, y la app genera la contraseña y la muestra una sola
+    vez (ver el spec del portal de cuentas). Antes se pedían los dos campos a
+    mano y la contraseña viajaba por `messages`.
+    """
 
     def setUp(self):
         self.gimnasio_a = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
@@ -384,50 +388,63 @@ class AccesoAlumnoViewsTests(TestCase):
     def _url_crear(self, alumno):
         return reverse("alumnos:acceso_crear", args=[alumno.pk])
 
-    def _url_cambiar(self, alumno):
-        return reverse("alumnos:acceso_cambiar_password", args=[alumno.pk])
+    def _url_regenerar(self, alumno):
+        return reverse("alumnos:acceso_regenerar", args=[alumno.pk])
+
+    def _datos(self, identificador="juan@ejemplo.com", tipo=identidad.TIPO_EMAIL):
+        return {"tipo": tipo, "identificador": identificador}
 
     # 1. Anónimo -> login; rol ALUMNO -> 403.
     def test_anonimo_redirige_a_login_y_alumno_recibe_403(self):
-        for url in (self._url_crear(self.alumno_a), self._url_cambiar(self.alumno_a)):
-            response = self.client.get(url)
-            self.assertEqual(response.status_code, 302)
-            self.assertIn(reverse("login"), response.url)
+        response = self.client.get(self._url_crear(self.alumno_a))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+        response = self.client.post(self._url_regenerar(self.alumno_a))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
 
         self.client.login(username="usuario_alumno", password="clave12345")
-        for url in (self._url_crear(self.alumno_a), self._url_cambiar(self.alumno_a)):
-            response = self.client.get(url)
-            self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.client.get(self._url_crear(self.alumno_a)).status_code, 403)
+        self.assertEqual(
+            self.client.post(self._url_regenerar(self.alumno_a)).status_code, 403
+        )
 
-    # 2. Staff crea acceso: User+Perfil creados, alumno.perfil linkeado,
-    #    rol ALUMNO, y el alumno puede loguearse con la contraseña enviada.
+    # 2. Staff crea acceso: User+Perfil creados y el alumno puede entrar.
     def test_staff_crea_acceso_para_su_alumno(self):
         self.client.login(username="staff_a", password="clave12345")
-        response = self.client.post(
-            self._url_crear(self.alumno_a),
-            {"username": "juanperez", "password": "clave-super-segura-99"},
-        )
-        self.assertEqual(response.status_code, 302)
+        response = self.client.post(self._url_crear(self.alumno_a), self._datos())
+
+        # No redirige: renderiza la credencial en un 200 (ver test siguiente).
+        self.assertEqual(response.status_code, 200)
+        password = response.context["password"]
 
         self.alumno_a.refresh_from_db()
         self.assertIsNotNone(self.alumno_a.perfil)
         self.assertEqual(self.alumno_a.perfil.rol, Perfil.Rol.ALUMNO)
         self.assertEqual(self.alumno_a.perfil.gimnasio, self.gimnasio_a)
-        self.assertEqual(self.alumno_a.perfil.usuario.username, "juanperez")
+        self.assertEqual(self.alumno_a.perfil.usuario.username, "juan@ejemplo.com")
 
         self.client.logout()
-        puede_entrar = self.client.login(
-            username="juanperez", password="clave-super-segura-99"
+        self.assertTrue(
+            self.client.login(username="juan@ejemplo.com", password=password)
         )
-        self.assertTrue(puede_entrar)
 
-    # 3. Ya tiene acceso -> redirect con error, no crea un segundo User/Perfil.
+    # 3. La contraseña se muestra, pero NO pasa por `messages`.
+    def test_la_password_no_viaja_por_messages(self):
+        """`messages` se serializa en la sesión, que vive en la base de datos.
+        Renderizar un 200 directo deja la contraseña solo en esa respuesta."""
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(self._url_crear(self.alumno_a), self._datos())
+
+        self.assertContains(response, response.context["password"])
+        self.assertContains(response, "juan@ejemplo.com")
+        self.assertEqual(list(response.context["messages"]), [])
+
+    # 4. Ya tiene acceso -> redirect con error, no crea un segundo User/Perfil.
     def test_crear_acceso_si_ya_tiene_uno_no_duplica(self):
         self.client.login(username="staff_a", password="clave12345")
-        self.client.post(
-            self._url_crear(self.alumno_a),
-            {"username": "juanperez", "password": "clave-super-segura-99"},
-        )
+        self.client.post(self._url_crear(self.alumno_a), self._datos())
         self.alumno_a.refresh_from_db()
         perfil_original = self.alumno_a.perfil
 
@@ -435,8 +452,7 @@ class AccesoAlumnoViewsTests(TestCase):
         perfiles_antes = Perfil.objects.count()
 
         response = self.client.post(
-            self._url_crear(self.alumno_a),
-            {"username": "otro-usuario", "password": "otra-clave-segura-99"},
+            self._url_crear(self.alumno_a), self._datos("otro@ejemplo.com")
         )
         self.assertEqual(response.status_code, 302)
 
@@ -445,75 +461,99 @@ class AccesoAlumnoViewsTests(TestCase):
         self.assertEqual(User.objects.count(), usuarios_antes)
         self.assertEqual(Perfil.objects.count(), perfiles_antes)
 
-    # 4. Aislamiento de tenant: staff A no puede tocar alumno de B (404).
+    # 5. Aislamiento de tenant: staff A no puede tocar alumno de B (404).
     def test_aislamiento_de_tenant_devuelve_404(self):
         self.client.login(username="staff_a", password="clave12345")
 
-        response = self.client.get(self._url_crear(self.alumno_b))
+        self.assertEqual(self.client.get(self._url_crear(self.alumno_b)).status_code, 404)
+        response = self.client.post(self._url_crear(self.alumno_b), self._datos())
         self.assertEqual(response.status_code, 404)
-
-        response = self.client.post(
-            self._url_crear(self.alumno_b),
-            {"username": "intruso", "password": "clave-super-segura-99"},
+        self.assertEqual(
+            self.client.post(self._url_regenerar(self.alumno_b)).status_code, 404
         )
-        self.assertEqual(response.status_code, 404)
 
-        response = self.client.get(self._url_cambiar(self.alumno_b))
-        self.assertEqual(response.status_code, 404)
+        self.alumno_b.refresh_from_db()
+        self.assertIsNone(self.alumno_b.perfil)
 
-    # 5. Colisión de username (global, no por gimnasio) -> form invalido, sin User nuevo.
-    def test_username_duplicado_es_rechazado_por_el_form(self):
-        from alumnos.forms import CrearAccesoForm
-
-        User.objects.create_user(username="repetido", password="clave12345")
+    # 6. Colisión de identificador -> error de form, no 500, sin crear nada.
+    def test_identificador_duplicado_es_error_de_form(self):
+        User.objects.create_user(username="juan@ejemplo.com", password="clave12345")
         usuarios_antes = User.objects.count()
 
-        form = CrearAccesoForm(
-            data={"username": "repetido", "password": "clave-super-segura-99"}
-        )
-        self.assertFalse(form.is_valid())
-        self.assertIn("username", form.errors)
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(self._url_crear(self.alumno_a), self._datos())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["form"].is_valid())
+        self.alumno_a.refresh_from_db()
+        self.assertIsNone(self.alumno_a.perfil)
         self.assertEqual(User.objects.count(), usuarios_antes)
 
-    # 6. Contraseña débil rechazada por los validadores de Django.
-    def test_password_debil_es_rechazada(self):
-        from alumnos.forms import CambiarPasswordAlumnoForm, CrearAccesoForm
+    # 7. Ese error no puede confirmar si el email existe en la plataforma.
+    def test_el_error_de_colision_no_revela_si_el_email_existe(self):
+        """Con emails reales como usuario, un mensaje específico convertiría
+        este form en un enumerador de usuarios de toda la plataforma."""
+        User.objects.create_user(username="juan@ejemplo.com", password="clave12345")
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(self._url_crear(self.alumno_a), self._datos())
 
-        for password in ("1234", "password"):
-            form = CrearAccesoForm(data={"username": "nuevo-user", "password": password})
-            self.assertFalse(form.is_valid())
-            self.assertIn("password", form.errors)
+        texto = response.content.decode()
+        self.assertIn("No se puede usar ese dato", texto)
+        self.assertNotIn("ya está en uso", texto)
+        self.assertNotIn("en toda la plataforma", texto)
 
-            form2 = CambiarPasswordAlumnoForm(data={"password": password})
-            self.assertFalse(form2.is_valid())
-            self.assertIn("password", form2.errors)
+    # 8. Identificador mal escrito -> error de campo, no 500.
+    def test_identificador_invalido_es_error_de_form(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(
+            self._url_crear(self.alumno_a), self._datos("no-es-un-email")
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("identificador", response.context["form"].errors)
 
-    # 7. CambiarPasswordAlumnoView cambia la contraseña; solo alcanzable con perfil ya creado.
-    def test_cambiar_password_actualiza_credenciales_y_requiere_perfil_existente(self):
+    # 9. El form precarga el dato de contacto que ya tiene la ficha.
+    def test_el_form_precarga_el_email_del_alumno(self):
+        self.alumno_a.email = "juan@ejemplo.com"
+        self.alumno_a.save(update_fields=["email"])
         self.client.login(username="staff_a", password="clave12345")
 
-        # Sin perfil todavía: redirige, no rompe.
-        response = self.client.get(self._url_cambiar(self.alumno_a))
-        self.assertEqual(response.status_code, 302)
-
-        self.client.post(
-            self._url_crear(self.alumno_a),
-            {"username": "juanperez", "password": "clave-original-99"},
+        response = self.client.get(self._url_crear(self.alumno_a))
+        self.assertEqual(
+            response.context["form"].initial["identificador"], "juan@ejemplo.com"
         )
 
-        response = self.client.post(
-            self._url_cambiar(self.alumno_a),
-            {"password": "clave-nueva-100"},
-        )
-        self.assertEqual(response.status_code, 302)
+    # 10. Regenerar contraseña: cambia la credencial y muestra la nueva.
+    def test_regenerar_password_muestra_la_nueva_y_deja_entrar(self):
+        self.client.login(username="staff_a", password="clave12345")
+        creacion = self.client.post(self._url_crear(self.alumno_a), self._datos())
+        vieja = creacion.context["password"]
+
+        response = self.client.post(self._url_regenerar(self.alumno_a))
+        self.assertEqual(response.status_code, 200)
+        nueva = response.context["password"]
+        self.assertNotEqual(vieja, nueva)
+        self.assertContains(response, nueva)
 
         self.client.logout()
         self.assertFalse(
-            self.client.login(username="juanperez", password="clave-original-99")
+            self.client.login(username="juan@ejemplo.com", password=vieja)
         )
         self.assertTrue(
-            self.client.login(username="juanperez", password="clave-nueva-100")
+            self.client.login(username="juan@ejemplo.com", password=nueva)
         )
+
+    # 11. Regenerar sobre un alumno sin acceso: redirige, no rompe.
+    def test_regenerar_sin_acceso_previo_redirige(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.post(self._url_regenerar(self.alumno_a))
+        self.assertEqual(response.status_code, 302)
+
+    # 12. Regenerar es POST-only: un GET no puede mutar credenciales.
+    def test_regenerar_no_acepta_get(self):
+        self.client.login(username="staff_a", password="clave12345")
+        self.client.post(self._url_crear(self.alumno_a), self._datos())
+        response = self.client.get(self._url_regenerar(self.alumno_a))
+        self.assertEqual(response.status_code, 405)
 
 
 class IdentidadTests(SimpleTestCase):

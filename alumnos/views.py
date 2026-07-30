@@ -5,31 +5,30 @@ Solo staff (`StaffRequiredMixin`) y siempre acotado al gimnasio del usuario
 separada (nunca una vista de borrado): un `Alumno` nunca se borra, solo
 cambia de estado (queda como historial para pagos y rutinas ya emitidos).
 
-`CrearAccesoView`/`CambiarPasswordAlumnoView` (Fase 3) reemplazan el
-magic-link original del ROADMAP: el staff asigna usuario/contraseña a mano
-desde la ficha del alumno (ver ISSUES.md 2026-07-01). Ninguna usa los hooks
-de form de `TenantScopedMixin` (`get_form_kwargs`/`form_valid` esperan un
-`ModelForm` con `.instance`; `CrearAccesoForm`/`CambiarPasswordAlumnoForm`
-son `forms.Form` planos) — se maneja el form a mano, como
+`CrearAccesoView`/`RegenerarPasswordView` reemplazan el magic-link original
+del ROADMAP: el staff da de alta el acceso desde la ficha del alumno (ver
+ISSUES.md 2026-07-01). El staff elige con qué dato entra el alumno (email o
+teléfono) pero NO la contraseña: la genera la app y se muestra una sola vez.
+Ninguna de las dos usa los hooks de form de `TenantScopedMixin`
+(`get_form_kwargs`/`form_valid` esperan un `ModelForm` con `.instance`;
+`CrearAccesoForm` es un `forms.Form` plano) — se maneja el form a mano, como
 `AlumnoToggleEstadoView`, y se reutiliza `TenantScopedMixin` solo por
 `get_queryset`/`self.gimnasio` (aislamiento de tenant vía `SingleObjectMixin.
 get_object`).
 """
 
 from django.contrib import messages
-from django.contrib.auth import get_user_model
-from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
-from django.utils.text import slugify
 from django.views import View
 from django.views.generic import CreateView, DetailView, ListView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
 from tenants.mixins import StaffRequiredMixin
-from tenants.models import Perfil
-from alumnos.forms import AlumnoForm, CambiarPasswordAlumnoForm, CrearAccesoForm
+from alumnos import identidad
+from alumnos import services as servicios
+from alumnos.forms import AlumnoForm, CrearAccesoForm
 from alumnos.models import Alumno
 
 
@@ -118,10 +117,38 @@ class AlumnoToggleEstadoView(
         return redirect("alumnos:detalle", pk=alumno.pk)
 
 
+def _render_credenciales(request, alumno, password, modo):
+    """Pantalla de "esto se ve una sola vez", compartida por el alta y la
+    regeneración.
+
+    Vive a nivel de módulo y no como método de una de las dos vistas para que
+    ninguna tenga que alcanzar dentro de la otra.
+    """
+    return render(
+        request,
+        "alumnos/acceso_credenciales.html",
+        {
+            "alumno": alumno,
+            "usuario": alumno.perfil.usuario.username,
+            "password": password,
+            "modo": modo,
+        },
+    )
+
+
 class CrearAccesoView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):
-    """Alta del login del alumno: solo para alumnos SIN `Alumno.perfil`
-    todavía. Si ya tiene uno, redirige a la ficha sin tocar nada — para
-    resetear una contraseña existente está `CambiarPasswordAlumnoView`."""
+    """Alta del login del alumno: solo para alumnos SIN `Alumno.perfil`.
+
+    El POST exitoso NO redirige: renderiza la credencial en un 200. Es a
+    propósito y no es un descuido de PRG. `messages` se serializa en la
+    SESIÓN, que en este proyecto vive en la base de datos, así que mandar la
+    contraseña por ahí la deja escrita en una tabla hasta que se renderiza.
+    Un 200 directo la deja solo en esa respuesta.
+
+    La contrapartida de romper PRG es que un F5 re-postea, y eso ya está
+    cubierto: el guard de abajo redirige sin tocar nada cuando el alumno ya
+    tiene acceso.
+    """
 
     model = Alumno
     template_name = "alumnos/acceso_form.html"
@@ -131,7 +158,7 @@ class CrearAccesoView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, 
         if alumno.perfil is not None:
             messages.error(request, "Este alumno ya tiene un acceso creado.")
             return redirect("alumnos:detalle", pk=alumno.pk)
-        form = CrearAccesoForm(initial={"username": self._sugerir_username(alumno)})
+        form = CrearAccesoForm(initial=self._inicial(alumno))
         return self._render(request, alumno, form)
 
     def post(self, request, *args, **kwargs):
@@ -139,90 +166,63 @@ class CrearAccesoView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, 
         if alumno.perfil is not None:
             messages.error(request, "Este alumno ya tiene un acceso creado.")
             return redirect("alumnos:detalle", pk=alumno.pk)
+
         form = CrearAccesoForm(request.POST)
         if form.is_valid():
-            username = form.cleaned_data["username"]
-            password = form.cleaned_data["password"]
-            with transaction.atomic():
-                user = get_user_model().objects.create_user(
-                    username=username, password=password
+            try:
+                password = servicios.crear_acceso(
+                    alumno,
+                    form.cleaned_data["tipo"],
+                    form.cleaned_data["identificador"],
                 )
-                perfil = Perfil.objects.create(
-                    usuario=user, gimnasio=alumno.gimnasio, rol=Perfil.Rol.ALUMNO
+            except servicios.IdentificadorEnUso:
+                # Mensaje deliberadamente genérico: confirmar que ese email ya
+                # existe convertiría este form en un enumerador de usuarios de
+                # toda la plataforma, y ahora los usuarios SON emails reales.
+                form.add_error(
+                    "identificador",
+                    "No se puede usar ese dato. Probá con el otro: si pusiste "
+                    "el email, cargá el teléfono, o al revés.",
                 )
-                alumno.perfil = perfil
-                alumno.save(update_fields=["perfil"])
-            messages.success(
-                request,
-                f"Acceso creado. Usuario: {username} — Contraseña: {password}. "
-                "Comunicáselo a tu alumno; no vas a poder ver la contraseña de "
-                "nuevo.",
-            )
-            return redirect("alumnos:detalle", pk=alumno.pk)
+            else:
+                alumno.refresh_from_db()
+                return _render_credenciales(request, alumno, password, "crear")
         return self._render(request, alumno, form)
 
-    def _render(self, request, alumno, form):
-        return render(
-            request,
-            self.template_name,
-            {"form": form, "alumno": alumno, "modo": "crear"},
-        )
-
     @staticmethod
-    def _sugerir_username(alumno):
-        """Mismo patrón que `tenants/views.py::RegisterView._slug_disponible`,
-        adaptado a `User.username` (único global, no por gimnasio -- ver
-        `CrearAccesoForm.clean_username`)."""
-        base = slugify(f"{alumno.nombre}.{alumno.apellido}") or "alumno"
-        User = get_user_model()
-        username = base
-        sufijo = 1
-        while User.objects.filter(username=username).exists():
-            sufijo += 1
-            username = f"{base}{sufijo}"
-        return username
+    def _inicial(alumno):
+        """Precarga el dato de contacto que la ficha ya tiene, para que el
+        staff no lo vuelva a tipear (y no lo tipee distinto)."""
+        if alumno.email:
+            return {"tipo": identidad.TIPO_EMAIL, "identificador": alumno.email}
+        if alumno.telefono:
+            return {"tipo": identidad.TIPO_TELEFONO, "identificador": alumno.telefono}
+        return {}
+
+    def _render(self, request, alumno, form):
+        return render(request, self.template_name, {"form": form, "alumno": alumno})
 
 
-class CambiarPasswordAlumnoView(
+class RegenerarPasswordView(
     StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View
 ):
-    """Reseteo de contraseña: solo alcanzable si el alumno YA tiene
-    `Alumno.perfil` (si no, no hay nada para resetear; usar
-    `CrearAccesoView`)."""
+    """Contraseña nueva al azar para un alumno que YA tiene acceso.
+
+    POST-only: muta credenciales, nunca debe dispararse con un GET (link,
+    prefetch del navegador, etc). Mismo criterio que `AlumnoToggleEstadoView`.
+
+    Expulsa al alumno de sus sesiones vivas como efecto colateral de que
+    cambie el hash de la contraseña — ver `alumnos/services.py`.
+    """
 
     model = Alumno
-    template_name = "alumnos/acceso_form.html"
-
-    def get(self, request, *args, **kwargs):
-        alumno = self.get_object()
-        if alumno.perfil is None:
-            messages.error(request, "Este alumno todavía no tiene un acceso creado.")
-            return redirect("alumnos:detalle", pk=alumno.pk)
-        return self._render(request, alumno, CambiarPasswordAlumnoForm())
+    http_method_names = ["post"]
 
     def post(self, request, *args, **kwargs):
         alumno = self.get_object()
         if alumno.perfil is None:
             messages.error(request, "Este alumno todavía no tiene un acceso creado.")
             return redirect("alumnos:detalle", pk=alumno.pk)
-        form = CambiarPasswordAlumnoForm(request.POST)
-        if form.is_valid():
-            password = form.cleaned_data["password"]
-            usuario = alumno.perfil.usuario
-            usuario.set_password(password)
-            usuario.save()
-            messages.success(
-                request,
-                f"Contraseña actualizada. Nueva contraseña: {password}. "
-                "Comunicáselo a tu alumno; no vas a poder ver la contraseña de "
-                "nuevo.",
-            )
-            return redirect("alumnos:detalle", pk=alumno.pk)
-        return self._render(request, alumno, form)
 
-    def _render(self, request, alumno, form):
-        return render(
-            request,
-            self.template_name,
-            {"form": form, "alumno": alumno, "modo": "cambiar"},
-        )
+        password = servicios.regenerar_password(alumno)
+        return _render_credenciales(request, alumno, password, "regenerar")
