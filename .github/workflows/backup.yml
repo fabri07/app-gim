@@ -54,6 +54,7 @@ jobs:
           PGURL: ${{ secrets.NEON_DATABASE_URL_DIRECT }}
         run: |
           set -euo pipefail
+          export PATH="/usr/lib/postgresql/18/bin:$PATH"
           STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           pg_dump --format=custom --no-owner --no-privileges \
