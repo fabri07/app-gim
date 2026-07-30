@@ -164,6 +164,12 @@ En orden, cada uno desde Actions → *Run workflow* (`workflow_dispatch`):
 6. **Confirmar la retención en Cloudflare**: que la lifecycle de `daily/` figure
    activa, y que un objeto de `monthly/` **no se pueda borrar a mano** (probá
    borrarlo: tiene que fallar; si se borra, el lock no quedó puesto).
+   > Probá borrar también uno de `daily/`: ese **sí** tiene que borrarse. Lo que
+   > valida la configuración es que los dos prefijos se comporten **distinto**.
+   > Si ambos fallan o ambos borran, hay algo mal en uno de los dos lados.
+
+   *Verificado el 2026-07-30: `monthly/` rechazó el borrado, `daily/` lo
+   aceptó.*
 
 ---
 
@@ -190,8 +196,14 @@ Condiciones para darla de baja, todas cumplidas:
 
 - [ ] Producción **escribe** en Neon (no solo lee): un login nuevo suma una fila
       en `django_session`.
-- [ ] Un backup completo salió bien y está en `daily/`.
-- [ ] Un restore real de ese backup dio `tablas_esenciales=10`.
+- [x] Un backup completo salió bien y quedó guardado. *(2026-07-30: está en
+      `monthly/app-gim-20260730T162903Z.dump.gpg`, no en `daily/` — los objetos
+      de `daily/` se borraron a mano al probar el paso 5.6. El cron diario
+      repuebla `daily/` en la corrida siguiente.)*
+- [x] Un restore real de ese backup dio `tablas_esenciales=10`. *(2026-07-30,
+      encadenado desde el backup: `migraciones=36 usuarios=1` — el `usuarios=1`
+      confirma de paso que el dump salió de Neon y no de la base vieja de
+      Render.)*
 - [ ] La alerta de Healthchecks llegó cuando se la forzó a fallar.
 - [ ] La contraseña de Neon quedó rotada y los tres lugares actualizados.
 
