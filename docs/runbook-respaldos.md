@@ -161,6 +161,13 @@ En orden, cada uno desde Actions → *Run workflow* (`workflow_dispatch`):
    > que no demuestra nada. Lo único que prueba que la alerta funciona es que
    > efectivamente llegue el mail.
 
+   *Verificado el 2026-07-30: último ping a las 16:29 UTC, período de 1 h +
+   5 min de gracia, mail recibido con `Status Changed to Down at 17:34:24
+   UTC` — al minuto que correspondía.*
+   > **Acordate de restaurar el período a 1 día / 6 h de gracia.** Si queda en
+   > 1 hora, el check se cae de nuevo una hora después de cada backup diario y
+   > la alerta se vuelve ruido que se aprende a ignorar.
+
 6. **Confirmar la retención en Cloudflare**: que la lifecycle de `daily/` figure
    activa, y que un objeto de `monthly/` **no se pueda borrar a mano** (probá
    borrarlo: tiene que fallar; si se borra, el lock no quedó puesto).
@@ -204,7 +211,9 @@ Condiciones para darla de baja, todas cumplidas:
       encadenado desde el backup: `migraciones=36 usuarios=1` — el `usuarios=1`
       confirma de paso que el dump salió de Neon y no de la base vieja de
       Render.)*
-- [ ] La alerta de Healthchecks llegó cuando se la forzó a fallar.
+- [x] La alerta de Healthchecks llegó cuando se la forzó a fallar. *(2026-07-30,
+      17:34:24 UTC — exactamente el período + la gracia después del último
+      ping.)*
 - [ ] La contraseña de Neon quedó rotada y los tres lugares actualizados.
 
 Con las cinco tildadas, borrá el Postgres viejo desde el dashboard de Render.
