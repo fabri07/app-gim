@@ -493,3 +493,49 @@ como vuelta atrás hasta terminar la verificación end-to-end (ver
 **Nota:** el único usuario de la base NO es superusuario, así que hoy nadie
 entra a `/admin/`. Operativamente no molesta (el sistema se usa entero desde
 el panel web, por diseño), pero hay que saberlo.
+
+---
+
+## [2026-07-29] El respaldo usa `pg_dump`, nunca `dumpdata`/`loaddata`
+**Estado:** aceptado (decisión de diseño que no hay que revertir)
+**Impacto:** `dumpdata`/`loaddata` parece la opción "más Django" y es la que
+alguien va a proponer al tocar el workflow de backup. Sería un error con
+consecuencias visibles para el usuario final: `calendario/signals.py` **no
+chequea el flag `raw`**, que es justamente el que Django activa durante un
+`loaddata` para avisar "esto es una carga de fixtures, no una operación real".
+Sin ese chequeo, restaurar un backup dispararía la sincronización de **cada
+`Reserva` restaurada contra la API real de Google Calendar** — creando cientos
+de eventos duplicados en los calendarios de los alumnos, y encima con una
+restauración que tardaría muchísimo o directamente fallaría por rate limit.
+`pg_dump` opera a nivel de base y no ejecuta código de Python, así que no
+puede disparar ningún signal.
+**Resolución / próximo paso:** `.github/workflows/backup.yml` y
+`backup-verify.yml` usan `pg_dump --format=custom` y `pg_restore`. La
+advertencia estaba solo en un comentario de cabecera del workflow y en el
+spec; se registra acá porque es donde se busca. Si algún día se quiere que
+`loaddata` sea seguro, el arreglo es agregar `if raw: return` al principio del
+receiver de `calendario/signals.py` — pero no hay motivo para hacerlo.
+
+---
+
+## [2026-07-29] Se cerró el registro público de gimnasios
+**Estado:** resuelto
+**Impacto:** `/accounts/register/` era una ruta **pública y sin throttling**:
+cualquiera en internet podía crear User + Gimnasio + Perfil STAFF y quedaba
+logueado automáticamente (`login()` al final de `RegisterView.form_valid`). El
+form no pedía email ni verificaba nada, así que además de permitir cuentas
+basura en masa, un dueño que perdía su contraseña **no tenía ninguna forma de
+recuperarla** salvo `manage.py changepassword` desde el servidor.
+**Resolución / próximo paso:** se borraron `RegisterView`, `RegistroForm`, su
+template y su ruta. El alta pasa a `python manage.py crear_gimnasio --nombre
+... --email ...` (`tenants/services.py::crear_gimnasio`), que además crea al
+dueño con `set_unusable_password()`: el staff va a entrar por Google, no por
+contraseña. Es coherente con la etapa del producto (se buscan los primeros
+tres gimnasios pagos, no autoservicio masivo) y con el principio "primero se
+cobra, después se sofistica". `_slug_disponible` se mudó de la vista a
+`tenants/services.py::slug_disponible` antes de borrarla.
+**Riesgo que queda abierto:** el login con Google todavía NO está
+implementado, así que en este momento el dueño existente sigue entrando con su
+contraseña de siempre. No hay que correr la migración que inutiliza las
+contraseñas de staff hasta que el login con Google esté verificado **contra
+producción**.

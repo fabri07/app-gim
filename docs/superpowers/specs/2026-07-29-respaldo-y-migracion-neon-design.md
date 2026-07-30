@@ -280,7 +280,7 @@ cambios.
 
 - [ ] La app corre contra Neon y la base de Render fue dada de baja tras la
       checklist de verificación completa.
-- [ ] `CONN_HEALTH_CHECKS = True` y suite en verde.
+- [x] `CONN_HEALTH_CHECKS = True` y suite en verde.
 - [ ] Un backup diario cifrado aparece en `daily/` de `app-gim-backups`.
 - [ ] Una copia mensual quedó en `monthly/` con bucket lock activo.
 - [ ] La verificación mensual restauró un dump real y los conteos dieron

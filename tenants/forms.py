@@ -1,17 +1,13 @@
-"""Forms de `tenants`: registro (alta de un gimnasio) y personalización
-white-label (Fase 4) de un gimnasio ya existente."""
+"""Forms de `tenants`: personalización white-label (Fase 4) de un gimnasio ya
+existente.
+
+El form de registro se borró junto con `RegisterView`: el alta de gimnasios
+dejó de ser self-serve y se hace con `manage.py crear_gimnasio`.
+"""
 
 from django import forms
-from django.contrib.auth.forms import UserCreationForm
 
 from tenants.models import Gimnasio
-
-
-class RegistroForm(UserCreationForm):
-    nombre_gimnasio = forms.CharField(max_length=120, label="Nombre del gimnasio")
-
-    class Meta(UserCreationForm.Meta):
-        fields = ("username",)  # password1/2 los aporta UserCreationForm
 
 
 class GimnasioForm(forms.ModelForm):

@@ -1,11 +1,11 @@
 """
 Command de management que dispara la autogeneración mensual de pagos.
 
-Este es el comando que Fase 5 programa como Render Cron Job (acá solo se
-define y se prueba que funciona; la programación del cron en sí queda para
-esa fase). Corre para el mes/año ACTUAL: genera los `PagoMensual` pendientes
-del mes en curso y, de paso, vence los pendientes de meses anteriores que
-quedaron sin confirmar.
+Lo programa `.github/workflows/generar-pagos.yml` (GitHub Actions, no Render:
+no hay plan free para cron jobs ahí). Corre para el mes/año ACTUAL: genera los
+`PagoMensual` pendientes del mes en curso y, de paso, vence los pendientes de
+meses anteriores que quedaron sin confirmar. Es idempotente: correrlo dos
+veces no duplica nada.
 """
 
 from django.core.management.base import BaseCommand

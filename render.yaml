@@ -68,29 +68,3 @@ services:
         sync: false
       - key: GOOGLE_TOKEN_ENCRYPTION_KEY
         sync: false
-
-  # Cron de autogeneración de pagos (pagos.generar_pagos_pendientes +
-  # marcar_vencidos, ver pagos/management/commands/generar_pagos.py).
-  # DESHABILITADO por ahora: Render no ofrece plan "free" para cron jobs
-  # (ver ISSUES.md 2026-07-01) -- el plan free de arriba es solo para el web
-  # service y la base. Para activarlo: descomentar, poner `plan: starter` (o
-  # superior) y volver a aplicar el Blueprint. Mientras tanto, correr
-  # `python manage.py generar_pagos` a mano desde la Shell de Render, o
-  # esperar al upgrade de plan del primer gimnasio pago.
-  #
-  # - type: cron
-  #   name: app-gim-generar-pagos
-  #   runtime: python
-  #   plan: starter
-  #   schedule: "0 6 * * *"  # todos los días 06:00 UTC (03:00 ART)
-  #   buildCommand: pip install -r requirements.txt
-  #   startCommand: python manage.py generar_pagos
-  #   envVars:
-  #     - key: DJANGO_SECRET_KEY
-  #       sync: false
-  #     - key: DJANGO_DEBUG
-  #       value: "False"
-  #     - key: DATABASE_URL
-  #       fromDatabase:
-  #         name: app-gim-db
-  #         property: connectionString

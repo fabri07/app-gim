@@ -1,0 +1,50 @@
+# Autogeneración mensual de pagos pendientes (pagos.generar_pagos_pendientes +
+# marcar_vencidos, ver pagos/management/commands/generar_pagos.py).
+#
+# Vive acá y no en render.yaml porque Render no ofrece plan free para cron jobs
+# (ver ISSUES.md 2026-07-01). Desde Fase 5 el comando había quedado para correr
+# a mano desde la Shell de Render; esto lo destraba.
+#
+# Ver el diseño completo en:
+#   docs/superpowers/specs/2026-07-29-respaldo-y-migracion-neon-design.md
+
+name: Generar pagos del mes
+
+on:
+  schedule:
+    - cron: "30 6 * * *"   # 06:30 UTC, después del backup para no solaparse
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generar-pagos-production
+  cancel-in-progress: false
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # SHA pineado, no tag: un tag es mutable y puede reapuntarse a otro commit.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # No se pasan las R2_* ni las GOOGLE_*: sin ellas Django cae a
+      # FileSystemStorage y deja GOOGLE_CALENDAR_ENABLED=False, y este comando
+      # no toca ni archivos ni calendarios. Tampoco DJANGO_SECRET_KEY: un
+      # management command no lo usa y hay fallback de dev. Menos secrets
+      # copiados = menos superficie. DJANGO_DEBUG sí hace falta: en config/db.py
+      # `ssl_require=not debug` depende de ella para exigir TLS contra Neon.
+      #
+      # Va la URL POOLED (al revés que backup.yml, que necesita la directa): son
+      # conexiones cortas, que es justo para lo que sirve el pooler.
+      - name: Correr generar_pagos
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_POOLED }}
+          DJANGO_DEBUG: "False"
+        run: python manage.py generar_pagos
