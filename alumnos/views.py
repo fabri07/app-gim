@@ -51,6 +51,27 @@ class AlumnoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         return context
 
 
+class AccesoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
+    """Vista de conjunto de los accesos del gimnasio.
+
+    Cuelga del listado de alumnos y no del nav: el nav ya tiene 8 ítems y hubo
+    un esfuerzo deliberado por acortarlo de 10 a 8 (mismo criterio que el
+    importador de Excel, que también se accede desde su listado).
+
+    `select_related` no es una micro-optimización: cada fila lee el username y
+    el último ingreso, que viven dos saltos más allá (`alumno.perfil.usuario`),
+    así que sin esto la vista hace una query por alumno. Cubierto por
+    `PanelAccesosTests.test_no_hace_una_query_por_alumno`.
+    """
+
+    model = Alumno
+    template_name = "alumnos/acceso_list.html"
+    context_object_name = "alumnos"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("perfil__usuario")
+
+
 class AlumnoCreateView(StaffRequiredMixin, TenantScopedMixin, CreateView):
     model = Alumno
     form_class = AlumnoForm

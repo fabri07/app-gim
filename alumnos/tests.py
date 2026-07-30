@@ -15,7 +15,9 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.test import Client, SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from alumnos import identidad
@@ -850,3 +852,95 @@ class RevocacionAccesoTests(TestCase):
         ajeno.refresh_from_db()
         self.assertEqual(ajeno.estado, Alumno.Estado.ACTIVO)
         self.assertTrue(ajeno.perfil.usuario.is_active)
+
+
+class PanelAccesosTests(TestCase):
+    """Vista de conjunto de los accesos del gimnasio.
+
+    Hasta ahora el staff solo veía el acceso de un alumno entrando a su ficha,
+    de a uno.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        servicios.crear_acceso(self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+        self.client.force_login(self.staff)
+
+    def test_lista_el_usuario_exacto(self):
+        """El username tal cual quedó guardado: es lo que el staff tiene que
+        dictarle al alumno, y la mitigación de un error de normalización."""
+        response = self.client.get(reverse("alumnos:accesos"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "juan@ejemplo.com")
+
+    def test_marca_los_alumnos_sin_acceso(self):
+        Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        response = self.client.get(reverse("alumnos:accesos"))
+        self.assertContains(response, "Sin acceso")
+
+    def test_muestra_que_nunca_entro(self):
+        response = self.client.get(reverse("alumnos:accesos"))
+        self.assertContains(response, "Nunca entró")
+
+    def test_refleja_el_acceso_dado_de_baja(self):
+        self.client.post(reverse("alumnos:activar", args=[self.alumno.pk]))
+        response = self.client.get(reverse("alumnos:accesos"))
+        self.assertContains(response, "Dado de baja")
+
+    def test_aislamiento_no_muestra_alumnos_de_otro_gimnasio(self):
+        otro_gim = Gimnasio.objects.create(nombre="Gim B", slug="gim-b")
+        ajeno = Alumno.objects.create(
+            gimnasio=otro_gim, nombre="Ana", apellido="Gómez"
+        )
+        servicios.crear_acceso(ajeno, identidad.TIPO_EMAIL, "ana@ejemplo.com")
+
+        response = self.client.get(reverse("alumnos:accesos"))
+        self.assertNotContains(response, "ana@ejemplo.com")
+        self.assertNotContains(response, "Gómez")
+
+    def test_un_alumno_no_puede_ver_el_panel(self):
+        self.client.logout()
+        self.client.force_login(self.alumno.perfil.usuario)
+        self.assertEqual(self.client.get(reverse("alumnos:accesos")).status_code, 403)
+
+    def test_anonimo_redirige_a_login(self):
+        self.client.logout()
+        response = self.client.get(reverse("alumnos:accesos"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_no_hace_una_query_por_alumno(self):
+        """Cada fila muestra el username y el último ingreso, que viven dos
+        saltos más allá (`alumno.perfil.usuario`). Sin `select_related` esto
+        crece con la cantidad de alumnos.
+
+        Se comparan dos tamaños en vez de fijar un número exacto: un
+        `assertNumQueries(7)` se rompe con cualquier cambio interno de Django
+        sin que haya un N+1 de verdad.
+        """
+        url = reverse("alumnos:accesos")
+        with CaptureQueriesContext(connection) as pocas:
+            self.client.get(url)
+
+        for indice in range(5):
+            otro = Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=f"Alumno{indice}", apellido="Test"
+            )
+            servicios.crear_acceso(
+                otro, identidad.TIPO_EMAIL, f"alumno{indice}@ejemplo.com"
+            )
+
+        with CaptureQueriesContext(connection) as muchas:
+            self.client.get(url)
+
+        self.assertEqual(len(muchas), len(pocas))
