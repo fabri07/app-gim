@@ -160,6 +160,19 @@ def volver(request):
         request.session.flush()
         raise PermissionDenied("Tu usuario original ya no puede operar.")
 
+    # Chequeo de tenant, y es el que importa: ser staff activo NO alcanza.
+    # Sin esto, una sesión con `original_pk` alterado permitiría volver a la
+    # cuenta de un staff de OTRO gimnasio — o sea, saltar de tenant. El
+    # usuario actual es el alumno suplantado, así que su gimnasio es la
+    # referencia correcta.
+    try:
+        gimnasio_actual = request.user.perfil.gimnasio_id
+    except ObjectDoesNotExist:
+        gimnasio_actual = None
+    if gimnasio_actual is None or perfil.gimnasio_id != gimnasio_actual:
+        request.session.flush()
+        raise PermissionDenied("Tu usuario original es de otro gimnasio.")
+
     RegistroSuplantacion.objects.filter(
         pk=datos["registro_pk"], finalizada_en__isnull=True
     ).update(finalizada_en=timezone.now())

@@ -15,8 +15,25 @@ from django.shortcuts import redirect
 from django.utils.timezone import now
 from django.views.generic import View
 
+from tenants import suplantacion
 from tenants.mixins import AlumnoRequiredMixin
 from calendario import services
+
+
+def _rechazar_si_suplanta(request):
+    """Conectar/desconectar Google Calendar queda bloqueado mientras el staff
+    ve la app como un alumno.
+
+    Sin esto, el staff podría vincular SU PROPIA cuenta de Google al
+    calendario del alumno (el flujo OAuth usa la cuenta de quien está frente
+    al navegador, no la del usuario de la sesión), o desconectar la del
+    alumno sin que él se entere. Es una fuga de privacidad real, no teórica.
+    """
+    if suplantacion.esta_activa(request):
+        raise PermissionDenied(
+            "No se puede tocar la conexión con Google Calendar mientras estás "
+            "viendo la app como otra persona."
+        )
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +49,7 @@ class ConectarCalendarioView(AlumnoRequiredMixin, View):
     http_method_names = ["get"]
 
     def get(self, request, *args, **kwargs):
+        _rechazar_si_suplanta(request)
         if self.alumno is None:
             raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
         if not services.integracion_activa():
@@ -122,6 +140,7 @@ class DesconectarCalendarioView(AlumnoRequiredMixin, View):
     http_method_names = ["post"]
 
     def post(self, request, *args, **kwargs):
+        _rechazar_si_suplanta(request)
         if self.alumno is None:
             raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
         from calendario.models import GoogleCalendarCredential, ReservaCalendarEvent

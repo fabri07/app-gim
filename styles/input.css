@@ -131,6 +131,16 @@
       text-sm px-3 py-2;
   }
 
+  /* Banner de suplantación: va arriba de todo y a todo el ancho, para que sea
+     imposible olvidarse de que estás viendo la app como otra persona. Ámbar
+     saturado (no la paleta neutra del resto del panel) porque es un estado
+     temporal y anómalo, no una sección más. */
+  .banner-suplantacion {
+    @apply flex flex-wrap items-center justify-between gap-3
+      bg-amber-100 border-b border-amber-300 text-amber-900
+      px-4 py-2 text-sm;
+  }
+
   /* Cards */
   .tarjeta {
     @apply bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6;

@@ -1189,3 +1189,112 @@ class SuplantacionServicioTests(TestCase):
         self.assertFalse(suplantacion.esta_activa(request))
         suplantacion.iniciar(request, self.alumno)
         self.assertTrue(suplantacion.esta_activa(request))
+
+
+class SuplantacionVistasTests(TestCase):
+    """Rutas, banner y bloqueos de "entrar como este alumno".
+
+    Las rutas van SIN namespace: `tenants/urls.py` no define `app_name`
+    (agregárselo rompería `{% url 'home' %}` y `{% url 'login' %}` en todo el
+    proyecto).
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        crear_acceso(self.alumno, TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+        self.client.force_login(self.staff)
+
+    def _url_suplantar(self, alumno=None):
+        return reverse("suplantar", args=[(alumno or self.alumno).pk])
+
+    def test_suplantar_y_volver(self):
+        response = self.client.post(self._url_suplantar(), follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Volver a mi cuenta")
+        self.assertEqual(
+            int(self.client.session["_auth_user_id"]),
+            self.alumno.perfil.usuario.pk,
+        )
+
+        response = self.client.post(reverse("suplantacion_volver"), follow=True)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.staff.pk)
+        self.assertNotContains(response, "Volver a mi cuenta")
+
+    def test_el_banner_nombra_al_alumno(self):
+        response = self.client.post(self._url_suplantar(), follow=True)
+        self.assertContains(response, str(self.alumno))
+
+    def test_mientras_suplanta_no_entra_a_vistas_de_staff(self):
+        self.client.post(self._url_suplantar())
+        self.assertEqual(self.client.get(reverse("alumnos:listado")).status_code, 403)
+
+    def test_aislamiento_alumno_de_otro_gimnasio_da_404(self):
+        otro_gim = Gimnasio.objects.create(nombre="Gim B", slug="gim-b")
+        ajeno = Alumno.objects.create(
+            gimnasio=otro_gim, nombre="Ana", apellido="Gómez"
+        )
+        crear_acceso(ajeno, TIPO_EMAIL, "ana@ejemplo.com")
+        ajeno.refresh_from_db()
+
+        self.assertEqual(self.client.post(self._url_suplantar(ajeno)).status_code, 404)
+        self.assertFalse(RegistroSuplantacion.objects.exists())
+
+    def test_get_no_esta_permitido(self):
+        self.assertEqual(self.client.get(self._url_suplantar()).status_code, 405)
+        self.assertEqual(self.client.get(reverse("suplantacion_volver")).status_code, 405)
+
+    def test_un_alumno_no_puede_suplantar(self):
+        self.client.logout()
+        self.client.force_login(self.alumno.perfil.usuario)
+        self.assertEqual(self.client.post(self._url_suplantar()).status_code, 403)
+
+    def test_sesion_fabricada_hacia_staff_de_otro_gimnasio_es_rechazada(self):
+        """Alguien que manipula la sesión no debe poder saltar de tenant."""
+        otro_gim = Gimnasio.objects.create(nombre="Gim B", slug="gim-b")
+        staff_ajeno = User.objects.create_user("staff-b", password="clave-larga-789")
+        Perfil.objects.create(
+            usuario=staff_ajeno, gimnasio=otro_gim, rol=Perfil.Rol.STAFF
+        )
+        self.client.post(self._url_suplantar())
+
+        sesion = self.client.session
+        datos = sesion[suplantacion.CLAVE_SESION]
+        datos["original_pk"] = staff_ajeno.pk
+        sesion[suplantacion.CLAVE_SESION] = datos
+        sesion.save()
+
+        self.client.post(reverse("suplantacion_volver"))
+        self.assertNotEqual(
+            int(self.client.session.get("_auth_user_id", 0)), staff_ajeno.pk
+        )
+
+    def test_el_panel_de_accesos_ofrece_entrar_como(self):
+        response = self.client.get(reverse("alumnos:accesos"))
+        self.assertContains(response, self._url_suplantar())
+
+    def test_el_panel_no_ofrece_entrar_como_a_un_alumno_dado_de_baja(self):
+        self.client.post(reverse("alumnos:activar", args=[self.alumno.pk]))
+        response = self.client.get(reverse("alumnos:accesos"))
+        self.assertNotContains(response, self._url_suplantar())
+
+    def test_no_se_puede_conectar_calendar_mientras_suplanta(self):
+        """Si no, el staff vincularía SU cuenta de Google al calendario del
+        alumno: fuga de privacidad real."""
+        self.client.post(self._url_suplantar())
+        self.assertEqual(
+            self.client.get(reverse("calendario:conectar")).status_code, 403
+        )
+
+    def test_no_se_puede_desconectar_calendar_mientras_suplanta(self):
+        self.client.post(self._url_suplantar())
+        self.assertEqual(
+            self.client.post(reverse("calendario:desconectar")).status_code, 403
+        )
