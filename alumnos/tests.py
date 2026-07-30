@@ -12,9 +12,12 @@ alumno.
 import datetime
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.contrib.auth.validators import UnicodeUsernameValidator
+from django.core.exceptions import ValidationError
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
+from alumnos import identidad
 from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
 
@@ -509,3 +512,72 @@ class AccesoAlumnoViewsTests(TestCase):
         self.assertTrue(
             self.client.login(username="juanperez", password="clave-nueva-100")
         )
+
+
+class IdentidadTests(SimpleTestCase):
+    """Normalización del dato con el que entra un alumno.
+
+    La tabla de casos es exhaustiva a propósito: si la normalización difiere
+    entre el alta y el login, el alumno no entra nunca y no tiene forma de
+    darse cuenta solo. `SimpleTestCase` porque `alumnos/identidad.py` no toca
+    la base (mismo criterio que `importaciones/parsing.py`).
+    """
+
+    def test_email_se_normaliza(self):
+        for entrada, esperado in [
+            ("Juan@Ejemplo.com", "juan@ejemplo.com"),
+            ("  juan@ejemplo.com  ", "juan@ejemplo.com"),
+            ("JUAN.PEREZ@EJEMPLO.COM.AR", "juan.perez@ejemplo.com.ar"),
+        ]:
+            with self.subTest(entrada=entrada):
+                self.assertEqual(identidad.normalizar_email(entrada), esperado)
+
+    def test_email_invalido_levanta(self):
+        for entrada in ["", "no-es-un-email", "juan@", "@ejemplo.com", "a b@c.com"]:
+            with self.subTest(entrada=entrada):
+                with self.assertRaises(ValidationError):
+                    identidad.normalizar_email(entrada)
+
+    def test_telefono_argentino_se_normaliza(self):
+        for entrada, esperado in [
+            ("1122334455", "+541122334455"),
+            ("11 2233 4455", "+541122334455"),
+            ("11-2233-4455", "+541122334455"),
+            ("(011) 2233-4455", "+541122334455"),
+            ("011 15 2233 4455", "+541122334455"),
+            ("+54 11 2233 4455", "+541122334455"),
+            ("+5491122334455", "+5491122334455"),
+            ("0351 15 555 6677", "+543515556677"),
+        ]:
+            with self.subTest(entrada=entrada):
+                self.assertEqual(identidad.normalizar_telefono(entrada), esperado)
+
+    def test_telefono_invalido_levanta(self):
+        for entrada in ["", "123", "no-es-un-telefono", "+"]:
+            with self.subTest(entrada=entrada):
+                with self.assertRaises(ValidationError):
+                    identidad.normalizar_telefono(entrada)
+
+    def test_normalizar_identificador_despacha_por_tipo(self):
+        self.assertEqual(
+            identidad.normalizar_identificador(identidad.TIPO_EMAIL, "A@B.com"),
+            "a@b.com",
+        )
+        self.assertEqual(
+            identidad.normalizar_identificador(identidad.TIPO_TELEFONO, "1122334455"),
+            "+541122334455",
+        )
+
+    def test_tipo_desconocido_levanta(self):
+        with self.assertRaises(ValidationError):
+            identidad.normalizar_identificador("carta-documento", "lo que sea")
+
+    def test_el_identificador_entra_en_username(self):
+        """`UnicodeUsernameValidator` acepta `@` y `+` (regex `^[\\w.@+-]+\\Z`).
+
+        Este test es el que justifica NO haber hecho un `User` custom: si algún
+        día dejara de ser cierto, hay que enterarse acá y no en producción.
+        """
+        validador = UnicodeUsernameValidator()
+        validador("juan@ejemplo.com")
+        validador("+541122334455")
