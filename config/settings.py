@@ -141,7 +141,11 @@ DATABASES = {
 # `client.login()`, cada uno disparando ese hash; con `manage.py test` corriendo,
 # se cambia a MD5 (inseguro, pero acá no importa) y baja la mayor parte del
 # tiempo de la suite sin tocar el hasher real de producción/dev.
-if "test" in sys.argv:
+# Se calcula una sola vez y se reusa más abajo (storage de media): la suite
+# tiene que quedar aislada de todo servicio externo, no solo acelerada.
+TESTING = "test" in sys.argv
+
+if TESTING:
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 
@@ -202,6 +206,13 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # seteadas las credenciales de R2, cambia a S3Storage (R2 es compatible con
 # S3) SIN tocar los campos `ImageField`/`FileField` de los modelos — el
 # filesystem de Render es efímero, nunca debe recibir un upload real.
+#
+# En TESTS va `InMemoryStorage`, y eso NO es una optimización: como el `.env`
+# de desarrollo tiene las 4 `R2_*`, sin este caso especial la suite escribía
+# al bucket REAL de producción. `importaciones/tests.py` sube `.xlsx` de
+# verdad, así que cada corrida dejaba ~20 archivos huérfanos en
+# `app-gim-media/importaciones/` (se habían acumulado 816 antes de detectarlo,
+# ver ISSUES.md 2026-07-30). En memoria no toca ni la red ni el disco.
 STORAGES = {
     "staticfiles": {
         "BACKEND": (
@@ -211,7 +222,11 @@ STORAGES = {
         ),
     },
     "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "BACKEND": (
+            "django.core.files.storage.InMemoryStorage"
+            if TESTING
+            else "django.core.files.storage.FileSystemStorage"
+        ),
     },
 }
 
@@ -230,7 +245,10 @@ if _r2_seteadas and len(_r2_seteadas) < len(_R2_VARS):
         "usar FileSystemStorage local) -- ver .env.example."
     )
 
-if _r2_seteadas:
+# `not TESTING`: la validación de arriba sí corre siempre (una config parcial
+# es un error de entorno en cualquier contexto), pero el backend real nunca se
+# activa en la suite -- ver el comentario de STORAGES.
+if _r2_seteadas and not TESTING:
     STORAGES["default"] = {"BACKEND": "storages.backends.s3.S3Storage"}
     AWS_STORAGE_BUCKET_NAME = os.environ["R2_BUCKET_NAME"]
     AWS_ACCESS_KEY_ID = os.environ["R2_ACCESS_KEY_ID"]

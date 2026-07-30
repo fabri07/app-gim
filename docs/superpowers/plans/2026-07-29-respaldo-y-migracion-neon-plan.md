@@ -124,7 +124,7 @@ Límite de gasto en **US$0**. Cargar secrets:
 > Aun así se recortan los tests de 5 a 3: los dos que se caen sólo
 > verificaban comportamiento de `dj-database-url`, no decisiones nuestras.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Crear `config/tests.py`:
 
@@ -158,7 +158,7 @@ class DatabaseConfigTests(SimpleTestCase):
         self.assertEqual(cfg["OPTIONS"]["sslmode"], "require")
 ```
 
-- [ ] **Step 2: Correr el test y verificar que falla**
+- [x] **Step 2: Correr el test y verificar que falla**
 
 ```bash
 python manage.py test config -v 2
@@ -166,7 +166,7 @@ python manage.py test config -v 2
 Esperado: FAIL — `ModuleNotFoundError: No module named 'config.db'`.
 Si dice "Ran 0 tests", usar `python manage.py test config.tests -v 2`.
 
-- [ ] **Step 3: Escribir `config/db.py`**
+- [x] **Step 3: Escribir `config/db.py`**
 
 ```python
 """Configuración de la conexión a la base de datos.
@@ -206,7 +206,7 @@ def database_config(database_url, debug, base_dir):
     }
 ```
 
-- [ ] **Step 4: Reemplazar el bloque en `config/settings.py:126-143`**
+- [x] **Step 4: Reemplazar el bloque en `config/settings.py:126-143`**
 
 Borrar el `if os.environ.get("DATABASE_URL"): ... else: ...` completo, borrar
 `import dj_database_url` de la línea 18, agregar
@@ -221,14 +221,14 @@ DATABASES = {
 }
 ```
 
-- [ ] **Step 5: Correr los tests**
+- [x] **Step 5: Correr los tests**
 
 ```bash
 python manage.py test config -v 2 && python manage.py test
 ```
 Esperado: 3 tests nuevos PASS y la suite completa en verde (417 tests).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add config/db.py config/tests.py config/settings.py
@@ -244,7 +244,7 @@ conexiones muertas del pool de conn_max_age=600."
 
 **Bloqueada por:** M1. **Files:** Modify `render.yaml`, `ISSUES.md`.
 
-- [ ] **Step 1: Inventariar la base de Render ANTES de tocar nada**
+- [x] **Step 1: Inventariar la base de Render ANTES de tocar nada**
 
 Desde la Shell de Render (o con la connection string externa):
 
@@ -262,13 +262,13 @@ UNION ALL SELECT 'importaciones', COUNT(*) FROM importaciones_importacion;
 las dos rutas siguientes se toma; no se saltea aunque "se sepa" que está
 vacía. La base de Render es hoy la única copia que existe.
 
-- [ ] **Step 2a: Ruta VACÍA — solo si todo lo operativo dio 0**
+- [x] **Step 2a: Ruta VACÍA — solo si todo lo operativo dio 0**
 
 (Se acepta `auth_user` > 0: es el superusuario.) Cargar la URL **pooled** en
 el dashboard de Render → Manual Deploy. El `buildCommand` ya corre `migrate`,
 así que el esquema se crea solo. Después, `createsuperuser` desde la Shell.
 
-- [ ] **Step 2b: Ruta CON DATOS — si cualquier tabla operativa dio > 0**
+- [x] **Step 2b: Ruta CON DATOS — si cualquier tabla operativa dio > 0**
 
 **No** usar `migrate` + `createsuperuser`: abandonaría los datos. En su lugar,
 desde una máquina con `postgresql-client` de la major de Neon:
@@ -284,7 +284,7 @@ psql "<URL_DIRECTA_DE_NEON>" -c "SELECT COUNT(*) FROM alumnos_alumno;"
 Los conteos en Neon deben coincidir **exactamente** con los de la Step 1
 antes de cambiar `DATABASE_URL` en Render.
 
-- [ ] **Step 3: Sacar `fromDatabase` de `render.yaml`**
+- [x] **Step 3: Sacar `fromDatabase` de `render.yaml`**
 
 Reemplazar el bloque de `DATABASE_URL` en `services[0].envVars` por:
 
@@ -300,7 +300,7 @@ Y borrar el bloque `databases:` del inicio del archivo. Sacarlo del Blueprint
 **no borra** la base ya creada: Render conserva los recursos existentes hasta
 que se los elimina a mano desde el dashboard.
 
-- [ ] **Step 4: Corregir el plazo de expiración en los comentarios**
+- [x] **Step 4: Corregir el plazo de expiración en los comentarios**
 
 En `render.yaml` el comentario de cabecera dice "el Postgres free expira a los
 90 días" — reemplazarlo por una nota de que la base ya no la maneja Render.
@@ -308,7 +308,7 @@ En `ISSUES.md`, entrada `[2026-07-01]`: corregir "90 días" por "30 días + 14
 de gracia (Render bajó el plazo en mayo de 2024)" y apuntar a la entrada
 nueva.
 
-- [ ] **Step 5: Documentar en `ISSUES.md` y commitear**
+- [x] **Step 5: Documentar en `ISSUES.md` y commitear**
 
 ```markdown
 ## [2026-07-29] Postgres migrado de Render free a Neon free
@@ -340,7 +340,7 @@ git commit -m "chore(deploy): mover la base a Neon y corregir el plazo de expira
 - Produces: job `backup` con outputs `monthly` (`"true"`/`"false"`) y
   `objeto` (nombre del archivo `.dump.gpg`). Task 4 los consume.
 
-- [ ] **Step 1: Obtener el SHA de las actions que se van a pinear**
+- [x] **Step 1: Obtener el SHA de las actions que se van a pinear**
 
 ```bash
 gh api repos/actions/checkout/git/ref/tags/v4 --jq .object.sha
@@ -349,7 +349,7 @@ gh api repos/actions/setup-python/git/ref/tags/v5 --jq .object.sha
 
 Anotarlos; se usan en Task 5. (Task 3 y 4 no usan actions de terceros.)
 
-- [ ] **Step 2: Crear `.github/workflows/backup.yml`**
+- [x] **Step 2: Crear `.github/workflows/backup.yml`**
 
 Major de Neon confirmada: **18** (PostgreSQL 18.4, región sa-east-1).
 
@@ -461,7 +461,7 @@ jobs:
     secrets: inherit
 ```
 
-- [ ] **Step 3: Anotar en `ISSUES.md` por qué no se usa `dumpdata`**
+- [x] **Step 3: Anotar en `ISSUES.md` por qué no se usa `dumpdata`**
 
 ```markdown
 ## [2026-07-29] El respaldo usa pg_dump, nunca dumpdata/loaddata
@@ -478,7 +478,7 @@ vía de restauración soportada, y no lo es. Si alguna vez se reintroduce
 `loaddata` para otra cosa, agregar el guard ANTES.
 ```
 
-- [ ] **Step 4: Commit y push** (el workflow todavía no corre — Task 4 crea el
+- [x] **Step 4: Commit y push** (el workflow todavía no corre — Task 4 crea el
   reusable que referencia; hacer los dos commits antes de probar)
 
 ```bash
@@ -496,7 +496,7 @@ git commit -m "feat(backup): workflow diario de pg_dump cifrado a R2"
 - Consumes: inputs `objeto` (nombre del `.dump.gpg`) y `prefijo`
   (`daily`/`monthly`), provistos por el job `verificar` de `backup.yml`.
 
-- [ ] **Step 1: Crear `.github/workflows/backup-verify.yml`**
+- [x] **Step 1: Crear `.github/workflows/backup-verify.yml`**
 
 ```yaml
 name: Verificación del backup (restore real)
@@ -631,6 +631,8 @@ jobs:
 ```
 
 - [ ] **Step 2: Commit, push y probar el encadenamiento**
+      (commiteado en `80ac21e`; el encadenamiento NO se probó todavía —
+      necesita los secrets de M4)
 
 ```bash
 git add .github/workflows/backup-verify.yml
@@ -653,7 +655,7 @@ Probar en dos pasos:
 **Files:** Create `.github/workflows/generar-pagos.yml`; Modify `render.yaml`,
 `CLAUDE.md`.
 
-- [ ] **Step 1: Crear `.github/workflows/generar-pagos.yml`**
+- [x] **Step 1: Crear `.github/workflows/generar-pagos.yml`**
 
 Reemplazar `<SHA_CHECKOUT>` y `<SHA_SETUP_PYTHON>` por los SHA obtenidos en
 Task 3 Step 1 (un tag es mutable; solo el SHA es una referencia inmutable).
@@ -697,12 +699,12 @@ jobs:
         run: python manage.py generar_pagos
 ```
 
-- [ ] **Step 2: Borrar el cron comentado de `render.yaml`**
+- [x] **Step 2: Borrar el cron comentado de `render.yaml`**
 
 Borrar el bloque completo `# - type: cron ... # name: app-gim-generar-pagos`
 del final del archivo — deja de ser un pendiente.
 
-- [ ] **Step 3: Actualizar `CLAUDE.md`**
+- [x] **Step 3: Actualizar `CLAUDE.md`**
 
 En "Deploy (Fase 5)": reemplazar el ítem que dice que el cron de
 `generar_pagos` está pendiente, y agregar una subsección "Respaldos" con los
@@ -712,6 +714,7 @@ Healthchecks. Mencionar explícitamente que la verificación **la encadena el
 backup**, no un cron propio, y por qué.
 
 - [ ] **Step 4: Commit, push y correr a mano**
+      (falta el secret `NEON_DATABASE_URL_POOLED`)
 
 ```bash
 git add .github/workflows/generar-pagos.yml render.yaml CLAUDE.md

@@ -7,12 +7,14 @@ TenantOwnedModel concreto para ejercitarlos.
 """
 
 from datetime import date, timedelta
+from io import StringIO
 
 from django.contrib.auth.models import AnonymousUser, User
 from django.core.exceptions import PermissionDenied
+from django.core.management import CommandError, call_command
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from django.views.generic import TemplateView, View
 
@@ -24,48 +26,146 @@ from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil
 
 
-class RegisterViewTests(TestCase):
-    def test_registro_crea_usuario_gimnasio_y_perfil_staff_y_loguea(self):
-        response = self.client.post(
-            reverse("register"),
-            {
-                "username": "dueno1",
-                "password1": "una-clave-segura-123",
-                "password2": "una-clave-segura-123",
-                "nombre_gimnasio": "Gimnasio Central",
-            },
-        )
-        self.assertRedirects(response, reverse("home"))
+class RegistroPublicoCerradoTests(TestCase):
+    """El alta self-serve de gimnasios se cerró: cualquiera en internet podía
+    crear User + Gimnasio + Perfil STAFF y quedaba logueado, sin verificación
+    de nada. Ahora los gimnasios se dan de alta con `manage.py crear_gimnasio`.
+    """
 
-        user = User.objects.get(username="dueno1")
+    def test_no_existe_la_ruta_de_registro(self):
+        with self.assertRaises(NoReverseMatch):
+            reverse("register")
+
+    def test_la_url_vieja_de_registro_da_404(self):
+        self.assertEqual(self.client.get("/accounts/register/").status_code, 404)
+
+
+class CrearGimnasioCommandTests(TestCase):
+    def test_crea_gimnasio_usuario_y_perfil_staff(self):
+        call_command(
+            "crear_gimnasio", nombre="Gimnasio Central", email="dueno@ejemplo.com"
+        )
+
         gimnasio = Gimnasio.objects.get(nombre="Gimnasio Central")
+        user = User.objects.get(username="dueno@ejemplo.com")
         perfil = Perfil.objects.get(usuario=user)
 
+        self.assertEqual(gimnasio.slug, "gimnasio-central")
         self.assertEqual(perfil.gimnasio, gimnasio)
         self.assertEqual(perfil.rol, Perfil.Rol.STAFF)
-        self.assertEqual(gimnasio.slug, "gimnasio-central")
+        self.assertEqual(user.email, "dueno@ejemplo.com")
 
-        # El registro deja al usuario logueado.
-        response = self.client.get(reverse("home"))
-        self.assertEqual(response.status_code, 200)
+    def test_por_defecto_genera_una_contrasena_provisoria_que_sirve_para_entrar(self):
+        """Estado transitorio: hasta que exista el login con Google, un
+        gimnasio recién creado tiene que poder entrar de alguna forma."""
+        salida = StringIO()
+        call_command(
+            "crear_gimnasio",
+            nombre="Gimnasio Central",
+            email="dueno@ejemplo.com",
+            stdout=salida,
+        )
+
+        user = User.objects.get(username="dueno@ejemplo.com")
+        self.assertTrue(user.has_usable_password())
+
+        # La contraseña que imprime el comando es la que realmente funciona.
+        password = salida.getvalue().split("Contraseña provisoria: ")[1].split("\n")[0]
+        self.assertTrue(
+            self.client.login(username="dueno@ejemplo.com", password=password)
+        )
+
+    def test_password_explicita_se_respeta(self):
+        call_command(
+            "crear_gimnasio",
+            nombre="Gimnasio Central",
+            email="dueno@ejemplo.com",
+            password="una-clave-elegida-123",
+        )
+
+        self.assertTrue(
+            self.client.login(
+                username="dueno@ejemplo.com", password="una-clave-elegida-123"
+            )
+        )
+
+    def test_password_debil_falla_sin_crear_nada(self):
+        with self.assertRaises(CommandError):
+            call_command(
+                "crear_gimnasio",
+                nombre="Gimnasio Central",
+                email="dueno@ejemplo.com",
+                password="1234",
+            )
+
+        self.assertFalse(Gimnasio.objects.exists())
+        self.assertFalse(User.objects.exists())
+
+    def test_sin_password_deja_la_cuenta_solo_para_google(self):
+        """Modo definitivo: el staff entra por Google. Una contraseña
+        inutilizable no se puede adivinar ni resetear por mail
+        (`PasswordResetForm.get_users()` filtra por `has_usable_password()`)."""
+        call_command(
+            "crear_gimnasio",
+            nombre="Gimnasio Central",
+            email="dueno@ejemplo.com",
+            sin_password=True,
+        )
+
+        user = User.objects.get(username="dueno@ejemplo.com")
+        self.assertFalse(user.has_usable_password())
+
+    def test_email_se_normaliza_a_minusculas(self):
+        """`User.objects.get(username=...)` es case-sensitive en Postgres: sin
+        normalizar, `Dueno@X.com` y `dueno@x.com` serían dos cuentas."""
+        call_command(
+            "crear_gimnasio", nombre="Gimnasio Central", email="  Dueno@Ejemplo.COM "
+        )
+
+        self.assertTrue(User.objects.filter(username="dueno@ejemplo.com").exists())
 
     def test_slug_no_colisiona_entre_gimnasios_con_el_mismo_nombre(self):
         Gimnasio.objects.create(nombre="Gimnasio Central", slug="gimnasio-central")
 
-        self.client.post(
-            reverse("register"),
-            {
-                "username": "dueno2",
-                "password1": "otra-clave-segura-456",
-                "password2": "otra-clave-segura-456",
-                "nombre_gimnasio": "Gimnasio Central",
-            },
+        call_command(
+            "crear_gimnasio", nombre="Gimnasio Central", email="otro@ejemplo.com"
         )
 
         segundo = Gimnasio.objects.exclude(slug="gimnasio-central").get(
             nombre="Gimnasio Central"
         )
         self.assertEqual(segundo.slug, "gimnasio-central-2")
+
+    def test_slug_explicito_se_respeta(self):
+        call_command(
+            "crear_gimnasio",
+            nombre="Gimnasio Central",
+            email="dueno@ejemplo.com",
+            slug="central",
+        )
+
+        self.assertEqual(Gimnasio.objects.get(nombre="Gimnasio Central").slug, "central")
+
+    def test_email_repetido_falla_sin_crear_nada(self):
+        call_command(
+            "crear_gimnasio", nombre="Primero", email="dueno@ejemplo.com"
+        )
+
+        with self.assertRaises(CommandError):
+            call_command(
+                "crear_gimnasio", nombre="Segundo", email="dueno@ejemplo.com"
+            )
+
+        # Atómico: el gimnasio del intento fallido no debe haber quedado.
+        self.assertFalse(Gimnasio.objects.filter(nombre="Segundo").exists())
+        self.assertEqual(User.objects.filter(username="dueno@ejemplo.com").count(), 1)
+
+    def test_email_invalido_falla_sin_crear_nada(self):
+        with self.assertRaises(CommandError):
+            call_command("crear_gimnasio", nombre="Gimnasio", email="no-es-un-email")
+
+        self.assertFalse(Gimnasio.objects.exists())
+        self.assertFalse(User.objects.exists())
 
 
 class LoginLogoutTests(TestCase):

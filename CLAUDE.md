@@ -123,7 +123,8 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   (alias/CBU/lo que el gimnasio muestra al alumno para pagar, editable por
   staff). `pagos/models.py` expone `generar_pagos_pendientes(mes, anio)` y
   `marcar_vencidos(mes, anio)`; `python manage.py generar_pagos` corre ambas
-  para el mes actual — es el comando que Fase 5 programa como Render Cron Job.
+  para el mes actual — lo programa `.github/workflows/generar-pagos.yml`
+  (GitHub Actions, no Render: no hay cron en el plan free).
 - **`novedades`** — `Novedad(TenantOwnedModel)` con `NovedadQuerySet.visibles()`
   (activa + publicada + no vencida), y `NovedadLeida` (read-receipt por
   alumno; no es `TenantOwnedModel`, se scopea vía su FK a `Novedad`/`Alumno`
@@ -173,6 +174,13 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
 
 ## Portal del alumno y acceso (Fase 3)
 
+- **Alta de gimnasios: por comando, no self-serve.** `/accounts/register/` era
+  público y sin throttling (cualquiera creaba User + Gimnasio + Perfil STAFF y
+  quedaba logueado); se cerró el 2026-07-29, ver `ISSUES.md`. Hoy el único
+  camino es `python manage.py crear_gimnasio`
+  (`tenants/services.py::crear_gimnasio`), que crea al dueño con
+  `set_unusable_password()` porque el staff va a entrar por Google. **No
+  reintroduzcas una vista de registro** sin volver a discutir la decisión.
 - **Acceso**: `Alumno.perfil` (`OneToOneField` a `tenants.Perfil`, nullable)
   vincula un alumno con su login. El staff lo crea/resetea desde la ficha del
   alumno (`alumnos:acceso_crear` / `alumnos:acceso_cambiar_password`,
@@ -181,7 +189,7 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
   (`help_text` lo explica: es la única vez que se puede leer, el staff la
   tiene que copiar para pasársela al alumno). `username` es único GLOBAL
   (`auth.User`, sin namespacing por gimnasio) — el form lo valida y sugiere
-  uno libre (mismo patrón que `RegisterView._slug_disponible`).
+  uno libre (mismo patrón que `tenants.services.slug_disponible`).
 - **`fecha_activacion`**: se registra en el PRIMER login exitoso del alumno,
   no al crear el acceso — vía la señal `user_logged_in` en
   `alumnos/signals.py`, conectada en `AlumnosConfig.ready()`. Mide adopción
@@ -428,18 +436,60 @@ existente; este tratamiento es exclusivo de `landing.html`.
 
 ## Deploy (Fase 5)
 
-**Estado (2026-07-29): desplegado.** App en `https://app-gim.onrender.com`
+**Estado (2026-07-30): desplegado.** App en `https://app-gim.onrender.com`
 (Render free tier, Blueprint aplicado), media en el bucket R2
 `app-gim-media`. Repo en `https://github.com/fabri07/app-gim` (privado).
 
+**Dominio propio: `tugimapp.com`** — comprado en Cloudflare el 2026-07-30, por
+un año. Todavía NO está apuntado a Render. Cuando se conecte hay que tocar
+cuatro cosas, y ninguna es opcional: (1) `DJANGO_ALLOWED_HOSTS` y (2)
+`DJANGO_CSRF_TRUSTED_ORIGINS` en Render; (3) el redirect URI de Google Calendar
+en la consola de Google Cloud (`https://tugimapp.com/calendario/callback/`),
+que si no queda apuntando a `app-gim.onrender.com` y rompe la integración; y
+(4) los registros SPF/DKIM que pida el proveedor de email. El dominio es
+justamente lo que destraba el email transaccional: sin verificación de dominio,
+Resend solo deja enviar a la casilla propia.
+
 - **Plan elegido: arrancar en el free tier de Render, upgradear cuando entre
   el primer gimnasio pago** (decisión del usuario, coincide con "primero se
-  cobra, después se sofistica"). El Postgres free expira a los 90 días y el
-  web service se duerme sin tráfico — aceptado a propósito, ver `ISSUES.md`.
-- **`render.yaml`** define el Blueprint: web service (free) + Postgres
-  (free). El cron de `generar_pagos` queda comentado en el archivo — **Render
-  no tiene plan free para cron jobs**, hace falta upgradear a Starter (o
-  correr el comando a mano desde la Shell de Render) hasta entonces.
+  cobra, después se sofistica"). El web service se duerme sin tráfico —
+  aceptado a propósito, ver `ISSUES.md`.
+- **`render.yaml`** define el Blueprint: **solo el web service (free)**. Ya no
+  declara `databases:` — la base salió del Blueprint el 2026-07-29 y vive en
+  Neon (ver abajo). Tampoco tiene cron: **Render no ofrece plan free para cron
+  jobs**, así que los dos trabajos programados corren en GitHub Actions.
+- **La base es Neon, no Render** (migrada el 2026-07-29, ver `ISSUES.md`). El
+  Postgres free de Render expiraba a los 30 días + 14 de gracia y después
+  Render borra los datos; el de Neon es free permanente. `DATABASE_URL` se
+  carga a mano en el dashboard de Render (`sync: false`) con la URL **POOLED**.
+  La URL **DIRECTA** (sin `-pooler` en el host) se usa solo desde el workflow
+  de backup: el pooler no sostiene bien la sesión larga de un `pg_dump`.
+  `config/db.py` activa `conn_health_checks=True` — es obligatorio contra Neon,
+  que suspende el compute por inactividad (scale-to-zero); sin el chequeo
+  Django reusa conexiones muertas del pool de `CONN_MAX_AGE` y los requests
+  fallan de forma intermitente.
+- **Trabajos programados (GitHub Actions, no Render):**
+  - `.github/workflows/generar-pagos.yml` — corre `manage.py generar_pagos`
+    todos los días 06:30 UTC. Usa la URL **pooled** (conexiones cortas).
+  - `.github/workflows/backup.yml` — `pg_dump` diario a las 06:00 UTC, cifrado
+    con GPG y subido al bucket R2 `app-gim-backups`. Usa la URL **directa**.
+    El día 1 de cada mes copia también a `monthly/` y **encadena** la
+    verificación pasándole el nombre exacto del objeto — no la agenda con un
+    cron propio, para que no pueda terminar validando el backup del día
+    anterior.
+  - `.github/workflows/backup-verify.yml` — baja el objeto, valida checksum,
+    descifra y lo **restaura de verdad** en un Postgres descartable. Un backup
+    que nunca se restauró no está verificado.
+  - Retención: `daily/` 30 días por lifecycle, `monthly/` 12 meses por bucket
+    lock. El lock va **solo** en `monthly/`: tiene precedencia sobre la
+    lifecycle, así que en `daily/` impediría que la expiración ocurriera nunca.
+  - Monitoreo en **Healthchecks.io**: alerta por **ausencia** de ping, que es
+    lo único que cubre a la vez el dump fallido, el workflow desactivado por
+    inactividad del repo y GitHub Actions caído.
+  - **El respaldo usa `pg_dump`, nunca `dumpdata`/`loaddata`** — ver la entrada
+    de `ISSUES.md`: `calendario/signals.py` no chequea `raw`, así que un
+    `loaddata` sincronizaría cada `Reserva` restaurada contra la API real de
+    Google Calendar.
 - **Cloudflare R2 — creado y en uso.** Bucket `app-gim-media`, endpoint
   `https://<account_id>.r2.cloudflarestorage.com`. Las 4 credenciales
   (`R2_BUCKET_NAME`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/
@@ -454,15 +504,23 @@ existente; este tratamiento es exclusivo de `landing.html`.
   novedades, turnos/reservas, tokens de Google Calendar, usuarios, y el
   `resultado` JSON de cada importación. Los estáticos (`static/css/app.css`,
   etc.) tampoco van a R2 — los sirve WhiteNoise desde el propio contenedor.
-- **Gotcha: en local también se escribe al bucket de producción.** Como el
-  `.env` de desarrollo tiene las 4 `R2_*`, `STORAGES["default"]` es
-  `S3Storage` también en tu máquina (no existe ni se usa `media/`): un logo o
-  un `.xlsx` subido corriendo `runserver` aterriza en el MISMO bucket que
-  usa producción. La DB sí está separada (SQLite local vs Postgres en
-  Render), así que quedan archivos huérfanos sin fila que los referencie —
-  molesto pero inofensivo. Si algún día molesta, la salida es un bucket
-  aparte para dev (cambiar `R2_BUCKET_NAME` en el `.env` local), no borrar
-  las credenciales.
+- **Gotcha: con `runserver` en local también se escribe al bucket de
+  producción.** Como el `.env` de desarrollo tiene las 4 `R2_*`,
+  `STORAGES["default"]` es `S3Storage` también en tu máquina (no existe ni se
+  usa `media/`): un logo o un `.xlsx` subido corriendo `runserver` aterriza en
+  el MISMO bucket que usa producción. La DB sí está separada (SQLite local vs
+  Neon), así que quedan archivos huérfanos sin fila que los referencie —
+  molesto pero inofensivo. Si algún día molesta, la salida es un bucket aparte
+  para dev (cambiar `R2_BUCKET_NAME` en el `.env` local), no borrar las
+  credenciales.
+- **Los TESTS sí están aislados de R2** (desde el 2026-07-30; antes no lo
+  estaban y habían dejado 816 archivos basura en el bucket, ver `ISSUES.md`).
+  `config/settings.py` define `TESTING = "test" in sys.argv` y lo usa en dos
+  lados: `PASSWORD_HASHERS` (MD5, para que la suite sea rápida) y
+  `STORAGES["default"]` (`InMemoryStorage`). La rama de R2 está guardada con
+  `if _r2_seteadas and not TESTING`. **Si agregás un servicio externo nuevo,
+  usá `TESTING` para desactivarlo en la suite** — el criterio es que
+  `manage.py test` no salga a la red por ningún motivo.
 - **Google Calendar (opcional) — credenciales creadas.** Las 4 env vars
   `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`/
   `GOOGLE_OAUTH_REDIRECT_URI`/`GOOGLE_TOKEN_ENCRYPTION_KEY` están en el
@@ -473,10 +531,14 @@ existente; este tratamiento es exclusivo de `landing.html`.
   arrancar si están parciales; sin ellas la app funciona igual, el alumno
   simplemente no ve la opción de conectar su calendario
   (`GOOGLE_CALENDAR_ENABLED = False`).
-- **Lo que sigue pendiente**: (a) el cron de `generar_pagos` (Render no lo da
-  en free — hoy hay que correrlo a mano desde la Shell, ver arriba); (b) el
-  Postgres free expira a los 90 días desde su creación; (c) smoke test manual
-  end-to-end de turnos → Google Calendar contra producción.
+- **Lo que sigue pendiente**: (a) cargar los secrets de GitHub Actions — sin
+  ellos los tres workflows fallan; (b) crear el bucket `app-gim-backups` en
+  Cloudflare con su lifecycle y su bucket lock, y los dos checks de
+  Healthchecks; (c) rotar la contraseña de Neon y actualizarla en los tres
+  lugares (Render + los dos secrets); (d) correr el ciclo completo de backup +
+  restore **antes** de borrar la base vieja de Render, que sigue viva a
+  propósito como vuelta atrás; (e) smoke test manual end-to-end de turnos →
+  Google Calendar contra producción.
 - **Settings de producción** (`config/settings.py`): `DATABASE_URL` (Postgres
   si está seteada, SQLite si no — mismo criterio que el resto del archivo),
   `STORAGES["default"]` cambia a `storages.backends.s3.S3Storage` solo si
@@ -500,6 +562,9 @@ python manage.py migrate
 python manage.py runserver
 python manage.py test -v 2           # suite completa
 python manage.py createsuperuser     # acceso a /admin/
+python manage.py crear_gimnasio --nombre "Gimnasio Central" --email dueno@gmail.com
+                                     # imprime una contraseña provisoria; ver
+                                     # --sin-password (solo cuando exista Google login)
 python manage.py generar_pagos       # autogenera pendientes del mes + vence atrasados
 python manage.py collectstatic       # solo hace falta simulando producción (DEBUG=False)
 

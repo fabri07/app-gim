@@ -493,3 +493,88 @@ como vuelta atrás hasta terminar la verificación end-to-end (ver
 **Nota:** el único usuario de la base NO es superusuario, así que hoy nadie
 entra a `/admin/`. Operativamente no molesta (el sistema se usa entero desde
 el panel web, por diseño), pero hay que saberlo.
+
+---
+
+## [2026-07-29] El respaldo usa `pg_dump`, nunca `dumpdata`/`loaddata`
+**Estado:** aceptado (decisión de diseño que no hay que revertir)
+**Impacto:** `dumpdata`/`loaddata` parece la opción "más Django" y es la que
+alguien va a proponer al tocar el workflow de backup. Sería un error con
+consecuencias visibles para el usuario final: `calendario/signals.py` **no
+chequea el flag `raw`**, que es justamente el que Django activa durante un
+`loaddata` para avisar "esto es una carga de fixtures, no una operación real".
+Sin ese chequeo, restaurar un backup dispararía la sincronización de **cada
+`Reserva` restaurada contra la API real de Google Calendar** — creando cientos
+de eventos duplicados en los calendarios de los alumnos, y encima con una
+restauración que tardaría muchísimo o directamente fallaría por rate limit.
+`pg_dump` opera a nivel de base y no ejecuta código de Python, así que no
+puede disparar ningún signal.
+**Resolución / próximo paso:** `.github/workflows/backup.yml` y
+`backup-verify.yml` usan `pg_dump --format=custom` y `pg_restore`. La
+advertencia estaba solo en un comentario de cabecera del workflow y en el
+spec; se registra acá porque es donde se busca. Si algún día se quiere que
+`loaddata` sea seguro, el arreglo es agregar `if raw: return` al principio del
+receiver de `calendario/signals.py` — pero no hay motivo para hacerlo.
+
+---
+
+## [2026-07-29] Se cerró el registro público de gimnasios
+**Estado:** resuelto
+**Impacto:** `/accounts/register/` era una ruta **pública y sin throttling**:
+cualquiera en internet podía crear User + Gimnasio + Perfil STAFF y quedaba
+logueado automáticamente (`login()` al final de `RegisterView.form_valid`). El
+form no pedía email ni verificaba nada, así que además de permitir cuentas
+basura en masa, un dueño que perdía su contraseña **no tenía ninguna forma de
+recuperarla** salvo `manage.py changepassword` desde el servidor.
+**Resolución / próximo paso:** se borraron `RegisterView`, `RegistroForm`, su
+template y su ruta. El alta pasa a `python manage.py crear_gimnasio --nombre
+... --email ...` (`tenants/services.py::crear_gimnasio`). Es coherente con la
+etapa del producto (se buscan los primeros tres gimnasios pagos, no
+autoservicio masivo) y con el principio "primero se cobra, después se
+sofistica". `_slug_disponible` se mudó de la vista a
+`tenants/services.py::slug_disponible` antes de borrarla.
+**Estado transitorio de la contraseña:** el destino de la cuenta staff es no
+tener contraseña (`set_unusable_password()`, que además la deja fuera del reset
+por mail porque `PasswordResetForm.get_users()` filtra por
+`has_usable_password()`). Pero el login con Google es el Frente C y todavía NO
+existe: con `set_unusable_password()` como default, un gimnasio recién dado de
+alta **no podría entrar de ninguna forma**. Por eso el comando genera hoy una
+contraseña provisoria y la imprime; `--sin-password` implementa el modo
+definitivo y `--password` permite elegirla. Cuando Google esté verificado
+contra producción, `sin_password` pasa a ser el default y el parámetro se
+borra.
+**Riesgo que queda abierto:** el dueño existente sigue entrando con su
+contraseña de siempre. No hay que correr la migración que inutiliza las
+contraseñas de staff hasta que el login con Google esté verificado **contra
+producción**.
+
+---
+
+## [2026-07-30] La suite de tests escribía en el bucket R2 de producción
+**Estado:** resuelto
+**Impacto:** el `.env` de desarrollo tiene las 4 `R2_*`, y `config/settings.py`
+elegía `S3Storage` con solo mirar si estaban seteadas — sin distinguir si
+estaba corriendo `manage.py test`. Como `importaciones/tests.py` sube `.xlsx`
+de verdad (`SimpleUploadedFile` → `Importacion.archivo`), **cada corrida de la
+suite dejaba ~20 archivos huérfanos en el bucket REAL `app-gim-media`**, bajo
+`importaciones/`. Al detectarlo había **816 objetos basura** acumulados (~4 MB)
+contra 1 solo archivo legítimo (`logos/8_1sasa11.jpg`). Además de ensuciar
+producción, cada upload era un round-trip de red dentro de un test: la suite
+tardaba **65 s** por eso.
+**Resolución / próximo paso:** `config/settings.py` calcula `TESTING = "test"
+in sys.argv` una sola vez (ya se usaba para `PASSWORD_HASHERS`) y ahora también
+lo usa para el storage: en tests el backend es `InMemoryStorage`, y la rama de
+R2 quedó guardada con `if _r2_seteadas and not TESTING`. La validación de
+"las 4 o ninguna" **sigue corriendo siempre** — una config parcial es un error
+de entorno en cualquier contexto. La suite bajó de 65 s a **7,2 s** (453 tests)
+y verificado contra el bucket: 817 objetos antes de correrla, 817 después.
+Regresión cubierta por `config/tests.py::StorageDeTestsAisladoTests`.
+**Nota:** esto es distinto del issue del 2026-07-29 ("el `.env` local escribe
+al mismo bucket que producción"), que sigue vigente y aceptado: corriendo
+`runserver` en local, un upload real sigue yendo al bucket de producción. Lo
+que se arregló acá es solo el caso de los tests, que era el que generaba
+volumen.
+**Pendiente:** limpiar los 816 objetos ya acumulados en
+`app-gim-media/importaciones/`. Ninguno tiene una fila de `Importacion` que lo
+referencie (la DB de dev es SQLite local), pero conviene confirmar antes de
+borrar en masa.
