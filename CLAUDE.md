@@ -612,14 +612,20 @@ Resend solo deja enviar a la casilla propia.
   arrancar si están parciales; sin ellas la app funciona igual, el alumno
   simplemente no ve la opción de conectar su calendario
   (`GOOGLE_CALENDAR_ENABLED = False`).
-- **Lo que sigue pendiente**: (a) cargar los secrets de GitHub Actions — sin
-  ellos los tres workflows fallan; (b) crear el bucket `app-gim-backups` en
-  Cloudflare con su lifecycle y su bucket lock, y los dos checks de
-  Healthchecks; (c) rotar la contraseña de Neon y actualizarla en los tres
-  lugares (Render + los dos secrets); (d) correr el ciclo completo de backup +
-  restore **antes** de borrar la base vieja de Render, que sigue viva a
-  propósito como vuelta atrás; (e) smoke test manual end-to-end de turnos →
-  Google Calendar contra producción.
+- **Estado del respaldo (2026-07-30): operativo y verificado de punta a punta.**
+  Secrets cargados, bucket `app-gim-backups` con lifecycle en `daily/` y bucket
+  lock en `monthly/`, los dos checks de Healthchecks andando. Verificados con
+  evidencia real: backup → restore encadenado (`tablas_esenciales=10`), el
+  bucket lock rechazando un borrado en `monthly/` mientras `daily/` lo acepta,
+  y la alerta por ausencia llegando por mail al minuto que correspondía.
+  **La base vieja de Render ya se borró**: Neon es la única base. El runbook
+  completo está en `docs/runbook-respaldos.md`.
+- **Lo que sigue pendiente**: (a) **rotar la contraseña de Neon** (quedó
+  expuesta en texto plano) y actualizarla en los tres lugares — `DATABASE_URL`
+  en Render y los dos secrets de GitHub; ojo que ya no hay base vieja como
+  vuelta atrás, así que verificar las tres puntas después; (b) apuntar
+  `tugimapp.com`; (c) smoke test manual end-to-end de turnos → Google Calendar
+  contra producción.
 - **Settings de producción** (`config/settings.py`): `DATABASE_URL` (Postgres
   si está seteada, SQLite si no — mismo criterio que el resto del archivo),
   `STORAGES["default"]` cambia a `storages.backends.s3.S3Storage` solo si

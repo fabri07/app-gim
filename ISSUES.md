@@ -487,9 +487,10 @@ se cambió `DATABASE_URL` en el dashboard de Render a la URL **POOLED**;
 confirmado que producción entra por el pooler (aparece `pgbouncer` en
 `pg_stat_activity` de Neon). `render.yaml` ya no declara `databases:` —
 sacarlo del Blueprint no borra el recurso, Render conserva lo existente hasta
-que se lo elimina a mano. **La base vieja de Render sigue viva a propósito**
-como vuelta atrás hasta terminar la verificación end-to-end (ver
-`docs/superpowers/plans/2026-07-29-respaldo-y-migracion-neon-plan.md`).
+que se lo elimina a mano. **Actualización 2026-07-30: la base vieja de Render se
+borró.** Se mantuvo viva como vuelta atrás hasta completar la verificación
+end-to-end del respaldo (backup + restore encadenado + alerta + bucket lock);
+con eso cerrado, Neon quedó como única base.
 **Nota:** el único usuario de la base NO es superusuario, así que hoy nadie
 entra a `/admin/`. Operativamente no molesta (el sistema se usa entero desde
 el panel web, por diseño), pero hay que saberlo.

@@ -195,9 +195,11 @@ estuvo expuesta en texto plano en un chat.
 
 ---
 
-## Paso 7 — Recién ahora, la base vieja de Render
+## Paso 7 — La base vieja de Render
 
-**No la borres antes de acá.** Sigue viva a propósito como vuelta atrás.
+**Hecho el 2026-07-30: la base `app-gim-db` se borró.** Neon es la única base
+del proyecto. Lo que sigue queda como registro de las condiciones que se
+exigieron antes de darla de baja.
 
 Condiciones para darla de baja, todas cumplidas:
 
@@ -215,6 +217,8 @@ Condiciones para darla de baja, todas cumplidas:
       17:34:24 UTC — exactamente el período + la gracia después del último
       ping.)*
 - [ ] La contraseña de Neon quedó rotada y los tres lugares actualizados.
+      **Ojo: ya no hay base vieja como vuelta atrás.** Verificá las tres
+      puntas (app, `generar-pagos`, `backup`) apenas termines de rotar.
 
 Con las cinco tildadas, borrá el Postgres viejo desde el dashboard de Render.
 
