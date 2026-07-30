@@ -99,6 +99,12 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Corta una suplantación vencida ("entrar como este alumno"). Va después
+    # de AuthenticationMiddleware porque necesita `request.user` para
+    # revalidar el gimnasio. Es el único control del proyecto que exige
+    # evaluarse en CADA request y por eso no vive en un mixin -- ver el
+    # docstring de tenants/middleware.py.
+    'tenants.middleware.ExpirarSuplantacionMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

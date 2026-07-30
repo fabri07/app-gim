@@ -170,10 +170,10 @@ suplantación activa.
 
 ## Criterios de salida
 
-- [ ] El staff crea un acceso eligiendo email o teléfono, sin inventar contraseña.
-- [ ] La contraseña se ve una sola vez y no queda en la sesión.
-- [ ] Dar de baja a un alumno le impide entrar; reactivarlo lo revierte.
-- [ ] El panel de accesos lista solo alumnos del propio gimnasio.
-- [ ] El staff entra como un alumno y vuelve a su cuenta.
-- [ ] Suplantar no altera `fecha_activacion` ni `last_login`.
-- [ ] Suite en verde.
+- [x] El staff crea un acceso eligiendo email o teléfono, sin inventar contraseña.
+- [x] La contraseña se ve una sola vez y no queda en la sesión.
+- [x] Dar de baja a un alumno le impide entrar; reactivarlo lo revierte.
+- [x] El panel de accesos lista solo alumnos del propio gimnasio.
+- [x] El staff entra como un alumno y vuelve a su cuenta.
+- [x] Suplantar no altera `fecha_activacion` ni `last_login`.
+- [x] Suite en verde.

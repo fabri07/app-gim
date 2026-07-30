@@ -9,10 +9,15 @@ hace con `manage.py crear_gimnasio` (ver `tenants/services.py`).
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
+from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.utils import timezone
+from django.views import View
 from django.views.generic import DetailView, TemplateView, UpdateView
+from django.views.generic.detail import SingleObjectMixin
 
+from core.mixins import TenantScopedMixin
+from tenants import suplantacion
 from tenants.forms import GimnasioForm
 from tenants.mixins import StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil
@@ -221,3 +226,48 @@ class GimnasioLandingView(DetailView):
 
     def get_queryset(self):
         return Gimnasio.objects.filter(activo=True)
+
+
+class SuplantarView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):
+    """Entrar como un alumno. POST-only: cambia quién sos en la sesión.
+
+    El queryset sale de `TenantScopedMixin`, así que un alumno de otro
+    gimnasio da 404 sin siquiera llegar al servicio. El resto de las reglas
+    (que sea un alumno, que esté activo, que no sea una cuenta con
+    privilegios, que no se anide) las valida `tenants/suplantacion.py`.
+
+    Import tardío de `Alumno`: `tenants` está más abajo que `alumnos` en el
+    orden de dependencia de las apps, mismo criterio que `HomeView`.
+    """
+
+    http_method_names = ["post"]
+
+    def get_queryset(self):
+        from alumnos.models import Alumno
+
+        return Alumno.objects.for_gimnasio(self.gimnasio)
+
+    def post(self, request, *args, **kwargs):
+        alumno = self.get_object()
+        suplantacion.iniciar(request, alumno)
+        messages.info(request, f"Estás viendo la app como {alumno}.")
+        return redirect("home")
+
+
+class VolverDeSuplantacionView(LoginRequiredMixin, View):
+    """Volver a la cuenta del staff.
+
+    NO usa `StaffRequiredMixin` a propósito: mientras dura la suplantación el
+    usuario de la sesión es el ALUMNO, así que exigir rol staff dejaría al
+    staff atrapado en la cuenta del alumno sin forma de salir.
+
+    La autorización real la hace `suplantacion.volver()`, que revalida contra
+    la base y es fail-closed.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        suplantacion.volver(request)
+        messages.success(request, "Volviste a tu cuenta.")
+        return redirect("home")

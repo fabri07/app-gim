@@ -13,7 +13,7 @@ se agregaron en Fase 1, según el modelo de datos del ROADMAP.
 from django.conf import settings
 from django.db import models
 
-from core.models import TimeStampedModel
+from core.models import TenantOwnedModel, TimeStampedModel
 
 
 class Gimnasio(TimeStampedModel):
@@ -142,3 +142,52 @@ class Perfil(TimeStampedModel):
 
     def __str__(self):
         return f"{self.usuario} @ {self.gimnasio} ({self.rol})"
+
+
+class RegistroSuplantacion(TenantOwnedModel):
+    """Auditoría de "entrar como este alumno".
+
+    SÍ es `TenantOwnedModel`, a diferencia de `NovedadLeida` o las credenciales
+    de Calendar: es dato operativo de un gimnasio y ningún staff debe ver las
+    filas de otro. Scopearlo vía una FK no alcanzaría, porque la consulta
+    natural es "todas las suplantaciones de MI gimnasio".
+
+    `PROTECT` en las dos FK a propósito: una fila de auditoría no puede
+    desaparecer por un cascade silencioso. El costo aceptado es que borrar un
+    `User` con historial de suplantación queda bloqueado — consistente con que
+    un `Alumno` nunca se borra (solo cambia de `estado`) y con el `PROTECT` de
+    `TenantOwnedModel.gimnasio`.
+
+    `creado` (de `TimeStampedModel`) hace de "iniciada_en": no se duplica el
+    dato, mismo criterio que el resto del proyecto.
+    """
+
+    staff_usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="suplantaciones_iniciadas",
+        verbose_name="staff que suplantó",
+    )
+    alumno = models.ForeignKey(
+        "alumnos.Alumno",
+        on_delete=models.PROTECT,
+        related_name="suplantaciones_recibidas",
+    )
+    finalizada_en = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Cuándo volvió a su cuenta. Queda en blanco si cerró la pestaña "
+            "sin volver -- riesgo aceptado, ver ISSUES.md."
+        ),
+    )
+    ip = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        verbose_name = "registro de suplantación"
+        verbose_name_plural = "registros de suplantación"
+        ordering = ["-creado"]
+
+    def __str__(self):
+        return f"{self.staff_usuario} como {self.alumno} ({self.creado:%Y-%m-%d %H:%M})"

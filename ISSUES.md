@@ -582,3 +582,155 @@ contra la SQLite local, y el inventario previo a la migración a Neon confirma
 `importaciones` en 0. Después de la limpieza el bucket quedó con **1 solo
 objeto**, `logos/8_1sasa11.jpg`, y la landing que lo usa sigue respondiendo
 200.
+
+---
+
+## [2026-07-30] Se descartó guardar las contraseñas de los alumnos para mostrárselas al staff
+**Estado:** aceptado (decisión de diseño que NO hay que revertir)
+**Impacto:** el pedido original era que el staff tuviera "los usuarios y
+contraseñas de todos los alumnos" visibles en una sección de la web. Django
+guarda hashes, así que cumplirlo exige guardar las contraseñas en claro (o
+cifradas y descifrables) en paralelo. Eso convierte la cuenta del dueño en un
+**depósito de credenciales**: hoy un robo de esa cuenta expone los datos del
+gimnasio; con el vault, expondría las contraseñas reales de cada alumno — y
+como la gente reusa contraseñas, también sus mails y sus bancos. Es el único
+cambio evaluado en todo el proyecto que **empeoraría** el escenario de hackeo
+que motivó el pedido.
+**Resolución:** se planteó el problema y el dueño del producto aceptó la
+alternativa, que cubre mejor el objetivo real (que el staff pueda entrar a
+cualquier cuenta sin depender de la memoria del alumno): **suplantación**
+("Entrar como este alumno", `tenants/suplantacion.py`) + **regeneración** de
+contraseña, que se muestra una sola vez. El staff conserva control total y la
+base no guarda ninguna contraseña legible.
+**Si alguien lo vuelve a pedir:** el pedido es razonable y la necesidad es
+real; lo que hay que ofrecer es suplantar, no guardar. Antes de reabrir, leer
+`docs/superpowers/specs/2026-07-30-portal-de-cuentas-design.md`.
+
+---
+
+## [2026-07-30] El identificador del alumno es único en TODA la plataforma, no por gimnasio
+**Estado:** aceptado (riesgo asumido a propósito)
+**Impacto:** el alumno entra con su email o su teléfono, y eso va a
+`User.username`, que es único global. Dos casos reales colisionan: la misma
+persona entrenando en dos gimnasios, y un mail o teléfono familiar compartido
+entre hermanos. El segundo alta falla.
+**Por qué no tiene arreglo limpio:** con **una sola pantalla de login sin
+selección de gimnasio**, el identificador TIENE que ser globalmente único.
+Resolver `(identificador, gimnasio)` exigiría que el login supiera el gimnasio,
+o sea subdominios o slug en la URL — que viola el principio no negociable #6.
+Namespacing (`gim-slug:email`) obligaría al alumno a tipear eso. Un username
+opaco mueve el problema sin resolverlo.
+**Resolución / próximo paso:** se hace visible en vez de esconderlo: el form
+avisa y ofrece el otro canal ("si pusiste el email, cargá el teléfono"). **El
+mensaje es deliberadamente genérico**, sin confirmar que ese email ya existe:
+cuando los usuarios eran inventados eso era irrelevante, pero ahora son emails
+reales y un mensaje específico convertiría el form en un enumerador de usuarios
+de toda la plataforma. Si algún día hay subdominios por gimnasio, esto se puede
+revisar.
+
+---
+
+## [2026-07-30] Una suplantación abandonada queda con `finalizada_en` en NULL
+**Estado:** aceptado (riesgo asumido a propósito)
+**Impacto:** si el staff cierra la pestaña sin apretar "Volver a mi cuenta",
+`RegistroSuplantacion.finalizada_en` queda `NULL` para siempre. La auditoría
+registra cuándo empezó pero no cuándo terminó, así que no se puede calcular la
+duración real de esas sesiones.
+**Por qué se acepta:** cerrar el registro al vencimiento exigiría un job
+periódico o un middleware que revise cada request — infraestructura nueva para
+un dato que hoy nadie consulta. El `creado` alcanza para lo que la auditoría
+tiene que responder: quién entró a la cuenta de quién y cuándo. La sesión en sí
+no queda abierta indefinidamente: `MAX_DURACION` son 2 h y `vencida()` lo
+expone.
+**Cómo cerrarlo si hiciera falta:** un `update()` sobre los registros sin
+finalizar cuya `creado` supere `MAX_DURACION`, corrido desde el mismo workflow
+de GitHub Actions que ya ejecuta `generar_pagos`.
+
+---
+
+## [2026-07-30] Revisión del Frente B: el espejo estado↔acceso valía en 1 de 3 caminos
+**Estado:** resuelto
+**Impacto:** la revisión de código de la rama encontró que la sincronización
+entre `Alumno.estado` y `User.is_active` estaba implementada **solo** en
+`AlumnoToggleEstadoView`. Los otros dos caminos que escriben el estado no la
+hacían, con dos síntomas opuestos y ambos malos:
+1. `crear_acceso()` creaba el `User` con `is_active=True` sin mirar el estado,
+   así que **un alumno dado de baja al que se le crea el acceso después podía
+   entrar** — exactamente el criterio de salida que el frente venía a cumplir.
+2. `estado` es un campo editable de `AlumnoForm`, así que reactivar a un alumno
+   desde la ficha lo dejaba en `estado=activo` + `is_active=False`: **el alumno
+   no podía entrar y nadie podía diagnosticarlo**, porque el listado decía
+   "activo" y el panel de accesos decía "dado de baja".
+**Resolución:** la invariante se movió de las vistas a **un solo punto**,
+`alumnos/signals.py::sincronizar_acceso_con_estado` (`post_save` sobre
+`Alumno`), que cubre además el admin, el shell y cualquier código futuro. La
+vista del toggle ya no sincroniza nada. El receiver chequea `raw` para no
+repetir el problema de `calendario/signals.py`.
+**Lección de proceso:** poner una invariante en las vistas garantiza que
+alguna se olvide. Si un dato tiene que mantenerse consistente con otro, el
+lugar es el modelo o una señal, no cada llamador.
+
+---
+
+## [2026-07-30] `login()` de Django no valida `is_active`
+**Estado:** resuelto
+**Impacto:** `suplantacion.iniciar()` chequeaba `Alumno.estado` pero no
+`User.is_active`, y `django.contrib.auth.login()` **no valida `is_active`** (a
+diferencia de `authenticate()`). Con un usuario desactivado, la suplantación
+"funcionaba": el POST devolvía 302, la sesión quedaba como el alumno, y en el
+request siguiente `ModelBackend.get_user()` devolvía `AnonymousUser`. El staff
+perdía su sesión **y no podía ni usar "Volver a mi cuenta"**, porque esa vista
+exige estar logueado. Encima el `RegistroSuplantacion` quedaba sin cerrar.
+**Resolución:** guard explícito de `usuario.is_active` en `iniciar()`. El
+template ya escondía el botón para alumnos dados de baja, pero eso es
+cosmético: el endpoint POST se puede llamar igual.
+
+---
+
+## [2026-07-30] `MAX_DURACION` de la suplantación era código muerto
+**Estado:** resuelto
+**Impacto:** `vencida()` existía pero **no se llamaba desde ningún lado**, así
+que el límite de 2 horas no se aplicaba nunca. Peor: `CLAUDE.md` e `ISSUES.md`
+afirmaban que sí. Documentar un control de seguridad que no corre es peor que
+no tenerlo — quien lea la documentación asume que está cubierto y no lo
+verifica.
+**Resolución:** se implementó en vez de borrarlo, vía
+`tenants/middleware.py::ExpirarSuplantacionMiddleware`. Es el único middleware
+propio del proyecto y la excepción está justificada: la expiración tiene que
+evaluarse en CADA request, y un mixin dejaría afuera cualquier vista que no lo
+use (`HomeView`, por ejemplo, solo lleva `LoginRequiredMixin`). Si falla el
+retorno, descarta la sesión entera en vez de dejar al staff dentro de la
+cuenta del alumno.
+
+---
+
+## [2026-07-30] El `select_for_update()` de `crear_acceso` no está ejercitado por la suite
+**Estado:** aceptado (limitación conocida de la cobertura)
+**Impacto:** `crear_acceso()` toma `select_for_update()` sobre el `Alumno` para
+serializar altas concurrentes. **En SQLite eso es un no-op silencioso**:
+`sqlite3.DatabaseFeatures.has_select_for_update` es `False` y Django
+simplemente omite el `FOR UPDATE` sin avisar. Como la suite corre contra
+SQLite, **ningún test ejercita el lock**; el test de concurrencia solo prueba
+la traducción de `IntegrityError` a `IdentificadorEnUso`, que sí funciona en
+las dos bases.
+**Por qué se acepta:** el mismo límite aplica a `turnos/services.py::crear_reserva`
+e `importaciones/services.py`, que usan el patrón desde hace meses. Correr la
+suite contra Postgres para cubrirlo cambiaría el tiempo de la suite (hoy ~8 s)
+y la simplicidad del entorno de dev, a cambio de cubrir un caso que en
+producción está bien resuelto.
+**Qué NO asumir:** que "los tests pasan" prueba que el lock funciona. Si se
+toca esa función, el razonamiento sobre concurrencia hay que hacerlo a mano.
+
+---
+
+## [2026-07-30] `post_save` no cubre `update()` ni `bulk_update`
+**Estado:** aceptado (límite documentado)
+**Impacto:** la sincronización `Alumno.estado` → `User.is_active` vive en un
+receiver de `post_save`, que Django **no dispara** con
+`Alumno.objects.filter(...).update(estado=...)` ni con `bulk_update()`. Hoy no
+hay ninguna llamada así en el repo (verificado), pero `CLAUDE.md` afirma que la
+sincronización vale para "cualquier código futuro" y eso no es cierto por esa
+vía.
+**Resolución / próximo paso:** anotado en el docstring del receiver. Si algún
+día hace falta un cambio de estado masivo (p.ej. dar de baja a todos los
+morosos), tiene que sincronizar los `User` a mano o iterar con `save()`.

@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Acceso de {{ alumno }} · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>{% if modo == "crear" %}Acceso creado{% else %}Contraseña nueva{% endif %}</h1>
+
+  <p class="texto-suave">
+    Copiá estos datos y pasáselos a {{ alumno.nombre }} por WhatsApp o en
+    persona. <strong>No los vas a poder ver de nuevo:</strong> la app guarda la
+    contraseña cifrada, así que ni vos ni nadie puede recuperarla. Si se
+    pierde, generás una nueva desde el panel de accesos.
+  </p>
+
+  <table class="tabla-detalle">
+    <tr>
+      <th>Usuario</th>
+      <td><code id="dato-usuario">{{ usuario }}</code></td>
+    </tr>
+    <tr>
+      <th>Contraseña</th>
+      <td><code id="dato-password">{{ password }}</code></td>
+    </tr>
+  </table>
+
+  <div class="acciones-lista">
+    <button type="button" class="boton" id="copiar">Copiar los dos datos</button>
+    <a class="boton-secundario" href="{% url 'alumnos:detalle' alumno.pk %}">
+      Volver a la ficha
+    </a>
+  </div>
+</div>
+
+<script>
+  document.getElementById("copiar").addEventListener("click", async (evento) => {
+    const usuario = document.getElementById("dato-usuario").textContent;
+    const password = document.getElementById("dato-password").textContent;
+    try {
+      await navigator.clipboard.writeText(
+        `Usuario: ${usuario}\nContraseña: ${password}`
+      );
+      evento.target.textContent = "¡Copiado!";
+    } catch {
+      // navigator.clipboard no existe fuera de HTTPS/localhost: en ese caso
+      // los datos igual están a la vista para copiarlos a mano.
+      evento.target.textContent = "Copialos a mano";
+    }
+  });
+</script>
+{% endblock %}

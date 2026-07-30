@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from io import StringIO
 
 from django.contrib.auth.models import AnonymousUser, User
+from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import PermissionDenied
 from django.core.management import CommandError, call_command
 from django.http import HttpResponse
@@ -18,12 +19,15 @@ from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from django.views.generic import TemplateView, View
 
+from alumnos.identidad import TIPO_EMAIL
 from alumnos.models import Alumno
+from alumnos.services import crear_acceso
 from novedades.models import Novedad, NovedadLeida
 from pagos.models import MedioCobro, PagoMensual
 from rutinas.models import RutinaAsignada, RutinaAsignadaItem
+from tenants import suplantacion
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
-from tenants.models import Gimnasio, Perfil
+from tenants.models import Gimnasio, Perfil, RegistroSuplantacion
 
 
 class RegistroPublicoCerradoTests(TestCase):
@@ -993,3 +997,468 @@ class AnaliticaTests(TestCase):
         self.assertEqual(fila["niveles"]["al_limite"], 1)
         self.assertEqual(fila["niveles"]["bajar_intensidad"], 1)
         self.assertEqual(fila["niveles"]["mas_intenso"], 0)
+
+
+class SuplantacionServicioTests(TestCase):
+    """Servicio de "entrar como este alumno" (`tenants/suplantacion.py`).
+
+    Existe para que el staff pueda resolver "no puedo entrar" y ver la app
+    como la ve su alumno, SIN que el sistema guarde ninguna contraseña
+    legible. Los dos primeros tests cubren las trampas de
+    `django.contrib.auth.login()`, que son la razón por la que este servicio
+    no es tres líneas.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        crear_acceso(self.alumno, TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+
+    def _request_de(self, usuario):
+        request = RequestFactory().post("/")
+        request.user = usuario
+        SessionMiddleware(lambda r: None).process_request(request)
+        request.session.save()
+        return request
+
+    # --- Las dos trampas de login() ---
+
+    def test_no_estampa_fecha_activacion(self):
+        """El alumno NUNCA entró: que el staff lo suplante no puede marcar que
+        sí. `login()` emite `user_logged_in`, y el receiver de
+        `alumnos/signals.py` estamparía `fecha_activacion` corrompiendo la
+        métrica de adopción."""
+        self.assertIsNone(self.alumno.fecha_activacion)
+        suplantacion.iniciar(self._request_de(self.staff), self.alumno)
+        self.alumno.refresh_from_db()
+        self.assertIsNone(self.alumno.fecha_activacion)
+
+    def test_no_cambia_last_login_del_alumno(self):
+        """`update_last_login` (conectado por django.contrib.auth) pisaría el
+        'último ingreso' que muestra el panel de accesos."""
+        usuario = self.alumno.perfil.usuario
+        self.assertIsNone(usuario.last_login)
+        suplantacion.iniciar(self._request_de(self.staff), self.alumno)
+        usuario.refresh_from_db()
+        self.assertIsNone(usuario.last_login)
+
+    def test_no_cambia_last_login_ya_existente(self):
+        usuario = self.alumno.perfil.usuario
+        momento = timezone.now() - timedelta(days=3)
+        User.objects.filter(pk=usuario.pk).update(last_login=momento)
+
+        suplantacion.iniciar(self._request_de(self.staff), self.alumno)
+
+        usuario.refresh_from_db()
+        self.assertEqual(usuario.last_login, momento)
+
+    def test_la_clave_de_sesion_sobrevive_al_flush_de_login(self):
+        """`login()` hace session.flush() al cambiar de usuario: si la clave se
+        escribiera antes, se borraría y no habría forma de volver."""
+        request = self._request_de(self.staff)
+        suplantacion.iniciar(request, self.alumno)
+
+        self.assertIn(suplantacion.CLAVE_SESION, request.session)
+        datos = request.session[suplantacion.CLAVE_SESION]
+        self.assertEqual(datos["original_pk"], self.staff.pk)
+        self.assertEqual(datos["alumno_nombre"], str(self.alumno))
+
+    # --- Auditoría ---
+
+    def test_registra_la_auditoria_con_el_gimnasio_correcto(self):
+        suplantacion.iniciar(self._request_de(self.staff), self.alumno)
+
+        registro = RegistroSuplantacion.objects.get()
+        self.assertEqual(registro.gimnasio, self.gimnasio)
+        self.assertEqual(registro.staff_usuario, self.staff)
+        self.assertEqual(registro.alumno, self.alumno)
+        self.assertIsNone(registro.finalizada_en)
+
+    def test_aislamiento_el_registro_no_se_ve_desde_otro_gimnasio(self):
+        otro_gim = Gimnasio.objects.create(nombre="Gim B", slug="gim-b")
+        suplantacion.iniciar(self._request_de(self.staff), self.alumno)
+
+        self.assertEqual(
+            RegistroSuplantacion.objects.for_gimnasio(self.gimnasio).count(), 1
+        )
+        self.assertEqual(
+            RegistroSuplantacion.objects.for_gimnasio(otro_gim).count(), 0
+        )
+
+    # --- Reglas duras ---
+
+    def test_no_se_puede_suplantar_a_un_staff(self):
+        otro_staff = User.objects.create_user("staff2", password="clave-larga-456")
+        perfil = Perfil.objects.create(
+            usuario=otro_staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        falso_alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="X", apellido="Y", perfil=perfil
+        )
+        with self.assertRaises(PermissionDenied):
+            suplantacion.iniciar(self._request_de(self.staff), falso_alumno)
+        self.assertFalse(RegistroSuplantacion.objects.exists())
+
+    def test_no_se_puede_suplantar_a_un_superusuario(self):
+        usuario = self.alumno.perfil.usuario
+        usuario.is_superuser = True
+        usuario.save(update_fields=["is_superuser"])
+        with self.assertRaises(PermissionDenied):
+            suplantacion.iniciar(self._request_de(self.staff), self.alumno)
+
+    def test_no_se_puede_suplantar_a_un_alumno_dado_de_baja(self):
+        self.alumno.estado = Alumno.Estado.INACTIVO
+        self.alumno.save(update_fields=["estado"])
+        with self.assertRaises(PermissionDenied):
+            suplantacion.iniciar(self._request_de(self.staff), self.alumno)
+
+    def test_no_se_puede_suplantar_a_un_alumno_sin_acceso(self):
+        sin_acceso = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        with self.assertRaises(PermissionDenied):
+            suplantacion.iniciar(self._request_de(self.staff), sin_acceso)
+
+    def test_no_es_anidable(self):
+        """Encadenar suplantaciones haría imposible saber a qué cuenta volver."""
+        request = self._request_de(self.staff)
+        suplantacion.iniciar(request, self.alumno)
+
+        otro = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        crear_acceso(otro, TIPO_EMAIL, "ana@ejemplo.com")
+        otro.refresh_from_db()
+
+        with self.assertRaises(PermissionDenied):
+            suplantacion.iniciar(request, otro)
+
+    # --- Volver ---
+
+    def test_volver_restaura_al_staff_y_cierra_el_registro(self):
+        request = self._request_de(self.staff)
+        suplantacion.iniciar(request, self.alumno)
+        request.user = self.alumno.perfil.usuario
+
+        suplantacion.volver(request)
+
+        self.assertNotIn(suplantacion.CLAVE_SESION, request.session)
+        self.assertEqual(
+            int(request.session["_auth_user_id"]), self.staff.pk
+        )
+        self.assertIsNotNone(RegistroSuplantacion.objects.get().finalizada_en)
+
+    def test_volver_sin_suplantacion_activa_falla(self):
+        with self.assertRaises(PermissionDenied):
+            suplantacion.volver(self._request_de(self.staff))
+
+    def test_volver_a_un_staff_que_perdio_el_rol_falla_y_limpia(self):
+        """Fail-closed: que la sesión diga que sos staff no alcanza, se
+        revalida contra la base."""
+        request = self._request_de(self.staff)
+        suplantacion.iniciar(request, self.alumno)
+        request.user = self.alumno.perfil.usuario
+
+        perfil_staff = Perfil.objects.get(usuario=self.staff)
+        perfil_staff.rol = Perfil.Rol.ALUMNO
+        perfil_staff.save(update_fields=["rol"])
+
+        with self.assertRaises(PermissionDenied):
+            suplantacion.volver(request)
+        self.assertNotIn(suplantacion.CLAVE_SESION, request.session)
+
+    def test_volver_a_un_staff_desactivado_falla(self):
+        request = self._request_de(self.staff)
+        suplantacion.iniciar(request, self.alumno)
+        request.user = self.alumno.perfil.usuario
+
+        User.objects.filter(pk=self.staff.pk).update(is_active=False)
+
+        with self.assertRaises(PermissionDenied):
+            suplantacion.volver(request)
+
+    def test_esta_activa_refleja_el_estado(self):
+        request = self._request_de(self.staff)
+        self.assertFalse(suplantacion.esta_activa(request))
+        suplantacion.iniciar(request, self.alumno)
+        self.assertTrue(suplantacion.esta_activa(request))
+
+
+class SuplantacionVistasTests(TestCase):
+    """Rutas, banner y bloqueos de "entrar como este alumno".
+
+    Las rutas van SIN namespace: `tenants/urls.py` no define `app_name`
+    (agregárselo rompería `{% url 'home' %}` y `{% url 'login' %}` en todo el
+    proyecto).
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        crear_acceso(self.alumno, TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+        self.client.force_login(self.staff)
+
+    def _url_suplantar(self, alumno=None):
+        return reverse("suplantar", args=[(alumno or self.alumno).pk])
+
+    def test_suplantar_y_volver(self):
+        response = self.client.post(self._url_suplantar(), follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Volver a mi cuenta")
+        self.assertEqual(
+            int(self.client.session["_auth_user_id"]),
+            self.alumno.perfil.usuario.pk,
+        )
+
+        response = self.client.post(reverse("suplantacion_volver"), follow=True)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.staff.pk)
+        self.assertNotContains(response, "Volver a mi cuenta")
+
+    def test_el_banner_nombra_al_alumno(self):
+        response = self.client.post(self._url_suplantar(), follow=True)
+        self.assertContains(response, str(self.alumno))
+
+    def test_mientras_suplanta_no_entra_a_vistas_de_staff(self):
+        self.client.post(self._url_suplantar())
+        self.assertEqual(self.client.get(reverse("alumnos:listado")).status_code, 403)
+
+    def test_aislamiento_alumno_de_otro_gimnasio_da_404(self):
+        otro_gim = Gimnasio.objects.create(nombre="Gim B", slug="gim-b")
+        ajeno = Alumno.objects.create(
+            gimnasio=otro_gim, nombre="Ana", apellido="Gómez"
+        )
+        crear_acceso(ajeno, TIPO_EMAIL, "ana@ejemplo.com")
+        ajeno.refresh_from_db()
+
+        self.assertEqual(self.client.post(self._url_suplantar(ajeno)).status_code, 404)
+        self.assertFalse(RegistroSuplantacion.objects.exists())
+
+    def test_get_no_esta_permitido(self):
+        self.assertEqual(self.client.get(self._url_suplantar()).status_code, 405)
+        self.assertEqual(self.client.get(reverse("suplantacion_volver")).status_code, 405)
+
+    def test_un_alumno_no_puede_suplantar(self):
+        self.client.logout()
+        self.client.force_login(self.alumno.perfil.usuario)
+        self.assertEqual(self.client.post(self._url_suplantar()).status_code, 403)
+
+    def test_sesion_fabricada_hacia_staff_de_otro_gimnasio_es_rechazada(self):
+        """Alguien que manipula la sesión no debe poder saltar de tenant."""
+        otro_gim = Gimnasio.objects.create(nombre="Gim B", slug="gim-b")
+        staff_ajeno = User.objects.create_user("staff-b", password="clave-larga-789")
+        Perfil.objects.create(
+            usuario=staff_ajeno, gimnasio=otro_gim, rol=Perfil.Rol.STAFF
+        )
+        self.client.post(self._url_suplantar())
+
+        sesion = self.client.session
+        datos = sesion[suplantacion.CLAVE_SESION]
+        datos["original_pk"] = staff_ajeno.pk
+        sesion[suplantacion.CLAVE_SESION] = datos
+        sesion.save()
+
+        response = self.client.post(reverse("suplantacion_volver"))
+
+        # 403 explícito, no "cualquier cosa menos el staff ajeno": sin esto el
+        # test pasaría igual con un 500 o si la sesión quedara en el alumno.
+        self.assertEqual(response.status_code, 403)
+        self.assertNotEqual(
+            int(self.client.session.get("_auth_user_id", 0)), staff_ajeno.pk
+        )
+        # Fail-closed: la sesión se descarta entera.
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertNotIn(suplantacion.CLAVE_SESION, self.client.session)
+
+    def test_el_panel_de_accesos_ofrece_entrar_como(self):
+        response = self.client.get(reverse("alumnos:accesos"))
+        self.assertContains(response, self._url_suplantar())
+
+    def test_el_panel_no_ofrece_entrar_como_a_un_alumno_dado_de_baja(self):
+        self.client.post(reverse("alumnos:activar", args=[self.alumno.pk]))
+        response = self.client.get(reverse("alumnos:accesos"))
+        self.assertNotContains(response, self._url_suplantar())
+
+    def test_no_se_puede_conectar_calendar_mientras_suplanta(self):
+        """Si no, el staff vincularía SU cuenta de Google al calendario del
+        alumno: fuga de privacidad real."""
+        self.client.post(self._url_suplantar())
+        self.assertEqual(
+            self.client.get(reverse("calendario:conectar")).status_code, 403
+        )
+
+    def test_no_se_puede_desconectar_calendar_mientras_suplanta(self):
+        self.client.post(self._url_suplantar())
+        self.assertEqual(
+            self.client.post(reverse("calendario:desconectar")).status_code, 403
+        )
+
+
+class SuplantacionExpiracionTests(TestCase):
+    """`MAX_DURACION` era código muerto: `vencida()` no se llamaba desde
+    ningún lado, pero CLAUDE.md e ISSUES.md afirmaban un límite de 2 h.
+
+    Ahora lo aplica `tenants.middleware.ExpirarSuplantacionMiddleware`.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        crear_acceso(self.alumno, TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+        self.client.force_login(self.staff)
+
+    def _envejecer(self, horas):
+        sesion = self.client.session
+        datos = sesion[suplantacion.CLAVE_SESION]
+        datos["inicio"] = (timezone.now() - timedelta(hours=horas)).isoformat()
+        sesion[suplantacion.CLAVE_SESION] = datos
+        sesion.save()
+
+    def test_dentro_de_las_dos_horas_sigue_suplantando(self):
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+        self._envejecer(1)
+
+        self.client.get(reverse("home"))
+        self.assertIn(suplantacion.CLAVE_SESION, self.client.session)
+
+    def test_pasadas_las_dos_horas_vuelve_solo_a_la_cuenta_del_staff(self):
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+        self._envejecer(3)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(suplantacion.CLAVE_SESION, self.client.session)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.staff.pk)
+        self.assertIsNotNone(RegistroSuplantacion.objects.get().finalizada_en)
+
+    def test_si_no_se_puede_volver_la_sesion_se_descarta(self):
+        """Fail-closed: ante cualquier error, no dejar al staff dentro de la
+        cuenta del alumno.
+
+        Se corrompe la clave de sesión para que `volver()` levante algo que NO
+        maneja (un KeyError, no un PermissionDenied) y así ejercitar el
+        `except` del middleware. Borrar al staff no sirve como escenario: el
+        `PROTECT` de `RegistroSuplantacion` lo impide, que es justo lo que se
+        buscaba al diseñarlo.
+        """
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+        self._envejecer(3)
+
+        sesion = self.client.session
+        datos = sesion[suplantacion.CLAVE_SESION]
+        del datos["original_pk"]
+        sesion[suplantacion.CLAVE_SESION] = datos
+        sesion.save()
+
+        self.client.get(reverse("home"))
+
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertNotIn(suplantacion.CLAVE_SESION, self.client.session)
+
+
+class SuplantacionAccesoInactivoTests(TestCase):
+    """`login()` NO valida `is_active`: sin este guard la suplantación
+    "funcionaba" y el staff perdía su sesión en el request siguiente, sin
+    poder siquiera usar "Volver a mi cuenta"."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        crear_acceso(self.alumno, TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+        self.client.force_login(self.staff)
+
+    def test_no_se_puede_suplantar_a_un_usuario_desactivado(self):
+        # Se desactiva el User sin tocar `Alumno.estado`, que es el caso que
+        # el guard de `estado` no cubre (p.ej. desde /admin/).
+        User.objects.filter(pk=self.alumno.perfil.usuario.pk).update(is_active=False)
+
+        response = self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.staff.pk)
+        self.assertFalse(RegistroSuplantacion.objects.exists())
+
+
+class SuplantacionMiddlewareRobustezTests(TestCase):
+    """Regresiones que la re-revisión encontró en el propio middleware."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        crear_acceso(self.alumno, TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+        self.client.force_login(self.staff)
+
+    def test_una_sesion_corrupta_no_deja_al_usuario_sin_salida(self):
+        """`vencida()` parsea `datos["inicio"]`. Si esa clave falta o tiene una
+        fecha inválida y la llamada quedara fuera del `try`, cada request
+        —incluido el logout— sería un 500 y el usuario no tendría forma de
+        salir salvo borrar cookies a mano."""
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+
+        sesion = self.client.session
+        sesion[suplantacion.CLAVE_SESION] = {"inicio": "no-es-una-fecha"}
+        sesion.save()
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_si_falla_el_retorno_no_se_renderiza_el_portal_del_alumno(self):
+        """Fail-closed de verdad: cuando `volver()` falla DESPUÉS de haber
+        resuelto `request.user` como el alumno, seguir con la vista devolvería
+        un 200 con su portal — fail-open por un request."""
+        otro_gim = Gimnasio.objects.create(nombre="Gim B", slug="gim-b")
+        staff_ajeno = User.objects.create_user("staff-b", password="clave-larga-789")
+        Perfil.objects.create(
+            usuario=staff_ajeno, gimnasio=otro_gim, rol=Perfil.Rol.STAFF
+        )
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+
+        sesion = self.client.session
+        datos = sesion[suplantacion.CLAVE_SESION]
+        datos["original_pk"] = staff_ajeno.pk
+        datos["inicio"] = (timezone.now() - timedelta(hours=3)).isoformat()
+        sesion[suplantacion.CLAVE_SESION] = datos
+        sesion.save()
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+        self.assertNotIn("_auth_user_id", self.client.session)

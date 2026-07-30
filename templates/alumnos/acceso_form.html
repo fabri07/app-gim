@@ -1,31 +1,23 @@
 {% extends 'base.html' %}
-{% block title %}{% if modo == "crear" %}Crear acceso{% else %}Cambiar contraseña{% endif %} · {{ alumno }} · App Gimnasios{% endblock %}
+{% block title %}Crear acceso · {{ alumno }} · App Gimnasios{% endblock %}
 
 {% block content %}
 <div class="contenido">
   <div class="tarjeta">
-    {% if modo == "crear" %}
-      <h1>Crear acceso para {{ alumno }}</h1>
-      <p class="texto-suave">
-        Asigná un usuario y una contraseña para que {{ alumno.nombre }} pueda
-        entrar a su portal. Comunicáselos en persona o por WhatsApp — no se
-        envían automáticamente.
-      </p>
-    {% else %}
-      <h1>Cambiar contraseña de {{ alumno }}</h1>
-      <p class="texto-suave">
-        Esto reemplaza la contraseña actual de {{ alumno.nombre }}. La
-        anterior deja de funcionar de inmediato.
-      </p>
-    {% endif %}
+    <h1>Crear acceso para {{ alumno }}</h1>
+    <p class="texto-suave">
+      Elegí con qué dato va a iniciar sesión {{ alumno.nombre }}. La contraseña
+      la genera la app y se muestra una sola vez en la pantalla siguiente —
+      comunicásela en persona o por WhatsApp, no se envía automáticamente.
+    </p>
 
     <form method="post" novalidate>
       {% csrf_token %}
       {{ form.as_p }}
-      <button type="submit" class="boton">
-        {% if modo == "crear" %}Crear acceso{% else %}Cambiar contraseña{% endif %}
-      </button>
-      <a class="boton-secundario" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
+      <div class="acciones-lista">
+        <button type="submit" class="boton">Crear acceso</button>
+        <a class="boton-secundario" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
+      </div>
     </form>
   </div>
 </div>

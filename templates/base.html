@@ -32,6 +32,22 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
 </head>
 <body hx-boost="true" {% if user.is_authenticated and user.perfil.rol == "staff" %}x-data="{ navAbierto: false }"{% endif %}>
+  {% if request.session.suplantacion %}
+    {# Se lee de la sesión y no del usuario logueado a propósito: mientras dura
+       la suplantación `user` ES el alumno, así que no habría forma de saber
+       desde el template que hay alguien atrás. `context_processors.request` ya
+       está activo, no hace falta un context processor nuevo. #}
+    <div class="banner-suplantacion">
+      <span>
+        Estás viendo la app como
+        <strong>{{ request.session.suplantacion.alumno_nombre }}</strong>.
+      </span>
+      <form method="post" action="{% url 'suplantacion_volver' %}">
+        {% csrf_token %}
+        <button type="submit" class="boton">Volver a mi cuenta</button>
+      </form>
+    </div>
+  {% endif %}
   <header class="topbar">
     <a href="{% if user.is_authenticated %}{% url 'home' %}{% else %}{% url 'login' %}{% endif %}" class="topbar__marca">
       {% if user.is_authenticated and user.perfil.gimnasio.logo %}

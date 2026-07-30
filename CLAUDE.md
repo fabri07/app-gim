@@ -202,6 +202,87 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
   rol `alumno` todavía no está vinculado a un `Alumno`, se muestra un estado
   vacío, no un error 500.
 
+## Accesos, revocación y suplantación (Frente B)
+
+Completa lo que a Fase 3 le faltaba para que el dueño opere sin llamar al
+desarrollador. Spec y plan en `docs/superpowers/{specs,plans}/
+2026-07-30-portal-de-cuentas-*`.
+
+- **El identificador del alumno es su email o su teléfono**, a elección del
+  staff. `alumnos/identidad.py` los normaliza (email a minúsculas —
+  `User.objects.get(username=...)` es case-sensitive en Postgres, así que sin
+  eso `Juan@x.com` y `juan@x.com` serían dos cuentas; teléfono a `+54...`
+  sacando el `0` de característica y el `15`). El módulo es **Django-free a
+  propósito** y se testea con `SimpleTestCase`: el riesgo real es que la
+  normalización difiera entre el alta y el login, porque ahí el alumno no entra
+  y no puede darse cuenta solo.
+  - **No hace falta un `User` custom**: `UnicodeUsernameValidator` acepta `@` y
+    `+` (regex `^[\w.@+-]+\Z`). Hay un test que fija ese supuesto.
+- **La contraseña la genera SIEMPRE la app** (`alumnos/services.py`, reusando
+  `tenants.services.generar_password`) y se muestra **una sola vez** en
+  `acceso_credenciales.html`. **No pasa por `messages`**: `messages` se
+  serializa en la sesión, que en este proyecto vive en la base de datos. El
+  POST no redirige (se rompe PRG a propósito; el F5 lo cubre el guard de "este
+  alumno ya tiene acceso").
+- **`Alumno.estado` es el maestro del acceso**, y la sincronización con
+  `User.is_active` vive en **un solo lugar**:
+  `alumnos/signals.py::sincronizar_acceso_con_estado` (`post_save` sobre
+  `Alumno`). **No la repitas en las vistas.** El estado se escribe desde tres
+  caminos —el botón de baja, el form de la ficha (donde `estado` es editable) y
+  `crear_acceso` sobre un alumno ya dado de baja— y ponerlo en cada vista
+  garantiza que alguna se olvide; una revisión encontró exactamente eso, con
+  dos de los tres caminos rotos. El receiver chequea `raw` para no repetir el
+  problema de `calendario/signals.py`.
+  - No hace falta invalidar sesiones a mano: `ModelBackend.get_user()`
+    revalida `is_active` en CADA request. Regenerar la contraseña también
+    expulsa al alumno, porque `get_session_auth_hash()` deriva del hash.
+  - `crear_acceso` toma `select_for_update()` sobre el `Alumno` y traduce
+    `IntegrityError` a `IdentificadorEnUso`: sin eso, un doble submit del form
+    (va boosteado por htmx) creaba dos `User`+`Perfil` y dejaba uno huérfano
+    que podía loguearse y no aparecía en ningún panel.
+- **Panel `alumnos:accesos`**, colgado del listado de alumnos y **no del nav**
+  (ya tiene 8 ítems tras el esfuerzo de bajarlo de 10; mismo criterio que el
+  importador). El `select_related("perfil__usuario")` no es cosmético: sin él
+  son 17 queries donde ahora hay 7, y hay un test que lo prueba comparando dos
+  tamaños de conjunto (no un `assertNumQueries` fijo, que se rompe con cambios
+  internos de Django).
+- **NO se guardan contraseñas legibles.** Se pidió mostrar las de todos los
+  alumnos en una sección y se descartó: ver `ISSUES.md`. La alternativa es
+  suplantación + regeneración.
+- **Suplantación** (`tenants/suplantacion.py`, servicio; auditada en
+  `RegistroSuplantacion`, que SÍ es `TenantOwnedModel`). Reglas: solo staff,
+  solo alumnos activos del propio gimnasio (404), nunca a otro staff ni a una
+  cuenta con privilegios, no anidable, POST-only, y **máximo 2 h** — el límite
+  lo aplica `tenants/middleware.py::ExpirarSuplantacionMiddleware`, que es el
+  único middleware propio del proyecto: la expiración tiene que evaluarse en
+  cada request y no hay otro lugar donde hacerlo.
+  - `iniciar()` también chequea `usuario.is_active`, porque **`login()` no lo
+    valida**: con un usuario desactivado la suplantación "funcionaba" y el
+    staff perdía su sesión en el request siguiente, sin poder ni volver.
+  - **Las dos trampas de `django.contrib.auth.login()`**, cada una con test de
+    regresión. (1) `login()` hace `session.flush()` al cambiar de usuario: la
+    clave de retorno se escribe **DESPUÉS**, nunca antes. (2) `login()` emite
+    `user_logged_in`, y dos receivers corromperían datos —
+    `alumnos/signals.py` estamparía `fecha_activacion` a un alumno que nunca
+    entró, y `update_last_login` pisaría el "último ingreso" del panel. Se
+    resuelven con `request._suplantacion_en_curso` y un `UPDATE` de
+    restauración. **Nunca con `signal.disconnect()`**: muta estado global y no
+    es thread-safe.
+  - `last_login` se lee de la BASE, no del objeto en memoria: con una
+    instancia desactualizada, "restaurar" borraría el valor real.
+  - `volver()` es fail-closed y revalida TODO contra la base, **incluido que
+    el staff sea del mismo gimnasio** — sin eso, una sesión manipulada
+    permitía saltar de tenant.
+  - `VolverDeSuplantacionView` **no** lleva `StaffRequiredMixin`: durante la
+    suplantación el usuario es el ALUMNO, y exigir rol staff dejaría al staff
+    atrapado.
+  - **Conectar/desconectar Google Calendar está bloqueado mientras se
+    suplanta**: el flujo OAuth usa la cuenta de Google de quien está frente al
+    navegador, así que el staff vincularía la suya al calendario del alumno.
+  - **Deuda para el Frente C**: `tenants/suplantacion.BACKEND` apunta a
+    `ModelBackend`. Cuando exista `PerfilModelBackend` (y django-axes por
+    delante) hay que actualizarla, o `login()` elige mal el backend.
+
 ## Turnos, reservas y Google Calendar (más allá del ROADMAP original)
 
 Agregado después de Fase 4, fuera del scope que describe `ROADMAP.md` (que
