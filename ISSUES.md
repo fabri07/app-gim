@@ -192,9 +192,10 @@ navegación), evaluarlo puntualmente ahí — no hace falta un rediseño general
 Service Starter "siempre prendido". El usuario solo tiene cuenta gratuita de
 Render (agregar tarjeta es algo que Claude no puede hacer por políticas de
 seguridad — entrar datos de pago de terceros). Arrancando en el plan free:
-- **Postgres free expira a los 90 días** (Render borra la base). Hay que
-  upgradear o migrar los datos antes de esa fecha si el gimnasio piloto ya
-  está cargando datos reales.
+- **Postgres free expira** y después Render borra la base. **Corrección
+  (2026-07-29): el plazo NO es 90 días** como decía esta entrada — Render lo
+  bajó a **30 días + 14 de gracia** en mayo de 2024. Ya resuelto: la base se
+  migró a Neon, ver `[2026-07-29] Postgres migrado de Render free a Neon free`.
 - **El web service free se "duerme"** sin tráfico — el primer request
   después de inactividad tarda más (cold start), y no hay garantía de
   "siempre prendido" para una demo en vivo.
@@ -466,3 +467,29 @@ desplegar). Si la basura acumulada molesta, la salida es crear un segundo
 bucket de dev y cambiar `R2_BUCKET_NAME` en el `.env` local — no borrar las
 credenciales, porque eso devuelve el comportamiento a `FileSystemStorage` y
 deja de ejercitar el mismo backend que producción.
+
+## [2026-07-29] Postgres migrado de Render free a Neon free
+**Estado:** resuelto
+**Impacto:** el Postgres free de Render expira a los 30 días (+14 de gracia) y
+después Render borra los datos. Sin migración ni respaldo, la pérdida era
+cuestión de tiempo.
+**Resolución / próximo paso:** inventario previo de la base de Render
+(`auth_user` 1, `tenants_gimnasio` 1, `tenants_perfil` 1,
+`turnos_configuracionturnos` 1, `django_session` 2, y todo lo operativo
+—alumnos, reservas, pagos, rutinas, ejercicios, importaciones— en 0). Como NO
+estaba vacía, se migró con `pg_dump | psql` (ruta 2b del plan, no `migrate`
+desde cero: recrear el gimnasio a mano habría perdido su configuración
+white-label y la referencia al logo ya subido a R2). Verificado antes del
+cutover: los 29 conteos coinciden, `migrate --check` da exit 0 contra Neon, y
+el `Gimnasio` restauró con slug/colores/tipografía y su `logo` apuntando a
+`logos/8_1sasa11.jpg` (el archivo que ya estaba en el bucket). Recién después
+se cambió `DATABASE_URL` en el dashboard de Render a la URL **POOLED**;
+confirmado que producción entra por el pooler (aparece `pgbouncer` en
+`pg_stat_activity` de Neon). `render.yaml` ya no declara `databases:` —
+sacarlo del Blueprint no borra el recurso, Render conserva lo existente hasta
+que se lo elimina a mano. **La base vieja de Render sigue viva a propósito**
+como vuelta atrás hasta terminar la verificación end-to-end (ver
+`docs/superpowers/plans/2026-07-29-respaldo-y-migracion-neon-plan.md`).
+**Nota:** el único usuario de la base NO es superusuario, así que hoy nadie
+entra a `/admin/`. Operativamente no molesta (el sistema se usa entero desde
+el panel web, por diseño), pero hay que saberlo.
