@@ -40,6 +40,15 @@
     <h2>Acceso</h2>
     {% if alumno.perfil %}
       <p>Usuario: <strong>{{ alumno.perfil.usuario.username }}</strong></p>
+      {% if not alumno.perfil.usuario.is_active %}
+        <p>
+          <span class="badge badge--riesgo">Acceso desactivado</span>
+          <span class="texto-suave">
+            No puede entrar porque está dado de baja. Se reactiva solo al
+            volver a activarlo como alumno.
+          </span>
+        </p>
+      {% endif %}
       {% if alumno.fecha_activacion %}
         <p class="texto-suave">Activó su cuenta el {{ alumno.fecha_activacion }}.</p>
       {% else %}

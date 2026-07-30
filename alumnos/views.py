@@ -18,6 +18,7 @@ get_object`).
 """
 
 from django.contrib import messages
+from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views import View
@@ -99,18 +100,34 @@ class AlumnoToggleEstadoView(
     StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View
 ):
     """Flip activo <-> inactivo. POST-only: muta estado, nunca debe
-    dispararse con un GET (link, prefetch, etc)."""
+    dispararse con un GET (link, prefetch, etc).
+
+    El acceso del alumno es un ESPEJO de su estado, no un interruptor aparte:
+    dar de baja apaga `User.is_active` y reactivar lo devuelve. Antes no lo
+    hacía, así que un alumno dado de baja seguía entrando al portal.
+
+    No hace falta invalidar sesiones a mano: `ModelBackend.get_user()` llama a
+    `user_can_authenticate()` en CADA request, así que apagar `is_active`
+    también mata la sesión que el alumno ya tuviera abierta.
+    """
 
     model = Alumno
     http_method_names = ["post"]
 
     def post(self, request, *args, **kwargs):
         alumno = self.get_object()
-        if alumno.estado == Alumno.Estado.ACTIVO:
-            alumno.estado = Alumno.Estado.INACTIVO
-        else:
-            alumno.estado = Alumno.Estado.ACTIVO
-        alumno.save(update_fields=["estado"])
+        pasa_a_activo = alumno.estado != Alumno.Estado.ACTIVO
+
+        with transaction.atomic():
+            alumno.estado = (
+                Alumno.Estado.ACTIVO if pasa_a_activo else Alumno.Estado.INACTIVO
+            )
+            alumno.save(update_fields=["estado"])
+            if alumno.perfil_id is not None:
+                usuario = alumno.perfil.usuario
+                usuario.is_active = pasa_a_activo
+                usuario.save(update_fields=["is_active"])
+
         messages.success(
             request, f"{alumno} ahora está {alumno.get_estado_display().lower()}."
         )

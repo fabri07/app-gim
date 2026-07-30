@@ -15,7 +15,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.core.exceptions import ValidationError
-from django.test import SimpleTestCase, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.urls import reverse
 
 from alumnos import identidad
@@ -731,3 +731,122 @@ class ServiciosAccesoTests(TestCase):
             self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com"
         )
         validate_password(password)  # no debe levantar
+
+
+class RevocacionAccesoTests(TestCase):
+    """Dar de baja a un alumno tiene que apagarle el login.
+
+    Antes `AlumnoToggleEstadoView` cambiaba `Alumno.estado` y nunca tocaba
+    `User.is_active`: un alumno dado de baja seguía entrando al portal como si
+    nada. El acceso es un ESPEJO del estado del alumno, no un interruptor
+    aparte (decisión del dueño del producto).
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        self.password = servicios.crear_acceso(
+            self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com"
+        )
+        self.alumno.refresh_from_db()
+
+    def _toggle(self, alumno=None, cliente=None):
+        cliente = cliente or self.client
+        alumno = alumno or self.alumno
+        return cliente.post(reverse("alumnos:activar", args=[alumno.pk]))
+
+    def test_dar_de_baja_impide_entrar(self):
+        self.client.force_login(self.staff)
+        self._toggle()
+
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.estado, Alumno.Estado.INACTIVO)
+        self.assertFalse(self.alumno.perfil.usuario.is_active)
+
+        self.client.logout()
+        self.assertFalse(
+            self.client.login(username="juan@ejemplo.com", password=self.password)
+        )
+
+    def test_reactivar_devuelve_el_acceso(self):
+        self.client.force_login(self.staff)
+        self._toggle()
+        self._toggle()
+
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.estado, Alumno.Estado.ACTIVO)
+        self.assertTrue(self.alumno.perfil.usuario.is_active)
+
+        self.client.logout()
+        self.assertTrue(
+            self.client.login(username="juan@ejemplo.com", password=self.password)
+        )
+
+    def test_dar_de_baja_corta_la_sesion_ya_abierta(self):
+        """No hace falta invalidar sesiones a mano: `ModelBackend.get_user()`
+        revalida `is_active` en CADA request, así que la sesión viva muere en
+        el request siguiente."""
+        cliente_alumno = Client()
+        cliente_alumno.login(username="juan@ejemplo.com", password=self.password)
+        self.assertEqual(cliente_alumno.get(reverse("home")).status_code, 200)
+
+        cliente_staff = Client()
+        cliente_staff.force_login(self.staff)
+        self._toggle(cliente=cliente_staff)
+
+        self.assertEqual(cliente_alumno.get(reverse("home")).status_code, 302)
+
+    def test_alumno_sin_acceso_no_rompe(self):
+        sin_acceso = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        self.client.force_login(self.staff)
+        response = self._toggle(alumno=sin_acceso)
+        self.assertEqual(response.status_code, 302)
+        sin_acceso.refresh_from_db()
+        self.assertEqual(sin_acceso.estado, Alumno.Estado.INACTIVO)
+
+    def test_no_toca_el_acceso_de_otros_alumnos(self):
+        otro = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        servicios.crear_acceso(otro, identidad.TIPO_EMAIL, "ana@ejemplo.com")
+        otro.refresh_from_db()
+
+        self.client.force_login(self.staff)
+        self._toggle()
+
+        otro.refresh_from_db()
+        self.assertTrue(otro.perfil.usuario.is_active)
+
+    def test_la_ficha_avisa_que_el_acceso_quedo_desactivado(self):
+        """Si no, la ficha mostraría el usuario y el botón de regenerar
+        contraseña para alguien que no puede entrar de ninguna forma."""
+        self.client.force_login(self.staff)
+        url = reverse("alumnos:detalle", args=[self.alumno.pk])
+
+        self.assertNotContains(self.client.get(url), "Acceso desactivado")
+        self._toggle()
+        self.assertContains(self.client.get(url), "Acceso desactivado")
+
+    def test_aislamiento_no_se_puede_togglear_alumno_de_otro_gimnasio(self):
+        otro_gim = Gimnasio.objects.create(nombre="Gim B", slug="gim-b")
+        ajeno = Alumno.objects.create(
+            gimnasio=otro_gim, nombre="Ana", apellido="Gómez"
+        )
+        servicios.crear_acceso(ajeno, identidad.TIPO_EMAIL, "ana@ejemplo.com")
+        ajeno.refresh_from_db()
+
+        self.client.force_login(self.staff)
+        response = self._toggle(alumno=ajeno)
+        self.assertEqual(response.status_code, 404)
+
+        ajeno.refresh_from_db()
+        self.assertEqual(ajeno.estado, Alumno.Estado.ACTIVO)
+        self.assertTrue(ajeno.perfil.usuario.is_active)
