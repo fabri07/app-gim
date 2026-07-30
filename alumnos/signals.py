@@ -18,6 +18,15 @@ from tenants.models import Perfil
 
 @receiver(user_logged_in)
 def registrar_primera_activacion(sender, request, user, **kwargs):
+    # Que el staff entre a la cuenta del alumno para ayudarlo NO es una
+    # activación del alumno: marcarla corrompería la métrica de adopción, que
+    # es justamente lo que este campo mide. `tenants/suplantacion.py` marca el
+    # request antes de llamar a `login()`; el request sobrevive al flush de
+    # sesión, así que es un canal seguro (y no muta estado global como sí lo
+    # haría desconectar la señal).
+    if getattr(request, "_suplantacion_en_curso", False):
+        return
+
     try:
         perfil = user.perfil
     except ObjectDoesNotExist:
