@@ -45,6 +45,13 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends postgresql-client-18
+          # El runner de Ubuntu ya trae un cliente de Postgres más viejo primero
+          # en el PATH, así que `pg_dump` a secas NO es el 18 recién instalado.
+          # `$GITHUB_PATH` lo arregla para todos los pasos siguientes; el
+          # `export` es para que el `--version` de acá abajo mire el correcto
+          # (si no, esta verificación reporta el binario viejo y no sirve).
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/18/bin:$PATH"
           pg_dump --version
           gpg --version | head -1
           aws --version
@@ -54,7 +61,6 @@ jobs:
           PGURL: ${{ secrets.NEON_DATABASE_URL_DIRECT }}
         run: |
           set -euo pipefail
-          export PATH="/usr/lib/postgresql/18/bin:$PATH"
           STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
           echo "STAMP=$STAMP" >> "$GITHUB_ENV"
           pg_dump --format=custom --no-owner --no-privileges \
