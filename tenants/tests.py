@@ -7,6 +7,7 @@ TenantOwnedModel concreto para ejercitarlos.
 """
 
 from datetime import date, timedelta
+from io import StringIO
 
 from django.contrib.auth.models import AnonymousUser, User
 from django.core.exceptions import PermissionDenied
@@ -54,12 +55,61 @@ class CrearGimnasioCommandTests(TestCase):
         self.assertEqual(perfil.rol, Perfil.Rol.STAFF)
         self.assertEqual(user.email, "dueno@ejemplo.com")
 
-    def test_el_usuario_queda_sin_contrasena_usable(self):
-        """El staff entra por Google, no por contraseña. Una contraseña
+    def test_por_defecto_genera_una_contrasena_provisoria_que_sirve_para_entrar(self):
+        """Estado transitorio: hasta que exista el login con Google, un
+        gimnasio recién creado tiene que poder entrar de alguna forma."""
+        salida = StringIO()
+        call_command(
+            "crear_gimnasio",
+            nombre="Gimnasio Central",
+            email="dueno@ejemplo.com",
+            stdout=salida,
+        )
+
+        user = User.objects.get(username="dueno@ejemplo.com")
+        self.assertTrue(user.has_usable_password())
+
+        # La contraseña que imprime el comando es la que realmente funciona.
+        password = salida.getvalue().split("Contraseña provisoria: ")[1].split("\n")[0]
+        self.assertTrue(
+            self.client.login(username="dueno@ejemplo.com", password=password)
+        )
+
+    def test_password_explicita_se_respeta(self):
+        call_command(
+            "crear_gimnasio",
+            nombre="Gimnasio Central",
+            email="dueno@ejemplo.com",
+            password="una-clave-elegida-123",
+        )
+
+        self.assertTrue(
+            self.client.login(
+                username="dueno@ejemplo.com", password="una-clave-elegida-123"
+            )
+        )
+
+    def test_password_debil_falla_sin_crear_nada(self):
+        with self.assertRaises(CommandError):
+            call_command(
+                "crear_gimnasio",
+                nombre="Gimnasio Central",
+                email="dueno@ejemplo.com",
+                password="1234",
+            )
+
+        self.assertFalse(Gimnasio.objects.exists())
+        self.assertFalse(User.objects.exists())
+
+    def test_sin_password_deja_la_cuenta_solo_para_google(self):
+        """Modo definitivo: el staff entra por Google. Una contraseña
         inutilizable no se puede adivinar ni resetear por mail
         (`PasswordResetForm.get_users()` filtra por `has_usable_password()`)."""
         call_command(
-            "crear_gimnasio", nombre="Gimnasio Central", email="dueno@ejemplo.com"
+            "crear_gimnasio",
+            nombre="Gimnasio Central",
+            email="dueno@ejemplo.com",
+            sin_password=True,
         )
 
         user = User.objects.get(username="dueno@ejemplo.com")

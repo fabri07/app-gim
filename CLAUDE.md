@@ -436,9 +436,19 @@ existente; este tratamiento es exclusivo de `landing.html`.
 
 ## Deploy (Fase 5)
 
-**Estado (2026-07-29): desplegado.** App en `https://app-gim.onrender.com`
+**Estado (2026-07-30): desplegado.** App en `https://app-gim.onrender.com`
 (Render free tier, Blueprint aplicado), media en el bucket R2
 `app-gim-media`. Repo en `https://github.com/fabri07/app-gim` (privado).
+
+**Dominio propio: `tugimapp.com`** — comprado en Cloudflare el 2026-07-30, por
+un año. Todavía NO está apuntado a Render. Cuando se conecte hay que tocar
+cuatro cosas, y ninguna es opcional: (1) `DJANGO_ALLOWED_HOSTS` y (2)
+`DJANGO_CSRF_TRUSTED_ORIGINS` en Render; (3) el redirect URI de Google Calendar
+en la consola de Google Cloud (`https://tugimapp.com/calendario/callback/`),
+que si no queda apuntando a `app-gim.onrender.com` y rompe la integración; y
+(4) los registros SPF/DKIM que pida el proveedor de email. El dominio es
+justamente lo que destraba el email transaccional: sin verificación de dominio,
+Resend solo deja enviar a la casilla propia.
 
 - **Plan elegido: arrancar en el free tier de Render, upgradear cuando entre
   el primer gimnasio pago** (decisión del usuario, coincide con "primero se
@@ -494,15 +504,23 @@ existente; este tratamiento es exclusivo de `landing.html`.
   novedades, turnos/reservas, tokens de Google Calendar, usuarios, y el
   `resultado` JSON de cada importación. Los estáticos (`static/css/app.css`,
   etc.) tampoco van a R2 — los sirve WhiteNoise desde el propio contenedor.
-- **Gotcha: en local también se escribe al bucket de producción.** Como el
-  `.env` de desarrollo tiene las 4 `R2_*`, `STORAGES["default"]` es
-  `S3Storage` también en tu máquina (no existe ni se usa `media/`): un logo o
-  un `.xlsx` subido corriendo `runserver` aterriza en el MISMO bucket que
-  usa producción. La DB sí está separada (SQLite local vs Postgres en
-  Render), así que quedan archivos huérfanos sin fila que los referencie —
-  molesto pero inofensivo. Si algún día molesta, la salida es un bucket
-  aparte para dev (cambiar `R2_BUCKET_NAME` en el `.env` local), no borrar
-  las credenciales.
+- **Gotcha: con `runserver` en local también se escribe al bucket de
+  producción.** Como el `.env` de desarrollo tiene las 4 `R2_*`,
+  `STORAGES["default"]` es `S3Storage` también en tu máquina (no existe ni se
+  usa `media/`): un logo o un `.xlsx` subido corriendo `runserver` aterriza en
+  el MISMO bucket que usa producción. La DB sí está separada (SQLite local vs
+  Neon), así que quedan archivos huérfanos sin fila que los referencie —
+  molesto pero inofensivo. Si algún día molesta, la salida es un bucket aparte
+  para dev (cambiar `R2_BUCKET_NAME` en el `.env` local), no borrar las
+  credenciales.
+- **Los TESTS sí están aislados de R2** (desde el 2026-07-30; antes no lo
+  estaban y habían dejado 816 archivos basura en el bucket, ver `ISSUES.md`).
+  `config/settings.py` define `TESTING = "test" in sys.argv` y lo usa en dos
+  lados: `PASSWORD_HASHERS` (MD5, para que la suite sea rápida) y
+  `STORAGES["default"]` (`InMemoryStorage`). La rama de R2 está guardada con
+  `if _r2_seteadas and not TESTING`. **Si agregás un servicio externo nuevo,
+  usá `TESTING` para desactivarlo en la suite** — el criterio es que
+  `manage.py test` no salga a la red por ningún motivo.
 - **Google Calendar (opcional) — credenciales creadas.** Las 4 env vars
   `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`/
   `GOOGLE_OAUTH_REDIRECT_URI`/`GOOGLE_TOKEN_ENCRYPTION_KEY` están en el
@@ -545,6 +563,8 @@ python manage.py runserver
 python manage.py test -v 2           # suite completa
 python manage.py createsuperuser     # acceso a /admin/
 python manage.py crear_gimnasio --nombre "Gimnasio Central" --email dueno@gmail.com
+                                     # imprime una contraseña provisoria; ver
+                                     # --sin-password (solo cuando exista Google login)
 python manage.py generar_pagos       # autogenera pendientes del mes + vence atrasados
 python manage.py collectstatic       # solo hace falta simulando producción (DEBUG=False)
 

@@ -528,14 +528,53 @@ basura en masa, un dueño que perdía su contraseña **no tenía ninguna forma d
 recuperarla** salvo `manage.py changepassword` desde el servidor.
 **Resolución / próximo paso:** se borraron `RegisterView`, `RegistroForm`, su
 template y su ruta. El alta pasa a `python manage.py crear_gimnasio --nombre
-... --email ...` (`tenants/services.py::crear_gimnasio`), que además crea al
-dueño con `set_unusable_password()`: el staff va a entrar por Google, no por
-contraseña. Es coherente con la etapa del producto (se buscan los primeros
-tres gimnasios pagos, no autoservicio masivo) y con el principio "primero se
-cobra, después se sofistica". `_slug_disponible` se mudó de la vista a
+... --email ...` (`tenants/services.py::crear_gimnasio`). Es coherente con la
+etapa del producto (se buscan los primeros tres gimnasios pagos, no
+autoservicio masivo) y con el principio "primero se cobra, después se
+sofistica". `_slug_disponible` se mudó de la vista a
 `tenants/services.py::slug_disponible` antes de borrarla.
-**Riesgo que queda abierto:** el login con Google todavía NO está
-implementado, así que en este momento el dueño existente sigue entrando con su
+**Estado transitorio de la contraseña:** el destino de la cuenta staff es no
+tener contraseña (`set_unusable_password()`, que además la deja fuera del reset
+por mail porque `PasswordResetForm.get_users()` filtra por
+`has_usable_password()`). Pero el login con Google es el Frente C y todavía NO
+existe: con `set_unusable_password()` como default, un gimnasio recién dado de
+alta **no podría entrar de ninguna forma**. Por eso el comando genera hoy una
+contraseña provisoria y la imprime; `--sin-password` implementa el modo
+definitivo y `--password` permite elegirla. Cuando Google esté verificado
+contra producción, `sin_password` pasa a ser el default y el parámetro se
+borra.
+**Riesgo que queda abierto:** el dueño existente sigue entrando con su
 contraseña de siempre. No hay que correr la migración que inutiliza las
 contraseñas de staff hasta que el login con Google esté verificado **contra
 producción**.
+
+---
+
+## [2026-07-30] La suite de tests escribía en el bucket R2 de producción
+**Estado:** resuelto
+**Impacto:** el `.env` de desarrollo tiene las 4 `R2_*`, y `config/settings.py`
+elegía `S3Storage` con solo mirar si estaban seteadas — sin distinguir si
+estaba corriendo `manage.py test`. Como `importaciones/tests.py` sube `.xlsx`
+de verdad (`SimpleUploadedFile` → `Importacion.archivo`), **cada corrida de la
+suite dejaba ~20 archivos huérfanos en el bucket REAL `app-gim-media`**, bajo
+`importaciones/`. Al detectarlo había **816 objetos basura** acumulados (~4 MB)
+contra 1 solo archivo legítimo (`logos/8_1sasa11.jpg`). Además de ensuciar
+producción, cada upload era un round-trip de red dentro de un test: la suite
+tardaba **65 s** por eso.
+**Resolución / próximo paso:** `config/settings.py` calcula `TESTING = "test"
+in sys.argv` una sola vez (ya se usaba para `PASSWORD_HASHERS`) y ahora también
+lo usa para el storage: en tests el backend es `InMemoryStorage`, y la rama de
+R2 quedó guardada con `if _r2_seteadas and not TESTING`. La validación de
+"las 4 o ninguna" **sigue corriendo siempre** — una config parcial es un error
+de entorno en cualquier contexto. La suite bajó de 65 s a **7,2 s** (453 tests)
+y verificado contra el bucket: 817 objetos antes de correrla, 817 después.
+Regresión cubierta por `config/tests.py::StorageDeTestsAisladoTests`.
+**Nota:** esto es distinto del issue del 2026-07-29 ("el `.env` local escribe
+al mismo bucket que producción"), que sigue vigente y aceptado: corriendo
+`runserver` en local, un upload real sigue yendo al bucket de producción. Lo
+que se arregló acá es solo el caso de los tests, que era el que generaba
+volumen.
+**Pendiente:** limpiar los 816 objetos ya acumulados en
+`app-gim-media/importaciones/`. Ninguno tiene una fila de `Importacion` que lo
+referencie (la DB de dev es SQLite local), pero conviene confirmar antes de
+borrar en masa.
