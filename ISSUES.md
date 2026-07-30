@@ -574,7 +574,11 @@ al mismo bucket que producción"), que sigue vigente y aceptado: corriendo
 `runserver` en local, un upload real sigue yendo al bucket de producción. Lo
 que se arregló acá es solo el caso de los tests, que era el que generaba
 volumen.
-**Pendiente:** limpiar los 816 objetos ya acumulados en
-`app-gim-media/importaciones/`. Ninguno tiene una fila de `Importacion` que lo
-referencie (la DB de dev es SQLite local), pero conviene confirmar antes de
-borrar en masa.
+**Limpieza:** los 816 objetos acumulados en `app-gim-media/importaciones/` se
+borraron el 2026-07-30, con el prefijo acotado a `importaciones/` y un assert
+previo de que ninguna clave cayera fuera de él. Era seguro porque ninguno tenía
+una fila de `Importacion` que lo referenciara: se generaron corriendo la suite
+contra la SQLite local, y el inventario previo a la migración a Neon confirma
+`importaciones` en 0. Después de la limpieza el bucket quedó con **1 solo
+objeto**, `logos/8_1sasa11.jpg`, y la landing que lo usa sigue respondiendo
+200.
