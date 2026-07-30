@@ -12,12 +12,14 @@ alumno.
 import datetime
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
 from alumnos import identidad
+from alumnos import services as servicios
 from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
 
@@ -581,3 +583,111 @@ class IdentidadTests(SimpleTestCase):
         validador = UnicodeUsernameValidator()
         validador("juan@ejemplo.com")
         validador("+541122334455")
+
+
+class ServiciosAccesoTests(TestCase):
+    """Alta y regeneración del acceso de un alumno (`alumnos/services.py`).
+
+    La contraseña NUNCA la elige el staff: la genera la app. Un dueño de
+    gimnasio no va a inventar cincuenta contraseñas razonables, y las que
+    inventaría serían peores que las generadas.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+
+    def test_crear_acceso_devuelve_la_password_y_deja_entrar(self):
+        password = servicios.crear_acceso(
+            self.alumno, identidad.TIPO_EMAIL, "Juan@Ejemplo.com"
+        )
+        self.alumno.refresh_from_db()
+
+        self.assertIsNotNone(self.alumno.perfil)
+        self.assertEqual(self.alumno.perfil.rol, Perfil.Rol.ALUMNO)
+        self.assertEqual(self.alumno.perfil.gimnasio, self.gimnasio)
+        self.assertEqual(self.alumno.perfil.usuario.username, "juan@ejemplo.com")
+        self.assertTrue(
+            self.client.login(username="juan@ejemplo.com", password=password)
+        )
+
+    def test_crear_acceso_con_telefono_normaliza_el_username(self):
+        servicios.crear_acceso(
+            self.alumno, identidad.TIPO_TELEFONO, "011 15 2233 4455"
+        )
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.perfil.usuario.username, "+541122334455")
+
+    def test_crear_acceso_guarda_el_email_en_el_user(self):
+        """Lo necesita el password reset del Frente C:
+        `PasswordResetForm.get_users()` busca por `User.email`."""
+        servicios.crear_acceso(self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.perfil.usuario.email, "juan@ejemplo.com")
+
+    def test_crear_acceso_con_telefono_deja_el_email_vacio(self):
+        """Un teléfono no es un email: poblarlo rompería el password reset,
+        que busca por `User.email`."""
+        servicios.crear_acceso(self.alumno, identidad.TIPO_TELEFONO, "1122334455")
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.perfil.usuario.email, "")
+
+    def test_identificador_repetido_no_crea_nada(self):
+        otro = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        servicios.crear_acceso(self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com")
+
+        with self.assertRaises(servicios.IdentificadorEnUso):
+            servicios.crear_acceso(otro, identidad.TIPO_EMAIL, "juan@ejemplo.com")
+
+        otro.refresh_from_db()
+        self.assertIsNone(otro.perfil)
+        self.assertEqual(User.objects.count(), 1)
+        self.assertEqual(Perfil.objects.count(), 1)
+
+    def test_identificador_invalido_no_crea_nada(self):
+        with self.assertRaises(ValidationError):
+            servicios.crear_acceso(
+                self.alumno, identidad.TIPO_EMAIL, "no-es-un-email"
+            )
+        self.alumno.refresh_from_db()
+        self.assertIsNone(self.alumno.perfil)
+        self.assertEqual(User.objects.count(), 0)
+
+    def test_regenerar_password_cambia_la_vieja(self):
+        vieja = servicios.crear_acceso(
+            self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com"
+        )
+        self.alumno.refresh_from_db()
+        nueva = servicios.regenerar_password(self.alumno)
+
+        self.assertNotEqual(vieja, nueva)
+        self.assertFalse(
+            self.client.login(username="juan@ejemplo.com", password=vieja)
+        )
+        self.assertTrue(
+            self.client.login(username="juan@ejemplo.com", password=nueva)
+        )
+
+    def test_regenerar_password_expulsa_la_sesion_viva(self):
+        """Sale gratis: `auth.get_user()` compara `HASH_SESSION_KEY` contra
+        `get_session_auth_hash()`, que deriva del hash de la contraseña."""
+        password = servicios.crear_acceso(
+            self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com"
+        )
+        self.alumno.refresh_from_db()
+        self.client.login(username="juan@ejemplo.com", password=password)
+        self.assertEqual(self.client.get(reverse("home")).status_code, 200)
+
+        servicios.regenerar_password(self.alumno)
+
+        self.assertEqual(self.client.get(reverse("home")).status_code, 302)
+
+    def test_la_password_generada_pasa_los_validadores(self):
+        password = servicios.crear_acceso(
+            self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com"
+        )
+        validate_password(password)  # no debe levantar
