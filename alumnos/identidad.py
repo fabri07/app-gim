@@ -49,11 +49,18 @@ def normalizar_telefono(valor):
     en la forma internacional, y la gente los escribe indistintamente.
     """
     crudo = (valor or "").strip()
-    tenia_mas = crudo.startswith("+")
     digitos = re.sub(r"\D", "", crudo)
 
     if not digitos:
         raise ValidationError("Escribí un número de teléfono.")
+
+    # `+54...` y `0054...` son la misma cosa: el `00` es el prefijo de salida
+    # internacional. Se normalizan al mismo caso para que el chequeo de país
+    # de abajo cubra los dos (si no, `0012025550123` se colaba como nacional).
+    tenia_mas = crudo.startswith("+")
+    if digitos.startswith("00"):
+        digitos = digitos[2:]
+        tenia_mas = True
 
     if tenia_mas and not digitos.startswith("54"):
         # AR-only a propósito. Sin este corte, un `+1...` de EE.UU. terminaría

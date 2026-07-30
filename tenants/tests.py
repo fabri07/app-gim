@@ -1405,3 +1405,60 @@ class SuplantacionAccesoInactivoTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(int(self.client.session["_auth_user_id"]), self.staff.pk)
         self.assertFalse(RegistroSuplantacion.objects.exists())
+
+
+class SuplantacionMiddlewareRobustezTests(TestCase):
+    """Regresiones que la re-revisión encontró en el propio middleware."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        crear_acceso(self.alumno, TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+        self.client.force_login(self.staff)
+
+    def test_una_sesion_corrupta_no_deja_al_usuario_sin_salida(self):
+        """`vencida()` parsea `datos["inicio"]`. Si esa clave falta o tiene una
+        fecha inválida y la llamada quedara fuera del `try`, cada request
+        —incluido el logout— sería un 500 y el usuario no tendría forma de
+        salir salvo borrar cookies a mano."""
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+
+        sesion = self.client.session
+        sesion[suplantacion.CLAVE_SESION] = {"inicio": "no-es-una-fecha"}
+        sesion.save()
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_si_falla_el_retorno_no_se_renderiza_el_portal_del_alumno(self):
+        """Fail-closed de verdad: cuando `volver()` falla DESPUÉS de haber
+        resuelto `request.user` como el alumno, seguir con la vista devolvería
+        un 200 con su portal — fail-open por un request."""
+        otro_gim = Gimnasio.objects.create(nombre="Gim B", slug="gim-b")
+        staff_ajeno = User.objects.create_user("staff-b", password="clave-larga-789")
+        Perfil.objects.create(
+            usuario=staff_ajeno, gimnasio=otro_gim, rol=Perfil.Rol.STAFF
+        )
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+
+        sesion = self.client.session
+        datos = sesion[suplantacion.CLAVE_SESION]
+        datos["original_pk"] = staff_ajeno.pk
+        datos["inicio"] = (timezone.now() - timedelta(hours=3)).isoformat()
+        sesion[suplantacion.CLAVE_SESION] = datos
+        sesion.save()
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+        self.assertNotIn("_auth_user_id", self.client.session)

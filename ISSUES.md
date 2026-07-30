@@ -701,3 +701,36 @@ evaluarse en CADA request, y un mixin dejaría afuera cualquier vista que no lo
 use (`HomeView`, por ejemplo, solo lleva `LoginRequiredMixin`). Si falla el
 retorno, descarta la sesión entera en vez de dejar al staff dentro de la
 cuenta del alumno.
+
+---
+
+## [2026-07-30] El `select_for_update()` de `crear_acceso` no está ejercitado por la suite
+**Estado:** aceptado (limitación conocida de la cobertura)
+**Impacto:** `crear_acceso()` toma `select_for_update()` sobre el `Alumno` para
+serializar altas concurrentes. **En SQLite eso es un no-op silencioso**:
+`sqlite3.DatabaseFeatures.has_select_for_update` es `False` y Django
+simplemente omite el `FOR UPDATE` sin avisar. Como la suite corre contra
+SQLite, **ningún test ejercita el lock**; el test de concurrencia solo prueba
+la traducción de `IntegrityError` a `IdentificadorEnUso`, que sí funciona en
+las dos bases.
+**Por qué se acepta:** el mismo límite aplica a `turnos/services.py::crear_reserva`
+e `importaciones/services.py`, que usan el patrón desde hace meses. Correr la
+suite contra Postgres para cubrirlo cambiaría el tiempo de la suite (hoy ~8 s)
+y la simplicidad del entorno de dev, a cambio de cubrir un caso que en
+producción está bien resuelto.
+**Qué NO asumir:** que "los tests pasan" prueba que el lock funciona. Si se
+toca esa función, el razonamiento sobre concurrencia hay que hacerlo a mano.
+
+---
+
+## [2026-07-30] `post_save` no cubre `update()` ni `bulk_update`
+**Estado:** aceptado (límite documentado)
+**Impacto:** la sincronización `Alumno.estado` → `User.is_active` vive en un
+receiver de `post_save`, que Django **no dispara** con
+`Alumno.objects.filter(...).update(estado=...)` ni con `bulk_update()`. Hoy no
+hay ninguna llamada así en el repo (verificado), pero `CLAUDE.md` afirma que la
+sincronización vale para "cualquier código futuro" y eso no es cierto por esa
+vía.
+**Resolución / próximo paso:** anotado en el docstring del receiver. Si algún
+día hace falta un cambio de estado masivo (p.ej. dar de baja a todos los
+morosos), tiene que sincronizar los `User` a mano o iterar con `save()`.

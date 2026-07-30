@@ -8,7 +8,13 @@ use (`HomeView`, por ejemplo, solo lleva `LoginRequiredMixin`), y ponerlo en
 una vista solo lo evaluaría al entrar a esa vista.
 """
 
+import logging
+
+from django.shortcuts import redirect
+
 from tenants import suplantacion
+
+logger = logging.getLogger(__name__)
 
 
 class ExpirarSuplantacionMiddleware:
@@ -25,13 +31,22 @@ class ExpirarSuplantacionMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if suplantacion.vencida(request):
-            try:
+        # `vencida()` va DENTRO del try: lee `datos["inicio"]` y lo parsea con
+        # `fromisoformat`, así que una sesión con la clave presente pero sin
+        # `inicio` (o con una fecha corrupta) tiraría KeyError/ValueError en
+        # CADA request — incluido `/accounts/logout/`, dejando al usuario sin
+        # salida salvo borrar cookies a mano.
+        try:
+            if suplantacion.vencida(request):
                 suplantacion.volver(request)
-            except Exception:
-                # `volver()` es fail-closed y ya flushea la sesión en los
-                # casos que puede prever. Si igual falla (el staff original
-                # perdió el rol, cambió de gimnasio, etc.) no se puede dejar
-                # la sesión a medio camino en la cuenta del alumno.
-                request.session.flush()
+        except Exception:
+            # `volver()` ya es fail-closed en los casos que prevé, pero acá no
+            # se puede dejar la sesión a medio camino en la cuenta del alumno.
+            # Se descarta y se manda a login: seguir con `get_response` en un
+            # request donde `request.user` ya quedó resuelto como el alumno
+            # renderizaría su portal con un 200, o sea fail-OPEN por un request.
+            logger.exception("Fallo al cerrar una suplantación vencida")
+            request.session.flush()
+            return redirect("login")
+
         return self.get_response(request)

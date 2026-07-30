@@ -33,6 +33,15 @@ class IdentificadorEnUso(Exception):
     """
 
 
+class AccesoYaExiste(Exception):
+    """El alumno ya tenía acceso cuando se intentó crearle uno.
+
+    Distinta de `IdentificadorEnUso` a propósito: acá el dato que cargó el
+    staff está bien, lo que pasó es que otro request (o un doble submit) ganó
+    la carrera. Sugerirle "probá con el otro dato" sería un consejo errado.
+    """
+
+
 @transaction.atomic
 def crear_acceso(alumno, tipo, identificador):
     """Crea el login del alumno y devuelve la contraseña en claro.
@@ -58,7 +67,10 @@ def crear_acceso(alumno, tipo, identificador):
     # Relee la fila con lock: el `alumno` que llega puede estar desactualizado.
     alumno = Alumno.objects.select_for_update().get(pk=alumno.pk)
     if alumno.perfil_id is not None:
-        raise IdentificadorEnUso(username)
+        # Excepción propia y no `IdentificadorEnUso`: el perdedor de un doble
+        # submit vería "probá con el otro dato", que es un consejo equivocado
+        # — el identificador está bien, lo que pasa es que el acceso ya se creó.
+        raise AccesoYaExiste(alumno.pk)
 
     User = get_user_model()
     if User.objects.filter(username=username).exists():

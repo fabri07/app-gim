@@ -597,6 +597,25 @@ class IdentidadTests(SimpleTestCase):
             with self.subTest(entrada=entrada):
                 self.assertEqual(identidad.normalizar_telefono(entrada), esperado)
 
+    def test_telefono_extranjero_se_rechaza(self):
+        """AR-only: sin esto, `+1 202 555 0123` se convertía silenciosamente en
+        `+541202555 0123`. Se cubren las dos formas de escribir un prefijo
+        internacional (`+` y `00`), porque el primer fix solo tapó una."""
+        for entrada in [
+            "+1 202 555 0123",
+            "+44 20 7946 0958",
+            "0012025550123",
+            "00 44 20 7946 0958",
+        ]:
+            with self.subTest(entrada=entrada):
+                with self.assertRaises(ValidationError):
+                    identidad.normalizar_telefono(entrada)
+
+    def test_prefijo_internacional_argentino_se_acepta(self):
+        self.assertEqual(
+            identidad.normalizar_telefono("005411 2233 4455"), "+541122334455"
+        )
+
     def test_telefono_invalido_levanta(self):
         for entrada in ["", "123", "no-es-un-telefono", "+"]:
             with self.subTest(entrada=entrada):
@@ -1092,3 +1111,67 @@ class CrearAccesoConcurrenciaTests(TestCase):
 
         with self.assertRaises(PermissionDenied):
             servicios.regenerar_password(self.alumno)
+
+
+class EspejoEstadoPerfilStaffTests(TestCase):
+    """Regresión introducida por el propio fix del espejo: el receiver no
+    exigía `rol == ALUMNO`, a diferencia de `iniciar()` y
+    `regenerar_password()`.
+
+    Un `Alumno.perfil` apuntando a un Perfil STAFF es construible desde
+    `/admin/` (`AlumnoAdmin` no excluye `perfil`), y sin el guard dar de baja
+    a ese alumno apagaba la cuenta del STAFF, dejándolo fuera del sistema.
+    """
+
+    def test_dar_de_baja_no_apaga_la_cuenta_de_un_staff(self):
+        gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        usuario_staff = User.objects.create_user("staff", password="clave-larga-1")
+        perfil_staff = Perfil.objects.create(
+            usuario=usuario_staff, gimnasio=gimnasio, rol=Perfil.Rol.STAFF
+        )
+        alumno = Alumno.objects.create(
+            gimnasio=gimnasio, nombre="X", apellido="Y", perfil=perfil_staff
+        )
+
+        alumno.estado = Alumno.Estado.INACTIVO
+        alumno.save()
+
+        usuario_staff.refresh_from_db()
+        self.assertTrue(usuario_staff.is_active)
+
+
+class DobleSubmitAccesoTests(TestCase):
+    """El perdedor de un doble submit no debe recibir el consejo equivocado."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        self.client.force_login(self.staff)
+
+    def test_el_servicio_distingue_acceso_ya_creado_de_identificador_tomado(self):
+        servicios.crear_acceso(self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com")
+        self.alumno.refresh_from_db()
+
+        with self.assertRaises(servicios.AccesoYaExiste):
+            servicios.crear_acceso(
+                self.alumno, identidad.TIPO_EMAIL, "otro@ejemplo.com"
+            )
+
+    def test_la_vista_avisa_que_ya_tiene_acceso_y_no_sugiere_otro_dato(self):
+        servicios.crear_acceso(self.alumno, identidad.TIPO_EMAIL, "juan@ejemplo.com")
+
+        response = self.client.post(
+            reverse("alumnos:acceso_crear", args=[self.alumno.pk]),
+            {"tipo": "email", "identificador": "otro@ejemplo.com"},
+            follow=True,
+        )
+
+        texto = response.content.decode()
+        self.assertIn("ya tiene un acceso creado", texto)
+        self.assertNotIn("Probá con el otro", texto)

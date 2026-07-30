@@ -66,12 +66,25 @@ def sincronizar_acceso_con_estado(sender, instance, raw=False, **kwargs):
     asumir que las FK relacionadas ya existen. `calendario/signals.py` no
     chequea `raw` y por eso el respaldo del proyecto usa `pg_dump` y nunca
     `dumpdata` (ver ISSUES.md); no repetimos ese error acá.
+
+    **Límite conocido:** `post_save` NO se dispara con
+    `Alumno.objects.filter(...).update(estado=...)` ni con `bulk_update`. Hoy
+    no hay ninguno en el repo; si se agrega uno, tiene que sincronizar el
+    acceso a mano o no usar `update()` para este campo.
     """
     if raw or instance.perfil_id is None:
         return
 
+    perfil = instance.perfil
+    # Mismo guard que `suplantacion.iniciar()` y `regenerar_password()`: un
+    # `Alumno.perfil` apuntando a un Perfil STAFF es construible desde
+    # /admin/, y sin esto dar de baja a ese alumno apagaría la cuenta del
+    # STAFF, dejándolo afuera del sistema.
+    if perfil.rol != Perfil.Rol.ALUMNO:
+        return
+
     activo = instance.estado == instance.Estado.ACTIVO
-    usuario = instance.perfil.usuario
+    usuario = perfil.usuario
     if usuario.is_active != activo:
         usuario.is_active = activo
         usuario.save(update_fields=["is_active"])

@@ -145,7 +145,12 @@ class AlumnoToggleEstadoView(
             if alumno.estado != Alumno.Estado.ACTIVO
             else Alumno.Estado.INACTIVO
         )
-        alumno.save(update_fields=["estado"])
+        # El `atomic` sigue haciendo falta aunque la sincronización se haya
+        # mudado a la señal: son dos escrituras (el estado y el `is_active`
+        # del receiver) y si la segunda falla no puede quedar commiteada la
+        # primera — sería exactamente la divergencia que este frente elimina.
+        with transaction.atomic():
+            alumno.save(update_fields=["estado"])
 
         messages.success(
             request, f"{alumno} ahora está {alumno.get_estado_display().lower()}."
@@ -218,6 +223,12 @@ class CrearAccesoView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, 
                     form.cleaned_data["tipo"],
                     form.cleaned_data["identificador"],
                 )
+            except servicios.AccesoYaExiste:
+                # Otro request ganó la carrera (doble submit). El dato que
+                # cargó el staff estaba bien, así que no corresponde el
+                # mensaje de "probá con el otro".
+                messages.error(request, "Este alumno ya tiene un acceso creado.")
+                return redirect("alumnos:detalle", pk=alumno.pk)
             except servicios.IdentificadorEnUso:
                 # Mensaje deliberadamente genérico: confirmar que ese email ya
                 # existe convertiría este form en un enumerador de usuarios de
