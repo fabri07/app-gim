@@ -34,10 +34,12 @@
 </head>
 <body hx-boost="true" {% if user.is_authenticated and user.perfil.rol == "staff" %}x-data="{ navAbierto: false }"{% endif %}>
   {% if request.session.suplantacion %}
-    {# Se lee de la sesión y no del usuario logueado a propósito: mientras dura
-       la suplantación `user` ES el alumno, así que no habría forma de saber
-       desde el template que hay alguien atrás. `context_processors.request` ya
-       está activo, no hace falta un context processor nuevo. #}
+    {% comment %}
+      Se lee de la sesión y no del usuario logueado a propósito: mientras dura
+      la suplantación `user` ES el alumno, así que no habría forma de saber
+      desde el template que hay alguien atrás. `context_processors.request` ya
+      está activo, no hace falta un context processor nuevo.
+    {% endcomment %}
     <div class="banner-suplantacion">
       <span>
         Estás viendo la app como
