@@ -189,6 +189,7 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         # preview en vivo del template -- evita que el JS reinvente el
         # mapeo tipografía -> familia CSS por su cuenta.
         context["tipografia_fuentes"] = Gimnasio.TIPOGRAFIA_FUENTES
+        context["paletas"] = Gimnasio.PALETAS
         return context
 
     def form_valid(self, form):
@@ -226,6 +227,22 @@ class GimnasioLandingView(DetailView):
 
     def get_queryset(self):
         return Gimnasio.objects.filter(activo=True)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Import tardío de HorarioAtencion: mismo criterio que Alumno en
+        # SuplantarView/HomeView -- `tenants` está antes que `turnos` en el
+        # orden de dependencia de las apps.
+        from turnos.models import HorarioAtencion
+
+        horarios_por_dia = {}
+        for horario in HorarioAtencion.objects.for_gimnasio(self.object):
+            horarios_por_dia.setdefault(horario.dia_semana, []).append(horario)
+        context["horarios_por_dia"] = [
+            (horarios[0].get_dia_semana_display(), horarios)
+            for horarios in horarios_por_dia.values()
+        ]
+        return context
 
 
 class SuplantarView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):

@@ -754,6 +754,38 @@ class GimnasioLandingViewTests(TestCase):
         response = self.client.get(reverse("landing_gimnasio", args=["central"]))
         self.assertEqual(response.status_code, 200)
 
+    def test_muestra_los_horarios_agrupados_por_dia(self):
+        from turnos.models import DiaSemana, HorarioAtencion
+
+        HorarioAtencion.objects.create(
+            gimnasio=self.gimnasio, dia_semana=DiaSemana.LUNES,
+            hora_desde="08:00", hora_hasta="12:00",
+        )
+        HorarioAtencion.objects.create(
+            gimnasio=self.gimnasio, dia_semana=DiaSemana.LUNES,
+            hora_desde="17:00", hora_hasta="21:00",
+        )
+        response = self.client.get(reverse("landing_gimnasio", args=["central"]))
+        self.assertContains(response, "Lunes")
+        self.assertContains(response, "08:00")
+        self.assertContains(response, "17:00")
+
+    def test_no_muestra_horarios_de_otro_gimnasio(self):
+        from turnos.models import DiaSemana, HorarioAtencion
+
+        otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro-horarios")
+        HorarioAtencion.objects.create(
+            gimnasio=otro_gimnasio, dia_semana=DiaSemana.MARTES,
+            hora_desde="09:00", hora_hasta="10:00",
+        )
+        response = self.client.get(reverse("landing_gimnasio", args=["central"]))
+        self.assertNotContains(response, "Martes")
+
+    def test_gimnasio_sin_horarios_no_rompe(self):
+        response = self.client.get(reverse("landing_gimnasio", args=["central"]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Horarios de atención")
+
 
 class GimnasioUpdateViewTests(TestCase):
     """Fase 4: personalización white-label. Sin pk en la URL -- get_object
@@ -782,9 +814,8 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
-                "color_primario": "#112233",
-                "color_secundario": "#445566",
-                "tipografia": "sistema",
+                "paleta": "oceano",
+                "tipografia": "plus_jakarta",
                 "texto_bienvenida": "¡Bienvenido!",
                 "contacto": "011-1234-5678",
                 "link_instagram": "https://instagram.com/gimnasiocentral",
@@ -793,22 +824,23 @@ class GimnasioUpdateViewTests(TestCase):
         )
         self.assertRedirects(response, reverse("gimnasio_editar"))
         self.gimnasio.refresh_from_db()
-        self.assertEqual(self.gimnasio.color_primario, "#112233")
+        self.assertEqual(self.gimnasio.paleta, "oceano")
         self.assertEqual(self.gimnasio.texto_bienvenida, "¡Bienvenido!")
 
     def test_los_colores_actualizados_se_reflejan_en_el_home(self):
-        self.gimnasio.color_primario = "#abcdef"
+        self.gimnasio.paleta = Gimnasio.Paleta.OCEANO
         self.gimnasio.save()
         self.client.login(username="dueno", password="clave-123456")
         response = self.client.get(reverse("home"))
-        self.assertContains(response, "#abcdef")
+        self.assertContains(response, "#1e3a5f")
 
     def test_tipografia_default_no_carga_google_fonts(self):
-        """`sistema` mapea a --font-sans y no dispara ninguna carga
-        externa -- un gimnasio nuevo/existente no cambia de aspecto ni
-        pierde performance hasta que el dueño elige una fuente."""
-        self.assertEqual(self.gimnasio.tipografia, Gimnasio.Tipografia.SISTEMA)
-        self.assertIsNone(self.gimnasio.tipografia_google_param)
+        """Plus Jakarta Sans (el default) está auto-hospedada -- a diferencia
+        de las otras 4 opciones, no dispara ninguna carga externa a Google."""
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertNotContains(response, "fonts.googleapis.com")
+        self.assertContains(response, "Plus Jakarta Sans")
 
     def test_staff_actualiza_la_tipografia(self):
         self.client.login(username="dueno", password="clave-123456")
@@ -816,9 +848,8 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
-                "color_primario": "",
-                "color_secundario": "",
-                "tipografia": "montserrat",
+                "paleta": "bosque",
+                "tipografia": "sora",
                 "texto_bienvenida": "",
                 "contacto": "",
                 "link_instagram": "",
@@ -827,7 +858,7 @@ class GimnasioUpdateViewTests(TestCase):
         )
         self.assertRedirects(response, reverse("gimnasio_editar"))
         self.gimnasio.refresh_from_db()
-        self.assertEqual(self.gimnasio.tipografia, "montserrat")
+        self.assertEqual(self.gimnasio.tipografia, "sora")
 
     def test_el_form_rechaza_una_tipografia_fuera_de_la_lista_curada(self):
         self.client.login(username="dueno", password="clave-123456")
@@ -835,8 +866,7 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
-                "color_primario": "",
-                "color_secundario": "",
+                "paleta": "bosque",
                 "tipografia": "comic-sans-libre",
                 "texto_bienvenida": "",
                 "contacto": "",
@@ -846,33 +876,46 @@ class GimnasioUpdateViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.gimnasio.refresh_from_db()
-        self.assertEqual(self.gimnasio.tipografia, Gimnasio.Tipografia.SISTEMA)
+        self.assertEqual(self.gimnasio.tipografia, Gimnasio.Tipografia.PLUS_JAKARTA)
+
+    def test_el_form_rechaza_una_paleta_fuera_del_catalogo(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Gimnasio Central",
+                "paleta": "azul-libre-inventado",
+                "tipografia": "plus_jakarta",
+                "texto_bienvenida": "",
+                "contacto": "",
+                "link_instagram": "",
+                "link_whatsapp": "",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.paleta, Gimnasio.Paleta.BOSQUE)
 
     def test_tipografia_elegida_carga_google_fonts_en_el_home(self):
-        self.gimnasio.tipografia = "oswald"
+        self.gimnasio.tipografia = "sora"
         self.gimnasio.save()
         self.client.login(username="dueno", password="clave-123456")
         response = self.client.get(reverse("home"))
-        self.assertContains(response, "Oswald")
+        self.assertContains(response, "Sora")
         self.assertContains(response, "fonts.googleapis.com")
 
     def test_tipografia_con_comillas_no_queda_html_escapada(self):
         """`<style>` es "raw text": el navegador no decodifica entidades ahí
         adentro, así que si Django autoescapa las comillas de una familia
-        tipográfica (p.ej. 'Playfair Display') el CSS queda roto (&#x27;) en
-        vez de protegido. Blinda que --font-gimnasio salga con comillas
-        literales, no escapadas."""
-        self.gimnasio.tipografia = "playfair"
+        tipográfica (p.ej. 'Sora') el CSS queda roto (&#x27;) en vez de
+        protegido. Blinda que --font-gimnasio salga con comillas literales,
+        no escapadas."""
+        self.gimnasio.tipografia = "sora"
         self.gimnasio.save()
         self.client.login(username="dueno", password="clave-123456")
         response = self.client.get(reverse("home"))
-        self.assertContains(response, "--font-gimnasio: 'Playfair Display', Georgia, serif;")
+        self.assertContains(response, "--font-gimnasio: 'Sora', var(--font-sans);")
         self.assertNotContains(response, "&#x27;")
-
-    def test_tipografia_sistema_no_carga_google_fonts_en_el_home(self):
-        self.client.login(username="dueno", password="clave-123456")
-        response = self.client.get(reverse("home"))
-        self.assertNotContains(response, "fonts.googleapis.com")
 
 
 class AnaliticaTests(TestCase):

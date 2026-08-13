@@ -3,7 +3,7 @@
 {% block main_class %}{% endblock %}
 
 {% block content %}
-<div class="landing" style="--color-primario: {{ gimnasio.color_primario|default:'#2563eb' }}; --color-secundario: {{ gimnasio.color_secundario|default:'#1e40af' }}; font-family: {{ gimnasio.tipografia_css_family|safe }};">
+<div class="landing" style="--color-fondo: {{ gimnasio.color_fondo_css }}; --color-primario: {{ gimnasio.color_primario_css }}; --color-secundario: {{ gimnasio.color_secundario_css }}; font-family: {{ gimnasio.tipografia_css_family|safe }};">
   <section class="landing__hero">
     <div class="landing__hero-contenido">
       {% if gimnasio.logo %}
@@ -20,6 +20,24 @@
       {% endif %}
     </div>
   </section>
+
+  {% if horarios_por_dia %}
+  <section class="landing__seccion">
+    <div class="landing__ancho">
+      <h2>Horarios de atención</h2>
+      <ul class="landing__horarios">
+        {% for dia, horarios in horarios_por_dia %}
+        <li class="landing__horarios-fila">
+          <span class="landing__horarios-dia">{{ dia }}</span>
+          <span class="landing__horarios-franjas">
+            {% for h in horarios %}{{ h.hora_desde|time:"H:i" }}–{{ h.hora_hasta|time:"H:i" }}{% if not forloop.last %}, {% endif %}{% endfor %}
+          </span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+  {% endif %}
 
   <section class="landing__seccion">
     <div class="landing__ancho">

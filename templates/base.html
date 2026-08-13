@@ -14,8 +14,9 @@
       {% endif %}
       <style>
         :root {
-          {% if gimnasio.color_primario %}--color-primario: {{ gimnasio.color_primario }};{% endif %}
-          {% if gimnasio.color_secundario %}--color-secundario: {{ gimnasio.color_secundario }};{% endif %}
+          --color-fondo: {{ gimnasio.color_fondo_css }};
+          --color-primario: {{ gimnasio.color_primario_css }};
+          --color-secundario: {{ gimnasio.color_secundario_css }};
           {% comment %}
             |safe: <style> es un elemento "raw text" -- el navegador no decodifica
             entidades ahí adentro, así que el autoescape de Django (que convierte

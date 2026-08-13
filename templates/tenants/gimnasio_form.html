@@ -34,16 +34,9 @@
 
       <div class="form-seccion">
         <h2>Apariencia</h2>
-        <div class="config-fila">
-          <div>
-            {{ form.color_primario.label_tag }}
-            {{ form.color_primario }}
-          </div>
-          <div>
-            {{ form.color_secundario.label_tag }}
-            {{ form.color_secundario }}
-          </div>
-        </div>
+        {{ form.paleta.label_tag }}
+        {{ form.paleta }}
+        {% if form.paleta.errors %}<p class="config-error">{{ form.paleta.errors.0 }}</p>{% endif %}
         {{ form.tipografia.label_tag }}
         {{ form.tipografia }}
         {% if form.tipografia.errors %}<p class="config-error">{{ form.tipografia.errors.0 }}</p>{% endif %}
@@ -92,9 +85,11 @@
 </div>
 
 {{ tipografia_fuentes|json_script:"tipografia-fuentes-data" }}
+{{ paletas|json_script:"paletas-data" }}
 <script>
   (function () {
     var fuentes = JSON.parse(document.getElementById("tipografia-fuentes-data").textContent);
+    var paletas = JSON.parse(document.getElementById("paletas-data").textContent);
     var ventana = document.getElementById("preview-ventana");
 
     var nombre = document.getElementById("id_nombre");
@@ -112,17 +107,15 @@
       });
     }
 
-    var colorPrimario = document.getElementById("id_color_primario");
-    if (colorPrimario) {
-      colorPrimario.addEventListener("input", function () {
-        ventana.style.setProperty("--color-primario", colorPrimario.value);
-      });
-    }
-
-    var colorSecundario = document.getElementById("id_color_secundario");
-    if (colorSecundario) {
-      colorSecundario.addEventListener("input", function () {
-        ventana.style.setProperty("--color-secundario", colorSecundario.value);
+    var paletaSelect = document.getElementById("id_paleta");
+    if (paletaSelect) {
+      paletaSelect.addEventListener("change", function () {
+        var p = paletas[paletaSelect.value];
+        if (p) {
+          ventana.style.setProperty("--color-fondo", p.fondo);
+          ventana.style.setProperty("--color-primario", p.primario);
+          ventana.style.setProperty("--color-secundario", p.secundario);
+        }
       });
     }
 

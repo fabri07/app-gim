@@ -2,9 +2,9 @@
 name: TuGimApp
 description: Panel operativo multi-tenant para gimnasios y entrenadores locales, con blanco-etiquetado en vivo por gimnasio.
 colors:
-  primary: "#2563eb"
-  primary-deep: "#1e40af"
-  neutral-canvas: "oklch(98.5% .002 247.839)"
+  fondo: "#f5ede4"
+  primary: "#1d6f56"
+  secondary: "#e8735c"
   neutral-surface-border: "oklch(96.7% .003 264.542)"
   neutral-border: "oklch(92.8% .006 264.531)"
   neutral-muted: "oklch(55.1% .027 264.364)"
@@ -29,38 +29,37 @@ colors:
   dataviz-secuencial-4: "#184f95"
 typography:
   display:
-    fontFamily: "{tipografía elegida por el gimnasio}, var(--font-sans)"
+    fontFamily: "'Plus Jakarta Sans', var(--font-sans)"
     fontSize: "clamp(2.25rem, 5vw, 3rem)"
     fontWeight: 700
     lineHeight: 1.1
   title:
-    fontFamily: "{tipografía elegida por el gimnasio}, var(--font-sans)"
+    fontFamily: "'Plus Jakarta Sans', var(--font-sans)"
     fontSize: "1.25rem"
     fontWeight: 600
     lineHeight: 1.3
   headline:
-    fontFamily: "{tipografía elegida por el gimnasio}, var(--font-sans)"
+    fontFamily: "'Plus Jakarta Sans', var(--font-sans)"
     fontSize: "1.125rem"
     fontWeight: 600
     lineHeight: 1.3
   body:
-    fontFamily: "{tipografía elegida por el gimnasio}, var(--font-sans)"
+    fontFamily: "'Plus Jakarta Sans', var(--font-sans)"
     fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.5
   label:
-    fontFamily: "{tipografía elegida por el gimnasio}, var(--font-sans)"
+    fontFamily: "'Plus Jakarta Sans', var(--font-sans)"
     fontSize: "0.75rem"
     fontWeight: 600
     letterSpacing: "0.05em"
   metrica:
-    fontFamily: "{tipografía elegida por el gimnasio}, var(--font-sans)"
+    fontFamily: "'Plus Jakarta Sans', var(--font-sans)"
     fontSize: "1.875rem"
     fontWeight: 700
 rounded:
   md: "0.375rem"
   lg: "0.5rem"
-  xl: "0.75rem"
   2xl: "1rem"
   full: "9999px"
 spacing:
@@ -72,7 +71,7 @@ components:
   button-primary:
     backgroundColor: "{colors.primary}"
     textColor: "#ffffff"
-    rounded: "{rounded.md}"
+    rounded: "{rounded.full}"
     padding: "8px 16px"
   button-secondary:
     backgroundColor: "#ffffff"
@@ -86,7 +85,7 @@ components:
     padding: "8px 16px"
   card:
     backgroundColor: "#ffffff"
-    rounded: "{rounded.xl}"
+    rounded: "{rounded.2xl}"
     padding: "24px"
   badge-ok:
     backgroundColor: "{colors.status-ok-bg}"
@@ -109,59 +108,65 @@ components:
 
 ## Overview
 
-**Creative North Star: "El Mostrador Neutral"**
+**Creative North Star: "Un Paisaje por Gimnasio"**
 
-Esta es una fotografía del sistema **tal como existe hoy** — un panel de
-back-office deliberadamente discreto, pensado para que el mostrador (la app)
-nunca compita con el cartel del negocio (el gimnasio). El canvas es gris
-claro y uniforme, las tarjetas son blancas con un borde y una sombra apenas
-perceptible, y hay un único color de acento — hoy azul por defecto — que
-cada gimnasio pisa en tiempo real con el suyo (`--color-primario`/
-`--color-secundario`, sobreescritas inline por `base.html` según el
-`Gimnasio` logueado). La tipografía sigue la misma lógica: por defecto es la
-pila de sistema de Tailwind, y el gimnasio puede elegir una de cinco fuentes
-curadas de Google Fonts sin que el resto del sistema cambie de forma.
+El sistema tiene ahora una voz propia y confiada — tipografía geométrica
+bold (Plus Jakarta Sans por defecto), radios grandes, botones píldora — en
+vez de la identidad neutra que tenía antes. Esa voz nunca cambia; lo que
+cambia por gimnasio es el **paisaje de color**: cada uno elige una de cuatro
+paletas curadas y completas (fondo cálido + 2 acentos, ya armonizados) en
+vez de dos colores sueltos como antes. La dirección está inspirada en
+crossfyapp.com (un competidor directo, referencia tomada a propósito por el
+material — tipografía pesada, paleta cálida, energía de landing de venta —
+no calcada composición por composición).
 
-El resultado es un sistema que se nota poco a propósito: dos densidades de
-texto (títulos semi-bold cortos, cuerpo gris regular), radios de esquina
-consistentes en todos los contenedores, y color reservado casi enteramente
-para estado (verde/ámbar/rojo en badges) en vez de decoración. La única
-excepción real es la landing pública (`landing.html`), la primera superficie
-del proyecto pensada para persuadir en vez de operar: ahí el degradé
-primario/secundario del gimnasio ocupa el hero a todo el ancho.
+El resultado: la marca del producto vive en la forma (tipografía, radio,
+forma de botón), no en un color fijo. El color es lo que cada gimnasio
+"pone sobre la mesa", elegido de un catálogo — nunca libre — para que
+ninguna combinación resulte ilegible. **Bosque** (crema + verde bosque +
+coral) es el paisaje por defecto y el que usa el propio sistema cuando
+todavía no hay un gimnasio en contexto (login, error 404, etc.).
 
-**Este documento registra el sistema actual como línea de base.** Hay una
-dirección nueva ya conversada — acercar la estética a `crossfyapp.com`,
-manteniendo el blanco-etiquetado por gimnasio — que todavía no se
-implementó; cuando eso avance, este archivo se reemplaza a través del flujo
-de creación/reemplazo de mundo visual, no se edita a mano encima de esto.
+Persuade (la landing pública de cada gimnasio) lleva la energía completa:
+degradé de marca a todo el ancho del hero, números y botones grandes.
+Operate (el resto del panel) usa la misma paleta pero contenida: un canvas
+cálido de fondo y un solo acento, nunca un bloque de color a página
+completa — la expresión no puede estorbar una tabla de 40 alumnos.
 
 **Key Characteristics:**
-- Canvas gris neutro (`gray-50`) con tarjetas blancas de sombra mínima.
-- Un solo acento de marca, sobreescrito en tiempo real por gimnasio — nunca
-  hardcodeado en un componente nuevo.
-- Color reservado para estado (verde/ámbar/rojo), no para decoración.
-- Radios de esquina consistentes: `md` en controles, `xl` en contenedores.
-- Tipografía intercambiable por gimnasio sin tocar la jerarquía de tamaños.
-- Una sola superficie "Persuade" (la landing pública); el resto es "Operate".
+- Tipografía bold y geométrica como identidad propia del sistema —
+  auto-hospedada por defecto, nunca dependiente de que el gimnasio elija algo.
+- Cuatro paisajes de color completos y curados (Bosque/Océano/Arena/Pizarra),
+  nunca colores sueltos elegidos libremente.
+- Radios grandes (`2xl` en superficies, píldora en el botón primario) —
+  más amigable que el sistema anterior, sin perder densidad en controles.
+- Persuade (landing) va a fondo con el color; Operate lo usa con moderación.
+- Color de estado (verde/ámbar/rojo) sigue totalmente separado del paisaje
+  de marca — un canal, no el otro.
 
 ## Colors
 
-La paleta es casi enteramente neutra; el color con intención de marca es un
-solo par (primario/secundario) que además es dato de runtime, no una
-decisión de diseño fija.
+Cuatro paisajes completos y curados reemplazan el par de colores libres que
+existía antes. Cada uno define 3 roles (fondo, primario, secundario) ya
+armonizados — el gimnasio elige un paisaje entero, nunca un color suelto.
 
 ### Primary
-- **Azul de arranque** (`#2563eb`): valor por defecto de `--color-primario`,
-  usado en enlaces, el botón principal, focus rings y — junto al secundario —
-  el degradé del hero de la landing. Es un placeholder honesto: en producción,
-  cada gimnasio cliente lo reemplaza por el suyo vía `Gimnasio.color_primario`.
-- **Azul de arranque, oscuro** (`#1e40af`): `--color-secundario`, compañero
-  del primario en el degradé del hero; fuera de la landing casi no se usa
-  solo.
+- **Verde bosque** (`#1d6f56`): acento principal de **Bosque**, el paisaje
+  por defecto — botón primario, links, foco de inputs, mitad del degradé
+  del hero. Es el que usa el propio sistema fuera de contexto de gimnasio
+  (login, 404).
+- **Coral** (`#e8735c`): secundario de Bosque — compañero en el degradé del
+  hero, casi no se usa solo fuera de la landing.
+
+### Otros paisajes curados (mismo rol que Bosque, distinto tono)
+- **Océano**: fondo `#eef3f6`, primario `#1e3a5f` (azul noche), secundario
+  `#e2a03f` (ámbar).
+- **Arena**: fondo `#faf6f0`, primario `#b4532a` (terracota), secundario
+  `#2f6b63` (verde azulado).
+- **Pizarra**: fondo `#f0f1f3`, primario `#33475b` (gris azulado), secundario
+  `#5b8c5a` (verde salvia).
 
 ### Neutral
-- **Canvas** (`oklch(98.5% .002 247.839)`, gray-50): fondo de página.
 - **Borde sutil** (`oklch(96.7% .003 264.542)`, gray-100): separadores de
   baja intensidad (filas de tabla, secciones de formulario).
 - **Borde** (`oklch(92.8% .006 264.531)`, gray-200): borde estándar de
@@ -175,9 +180,15 @@ decisión de diseño fija.
 - **Texto principal** (`oklch(21% .034 264.665)`, gray-900): títulos, valores
   numéricos de métricas.
 
+Nota: las superficies (`.tarjeta`, `.tabla`, `.metrica`) siguen en blanco
+sólido siempre, sin importar el paisaje — solo el CANVAS de fondo
+(`--color-fondo`) cambia por gimnasio. Es deliberado: el sistema no tiene
+modo oscuro real, así que el texto gris fijo solo es legible sobre
+superficies claras garantizadas.
+
 ### Estado (semántico, no de marca)
 Verde/ámbar/rojo comunican **estado**, nunca identidad — se mantienen fijos
-sin importar el color elegido por el gimnasio.
+sin importar el paisaje elegido por el gimnasio.
 - **Éxito** (`oklch(96.2% .044 156.743)` fondo / `oklch(44.8% .119 151.328)`
   texto, green-100/green-800): alumno activo, pago al día, turno propio.
 - **Alerta** (`oklch(96.2% .059 95.617)` fondo / `oklch(47.3% .137 46.201)`
@@ -193,27 +204,40 @@ sin importar el color elegido por el gimnasio.
 
 ### Escala secuencial de datos (dataviz)
 Ramp propio de 4 pasos para la grilla de calor de asistencia del dashboard —
-**deliberadamente distinto del color de marca**: es un canal de codificación
-de datos, no branding, así que no se pisa por gimnasio.
+**deliberadamente distinto del paisaje de marca**: es un canal de
+codificación de datos, no branding, así que ningún paisaje lo pisa.
 `#b7d3f6` → `#6da7ec` → `#2a78d6` → `#184f95` (claro a oscuro).
 
 ### Named Rules
-**The Runtime Brand Rule.** Ningún componente nuevo hardcodea un hex de
-marca. Todo lo que deba reflejar la identidad del gimnasio referencia
-`var(--color-primario)` / `var(--color-secundario)` — son datos de
-`Gimnasio`, sobreescritos por request en `base.html`, nunca constantes de
-Tailwind en build-time.
+**The Landscape Rule.** El color de marca nunca se elige suelto — siempre
+es uno de los 4 paisajes curados de `Gimnasio.PALETAS`, cada uno con sus 3
+roles (fondo/primario/secundario) ya armonizados. Un componente nuevo jamás
+ofrece un color picker libre para identidad de marca.
+
+**The Runtime Brand Rule.** Ningún componente nuevo hardcodea un hex del
+paisaje. Todo lo que deba reflejar la identidad del gimnasio referencia
+`var(--color-fondo)` / `var(--color-primario)` / `var(--color-secundario)`
+— son datos de `Gimnasio`, sobreescritos por request en `base.html` (y por
+`landing.html` para el visitante anónimo), nunca constantes de Tailwind en
+build-time.
 
 ## Typography
 
-**Fuente por defecto:** la pila de sistema de Tailwind (`var(--font-sans)`:
-`ui-sans-serif, system-ui, sans-serif, ...`).
-**Fuentes opcionales por gimnasio:** Inter, Montserrat, Poppins, Oswald,
-Playfair Display (Google Fonts, cargadas solo si el gimnasio la eligió).
+**Fuente por defecto:** Plus Jakarta Sans, auto-hospedada (`@font-face` en
+`styles/input.css`, servida desde el propio dominio) — nunca dispara una
+carga externa a Google. Es la voz propia del sistema: hasta una página sin
+gimnasio en contexto (login) ya se ve con esta identidad.
+**Fuentes opcionales por gimnasio:** Sora, Manrope, Outfit, Space Grotesk —
+todas geométricas/bold de la misma familia de carácter que el default
+(Google Fonts, cargadas solo si el gimnasio activamente eligió una de estas
+4). A diferencia del catálogo anterior, ya no hay una opción "sin
+personalidad" (el viejo "sistema") — la identidad bold es parte de la marca
+del producto, no algo opcional.
 
-**Character:** utilitaria y sin ceremonia por defecto — títulos semi-bold
-cortos, cuerpo regular gris. La fuente cambia por gimnasio; el peso y el
-tamaño de cada rol, no.
+**Character:** confiada y geométrica, con presencia — títulos bold cortos,
+cuerpo regular en el mismo carácter tipográfico (no una fuente aparte para
+texto largo). La fuente cambia por gimnasio dentro de una familia de
+carácter afín; el peso y el tamaño de cada rol, no.
 
 ### Hierarchy
 - **Display** (700, `clamp(2.25rem, 5vw, 3rem)`, 1.1): título del hero de la
@@ -236,6 +260,11 @@ de Tailwind — sin él, Tailwind interpreta el valor como `font-weight`, no
 `font-family`). Nunca se hardcodea un nombre de fuente fuera de
 `Gimnasio.TIPOGRAFIA_FUENTES`.
 
+**The Self-Hosted Default Rule.** El default (Plus Jakarta Sans) se sirve
+siempre desde el propio dominio, nunca desde Google — es la única fuente
+del catálogo sin `google_param`. Las otras 4 son elección activa del
+gimnasio; recién ahí se justifica pagar el costo de una carga externa.
+
 ## Layout
 
 Dos anchos de contenedor, sin grid propio más allá de eso:
@@ -256,40 +285,49 @@ botón `☰` (Alpine.js) por debajo del breakpoint `sm`.
 Sistema **plano por defecto, con una sola sombra**. `shadow-sm`
 (`0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1)`) aparece en
 tarjetas, tablas y métricas — siempre en reposo, nunca como respuesta a
-hover o estado. No hay una escala de elevación (no hay `shadow-md`/`shadow-
-lg` en uso): la profundidad es casi enteramente de borde (`border
-border-gray-200`), no de sombra. La sombra es un acabado, no un lenguaje de
-capas.
+hover o estado. No hay una escala de elevación: la profundidad es casi
+enteramente de borde (`border border-gray-200`), no de sombra.
 
 ### Named Rules
 **The One Shadow Rule.** Un solo nivel de sombra en todo el sistema. Si un
-componente nuevo necesita distinguirse, se hace con borde o con fondo
-(`bg-gray-50` vs. `bg-white`), no agregando una sombra más fuerte.
+componente nuevo necesita distinguirse, se hace con borde o con fondo, no
+agregando una sombra más fuerte.
 
 ## Shapes
 
-Radios de esquina consistentes por categoría, sin bordes decorativos:
-- **`md`** (`0.375rem`/6px): controles — botones, inputs, filas de nav.
+Radios de esquina consistentes por categoría — más grandes que en la
+versión anterior del sistema, sin bordes decorativos:
+- **`md`** (`0.375rem`/6px): controles densos — inputs, botón secundario/
+  peligro, filas de nav, mensajes, tarjetas de turno.
 - **`lg`** (`0.5rem`/8px): contenedor de filtros.
-- **`xl`** (`0.75rem`/12px): tarjetas, tablas, métricas — el radio "de
-  superficie" del sistema.
-- **`2xl`** (`1rem`/16px): el marco del logo en la landing pública.
-- **`full`**: badges de estado (píldora).
+- **`2xl`** (`1rem`/16px): el radio "de superficie" del sistema — tarjetas,
+  tablas, métricas, la ventana de preview, el marco del logo de landing.
+  Reemplaza al `xl` (12px) de la versión anterior.
+- **`full`**: el botón primario (píldora — cambio respecto a la versión
+  anterior, que era `md`), el CTA de la landing, y los badges de estado.
 
 Bordes de 1px (`border-gray-200`) en casi todo — cards, tablas, inputs,
-topbar. Ningún componente usa esquinas rectas junto a otros con esquina
-redondeada dentro de la misma jerarquía visual.
+topbar.
+
+### Named Rules
+**The Two-Radius Rule.** Solo dos escalones de radio conviven en cualquier
+jerarquía visual: `md` en controles densos, `2xl` en superficies — más
+`full` como caso especial para botones primarios y badges. Nunca un tercer
+escalón intermedio.
 
 ## Components
 
 ### Buttons
-- **Shape:** `rounded-md` (6px), `px-4 py-2`, `text-sm font-medium`.
-- **Primary (`.boton`):** fondo `var(--color-primario)`, texto blanco.
-  Hover: `opacity-90`. Es el único botón cuyo color cambia por gimnasio.
+- **Shape:** el primario es píldora (`rounded-full`); secundario y peligro
+  se quedan en `md` (6px) — la asimetría es a propósito, marca cuál es LA
+  acción de la pantalla.
+- **Primary (`.boton`):** fondo `var(--color-primario)`, texto blanco,
+  píldora. Hover: `opacity-90`. Es el único botón cuyo color cambia por
+  gimnasio.
 - **Secondary (`.boton-secundario`):** borde gris, fondo blanco, texto
-  `gray-700`. Hover: `bg-gray-50`.
-- **Danger (`.boton-peligro`):** fondo `red-600`, texto blanco, hover
-  `red-700` — reservado para acciones destructivas confirmadas.
+  `gray-700`, `rounded-md`. Hover: `bg-gray-50`.
+- **Danger (`.boton-peligro`):** fondo `red-600`, texto blanco, `rounded-md`,
+  hover `red-700` — reservado para acciones destructivas confirmadas.
 
 ### Badges
 - **Style:** píldora (`rounded-full`), `px-2.5 py-0.5`, `text-xs font-medium`.
@@ -298,14 +336,15 @@ redondeada dentro de la misma jerarquía visual.
   ninguna se omite, no se inventa una variante nueva.
 
 ### Cards / Containers
-- **Corner Style:** `rounded-xl` (12px).
-- **Background:** blanco sobre canvas `gray-50`.
+- **Corner Style:** `rounded-2xl` (16px).
+- **Background:** blanco sólido siempre, sobre el canvas cálido de fondo
+  (`--color-fondo`) — nunca cambia con el paisaje del gimnasio.
 - **Shadow Strategy:** `shadow-sm`, siempre en reposo (ver Elevation).
 - **Border:** `border border-gray-200`.
 - **Internal Padding:** `p-6`.
 
 ### Tables (`.tabla`)
-- **Corner Style:** `rounded-xl`, con `border-separate border-spacing-0`
+- **Corner Style:** `rounded-2xl`, con `border-separate border-spacing-0`
   para que el radio no se rompa en los bordes de las celdas.
 - **Header:** fondo `gray-50`, texto `gray-600` semi-bold.
 - **Rows:** borde inferior `gray-100` entre filas, sin borde en la última.
@@ -313,9 +352,8 @@ redondeada dentro de la misma jerarquía visual.
 ### Inputs / Fields
 - **Style:** borde `gray-300`, `rounded-md`, `text-sm`, `px-3 py-2`.
 - **Focus:** anillo de foco de 2px en `var(--color-primario)` + borde
-  transparente (`focus:ring-2 focus:ring-[var(--color-primario)]
-  focus:border-transparent`) — el único elemento de foco del sistema, y
-  también el único input cuyo color de foco cambia por gimnasio.
+  transparente — el único elemento de foco del sistema, y también el único
+  input cuyo color de foco cambia por gimnasio.
 
 ### Navigation (`.topbar` / `.nav-staff`)
 - **Topbar:** blanco, `sticky top-0`, con el logo/nombre del gimnasio a la
@@ -323,6 +361,14 @@ redondeada dentro de la misma jerarquía visual.
   asset del sistema.
 - **Nav de staff:** fila de links de texto (`gray-600`, hover `bg-gray-100`),
   nunca íconos — 8 secciones, colapsa detrás de `☰` en mobile.
+
+### Landing pública — horarios de atención
+Sección nueva con datos **reales** de ese gimnasio puntual (nunca prueba
+social inventada — `PRODUCT.md` documenta que no hay clientes pagos
+todavía). Lista los `HorarioAtencion` agrupados por día, cada franja
+separada por coma; oculta por completo si el gimnasio no cargó ninguno
+(`{% if horarios_por_dia %}`) — nunca una sección vacía. Texto plano, sin
+tarjeta propia, sobre el canvas de la landing.
 
 ### Banner de suplantación (componente de señal, no de marca)
 Único componente que rompe la paleta neutra a propósito: ámbar saturado
@@ -333,22 +379,26 @@ persona.
 ## Do's and Don'ts
 
 ### Do:
-- **Do** referenciar `var(--color-primario)` / `var(--color-secundario)` /
-  `var(--font-gimnasio)` para cualquier cosa que deba reflejar la marca del
-  gimnasio — nunca un hex o una fuente fija.
+- **Do** referenciar `var(--color-fondo)` / `var(--color-primario)` /
+  `var(--color-secundario)` / `var(--font-gimnasio)` para cualquier cosa que
+  deba reflejar la marca del gimnasio — nunca un hex o una fuente fija.
+- **Do** ofrecer paisajes de color completos y curados (`Gimnasio.PALETAS`),
+  nunca un color picker libre para identidad de marca.
 - **Do** usar verde/ámbar/rojo exclusivamente para estado, con las tres
   variantes de `.badge` existentes.
 - **Do** mantener `shadow-sm` como el único nivel de sombra; diferenciar con
   borde o fondo, no con más sombra.
-- **Do** seguir el patrón de radios por categoría: `md` en controles, `xl`
-  en superficies (tarjetas/tablas), `full` en badges.
+- **Do** usar `rounded-full` solo para el botón primario, el CTA de landing
+  y los badges — todo lo demás denso va en `md`, las superficies en `2xl`.
 
 ### Don't:
-- **Don't** hardcodear `#2563eb` (o cualquier hex de marca) en un componente
-  nuevo — es un placeholder de arranque, no el color del sistema.
+- **Don't** hardcodear un hex de paisaje (`#1d6f56`, `#f5ede4`, etc.) en un
+  componente nuevo — son datos de `Gimnasio.PALETAS`, no constantes.
 - **Don't** introducir una segunda escala de sombra o elevación tipo
   "lifted"/"floating" — el sistema es intencionalmente plano.
 - **Don't** usar íconos en la navegación de staff — es texto puro hoy.
-- **Don't** tratar este archivo como la dirección final: es la fotografía
-  del sistema actual, no la dirección crossfy-inspirada ya conversada con el
-  usuario, que todavía no se implementó.
+- **Don't** inventar prueba social (números, testimonios) en la landing de
+  un gimnasio — solo datos reales de ESE gimnasio (horarios, y lo que se
+  agregue después siguiendo el mismo criterio).
+- **Don't** cargar Google Fonts para la tipografía default — está
+  auto-hospedada a propósito; solo las 4 alternativas la disparan.

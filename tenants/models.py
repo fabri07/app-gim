@@ -33,53 +33,71 @@ class Gimnasio(TimeStampedModel):
     activo = models.BooleanField(default=True)
 
     class Tipografia(models.TextChoices):
-        SISTEMA = "sistema", "Predeterminada (del sistema)"
-        INTER = "inter", "Inter — moderna y neutra"
-        MONTSERRAT = "montserrat", "Montserrat — deportiva, alto impacto"
-        POPPINS = "poppins", "Poppins — cálida y redondeada"
-        OSWALD = "oswald", "Oswald — condensada"
-        PLAYFAIR = "playfair", "Playfair Display — serif clásica, premium"
+        PLUS_JAKARTA = "plus_jakarta", "Plus Jakarta Sans — geométrica, moderna"
+        SORA = "sora", "Sora — técnica, alto contraste"
+        MANROPE = "manrope", "Manrope — cálida y legible"
+        OUTFIT = "outfit", "Outfit — redondeada, amigable"
+        SPACE_GROTESK = "space_grotesk", "Space Grotesk — editorial, con carácter"
 
     #: Única fuente de verdad para mapear cada opción de `tipografia` a su
     #: familia CSS real y su query de Google Fonts (`base.html` y el preview
-    #: en vivo de `gimnasio_form.html` la consumen, no la duplican). `sistema`
-    #: no tiene `google_param` a propósito: no dispara ninguna carga externa,
-    #: mapea al `--font-sans` que Tailwind v4 ya aplica por preflight.
+    #: en vivo de `gimnasio_form.html` la consumen, no la duplican).
+    #: `PLUS_JAKARTA` (el default) es la ÚNICA sin `google_param`: está
+    #: auto-hospedada vía @font-face en styles/input.css, así que la mayoría
+    #: del tráfico -- cualquier gimnasio que no cambió el default -- nunca
+    #: dispara una carga externa a Google. Mismo rol que "sistema" cumplía
+    #: antes de sacarse del catálogo.
     TIPOGRAFIA_FUENTES = {
-        Tipografia.SISTEMA: {"css_family": "var(--font-sans)", "google_param": None},
-        Tipografia.INTER: {
-            "css_family": "'Inter', var(--font-sans)",
-            "google_param": "Inter:wght@400;500;600;700",
+        Tipografia.PLUS_JAKARTA: {
+            "css_family": "'Plus Jakarta Sans', var(--font-sans)",
+            "google_param": None,
         },
-        Tipografia.MONTSERRAT: {
-            "css_family": "'Montserrat', var(--font-sans)",
-            "google_param": "Montserrat:wght@400;500;600;700",
+        Tipografia.SORA: {
+            "css_family": "'Sora', var(--font-sans)",
+            "google_param": "Sora:wght@400;500;600;700",
         },
-        Tipografia.POPPINS: {
-            "css_family": "'Poppins', var(--font-sans)",
-            "google_param": "Poppins:wght@400;500;600;700",
+        Tipografia.MANROPE: {
+            "css_family": "'Manrope', var(--font-sans)",
+            "google_param": "Manrope:wght@400;500;600;700",
         },
-        Tipografia.OSWALD: {
-            "css_family": "'Oswald', var(--font-sans)",
-            "google_param": "Oswald:wght@400;500;600;700",
+        Tipografia.OUTFIT: {
+            "css_family": "'Outfit', var(--font-sans)",
+            "google_param": "Outfit:wght@400;500;600;700",
         },
-        Tipografia.PLAYFAIR: {
-            "css_family": "'Playfair Display', Georgia, serif",
-            "google_param": "Playfair+Display:wght@400;500;600;700",
+        Tipografia.SPACE_GROTESK: {
+            "css_family": "'Space Grotesk', var(--font-sans)",
+            "google_param": "Space+Grotesk:wght@400;500;600;700",
         },
     }
 
+    class Paleta(models.TextChoices):
+        BOSQUE = "bosque", "Bosque"
+        OCEANO = "oceano", "Océano"
+        ARENA = "arena", "Arena"
+        PIZARRA = "pizarra", "Pizarra"
+
+    #: Misma idea que TIPOGRAFIA_FUENTES: única fuente de verdad para los 3
+    #: roles de color de cada paleta -- base.html, el preview en vivo y
+    #: landing.html la consumen, no la reinventan. Paletas curadas en vez de
+    #: color libre: ninguna combinación puede resultar ilegible.
+    PALETAS = {
+        Paleta.BOSQUE: {"fondo": "#f5ede4", "primario": "#1d6f56", "secundario": "#e8735c"},
+        Paleta.OCEANO: {"fondo": "#eef3f6", "primario": "#1e3a5f", "secundario": "#e2a03f"},
+        Paleta.ARENA: {"fondo": "#faf6f0", "primario": "#b4532a", "secundario": "#2f6b63"},
+        Paleta.PIZARRA: {"fondo": "#f0f1f3", "primario": "#33475b", "secundario": "#5b8c5a"},
+    }
+
     logo = models.ImageField(upload_to="logos/", blank=True)
-    color_primario = models.CharField(
-        max_length=7, blank=True, help_text="Hex, p.ej. #2563eb"
-    )
-    color_secundario = models.CharField(
-        max_length=7, blank=True, help_text="Hex, p.ej. #1e40af"
+    paleta = models.CharField(
+        max_length=20,
+        choices=Paleta.choices,
+        default=Paleta.BOSQUE,
+        help_text="Paleta de colores del panel y del portal del alumno.",
     )
     tipografia = models.CharField(
         max_length=20,
         choices=Tipografia.choices,
-        default=Tipografia.SISTEMA,
+        default=Tipografia.PLUS_JAKARTA,
         help_text="Tipografía del panel y del portal del alumno.",
     )
     texto_bienvenida = models.CharField(max_length=280, blank=True)
@@ -102,6 +120,18 @@ class Gimnasio(TimeStampedModel):
     @property
     def tipografia_google_param(self):
         return self.TIPOGRAFIA_FUENTES[self.tipografia]["google_param"]
+
+    @property
+    def color_fondo_css(self):
+        return self.PALETAS[self.paleta]["fondo"]
+
+    @property
+    def color_primario_css(self):
+        return self.PALETAS[self.paleta]["primario"]
+
+    @property
+    def color_secundario_css(self):
+        return self.PALETAS[self.paleta]["secundario"]
 
 
 class Perfil(TimeStampedModel):

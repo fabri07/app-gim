@@ -1,40 +1,63 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-12T00:00:00Z",
+  "generatedAt": "2026-08-14T00:00:00Z",
   "title": "Design System: TuGimApp",
   "extensions": {
     "colorMeta": {
+      "fondo": {
+        "role": "fondo",
+        "displayName": "Crema Bosque",
+        "canonical": "#f5ede4",
+        "tonalRamp": [
+          "oklch(30% .03 75)",
+          "oklch(40% .035 75)",
+          "oklch(52% .04 75)",
+          "oklch(64% .045 75)",
+          "oklch(76% .04 75)",
+          "oklch(85% .03 75)",
+          "oklch(92% .02 75)",
+          "oklch(97% .012 75)"
+        ]
+      },
       "primary": {
         "role": "primary",
-        "displayName": "Azul de arranque",
-        "canonical": "#2563eb",
+        "displayName": "Verde Bosque",
+        "canonical": "#1d6f56",
         "tonalRamp": [
-          "oklch(29% .19 264)",
-          "oklch(36% .2 264)",
-          "oklch(42% .21 264)",
-          "oklch(48% .215 264)",
-          "oklch(55% .22 264)",
-          "oklch(64% .2 264)",
-          "oklch(75% .15 264)",
-          "oklch(88% .08 264)"
+          "oklch(22% .05 165)",
+          "oklch(29% .07 165)",
+          "oklch(36% .08 165)",
+          "oklch(43% .09 165)",
+          "oklch(50% .1 165)",
+          "oklch(62% .09 165)",
+          "oklch(76% .07 165)",
+          "oklch(89% .04 165)"
         ]
       },
-      "primary-deep": {
-        "role": "primary-companion",
-        "displayName": "Azul de arranque, oscuro",
-        "canonical": "#1e40af",
+      "secondary": {
+        "role": "secondary",
+        "displayName": "Coral",
+        "canonical": "#e8735c",
         "tonalRamp": [
-          "oklch(24% .16 264)",
-          "oklch(30% .17 264)",
-          "oklch(36% .18 264)",
-          "oklch(40% .185 264)",
-          "oklch(46% .19 264)",
-          "oklch(55% .18 264)",
-          "oklch(68% .14 264)",
-          "oklch(84% .07 264)"
+          "oklch(28% .08 30)",
+          "oklch(36% .1 30)",
+          "oklch(45% .13 30)",
+          "oklch(54% .15 30)",
+          "oklch(63% .16 30)",
+          "oklch(73% .13 30)",
+          "oklch(84% .09 30)",
+          "oklch(93% .04 30)"
         ]
       },
-      "neutral-canvas": { "role": "neutral", "displayName": "Canvas", "canonical": "oklch(98.5% .002 247.839)" },
+      "paisaje-oceano-fondo": { "role": "fondo-alterno", "displayName": "Océano — fondo", "canonical": "#eef3f6" },
+      "paisaje-oceano-primario": { "role": "primary-alterno", "displayName": "Océano — azul noche", "canonical": "#1e3a5f" },
+      "paisaje-oceano-secundario": { "role": "secondary-alterno", "displayName": "Océano — ámbar", "canonical": "#e2a03f" },
+      "paisaje-arena-fondo": { "role": "fondo-alterno", "displayName": "Arena — fondo", "canonical": "#faf6f0" },
+      "paisaje-arena-primario": { "role": "primary-alterno", "displayName": "Arena — terracota", "canonical": "#b4532a" },
+      "paisaje-arena-secundario": { "role": "secondary-alterno", "displayName": "Arena — verde azulado", "canonical": "#2f6b63" },
+      "paisaje-pizarra-fondo": { "role": "fondo-alterno", "displayName": "Pizarra — fondo", "canonical": "#f0f1f3" },
+      "paisaje-pizarra-primario": { "role": "primary-alterno", "displayName": "Pizarra — gris azulado", "canonical": "#33475b" },
+      "paisaje-pizarra-secundario": { "role": "secondary-alterno", "displayName": "Pizarra — verde salvia", "canonical": "#5b8c5a" },
       "neutral-surface-border": { "role": "neutral", "displayName": "Borde sutil", "canonical": "oklch(96.7% .003 264.542)" },
       "neutral-border": { "role": "neutral", "displayName": "Borde", "canonical": "oklch(92.8% .006 264.531)" },
       "neutral-muted": { "role": "neutral", "displayName": "Texto apagado", "canonical": "oklch(55.1% .027 264.364)" },
@@ -94,15 +117,15 @@
       "name": "Botón primario",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Acción principal de una pantalla o formulario. El único botón cuyo color cambia por gimnasio.",
+      "description": "Acción principal de una pantalla o formulario. Forma píldora, el único botón cuyo color cambia por gimnasio.",
       "html": "<button class=\"ds-btn-primary\">Guardar</button>",
-      "css": ".ds-btn-primary { display:inline-flex; align-items:center; justify-content:center; border:none; border-radius:0.375rem; background:#2563eb; color:#fff; padding:8px 16px; font-size:0.875rem; font-weight:500; cursor:pointer; transition:opacity .2s; } .ds-btn-primary:hover { opacity:.9; } .ds-btn-primary:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }"
+      "css": ".ds-btn-primary { display:inline-flex; align-items:center; justify-content:center; border:none; border-radius:9999px; background:#1d6f56; color:#fff; padding:8px 16px; font-size:0.875rem; font-weight:500; cursor:pointer; transition:opacity .2s; } .ds-btn-primary:hover { opacity:.9; } .ds-btn-primary:focus-visible { outline:2px solid #1d6f56; outline-offset:2px; }"
     },
     {
       "name": "Botón secundario",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "Acción alternativa u opcional junto a la primaria.",
+      "description": "Acción alternativa u opcional junto a la primaria. Radio md, no píldora — la asimetría marca cuál es LA acción.",
       "html": "<button class=\"ds-btn-secondary\">Cancelar</button>",
       "css": ".ds-btn-secondary { display:inline-flex; align-items:center; justify-content:center; border:1px solid oklch(87.2% .01 258.338); border-radius:0.375rem; background:#fff; color:oklch(37.3% .034 259.733); padding:8px 16px; font-size:0.875rem; font-weight:500; cursor:pointer; transition:background .2s; } .ds-btn-secondary:hover { background:oklch(98.5% .002 247.839); }"
     },
@@ -118,9 +141,9 @@
       "name": "Tarjeta",
       "kind": "card",
       "refersTo": "card",
-      "description": "Contenedor de superficie estándar para cualquier bloque de contenido o formulario.",
+      "description": "Contenedor de superficie estándar. Radio 2xl (16px) — más grande que la versión anterior del sistema. Siempre blanco sólido, nunca cambia con el paisaje.",
       "html": "<div class=\"ds-card\"><h2 class=\"ds-card__titulo\">Datos del alumno</h2><p class=\"ds-card__texto\">Contenido de ejemplo.</p></div>",
-      "css": ".ds-card { background:#fff; border:1px solid oklch(92.8% .006 264.531); border-radius:0.75rem; box-shadow:0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1); padding:24px; } .ds-card__titulo { font-size:1.125rem; font-weight:600; color:oklch(21% .034 264.665); margin:0 0 12px; } .ds-card__texto { font-size:0.875rem; color:oklch(37.3% .034 259.733); margin:0; }"
+      "css": ".ds-card { background:#fff; border:1px solid oklch(92.8% .006 264.531); border-radius:1rem; box-shadow:0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1); padding:24px; } .ds-card__titulo { font-family:'Plus Jakarta Sans', sans-serif; font-size:1.125rem; font-weight:600; color:oklch(21% .034 264.665); margin:0 0 12px; } .ds-card__texto { font-size:0.875rem; color:oklch(37.3% .034 259.733); margin:0; }"
     },
     {
       "name": "Badge de estado",
@@ -136,7 +159,7 @@
       "refersTo": "input",
       "description": "Input/select/textarea estándar del panel. El único elemento cuyo color de foco cambia por gimnasio.",
       "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Nombre y apellido\">",
-      "css": ".ds-input { width:100%; border:1px solid oklch(87.2% .01 258.338); border-radius:0.375rem; padding:8px 12px; font-size:0.875rem; } .ds-input:focus { outline:none; box-shadow:0 0 0 2px #2563eb; border-color:transparent; }"
+      "css": ".ds-input { width:100%; border:1px solid oklch(87.2% .01 258.338); border-radius:0.375rem; padding:8px 12px; font-size:0.875rem; } .ds-input:focus { outline:none; box-shadow:0 0 0 2px #1d6f56; border-color:transparent; }"
     },
     {
       "name": "Link de navegación (staff)",
@@ -150,38 +173,50 @@
       "name": "Banner de suplantación",
       "kind": "custom",
       "refersTo": "banner-suplantacion",
-      "description": "Componente de señal (no de marca): único elemento que rompe la paleta neutra a propósito, para que sea imposible no notar que se está operando como otra persona.",
+      "description": "Componente de señal (no de marca): único elemento que rompe el paisaje de color a propósito, para que sea imposible no notar que se está operando como otra persona.",
       "html": "<div class=\"ds-banner-suplantacion\"><span>Estás viendo la app como <strong>Juan Pérez</strong>.</span><button class=\"ds-btn-primary\">Volver a mi cuenta</button></div>",
       "css": ".ds-banner-suplantacion { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; background:oklch(96.2% .059 95.617); border-bottom:1px solid oklch(87.9% .169 91.605); color:oklch(41.4% .112 45.904); padding:8px 16px; font-size:0.875rem; }"
+    },
+    {
+      "name": "Hero de landing",
+      "kind": "custom",
+      "refersTo": "landing-hero",
+      "description": "Superficie Persuade del sistema — único lugar con degradé a todo el ancho. El color viene del paisaje que eligió ESE gimnasio (Bosque en este ejemplo).",
+      "html": "<section class=\"ds-hero\"><h1 class=\"ds-hero__titulo\">Smoke Test Gym</h1><a class=\"ds-hero__cta\" href=\"#\">Escribinos por WhatsApp</a></section>",
+      "css": ".ds-hero { width:100%; text-align:center; padding:80px 16px; background-image:linear-gradient(135deg, #1d6f56, #e8735c); } .ds-hero__titulo { font-family:'Plus Jakarta Sans', sans-serif; font-size:3rem; font-weight:700; color:#fff; margin:0 0 16px; } .ds-hero__cta { display:inline-flex; align-items:center; justify-content:center; border-radius:9999px; background:#fff; color:#1d6f56; padding:12px 24px; font-size:1rem; font-weight:600; text-decoration:none; }"
     }
   ],
   "narrative": {
-    "northStar": "El Mostrador Neutral",
-    "overview": "Esta es una fotografía del sistema tal como existe hoy — un panel de back-office deliberadamente discreto, pensado para que el mostrador (la app) nunca compita con el cartel del negocio (el gimnasio). El canvas es gris claro y uniforme, las tarjetas son blancas con un borde y una sombra apenas perceptible, y hay un único color de acento — hoy azul por defecto — que cada gimnasio pisa en tiempo real con el suyo (--color-primario/--color-secundario, sobreescritas inline por base.html según el Gimnasio logueado). La tipografía sigue la misma lógica: por defecto es la pila de sistema de Tailwind, y el gimnasio puede elegir una de cinco fuentes curadas de Google Fonts sin que el resto del sistema cambie de forma. El resultado es un sistema que se nota poco a propósito: dos densidades de texto (títulos semi-bold cortos, cuerpo gris regular), radios de esquina consistentes en todos los contenedores, y color reservado casi enteramente para estado (verde/ámbar/rojo en badges) en vez de decoración. La única excepción real es la landing pública (landing.html), la primera superficie del proyecto pensada para persuadir en vez de operar: ahí el degradé primario/secundario del gimnasio ocupa el hero a todo el ancho. Este documento registra el sistema actual como línea de base. Hay una dirección nueva ya conversada — acercar la estética a crossfyapp.com, manteniendo el blanco-etiquetado por gimnasio — que todavía no se implementó; cuando eso avance, este archivo se reemplaza a través del flujo de creación/reemplazo de mundo visual, no se edita a mano encima de esto.",
+    "northStar": "Un Paisaje por Gimnasio",
+    "overview": "El sistema tiene ahora una voz propia y confiada — tipografía geométrica bold (Plus Jakarta Sans por defecto), radios grandes, botones píldora — en vez de la identidad neutra que tenía antes. Esa voz nunca cambia; lo que cambia por gimnasio es el paisaje de color: cada uno elige una de cuatro paletas curadas y completas (fondo cálido + 2 acentos, ya armonizados) en vez de dos colores sueltos como antes. La dirección está inspirada en crossfyapp.com (un competidor directo, referencia tomada a propósito por el material — tipografía pesada, paleta cálida, energía de landing de venta — no calcada composición por composición). El resultado: la marca del producto vive en la forma (tipografía, radio, forma de botón), no en un color fijo. El color es lo que cada gimnasio pone sobre la mesa, elegido de un catálogo — nunca libre — para que ninguna combinación resulte ilegible. Bosque (crema + verde bosque + coral) es el paisaje por defecto y el que usa el propio sistema cuando todavía no hay un gimnasio en contexto. Persuade (la landing pública de cada gimnasio) lleva la energía completa: degradé de marca a todo el ancho del hero, números y botones grandes. Operate (el resto del panel) usa la misma paleta pero contenida: un canvas cálido de fondo y un solo acento, nunca un bloque de color a página completa.",
     "keyCharacteristics": [
-      "Canvas gris neutro (gray-50) con tarjetas blancas de sombra mínima.",
-      "Un solo acento de marca, sobreescrito en tiempo real por gimnasio — nunca hardcodeado en un componente nuevo.",
-      "Color reservado para estado (verde/ámbar/rojo), no para decoración.",
-      "Radios de esquina consistentes: md en controles, xl en contenedores.",
-      "Tipografía intercambiable por gimnasio sin tocar la jerarquía de tamaños.",
-      "Una sola superficie \"Persuade\" (la landing pública); el resto es \"Operate\"."
+      "Tipografía bold y geométrica como identidad propia del sistema — auto-hospedada por defecto, nunca dependiente de que el gimnasio elija algo.",
+      "Cuatro paisajes de color completos y curados (Bosque/Océano/Arena/Pizarra), nunca colores sueltos elegidos libremente.",
+      "Radios grandes (2xl en superficies, píldora en el botón primario) — más amigable que el sistema anterior, sin perder densidad en controles.",
+      "Persuade (landing) va a fondo con el color; Operate lo usa con moderación.",
+      "Color de estado (verde/ámbar/rojo) sigue totalmente separado del paisaje de marca."
     ],
     "rules": [
-      { "name": "The Runtime Brand Rule", "body": "Ningún componente nuevo hardcodea un hex de marca. Todo lo que deba reflejar la identidad del gimnasio referencia var(--color-primario) / var(--color-secundario) / var(--font-gimnasio) — son datos de Gimnasio, sobreescritos por request en base.html, nunca constantes de Tailwind en build-time.", "section": "colors" },
+      { "name": "The Landscape Rule", "body": "El color de marca nunca se elige suelto — siempre es uno de los 4 paisajes curados de Gimnasio.PALETAS, cada uno con sus 3 roles (fondo/primario/secundario) ya armonizados. Un componente nuevo jamás ofrece un color picker libre para identidad de marca.", "section": "colors" },
+      { "name": "The Runtime Brand Rule", "body": "Ningún componente nuevo hardcodea un hex del paisaje. Todo lo que deba reflejar la identidad del gimnasio referencia var(--color-fondo) / var(--color-primario) / var(--color-secundario) — son datos de Gimnasio, sobreescritos por request en base.html (y por landing.html para el visitante anónimo), nunca constantes de Tailwind en build-time.", "section": "colors" },
       { "name": "The Gym-Swappable Font Rule", "body": "La familia tipográfica siempre se referencia como var(--font-gimnasio) (con el hint family-name: en clases arbitrarias de Tailwind). Nunca se hardcodea un nombre de fuente fuera de Gimnasio.TIPOGRAFIA_FUENTES.", "section": "typography" },
-      { "name": "The One Shadow Rule", "body": "Un solo nivel de sombra en todo el sistema. Si un componente nuevo necesita distinguirse, se hace con borde o con fondo, no agregando una sombra más fuerte.", "section": "elevation" }
+      { "name": "The Self-Hosted Default Rule", "body": "El default (Plus Jakarta Sans) se sirve siempre desde el propio dominio, nunca desde Google — es la única fuente del catálogo sin google_param. Las otras 4 son elección activa del gimnasio; recién ahí se justifica pagar el costo de una carga externa.", "section": "typography" },
+      { "name": "The One Shadow Rule", "body": "Un solo nivel de sombra en todo el sistema. Si un componente nuevo necesita distinguirse, se hace con borde o con fondo, no agregando una sombra más fuerte.", "section": "elevation" },
+      { "name": "The Two-Radius Rule", "body": "Solo dos escalones de radio conviven en cualquier jerarquía visual: md en controles densos, 2xl en superficies — más full como caso especial para botones primarios y badges. Nunca un tercer escalón intermedio.", "section": "shapes" }
     ],
     "dos": [
-      "Do referenciar var(--color-primario) / var(--color-secundario) / var(--font-gimnasio) para cualquier cosa que deba reflejar la marca del gimnasio — nunca un hex o una fuente fija.",
+      "Do referenciar var(--color-fondo) / var(--color-primario) / var(--color-secundario) / var(--font-gimnasio) para cualquier cosa que deba reflejar la marca del gimnasio — nunca un hex o una fuente fija.",
+      "Do ofrecer paisajes de color completos y curados (Gimnasio.PALETAS), nunca un color picker libre para identidad de marca.",
       "Do usar verde/ámbar/rojo exclusivamente para estado, con las tres variantes de .badge existentes.",
       "Do mantener shadow-sm como el único nivel de sombra; diferenciar con borde o fondo, no con más sombra.",
-      "Do seguir el patrón de radios por categoría: md en controles, xl en superficies (tarjetas/tablas), full en badges."
+      "Do usar rounded-full solo para el botón primario, el CTA de landing y los badges — todo lo demás denso va en md, las superficies en 2xl."
     ],
     "donts": [
-      "Don't hardcodear #2563eb (o cualquier hex de marca) en un componente nuevo — es un placeholder de arranque, no el color del sistema.",
+      "Don't hardcodear un hex de paisaje (#1d6f56, #f5ede4, etc.) en un componente nuevo — son datos de Gimnasio.PALETAS, no constantes.",
       "Don't introducir una segunda escala de sombra o elevación tipo \"lifted\"/\"floating\" — el sistema es intencionalmente plano.",
       "Don't usar íconos en la navegación de staff — es texto puro hoy.",
-      "Don't tratar este archivo como la dirección final: es la fotografía del sistema actual, no la dirección crossfy-inspirada ya conversada con el usuario, que todavía no se implementó."
+      "Don't inventar prueba social (números, testimonios) en la landing de un gimnasio — solo datos reales de ESE gimnasio.",
+      "Don't cargar Google Fonts para la tipografía default — está auto-hospedada a propósito; solo las 4 alternativas la disparan."
     ]
   }
 }

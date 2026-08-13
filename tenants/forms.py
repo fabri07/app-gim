@@ -23,15 +23,10 @@ class GimnasioForm(forms.ModelForm):
         fields = [
             "nombre",
             "logo",
-            "color_primario",
-            "color_secundario",
+            "paleta",
             "tipografia",
             "texto_bienvenida",
             "contacto",
             "link_instagram",
             "link_whatsapp",
         ]
-        widgets = {
-            "color_primario": forms.TextInput(attrs={"type": "color"}),
-            "color_secundario": forms.TextInput(attrs={"type": "color"}),
-        }
