@@ -10,7 +10,9 @@ from django.urls import path
 from rutinas.views import (
     AsignarRutinaView,
     RutinaAsignadaDetailView,
+    RutinaAsignadaDiaCompletadoToggleView,
     RutinaAsignadaItemCalificarView,
+    RutinaMiDiaDetailView,
     RutinaPlantillaCreateView,
     RutinaPlantillaDetailView,
     RutinaPlantillaDuplicarView,
@@ -62,5 +64,15 @@ urlpatterns = [
         "asignadas/items/<int:pk>/calificar/",
         RutinaAsignadaItemCalificarView.as_view(),
         name="item_calificar",
+    ),
+    path(
+        "mi-rutina/dia/<int:dia>/",
+        RutinaMiDiaDetailView.as_view(),
+        name="mi_dia_detalle",
+    ),
+    path(
+        "mi-rutina/dia/<int:dia>/semana/<int:semana>/completar/",
+        RutinaAsignadaDiaCompletadoToggleView.as_view(),
+        name="dia_completado_toggle",
     ),
 ]

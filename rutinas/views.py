@@ -16,7 +16,8 @@ de otro gimnasio, eso ya devuelve 404 antes de tocar ningún item.
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import get_object_or_404, redirect
+from django.http import Http404
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
 from django.views.generic import CreateView, DetailView, FormView, ListView, UpdateView
@@ -25,7 +26,9 @@ from django.views.generic.detail import SingleObjectMixin
 from core.mixins import TenantScopedMixin
 from rutinas.forms import AsignarRutinaForm, RutinaPlantillaForm, RutinaPlantillaItemForm
 from rutinas.models import (
+    SEMANAS_POR_CICLO,
     RutinaAsignada,
+    RutinaAsignadaDiaCompletado,
     RutinaAsignadaItem,
     RutinaPlantilla,
     RutinaPlantillaItem,
@@ -252,8 +255,91 @@ class RutinaAsignadaItemCalificarView(AlumnoRequiredMixin, View):
         valor = request.POST.get("rpe", "")
         if valor not in RutinaAsignadaItem.RPE.values:
             messages.error(request, "Esa opción de RPE no es válida.")
-            return redirect("home")
+            return redirect("rutinas:mi_dia_detalle", dia=item.dia)
         item.rpe = valor
         item.save(update_fields=["rpe"])
         messages.success(request, "Gracias, guardamos tu feedback.")
-        return redirect("home")
+        return redirect("rutinas:mi_dia_detalle", dia=item.dia)
+
+
+class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
+    """El alumno ve, para UN día de entrenamiento de su rutina activa, las
+    4 semanas del ciclo lado a lado -- la vista inversa de la tabla de
+    "esta semana" del dashboard (`HomeView._portal_alumno`), pensada para
+    seguir la progresión de un mismo día semana a semana en vez de ver
+    todos los días mezclados en una sola semana.
+
+    404 si el alumno no tiene rutina activa, o si `dia` no es uno de los
+    que esa rutina realmente tiene cargados -- mismo criterio que
+    `RutinaAsignadaItemCalificarView`: no es un tema de permisos, ese día
+    "no existe" desde la perspectiva de este alumno.
+    """
+
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        if self.alumno is None:
+            raise Http404
+        dia = kwargs["dia"]
+        rutina_actual = self.alumno.rutinas_asignadas.filter(activa=True).first()
+        if rutina_actual is None:
+            raise Http404
+        if dia not in set(rutina_actual.items.values_list("dia", flat=True)):
+            raise Http404
+
+        items_por_semana = {semana: [] for semana in range(1, SEMANAS_POR_CICLO + 1)}
+        for item in rutina_actual.items.filter(dia=dia):
+            items_por_semana[item.semana].append(item)
+
+        semanas_completadas = set(
+            rutina_actual.dias_completados.filter(dia=dia).values_list(
+                "semana", flat=True
+            )
+        )
+
+        semanas = [
+            {
+                "numero": semana,
+                "items": items,
+                "completada": semana in semanas_completadas,
+                "es_actual": semana == rutina_actual.semana_actual,
+            }
+            for semana, items in items_por_semana.items()
+        ]
+
+        return render(
+            request,
+            "rutinas/mi_dia_detalle.html",
+            {
+                "rutina_actual": rutina_actual,
+                "dia": dia,
+                "semanas": semanas,
+                "rpe_choices": RutinaAsignadaItem.RPE.choices,
+            },
+        )
+
+
+class RutinaAsignadaDiaCompletadoToggleView(AlumnoRequiredMixin, View):
+    """El alumno marca (o desmarca) como entrenado un día de una semana
+    puntual del ciclo. Toggle y no solo "marcar": un click de más no debe
+    dejar al alumno sin forma de deshacerlo."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        if self.alumno is None:
+            raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
+        dia = kwargs["dia"]
+        semana = kwargs["semana"]
+        rutina_actual = self.alumno.rutinas_asignadas.filter(activa=True).first()
+        if rutina_actual is None or not rutina_actual.items.filter(dia=dia).exists():
+            raise Http404
+
+        borrados, _ = RutinaAsignadaDiaCompletado.objects.filter(
+            rutina_asignada=rutina_actual, dia=dia, semana=semana
+        ).delete()
+        if not borrados:
+            RutinaAsignadaDiaCompletado.objects.create(
+                rutina_asignada=rutina_actual, dia=dia, semana=semana
+            )
+        return redirect("rutinas:mi_dia_detalle", dia=dia)

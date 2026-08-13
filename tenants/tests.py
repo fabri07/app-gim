@@ -368,12 +368,15 @@ class HomeViewAlumnoTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Rutina Fuerza")
-        self.assertContains(response, "Sentadilla")
-        self.assertContains(response, "https://videos.example.com/sentadilla")
         self.assertContains(response, "Pagado")
         self.assertContains(response, "Gimnasio cerrado el feriado")
 
-    def test_alumno_ve_solo_los_ejercicios_de_su_semana_actual(self):
+    def test_dashboard_muestra_boton_por_dia_sin_ejercicios_sueltos(self):
+        """El dashboard ya no lista ejercicios directamente (Fase 8: ver
+        `RutinaMiDiaDetailViewTests` para el detalle semana a semana) -- solo
+        un botón por día real, y el número de semana actual como
+        orientación. Los ejercicios de las dos semanas viven en la pantalla
+        de detalle de "Día 1", no acá."""
         _user, _perfil, alumno = self._crear_alumno_con_login(
             username="fede", nombre="Fede", apellido="Iglesias"
         )
@@ -407,15 +410,18 @@ class HomeViewAlumnoTests(TestCase):
         self.client.login(username="fede", password="clave-123456")
         response = self.client.get(reverse("home"))
 
-        self.assertContains(response, "Peso muerto semana 2")
+        self.assertNotContains(response, "Peso muerto semana 2")
         self.assertNotContains(response, "Sentadilla semana 1")
         self.assertContains(response, "Semana 2 de 4")
+        self.assertContains(response, reverse("rutinas:mi_dia_detalle", args=[1]))
 
-    def test_alumno_ve_semana_1_si_semana_actual_no_tiene_items(self):
-        # Rutinas de antes de la progresión semanal (o plantillas nuevas
-        # todavía sin cargar más allá de semana 1) tienen TODOS sus items en
-        # semana=1. Sin fallback, un alumno cuya `semana_actual` calculada
-        # sea >1 vería la tabla vacía para siempre.
+    def test_dashboard_muestra_la_semana_actual_real_aunque_no_tenga_items(self):
+        # Antes había un fallback que mostraba "semana 1" si la semana
+        # actual calculada no tenía items, para no dejar la tabla vacía.
+        # Ya no aplica: el dashboard no muestra ejercicios (solo botones de
+        # día), así que mostrar la semana REAL (aunque esa semana puntual
+        # esté vacía) ya no es engañoso -- el detalle de cada semana, vacía
+        # o no, se ve recién al entrar a un día.
         _user, _perfil, alumno = self._crear_alumno_con_login(
             username="lucia", nombre="Lucía", apellido="Fernández"
         )
@@ -440,12 +446,8 @@ class HomeViewAlumnoTests(TestCase):
         self.client.login(username="lucia", password="clave-123456")
         response = self.client.get(reverse("home"))
 
-        # El header debe reflejar la semana MOSTRADA (1, por el fallback),
-        # no la semana_actual calculada (4) -- mostrar "Semana 4 de 4" junto
-        # a ejercicios de semana 1 sería engañoso para el alumno.
-        self.assertContains(response, "Semana 1 de 4")
-        self.assertNotContains(response, "Semana 4 de 4")
-        self.assertContains(response, "Sentadilla semana 1")
+        self.assertContains(response, "Semana 4 de 4")
+        self.assertContains(response, reverse("rutinas:mi_dia_detalle", args=[1]))
 
     def test_alumno_sin_rutina_ve_mensaje_no_tecnico(self):
         self._crear_alumno_con_login(

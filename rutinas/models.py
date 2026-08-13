@@ -285,3 +285,36 @@ class RutinaAsignadaItem(TimeStampedModel):
 
     def __str__(self):
         return f"Día {self.dia} · {self.ejercicio_nombre_snapshot}"
+
+
+class RutinaAsignadaDiaCompletado(TimeStampedModel):
+    """Registro de que el alumno marcó un día (de una semana puntual del
+    ciclo) como entrenado. NO es `TenantOwnedModel` -- se scopea a través de
+    `rutina_asignada`, que ya está acotada por gimnasio (mismo patrón que
+    `RutinaAsignadaItem` y `novedades.NovedadLeida`).
+
+    Es un registro de "hecho/no hecho" a nivel día, no por ejercicio -- el
+    alumno confirma la sesión completa de golpe al terminarla, no ejercicio
+    por ejercicio (eso ya lo cubre el RPE de cada `RutinaAsignadaItem`).
+    """
+
+    rutina_asignada = models.ForeignKey(
+        RutinaAsignada,
+        on_delete=models.CASCADE,
+        related_name="dias_completados",
+    )
+    dia = models.PositiveSmallIntegerField()
+    semana = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(SEMANAS_POR_CICLO)],
+    )
+    completado_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "día completado"
+        verbose_name_plural = "días completados"
+        # Confirmar dos veces el mismo día/semana no debe duplicar el
+        # registro -- el toggle borra en vez de insertar de nuevo.
+        unique_together = ("rutina_asignada", "dia", "semana")
+
+    def __str__(self):
+        return f"{self.rutina_asignada} · día {self.dia}, semana {self.semana}"

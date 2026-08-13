@@ -26,6 +26,7 @@ from alumnos.models import Alumno
 from ejercicios.models import Ejercicio
 from rutinas.models import (
     RutinaAsignada,
+    RutinaAsignadaDiaCompletado,
     RutinaAsignadaItem,
     RutinaPlantilla,
     RutinaPlantillaItem,
@@ -977,14 +978,18 @@ class RutinaAsignadaItemCalificarViewTests(TestCase):
     def test_alumno_califica_su_propio_item(self):
         self.client.login(username="usuario_alumno", password="clave-123456")
         response = self.client.post(self._url(self.item), {"rpe": "al_limite"})
-        self.assertRedirects(response, reverse("home"))
+        self.assertRedirects(
+            response, reverse("rutinas:mi_dia_detalle", args=[self.item.dia])
+        )
         self.item.refresh_from_db()
         self.assertEqual(self.item.rpe, RutinaAsignadaItem.RPE.AL_LIMITE)
 
     def test_valor_invalido_no_se_guarda(self):
         self.client.login(username="usuario_alumno", password="clave-123456")
         response = self.client.post(self._url(self.item), {"rpe": "no-es-una-opcion"})
-        self.assertRedirects(response, reverse("home"))
+        self.assertRedirects(
+            response, reverse("rutinas:mi_dia_detalle", args=[self.item.dia])
+        )
         self.item.refresh_from_db()
         self.assertEqual(self.item.rpe, "")
 
@@ -1002,4 +1007,190 @@ class RutinaAsignadaItemCalificarViewTests(TestCase):
         response = self.client.post(
             self._url(self.item_inactivo), {"rpe": "al_limite"}
         )
+        self.assertEqual(response.status_code, 404)
+
+
+class RutinaMiDiaDetailViewTests(TestCase):
+    """El alumno ve, para un día puntual de su rutina activa, las 4 semanas
+    del ciclo lado a lado -- foco en agrupación correcta y aislamiento
+    (ni de otro día, ni de otro alumno, ni de una rutina inactiva)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+
+        self.usuario_alumno = User.objects.create_user(
+            "usuario_alumno", password="clave-123456"
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Pérez"
+        )
+        self.perfil_alumno = Perfil.objects.create(
+            usuario=self.usuario_alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno.perfil = self.perfil_alumno
+        self.alumno.save()
+
+        # fecha_inicio hace 7 días -> semana_actual == 2.
+        self.asignada = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            nombre_snapshot="Full Body",
+            objetivo_snapshot="General",
+            fecha_inicio=timezone.localdate() - timedelta(days=7),
+            activa=True,
+        )
+        self.item_dia1_semana1 = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot="Sentadilla",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+        self.item_dia1_semana2 = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot="Sentadilla con salto",
+            semana=2,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="8",
+        )
+        self.item_dia2 = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot="Press banca",
+            semana=1,
+            dia=2,
+            orden=1,
+            series=4,
+            repeticiones="8",
+        )
+
+    def _url(self, dia):
+        return reverse("rutinas:mi_dia_detalle", args=[dia])
+
+    def test_anonimo_redirige_a_login(self):
+        response = self.client.get(self._url(1))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_alumno_sin_ficha_vinculada_da_404(self):
+        usuario_sin_ficha = User.objects.create_user(
+            "sin_ficha", password="clave-123456"
+        )
+        Perfil.objects.create(
+            usuario=usuario_sin_ficha, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.login(username="sin_ficha", password="clave-123456")
+        response = self.client.get(self._url(1))
+        self.assertEqual(response.status_code, 404)
+
+    def test_dia_que_no_existe_en_la_rutina_da_404(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.get(self._url(99))
+        self.assertEqual(response.status_code, 404)
+
+    def test_muestra_las_4_semanas_agrupadas(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.get(self._url(1))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Semana 1")
+        self.assertContains(response, "Semana 2")
+        self.assertContains(response, "Semana 3")
+        self.assertContains(response, "Semana 4")
+        self.assertContains(response, "Sentadilla")
+        self.assertContains(response, "Sentadilla con salto")
+
+    def test_no_muestra_ejercicios_de_otro_dia(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.get(self._url(1))
+        self.assertNotContains(response, "Press banca")
+
+    def test_semana_sin_ejercicios_muestra_estado_vacio(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.get(self._url(1))
+        self.assertContains(
+            response, "Sin ejercicios cargados para este día en esta semana."
+        )
+
+    def test_marca_la_semana_actual(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.get(self._url(1))
+        self.assertContains(response, "Actual")
+
+
+class RutinaAsignadaDiaCompletadoToggleViewTests(TestCase):
+    """El alumno marca/desmarca un día de una semana puntual como
+    entrenado -- toggle idempotente, aislado por alumno."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+
+        self.usuario_alumno = User.objects.create_user(
+            "usuario_alumno", password="clave-123456"
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Pérez"
+        )
+        self.perfil_alumno = Perfil.objects.create(
+            usuario=self.usuario_alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno.perfil = self.perfil_alumno
+        self.alumno.save()
+
+        self.asignada = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            nombre_snapshot="Full Body",
+            objetivo_snapshot="General",
+            fecha_inicio=timezone.localdate(),
+            activa=True,
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot="Sentadilla",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+
+    def _url(self, dia, semana):
+        return reverse("rutinas:dia_completado_toggle", args=[dia, semana])
+
+    def test_anonimo_redirige_a_login(self):
+        response = self.client.post(self._url(1, 1))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_get_no_esta_permitido(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.get(self._url(1, 1))
+        self.assertEqual(response.status_code, 405)
+
+    def test_primer_click_marca_como_completado(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.post(self._url(1, 1))
+        self.assertRedirects(response, reverse("rutinas:mi_dia_detalle", args=[1]))
+        self.assertTrue(
+            RutinaAsignadaDiaCompletado.objects.filter(
+                rutina_asignada=self.asignada, dia=1, semana=1
+            ).exists()
+        )
+
+    def test_segundo_click_desmarca(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        self.client.post(self._url(1, 1))
+        self.client.post(self._url(1, 1))
+        self.assertFalse(
+            RutinaAsignadaDiaCompletado.objects.filter(
+                rutina_asignada=self.asignada, dia=1, semana=1
+            ).exists()
+        )
+
+    def test_dia_que_no_existe_en_la_rutina_da_404(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.post(self._url(99, 1))
         self.assertEqual(response.status_code, 404)

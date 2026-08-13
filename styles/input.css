@@ -282,6 +282,18 @@
     @apply bg-green-50 border-green-200;
   }
 
+  /* Botones de día en "Tu rutina" (dashboard del alumno) -- cada uno lleva
+     a RutinaMiDiaDetailView, que muestra las 4 semanas de ese día. */
+  .rutina-dias {
+    @apply flex flex-wrap gap-2 mt-3;
+  }
+
+  /* Tarjeta de una semana en la vista de día del alumno. Mismo criterio de
+     color que .turno--mio: verde de estado, no de marca, para "ya lo hice". */
+  .rutina-semana--completada {
+    @apply bg-green-50 border-green-200;
+  }
+
   /* Personalización de gimnasio (white-label): form + preview en vivo */
   .config-layout {
     @apply grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_20rem] gap-8 items-start;
@@ -372,7 +384,7 @@
   }
 
   .calor-celda {
-    @apply flex items-center justify-center rounded text-[11px] min-w-8 py-1.5;
+    @apply flex items-center justify-center rounded text-xs min-w-8 py-1.5;
   }
 
   .calor-celda--0 {
