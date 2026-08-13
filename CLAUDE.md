@@ -648,6 +648,9 @@ cp .env.example .env                 # completar si hace falta
 python manage.py migrate
 python manage.py runserver
 python manage.py test -v 2           # suite completa
+python manage.py test alumnos        # solo una app
+python manage.py test alumnos.tests.AlumnoTests.test_creacion_basica_y_str
+                                     # un solo test (ruta punteada app.tests.Clase.metodo)
 python manage.py createsuperuser     # acceso a /admin/
 python manage.py crear_gimnasio --nombre "Gimnasio Central" --email dueno@gmail.com
                                      # imprime una contraseña provisoria; ver
