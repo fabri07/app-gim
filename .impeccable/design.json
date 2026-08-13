@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-12T00:00:00Z",
+  "title": "Design System: TuGimApp",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Azul de arranque",
+        "canonical": "#2563eb",
+        "tonalRamp": [
+          "oklch(29% .19 264)",
+          "oklch(36% .2 264)",
+          "oklch(42% .21 264)",
+          "oklch(48% .215 264)",
+          "oklch(55% .22 264)",
+          "oklch(64% .2 264)",
+          "oklch(75% .15 264)",
+          "oklch(88% .08 264)"
+        ]
+      },
+      "primary-deep": {
+        "role": "primary-companion",
+        "displayName": "Azul de arranque, oscuro",
+        "canonical": "#1e40af",
+        "tonalRamp": [
+          "oklch(24% .16 264)",
+          "oklch(30% .17 264)",
+          "oklch(36% .18 264)",
+          "oklch(40% .185 264)",
+          "oklch(46% .19 264)",
+          "oklch(55% .18 264)",
+          "oklch(68% .14 264)",
+          "oklch(84% .07 264)"
+        ]
+      },
+      "neutral-canvas": { "role": "neutral", "displayName": "Canvas", "canonical": "oklch(98.5% .002 247.839)" },
+      "neutral-surface-border": { "role": "neutral", "displayName": "Borde sutil", "canonical": "oklch(96.7% .003 264.542)" },
+      "neutral-border": { "role": "neutral", "displayName": "Borde", "canonical": "oklch(92.8% .006 264.531)" },
+      "neutral-muted": { "role": "neutral", "displayName": "Texto apagado", "canonical": "oklch(55.1% .027 264.364)" },
+      "neutral-label": { "role": "neutral", "displayName": "Texto de label", "canonical": "oklch(44.6% .03 256.802)" },
+      "neutral-body": { "role": "neutral", "displayName": "Texto de cuerpo", "canonical": "oklch(37.3% .034 259.733)" },
+      "neutral-heading": {
+        "role": "neutral",
+        "displayName": "Texto principal",
+        "canonical": "oklch(21% .034 264.665)",
+        "tonalRamp": [
+          "oklch(21% .034 264.665)",
+          "oklch(27.8% .033 256.848)",
+          "oklch(37.3% .034 259.733)",
+          "oklch(44.6% .03 256.802)",
+          "oklch(55.1% .027 264.364)",
+          "oklch(70.7% .022 261.325)",
+          "oklch(87.2% .01 258.338)",
+          "oklch(92.8% .006 264.531)",
+          "oklch(96.7% .003 264.542)",
+          "oklch(98.5% .002 247.839)"
+        ]
+      },
+      "status-ok-bg": { "role": "status", "displayName": "Éxito (fondo)", "canonical": "oklch(96.2% .044 156.743)" },
+      "status-ok-text": { "role": "status", "displayName": "Éxito (texto)", "canonical": "oklch(44.8% .119 151.328)" },
+      "status-alerta-bg": { "role": "status", "displayName": "Alerta (fondo)", "canonical": "oklch(96.2% .059 95.617)" },
+      "status-alerta-text": { "role": "status", "displayName": "Alerta (texto)", "canonical": "oklch(47.3% .137 46.201)" },
+      "status-riesgo-bg": { "role": "status", "displayName": "Riesgo (fondo)", "canonical": "oklch(93.6% .032 17.717)" },
+      "status-riesgo-text": { "role": "status", "displayName": "Riesgo (texto)", "canonical": "oklch(44.4% .177 26.899)" },
+      "accion-peligro": { "role": "action", "displayName": "Acción destructiva", "canonical": "oklch(57.7% .245 27.325)" },
+      "accion-peligro-hover": { "role": "action", "displayName": "Acción destructiva (hover)", "canonical": "oklch(50.5% .213 27.518)" },
+      "suplantacion-bg": { "role": "signal", "displayName": "Banner de suplantación (fondo)", "canonical": "oklch(96.2% .059 95.617)" },
+      "suplantacion-border": { "role": "signal", "displayName": "Banner de suplantación (borde)", "canonical": "oklch(87.9% .169 91.605)" },
+      "suplantacion-text": { "role": "signal", "displayName": "Banner de suplantación (texto)", "canonical": "oklch(41.4% .112 45.904)" },
+      "dataviz-secuencial-1": { "role": "dataviz", "displayName": "Asistencia baja", "canonical": "#b7d3f6" },
+      "dataviz-secuencial-2": { "role": "dataviz", "displayName": "Asistencia media-baja", "canonical": "#6da7ec" },
+      "dataviz-secuencial-3": { "role": "dataviz", "displayName": "Asistencia media-alta", "canonical": "#2a78d6" },
+      "dataviz-secuencial-4": { "role": "dataviz", "displayName": "Asistencia alta", "canonical": "#184f95" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Título del hero de la landing pública únicamente." },
+      "title": { "displayName": "Title", "purpose": "Título de página (h1)." },
+      "headline": { "displayName": "Headline", "purpose": "Encabezado de sección dentro de una pantalla (h2)." },
+      "body": { "displayName": "Body", "purpose": "Texto dominante: párrafos, celdas, inputs, botones." },
+      "label": { "displayName": "Label", "purpose": "Micro-etiquetas de contexto en mayúscula." },
+      "metrica": { "displayName": "Métrica", "purpose": "Valores numéricos grandes del dashboard." }
+    },
+    "shadows": [
+      { "name": "surface", "value": "0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1)", "purpose": "Único nivel de sombra del sistema. Tarjetas, tablas y métricas, siempre en reposo." }
+    ],
+    "motion": [],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Botón primario",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Acción principal de una pantalla o formulario. El único botón cuyo color cambia por gimnasio.",
+      "html": "<button class=\"ds-btn-primary\">Guardar</button>",
+      "css": ".ds-btn-primary { display:inline-flex; align-items:center; justify-content:center; border:none; border-radius:0.375rem; background:#2563eb; color:#fff; padding:8px 16px; font-size:0.875rem; font-weight:500; cursor:pointer; transition:opacity .2s; } .ds-btn-primary:hover { opacity:.9; } .ds-btn-primary:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }"
+    },
+    {
+      "name": "Botón secundario",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Acción alternativa u opcional junto a la primaria.",
+      "html": "<button class=\"ds-btn-secondary\">Cancelar</button>",
+      "css": ".ds-btn-secondary { display:inline-flex; align-items:center; justify-content:center; border:1px solid oklch(87.2% .01 258.338); border-radius:0.375rem; background:#fff; color:oklch(37.3% .034 259.733); padding:8px 16px; font-size:0.875rem; font-weight:500; cursor:pointer; transition:background .2s; } .ds-btn-secondary:hover { background:oklch(98.5% .002 247.839); }"
+    },
+    {
+      "name": "Botón de peligro",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Acciones destructivas confirmadas (baja, revocación). Único uso de rojo sólido.",
+      "html": "<button class=\"ds-btn-danger\">Dar de baja</button>",
+      "css": ".ds-btn-danger { display:inline-flex; align-items:center; justify-content:center; border:none; border-radius:0.375rem; background:oklch(57.7% .245 27.325); color:#fff; padding:8px 16px; font-size:0.875rem; font-weight:500; cursor:pointer; transition:background .2s; } .ds-btn-danger:hover { background:oklch(50.5% .213 27.518); }"
+    },
+    {
+      "name": "Tarjeta",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Contenedor de superficie estándar para cualquier bloque de contenido o formulario.",
+      "html": "<div class=\"ds-card\"><h2 class=\"ds-card__titulo\">Datos del alumno</h2><p class=\"ds-card__texto\">Contenido de ejemplo.</p></div>",
+      "css": ".ds-card { background:#fff; border:1px solid oklch(92.8% .006 264.531); border-radius:0.75rem; box-shadow:0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1); padding:24px; } .ds-card__titulo { font-size:1.125rem; font-weight:600; color:oklch(21% .034 264.665); margin:0 0 12px; } .ds-card__texto { font-size:0.875rem; color:oklch(37.3% .034 259.733); margin:0; }"
+    },
+    {
+      "name": "Badge de estado",
+      "kind": "chip",
+      "refersTo": "badge-ok",
+      "description": "Píldora de estado. Tres variantes fijas de color (éxito/alerta/riesgo); nunca una cuarta.",
+      "html": "<span class=\"ds-badge ds-badge--ok\">Activo</span>",
+      "css": ".ds-badge { display:inline-flex; align-items:center; border-radius:9999px; padding:2px 10px; font-size:0.75rem; font-weight:500; } .ds-badge--ok { background:oklch(96.2% .044 156.743); color:oklch(44.8% .119 151.328); }"
+    },
+    {
+      "name": "Campo de texto",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Input/select/textarea estándar del panel. El único elemento cuyo color de foco cambia por gimnasio.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Nombre y apellido\">",
+      "css": ".ds-input { width:100%; border:1px solid oklch(87.2% .01 258.338); border-radius:0.375rem; padding:8px 12px; font-size:0.875rem; } .ds-input:focus { outline:none; box-shadow:0 0 0 2px #2563eb; border-color:transparent; }"
+    },
+    {
+      "name": "Link de navegación (staff)",
+      "kind": "nav",
+      "refersTo": "nav-staff-link",
+      "description": "Ítem de la barra de navegación de staff. Solo texto, nunca íconos.",
+      "html": "<a class=\"ds-nav-link\" href=\"#\">Alumnos</a>",
+      "css": ".ds-nav-link { display:inline-block; padding:6px 12px; border-radius:0.375rem; font-size:0.875rem; color:oklch(44.6% .03 256.802); text-decoration:none; transition:background .2s, color .2s; } .ds-nav-link:hover { background:oklch(96.7% .003 264.542); color:oklch(21% .034 264.665); }"
+    },
+    {
+      "name": "Banner de suplantación",
+      "kind": "custom",
+      "refersTo": "banner-suplantacion",
+      "description": "Componente de señal (no de marca): único elemento que rompe la paleta neutra a propósito, para que sea imposible no notar que se está operando como otra persona.",
+      "html": "<div class=\"ds-banner-suplantacion\"><span>Estás viendo la app como <strong>Juan Pérez</strong>.</span><button class=\"ds-btn-primary\">Volver a mi cuenta</button></div>",
+      "css": ".ds-banner-suplantacion { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; background:oklch(96.2% .059 95.617); border-bottom:1px solid oklch(87.9% .169 91.605); color:oklch(41.4% .112 45.904); padding:8px 16px; font-size:0.875rem; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "El Mostrador Neutral",
+    "overview": "Esta es una fotografía del sistema tal como existe hoy — un panel de back-office deliberadamente discreto, pensado para que el mostrador (la app) nunca compita con el cartel del negocio (el gimnasio). El canvas es gris claro y uniforme, las tarjetas son blancas con un borde y una sombra apenas perceptible, y hay un único color de acento — hoy azul por defecto — que cada gimnasio pisa en tiempo real con el suyo (--color-primario/--color-secundario, sobreescritas inline por base.html según el Gimnasio logueado). La tipografía sigue la misma lógica: por defecto es la pila de sistema de Tailwind, y el gimnasio puede elegir una de cinco fuentes curadas de Google Fonts sin que el resto del sistema cambie de forma. El resultado es un sistema que se nota poco a propósito: dos densidades de texto (títulos semi-bold cortos, cuerpo gris regular), radios de esquina consistentes en todos los contenedores, y color reservado casi enteramente para estado (verde/ámbar/rojo en badges) en vez de decoración. La única excepción real es la landing pública (landing.html), la primera superficie del proyecto pensada para persuadir en vez de operar: ahí el degradé primario/secundario del gimnasio ocupa el hero a todo el ancho. Este documento registra el sistema actual como línea de base. Hay una dirección nueva ya conversada — acercar la estética a crossfyapp.com, manteniendo el blanco-etiquetado por gimnasio — que todavía no se implementó; cuando eso avance, este archivo se reemplaza a través del flujo de creación/reemplazo de mundo visual, no se edita a mano encima de esto.",
+    "keyCharacteristics": [
+      "Canvas gris neutro (gray-50) con tarjetas blancas de sombra mínima.",
+      "Un solo acento de marca, sobreescrito en tiempo real por gimnasio — nunca hardcodeado en un componente nuevo.",
+      "Color reservado para estado (verde/ámbar/rojo), no para decoración.",
+      "Radios de esquina consistentes: md en controles, xl en contenedores.",
+      "Tipografía intercambiable por gimnasio sin tocar la jerarquía de tamaños.",
+      "Una sola superficie \"Persuade\" (la landing pública); el resto es \"Operate\"."
+    ],
+    "rules": [
+      { "name": "The Runtime Brand Rule", "body": "Ningún componente nuevo hardcodea un hex de marca. Todo lo que deba reflejar la identidad del gimnasio referencia var(--color-primario) / var(--color-secundario) / var(--font-gimnasio) — son datos de Gimnasio, sobreescritos por request en base.html, nunca constantes de Tailwind en build-time.", "section": "colors" },
+      { "name": "The Gym-Swappable Font Rule", "body": "La familia tipográfica siempre se referencia como var(--font-gimnasio) (con el hint family-name: en clases arbitrarias de Tailwind). Nunca se hardcodea un nombre de fuente fuera de Gimnasio.TIPOGRAFIA_FUENTES.", "section": "typography" },
+      { "name": "The One Shadow Rule", "body": "Un solo nivel de sombra en todo el sistema. Si un componente nuevo necesita distinguirse, se hace con borde o con fondo, no agregando una sombra más fuerte.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do referenciar var(--color-primario) / var(--color-secundario) / var(--font-gimnasio) para cualquier cosa que deba reflejar la marca del gimnasio — nunca un hex o una fuente fija.",
+      "Do usar verde/ámbar/rojo exclusivamente para estado, con las tres variantes de .badge existentes.",
+      "Do mantener shadow-sm como el único nivel de sombra; diferenciar con borde o fondo, no con más sombra.",
+      "Do seguir el patrón de radios por categoría: md en controles, xl en superficies (tarjetas/tablas), full en badges."
+    ],
+    "donts": [
+      "Don't hardcodear #2563eb (o cualquier hex de marca) en un componente nuevo — es un placeholder de arranque, no el color del sistema.",
+      "Don't introducir una segunda escala de sombra o elevación tipo \"lifted\"/\"floating\" — el sistema es intencionalmente plano.",
+      "Don't usar íconos en la navegación de staff — es texto puro hoy.",
+      "Don't tratar este archivo como la dirección final: es la fotografía del sistema actual, no la dirección crossfy-inspirada ya conversada con el usuario, que todavía no se implementó."
+    ]
+  }
+}
