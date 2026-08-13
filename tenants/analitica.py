@@ -30,6 +30,11 @@ _ORDEN_DIAS = [2, 3, 4, 5, 6, 7, 1]
 #: secuencial azul documentada en la skill dataviz.
 _NIVELES_CALOR = 4
 
+#: Cantidad de ejercicios distintos que se muestran en los gráficos de
+#: "ejercicios más asignados" -- sin este límite, un gimnasio con una
+#: biblioteca grande satura el gráfico con decenas de barras casi ilegibles.
+_TOP_N_EJERCICIOS_MAS_ASIGNADOS = 10
+
 
 def asistencia_por_dia_y_hora(gimnasio):
     """Grilla lunes..domingo × hora del día con la cantidad HISTÓRICA de
@@ -132,3 +137,97 @@ def rpe_por_ejercicio(gimnasio):
     ]
     resultado.sort(key=lambda fila: fila["total"], reverse=True)
     return resultado
+
+
+def ejercicios_mas_asignados(gimnasio, limite=_TOP_N_EJERCICIOS_MAS_ASIGNADOS):
+    """Ranking de ejercicios por cantidad de veces que aparecen en un
+    `RutinaAsignadaItem`, sobre TODO el histórico (no solo rutinas activas --
+    mismo criterio que `asistencia_por_dia_y_hora`).
+
+    A diferencia de `rpe_por_ejercicio`, acá NO se excluye `rpe=""`: se
+    cuenta "cuántas veces se asignó este ejercicio", no "cuántas veces se
+    calificó" -- un ejercicio sin calificación todavía cuenta como asignado.
+
+    Agrupa por `ejercicio_nombre_snapshot` (texto), mismo riesgo aceptado
+    que `rpe_por_ejercicio` (ver su docstring y CLAUDE.md): un ejercicio
+    renombrado en la biblioteca no fusiona su historial viejo con el nombre
+    nuevo.
+
+    Devuelve como mucho `limite` filas, de más a menos asignado (empate
+    alfabético para que el orden no varíe entre corridas). Lista vacía si
+    el gimnasio no tiene ningún item de rutina asignada todavía.
+    """
+    from rutinas.models import RutinaAsignadaItem
+
+    filas = (
+        RutinaAsignadaItem.objects.filter(rutina_asignada__gimnasio=gimnasio)
+        .values("ejercicio_nombre_snapshot")
+        .annotate(total=Count("id"))
+        .order_by("-total", "ejercicio_nombre_snapshot")[:limite]
+    )
+    return [
+        {"ejercicio": fila["ejercicio_nombre_snapshot"], "total": fila["total"]}
+        for fila in filas
+    ]
+
+
+def ejercicios_mas_asignados_por_genero(gimnasio, limite=_TOP_N_EJERCICIOS_MAS_ASIGNADOS):
+    """Mismo ranking que `ejercicios_mas_asignados` (mismo top-`limite`,
+    mismo orden), desglosado por `sexo` del alumno dueño de la rutina --
+    para poder leer los dos gráficos lado a lado sin que el orden de las
+    barras cambie entre uno y otro.
+
+    Mismo tratamiento de `sexo=""` -> "no informado" que
+    `distribucion_por_genero` (distinto de `Alumno.Sexo.NO_DECIR` =
+    "Prefiere no decir", una respuesta explícita). Las claves del dict
+    `generos` son slugs seguros para lookup de template (masculino/femenino/
+    no_decir/no_informado), no las etiquetas legibles -- igual que
+    `niveles` en `rpe_por_ejercicio` usa los `value` de
+    `RutinaAsignadaItem.RPE`, no sus labels (el punto-lookup de un template
+    no soporta claves con espacios).
+
+    Lista vacía si `ejercicios_mas_asignados` ya es vacía.
+    """
+    from alumnos.models import Alumno
+    from rutinas.models import RutinaAsignadaItem
+
+    ranking = ejercicios_mas_asignados(gimnasio, limite=limite)
+    if not ranking:
+        return []
+    nombres_en_orden = [fila["ejercicio"] for fila in ranking]
+
+    filas = (
+        RutinaAsignadaItem.objects.filter(
+            rutina_asignada__gimnasio=gimnasio,
+            ejercicio_nombre_snapshot__in=nombres_en_orden,
+        )
+        .values("ejercicio_nombre_snapshot", "rutina_asignada__alumno__sexo")
+        .annotate(total=Count("id"))
+    )
+
+    claves_sexo = {
+        Alumno.Sexo.MASCULINO: "masculino",
+        Alumno.Sexo.FEMENINO: "femenino",
+        Alumno.Sexo.NO_DECIR: "no_decir",
+        "": "no_informado",
+    }
+    en_cero = {clave: 0 for clave in claves_sexo.values()}
+
+    por_ejercicio = {nombre: dict(en_cero) for nombre in nombres_en_orden}
+    for fila in filas:
+        nombre = fila["ejercicio_nombre_snapshot"]
+        # .get() con fallback, no indexado directo: `sexo` es un CharField
+        # con choices, no un enum forzado por la DB -- un valor fuera de
+        # catálogo (dato viejo, choice eliminada) no debe tirar abajo todo
+        # el dashboard de staff, mismo criterio que distribucion_por_genero.
+        clave = claves_sexo.get(fila["rutina_asignada__alumno__sexo"], "no_informado")
+        por_ejercicio[nombre][clave] = fila["total"]
+
+    return [
+        {
+            "ejercicio": nombre,
+            "generos": por_ejercicio[nombre],
+            "total": sum(por_ejercicio[nombre].values()),
+        }
+        for nombre in nombres_en_orden
+    ]

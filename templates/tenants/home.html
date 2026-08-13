@@ -167,8 +167,72 @@
     {% endif %}
   </div>
 
+  <div class="tarjeta">
+    <h2>Ejercicios más asignados</h2>
+    <p class="texto-suave">Top {{ ejercicios_mas_asignados|length }} ejercicios que más aparecen en rutinas asignadas, en todo el historial.</p>
+    {% if ejercicios_mas_asignados %}
+      <div class="grafico-contenedor">
+        <canvas id="grafico-ejercicios"></canvas>
+      </div>
+      <details class="tabla-detalle">
+        <summary>Ver como tabla</summary>
+        <table class="tabla">
+          <thead><tr><th>Ejercicio</th><th>Veces asignado</th></tr></thead>
+          <tbody>
+            {% for fila in ejercicios_mas_asignados %}
+              <tr><td>{{ fila.ejercicio }}</td><td>{{ fila.total }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+    {% else %}
+      <p class="texto-suave">Todavía no hay ejercicios asignados en ninguna rutina.</p>
+    {% endif %}
+  </div>
+
+  <div class="tarjeta">
+    <h2>Ejercicios más asignados por género</h2>
+    <p class="texto-suave">Mismo ranking que el gráfico anterior, desglosado por género del alumno.</p>
+    {% if ejercicios_mas_asignados_por_genero %}
+      <div class="grafico-contenedor">
+        <canvas id="grafico-ejercicios-genero"></canvas>
+      </div>
+      <details class="tabla-detalle">
+        <summary>Ver como tabla</summary>
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Ejercicio</th>
+              <th>Masculino</th>
+              <th>Femenino</th>
+              <th>Prefiere no decir</th>
+              <th>No informado</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for fila in ejercicios_mas_asignados_por_genero %}
+              <tr>
+                <td>{{ fila.ejercicio }}</td>
+                <td>{{ fila.generos.masculino }}</td>
+                <td>{{ fila.generos.femenino }}</td>
+                <td>{{ fila.generos.no_decir }}</td>
+                <td>{{ fila.generos.no_informado }}</td>
+                <td>{{ fila.total }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </details>
+    {% else %}
+      <p class="texto-suave">Todavía no hay ejercicios asignados en ninguna rutina.</p>
+    {% endif %}
+  </div>
+
   {{ genero_stats|json_script:"genero-data" }}
   {{ rpe_por_ejercicio|json_script:"rpe-data" }}
+  {{ ejercicios_mas_asignados|json_script:"ejercicios-data" }}
+  {{ ejercicios_mas_asignados_por_genero|json_script:"ejercicios-genero-data" }}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
   <script>
     (function () {
@@ -216,6 +280,63 @@
                 label: nivel.etiqueta,
                 data: rpeData.map(function (d) { return d.niveles[nivel.clave]; }),
                 backgroundColor: nivel.color,
+              };
+            }),
+          },
+          options: {
+            indexAxis: "y",
+            scales: {
+              x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+              y: { stacked: true },
+            },
+            plugins: { legend: { position: "bottom" } },
+          },
+        });
+      }
+
+      var ejerciciosData = JSON.parse(document.getElementById("ejercicios-data").textContent);
+      var elEjercicios = document.getElementById("grafico-ejercicios");
+      if (elEjercicios && ejerciciosData.length) {
+        new Chart(elEjercicios, {
+          type: "bar",
+          data: {
+            labels: ejerciciosData.map(function (d) { return d.ejercicio; }),
+            datasets: [{
+              data: ejerciciosData.map(function (d) { return d.total; }),
+              backgroundColor: "#2a78d6",
+              borderRadius: 4,
+              maxBarThickness: 24,
+            }],
+          },
+          options: {
+            indexAxis: "y", // horizontal: nombres de ejercicio pueden ser largos
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+          },
+        });
+      }
+
+      var ejerciciosGeneroData = JSON.parse(document.getElementById("ejercicios-genero-data").textContent);
+      var elEjerciciosGenero = document.getElementById("grafico-ejercicios-genero");
+      if (elEjerciciosGenero && ejerciciosGeneroData.length) {
+        // Paleta categórica (skill dataviz, tema por defecto, slots 1-4).
+        // Validada con scripts/validate_palette.js contra el fondo real de
+        // esta app (#f5ede4): CVD adyacente OK, normal-vision floor OK.
+        var GENEROS = [
+          { clave: "masculino", etiqueta: "Masculino", color: "#2a78d6" },
+          { clave: "femenino", etiqueta: "Femenino", color: "#eb6834" },
+          { clave: "no_decir", etiqueta: "Prefiere no decir", color: "#1baf7a" },
+          { clave: "no_informado", etiqueta: "No informado", color: "#eda100" },
+        ];
+        new Chart(elEjerciciosGenero, {
+          type: "bar",
+          data: {
+            labels: ejerciciosGeneroData.map(function (d) { return d.ejercicio; }),
+            datasets: GENEROS.map(function (genero) {
+              return {
+                label: genero.etiqueta,
+                data: ejerciciosGeneroData.map(function (d) { return d.generos[genero.clave]; }),
+                backgroundColor: genero.color,
               };
             }),
           },

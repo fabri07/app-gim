@@ -149,22 +149,37 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
 - **Dashboard**: `tenants.views.HomeView` (ruta `home`) — bifurca por
   `perfil.rol`. Para `staff`: métricas de Fase 2 §1 (alumnos activos, alumnos
   con pago pendiente, pagos del mes, rutinas activas, últimas novedades) +
-  analítica (subproyecto 4, agregada después de Fase 6): asistencia por
-  día/hora, alumnos por género y RPE por ejercicio. La agregación vive en
+  analítica (subproyecto 4, agregada después de Fase 6; el 5to gráfico
+  "ejercicios más asignados" se sumó más tarde, ver abajo): asistencia por
+  día/hora, alumnos por género, RPE por ejercicio, y ejercicios más
+  asignados (general + desglosado por género). La agregación vive en
   `tenants/analitica.py` (no en la vista) porque cruza 3 apps (turnos,
   alumnos, rutinas) y se testea mejor sola. Asistencia agrupa TODO el
   historial de `Reserva` por día de semana + hora (no una ventana de
   tiempo) para revelar el patrón recurrente de horas pico — decisión
-  explícita del dueño del producto. Los 3 gráficos siguen la skill
-  `dataviz`: la grilla de calor de asistencia es HTML/CSS puro (color
-  secuencial azul; Chart.js no trae heatmap nativo sin plugin aparte),
-  género es una barra Chart.js de un solo color (las categorías ya se
-  identifican por el eje), y RPE por ejercicio es una barra apilada
-  horizontal **divergente** azul↔rojo (mismo tratamiento que una escala
-  Likert) — cargada por CDN solo en `home.html`, no en todo el sitio. Cada
-  gráfico tiene su "Ver como tabla" (`<details>`, sin JS) como equivalente
-  accesible. Para `alumno`: el portal de Fase 3 (su rutina activa, su cuota
-  del mes, últimas novedades) — ver más abajo.
+  explícita del dueño del producto; "ejercicios más asignados" sigue el
+  mismo criterio (todo el historial, no solo rutinas activas). Los
+  gráficos siguen la skill `dataviz`: la grilla de calor de asistencia es
+  HTML/CSS puro (color secuencial azul; Chart.js no trae heatmap nativo
+  sin plugin aparte), género y "ejercicios más asignados" (general) son
+  una barra Chart.js de un solo color (las categorías ya se identifican
+  por el eje), RPE por ejercicio es una barra apilada horizontal
+  **divergente** azul↔rojo (mismo tratamiento que una escala Likert), y
+  "ejercicios más asignados por género" es una barra apilada horizontal
+  con una **paleta categórica** nueva de 4 colores (azul/naranja/aqua/
+  amarillo, slots 1-4 del tema por defecto de `dataviz`, documentada en
+  `DESIGN.md` § "Paleta categórica de dataviz") — cargados por CDN solo en
+  `home.html`, no en todo el sitio. `ejercicios_mas_asignados_por_genero`
+  reusa el ranking (mismo conjunto, mismo orden) de `ejercicios_mas_asignados`
+  en vez de ordenar independiente, para que los dos gráficos se lean lado a
+  lado sin que las barras cambien de orden entre uno y otro — el costo
+  aceptado es correr la query de ranking dos veces por carga del
+  dashboard (agregado liviano, acotado por gimnasio). "Ejercicios más
+  asignados" cuenta CUALQUIER `RutinaAsignadaItem` asignado (a diferencia
+  de RPE, que excluye `rpe=""`): mide qué se pone en las rutinas, no qué
+  se calificó. Cada gráfico tiene su "Ver como tabla" (`<details>`, sin
+  JS) como equivalente accesible. Para `alumno`: el portal de Fase 3 (su
+  rutina activa, su cuota del mes, últimas novedades) — ver más abajo.
 - **`RutinaPlantillaItem`/`RutinaAsignadaItem`** no son `TenantOwnedModel`
   (no tienen `gimnasio` propio): sus vistas resuelven el aislamiento
   buscando primero el padre vía `for_gimnasio()` antes de tocar el item — ver

@@ -148,10 +148,15 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "ultimas_novedades": Novedad.objects.for_gimnasio(gimnasio)
             .visibles()
             .filter(alumno__isnull=True)[:5],
-            # Analítica (subproyecto 4): asistencia, género, RPE por ejercicio.
+            # Analítica (subproyecto 4): asistencia, género, RPE por
+            # ejercicio, ejercicios más asignados (general y por género).
             "asistencia": analitica.asistencia_por_dia_y_hora(gimnasio),
             "genero_stats": analitica.distribucion_por_genero(gimnasio),
             "rpe_por_ejercicio": analitica.rpe_por_ejercicio(gimnasio),
+            "ejercicios_mas_asignados": analitica.ejercicios_mas_asignados(gimnasio),
+            "ejercicios_mas_asignados_por_genero": analitica.ejercicios_mas_asignados_por_genero(
+                gimnasio
+            ),
         }
 
 

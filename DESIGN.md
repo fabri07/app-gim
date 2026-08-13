@@ -208,6 +208,21 @@ Ramp propio de 4 pasos para la grilla de calor de asistencia del dashboard —
 codificación de datos, no branding, así que ningún paisaje lo pisa.
 `#b7d3f6` → `#6da7ec` → `#2a78d6` → `#184f95` (claro a oscuro).
 
+### Paleta categórica de dataviz
+4 colores para series categóricas (no ordinales/divergentes) del dashboard
+— hoy solo el desglose por género de "Ejercicios más asignados". Slots 1-4
+del tema por defecto de la skill `dataviz` (azul → naranja → aqua →
+amarillo), en ese orden fijo, nunca ciclado. Validados con
+`scripts/validate_palette.js` de la skill contra el fondo real de esta app
+(`#f5ede4`): lightness band, chroma floor, separación CVD y piso de visión
+normal en PASS; el único WARN (contraste vs. superficie) se mitiga con
+leyenda siempre visible + tabla `<details>` accesible, mismo patrón que ya
+usan los otros 3 gráficos.
+`#2a78d6` (azul, reusado del paso 3 de la escala secuencial) · `#eb6834`
+(naranja) · `#1baf7a` (aqua) · `#eda100` (amarillo). Deliberadamente no
+reusa el rojo de RPE (`#e34948`) porque ahí significa "al límite" — usarlo
+acá como categoría neutral de género confundiría el significado.
+
 ### Named Rules
 **The Landscape Rule.** El color de marca nunca se elige suelto — siempre
 es uno de los 4 paisajes curados de `Gimnasio.PALETAS`, cada uno con sus 3

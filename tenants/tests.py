@@ -996,6 +996,17 @@ class AnaliticaTests(TestCase):
             semana=1, dia=1, orden=1, series=4, repeticiones="8-12",
             rpe=RutinaAsignadaItem.RPE.MAS_INTENSO,
         )
+        self.asignada_bruno = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.otro_alumno_mismo_gym,
+            nombre_snapshot="Rutina", objetivo_snapshot="Hipertrofia",
+            fecha_inicio=date(2026, 1, 1), activa=True,
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada_bruno, ejercicio_nombre_snapshot="Sentadilla",
+            semana=1, dia=1, orden=1, series=4, repeticiones="8-12",
+            rpe="",  # sin calificar -- debe contar para "más asignados" igual,
+                     # a diferencia de rpe_por_ejercicio.
+        )
 
     def test_asistencia_agrupa_por_dia_y_hora_y_no_mezcla_gimnasios(self):
         from tenants.analitica import asistencia_por_dia_y_hora
@@ -1042,6 +1053,68 @@ class AnaliticaTests(TestCase):
         self.assertEqual(fila["niveles"]["al_limite"], 1)
         self.assertEqual(fila["niveles"]["bajar_intensidad"], 1)
         self.assertEqual(fila["niveles"]["mas_intenso"], 0)
+
+    def test_ejercicios_mas_asignados_cuenta_no_calificados_y_no_mezcla_gimnasios(self):
+        from tenants.analitica import ejercicios_mas_asignados
+
+        resultado = ejercicios_mas_asignados(self.gimnasio)
+        self.assertEqual(
+            [(f["ejercicio"], f["total"]) for f in resultado],
+            [("Sentadilla", 3), ("Press banca", 1)],
+        )
+
+    def test_ejercicios_mas_asignados_respeta_limite(self):
+        from tenants.analitica import ejercicios_mas_asignados
+
+        resultado = ejercicios_mas_asignados(self.gimnasio, limite=1)
+        self.assertEqual([f["ejercicio"] for f in resultado], ["Sentadilla"])
+
+    def test_ejercicios_mas_asignados_sin_datos_devuelve_lista_vacia(self):
+        from tenants.analitica import ejercicios_mas_asignados
+
+        gimnasio_nuevo = Gimnasio.objects.create(nombre="Nuevo2", slug="nuevo2")
+        self.assertEqual(ejercicios_mas_asignados(gimnasio_nuevo), [])
+
+    def test_ejercicios_mas_asignados_por_genero_mismo_orden_y_desglosa_sexo(self):
+        from tenants.analitica import ejercicios_mas_asignados_por_genero
+
+        resultado = ejercicios_mas_asignados_por_genero(self.gimnasio)
+        self.assertEqual(
+            [f["ejercicio"] for f in resultado], ["Sentadilla", "Press banca"],
+        )
+        sentadilla = resultado[0]
+        self.assertEqual(sentadilla["generos"]["femenino"], 2)  # Ana
+        self.assertEqual(sentadilla["generos"]["masculino"], 1)  # Bruno
+        self.assertEqual(sentadilla["generos"]["no_decir"], 0)
+        self.assertEqual(sentadilla["generos"]["no_informado"], 0)
+        self.assertEqual(sentadilla["total"], 3)
+
+        press_banca = resultado[1]
+        self.assertEqual(press_banca["generos"]["femenino"], 1)  # Ana
+        self.assertEqual(press_banca["generos"]["masculino"], 0)
+        self.assertEqual(press_banca["total"], 1)
+
+    def test_ejercicios_mas_asignados_por_genero_sin_datos_devuelve_lista_vacia(self):
+        from tenants.analitica import ejercicios_mas_asignados_por_genero
+
+        gimnasio_nuevo = Gimnasio.objects.create(nombre="Nuevo3", slug="nuevo3")
+        self.assertEqual(ejercicios_mas_asignados_por_genero(gimnasio_nuevo), [])
+
+    def test_ejercicios_mas_asignados_por_genero_no_revienta_con_sexo_fuera_de_catalogo(self):
+        from tenants.analitica import ejercicios_mas_asignados_por_genero
+
+        # `sexo` es un CharField con choices, no un enum forzado por la DB:
+        # un valor fuera de catálogo es posible (dato viejo, choice
+        # eliminada) y no debe tirar un KeyError que voltee todo el
+        # dashboard de staff -- .update() evita las validaciones de
+        # Alumno.full_clean() para simular exactamente ese caso.
+        Alumno.objects.filter(pk=self.otro_alumno_mismo_gym.pk).update(sexo="otro")
+
+        resultado = ejercicios_mas_asignados_por_genero(self.gimnasio)
+        sentadilla = next(f for f in resultado if f["ejercicio"] == "Sentadilla")
+        self.assertEqual(sentadilla["generos"]["no_informado"], 1)  # Bruno cae acá
+        self.assertEqual(sentadilla["generos"]["masculino"], 0)  # ya no es "masculino"
+        self.assertEqual(sentadilla["total"], 3)
 
 
 class SuplantacionServicioTests(TestCase):
