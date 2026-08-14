@@ -437,13 +437,27 @@ plan original).
   durante desarrollo. El output SÍ se versiona en git (`node_modules/` no) —
   Render no corre `npm`, así que el CSS compilado tiene que estar en el repo.
   **Si tocás `input.css`, corré `npm run build:css` antes de commitear.**
-- **Colores por gimnasio**: `Gimnasio.color_primario`/`color_secundario` son
-  datos de runtime, no algo que Tailwind conozca en build-time. Se definen
-  como variables CSS (`--color-primario`/`--color-secundario`, default en
+- **Colores por gimnasio**: desde el rediseño "Un Paisaje por Gimnasio"
+  (2026-08-13, `85ca0a3`) ya no son 2 colores libres — `Gimnasio.paleta` es
+  un catálogo cerrado de 4 paisajes curados (Bosque/Océano/Arena/Pizarra,
+  `Gimnasio.PALETAS`), cada uno con sus 3 roles (`fondo`/`primario`/
+  `secundario`) ya armonizados. Datos de runtime, no algo que Tailwind
+  conozca en build-time: se definen como variables CSS
+  (`--color-fondo`/`--color-primario`/`--color-secundario`, default en
   `input.css`) y `base.html` las sobreescribe inline por request si el
-  gimnasio logueado tiene colores propios. El resto de la UI los referencia
-  vía `bg-[var(--color-primario)]` (clases arbitrarias) o, para lo ya
-  existente, a través de `.boton`/`.tabla th`/etc.
+  gimnasio logueado tiene un paisaje propio. El resto de la UI los
+  referencia vía `bg-[var(--color-primario)]` (clases arbitrarias) o, para
+  lo ya existente, a través de `.boton`/`.tabla th`/etc. El canvas de fondo
+  (`body`, `.landing`) no es un color sólido plano: lleva una atmósfera de
+  blobs radiales suaves mezclados con `color-mix()` sobre esos mismos
+  tokens (2026-08-14, ver "The Atmospheric Canvas Rule" en `DESIGN.md`).
+  Al elegir un logo nuevo en `gimnasio_form.html`, `tenants/
+  paisaje_matching.py::sugerir_paisaje()` extrae su color dominante
+  (ignorando fondo blanco/negro/transparente) y preselecciona el paisaje
+  curado más parecido vía `tenants:logo_sugerir_paisaje` — sugerencia pura,
+  no persiste nada, el dueño la confirma o la cambia a mano con "Guardar
+  cambios" (ver `ISSUES.md` `[2026-08-14]` sobre por qué la distancia es
+  RGB simple, no Lab/CIEDE2000).
 - **Tipografía por gimnasio**: `Gimnasio.tipografia` es un `TextChoices` con
   6 opciones curadas de Google Fonts (Inter, Montserrat, Poppins, Oswald,
   Playfair Display) más `sistema` como default — texto libre queda afuera a

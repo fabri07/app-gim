@@ -735,3 +735,25 @@ vía.
 **Resolución / próximo paso:** anotado en el docstring del receiver. Si algún
 día hace falta un cambio de estado masivo (p.ej. dar de baja a todos los
 morosos), tiene que sincronizar los `User` a mano o iterar con `save()`.
+
+---
+
+## [2026-08-14] Sugerencia de paisaje por logo: distancia RGB simple, no Lab/CIEDE2000
+**Estado:** aceptado (simplificación a propósito)
+**Impacto:** `tenants/paisaje_matching.py::sugerir_paisaje()` extrae el color
+dominante del logo (ignorando fondo blanco/negro/transparente) y elige el
+paisaje curado de `Gimnasio.PALETAS` cuyo `primario` está más cerca en
+distancia euclidiana sobre RGB crudo. RGB no es perceptualmente uniforme: dos
+colores a la misma distancia euclidiana pueden verse más o menos parecidos
+según la zona del espacio de color, así que en un catálogo con muchas más
+opciones esto podría elegir mal más seguido de lo que un ojo humano elegiría.
+**Por qué se acepta:** el catálogo tiene solo 4 candidatos (Bosque/Océano/
+Arena/Pizarra), muy separados entre sí en tono — con tan pocas opciones la
+distancia RGB simple alcanza, y evita sumar una dependencia nueva
+(`colormath`/`scikit-image`) solo para convertir a Lab/OKLCH. Es sugerencia,
+no una decisión final: el dueño ve el paisaje preseleccionado en el preview
+en vivo de `gimnasio_form.html` y lo cambia a mano antes de guardar si no le
+cierra.
+**Qué NO asumir:** que la sugerencia es "la mejor" paleta en términos
+perceptuales — es la más cercana en RGB entre 4 opciones ya harmonizadas, no
+un análisis de color profesional.

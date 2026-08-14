@@ -42,7 +42,21 @@
     /* el prefijo "family-name:" es necesario -- sin el hint de tipo,
        Tailwind interpreta un valor arbitrario de font como font-weight (el
        uso más común de esa utilidad arbitraria), no font-family. */
-    @apply bg-[var(--color-fondo)] text-gray-900 font-[family-name:var(--font-gimnasio)];
+    @apply text-gray-900 font-[family-name:var(--font-gimnasio)];
+    /* Canvas atmosférico: en vez de un solo color plano, el lienzo de fondo
+       lleva 3 blobs radiales muy suaves del paisaje del gimnasio, mezclados
+       con color-mix() (nunca un hex fijo -- ver "The Runtime Brand Rule" en
+       DESIGN.md) para que la intensidad quede igual sin importar qué
+       paisaje esté activo. Vive SOLO en el canvas: .tarjeta/.tabla/.metrica
+       siguen 100% blancas encima, así que la legibilidad de datos no se
+       toca. Mismo tratamiento en `.landing` más abajo -- se duplica en vez
+       de compartirse porque el proyecto no usa un preprocesador CSS. */
+    background-color: var(--color-fondo);
+    background-image:
+      radial-gradient(ellipse 70% 55% at 10% -10%, color-mix(in oklab, var(--color-primario) 16%, transparent), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 15%, color-mix(in oklab, var(--color-secundario) 14%, transparent), transparent 65%),
+      radial-gradient(ellipse 55% 45% at -5% 100%, color-mix(in oklab, var(--color-primario) 10%, transparent), transparent 60%);
+    background-repeat: no-repeat;
   }
 
   h1 {
@@ -441,7 +455,16 @@
      color de ESTE gimnasio adentro de `.landing`, sin tocar el `:root`
      global (ese es para cuando hay un usuario logueado). */
   .landing {
-    @apply bg-[var(--color-fondo)];
+    /* Mismo canvas atmosférico que `body` en @layer base, con las variables
+       que pisa el `style` inline de este contenedor (paisaje de ESTE
+       gimnasio, no el :root global). El hero conserva su degradé fuerte
+       propio (`.landing__hero`, más abajo) -- esto es lo que se ve debajo. */
+    background-color: var(--color-fondo);
+    background-image:
+      radial-gradient(ellipse 70% 55% at 10% -10%, color-mix(in oklab, var(--color-primario) 16%, transparent), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 15%, color-mix(in oklab, var(--color-secundario) 14%, transparent), transparent 65%),
+      radial-gradient(ellipse 55% 45% at -5% 100%, color-mix(in oklab, var(--color-primario) 10%, transparent), transparent 60%);
+    background-repeat: no-repeat;
   }
 
   .landing__hero {

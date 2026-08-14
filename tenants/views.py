@@ -9,6 +9,7 @@ hace con `manage.py crear_gimnasio` (ver `tenants/services.py`).
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
+from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.utils import timezone
@@ -17,7 +18,7 @@ from django.views.generic import DetailView, TemplateView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
-from tenants import suplantacion
+from tenants import paisaje_matching, suplantacion
 from tenants.forms import GimnasioForm
 from tenants.mixins import StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil
@@ -188,6 +189,21 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         response = super().form_valid(form)
         messages.success(self.request, "Datos del gimnasio actualizados.")
         return response
+
+
+class LogoSugerirPaisajeView(StaffRequiredMixin, View):
+    """Frente 2 del rediseño de estética: analiza el logo recién elegido en
+    `gimnasio_form.html` (antes de guardar) y devuelve el paisaje curado más
+    parecido. Sugerencia pura -- no toca `Gimnasio.paleta`, el dueño sigue
+    confirmando con "Guardar cambios" y puede cambiar el paisaje sugerido a
+    mano, igual que hoy."""
+
+    def post(self, request, *args, **kwargs):
+        archivo = request.FILES.get("logo")
+        if archivo is None:
+            return JsonResponse({"error": "Falta el archivo del logo."}, status=400)
+        paisaje = paisaje_matching.sugerir_paisaje(archivo)
+        return JsonResponse({"paisaje": paisaje})
 
 
 class GimnasioLandingView(DetailView):

@@ -5,6 +5,7 @@ from tenants.views import (
     GimnasioLandingView,
     GimnasioUpdateView,
     HomeView,
+    LogoSugerirPaisajeView,
     SuplantarView,
     VolverDeSuplantacionView,
 )
@@ -20,6 +21,11 @@ urlpatterns = [
     path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("gimnasio/editar/", GimnasioUpdateView.as_view(), name="gimnasio_editar"),
+    path(
+        "gimnasio/logo/sugerir-paisaje/",
+        LogoSugerirPaisajeView.as_view(),
+        name="logo_sugerir_paisaje",
+    ),
     # La ruta literal va antes de la que captura un parámetro (mismo criterio
     # que `alumnos/urls.py`). Con `<int:pk>` no hay conflicto real, pero el
     # orden evita el problema si algún día se cambia por un `<str:...>`.

@@ -108,14 +108,19 @@
     }
 
     var paletaSelect = document.getElementById("id_paleta");
+
+    function aplicarPaisajeAlPreview(valorPaisaje) {
+      var p = paletas[valorPaisaje];
+      if (p) {
+        ventana.style.setProperty("--color-fondo", p.fondo);
+        ventana.style.setProperty("--color-primario", p.primario);
+        ventana.style.setProperty("--color-secundario", p.secundario);
+      }
+    }
+
     if (paletaSelect) {
       paletaSelect.addEventListener("change", function () {
-        var p = paletas[paletaSelect.value];
-        if (p) {
-          ventana.style.setProperty("--color-fondo", p.fondo);
-          ventana.style.setProperty("--color-primario", p.primario);
-          ventana.style.setProperty("--color-secundario", p.secundario);
-        }
+        aplicarPaisajeAlPreview(paletaSelect.value);
       });
     }
 
@@ -137,6 +142,32 @@
         var previewLogo = document.getElementById("preview-logo");
         previewLogo.src = URL.createObjectURL(archivo);
         previewLogo.hidden = false;
+
+        // Sugerencia automática de paisaje (Frente 2): analiza el logo
+        // recién elegido y preselecciona el paisaje curado más parecido en
+        // el <select> -- el dueño lo confirma o lo cambia a mano antes de
+        // guardar, esto nunca persiste nada por su cuenta.
+        var datos = new FormData();
+        datos.append("logo", archivo);
+        var csrfToken = document.querySelector("#form-gimnasio [name=csrfmiddlewaretoken]").value;
+        fetch("{% url 'logo_sugerir_paisaje' %}", {
+          method: "POST",
+          headers: { "X-CSRFToken": csrfToken },
+          body: datos,
+        })
+          .then(function (respuesta) {
+            return respuesta.ok ? respuesta.json() : null;
+          })
+          .then(function (data) {
+            if (data && data.paisaje && paletaSelect) {
+              paletaSelect.value = data.paisaje;
+              aplicarPaisajeAlPreview(data.paisaje);
+            }
+          })
+          .catch(function () {
+            // Sin conexión o error del lado del servidor: el dueño elige
+            // el paisaje a mano, como siempre -- no hay nada que romper acá.
+          });
       });
     }
   })();

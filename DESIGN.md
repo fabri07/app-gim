@@ -129,9 +129,14 @@ todavía no hay un gimnasio en contexto (login, error 404, etc.).
 
 Persuade (la landing pública de cada gimnasio) lleva la energía completa:
 degradé de marca a todo el ancho del hero, números y botones grandes.
-Operate (el resto del panel) usa la misma paleta pero contenida: un canvas
-cálido de fondo y un solo acento, nunca un bloque de color a página
-completa — la expresión no puede estorbar una tabla de 40 alumnos.
+Operate (el resto del panel) usa la misma paleta con más moderación, pero
+ya no es un plano sin vida: el canvas de fondo (`body`, y `.landing` bajo
+el hero) lleva una atmósfera de 3 blobs radiales muy suaves, mezclados con
+`color-mix()` sobre `--color-primario`/`--color-secundario` — nunca un
+bloque sólido de color a página completa, pero tampoco un solo hex fijo.
+Las superficies con datos (`.tarjeta`, `.tabla`, `.metrica`) siguen 100%
+blancas encima: la expresión vive únicamente en el canvas, nunca estorba
+una tabla de 40 alumnos.
 
 **Key Characteristics:**
 - Tipografía bold y geométrica como identidad propia del sistema —
@@ -140,7 +145,9 @@ completa — la expresión no puede estorbar una tabla de 40 alumnos.
   nunca colores sueltos elegidos libremente.
 - Radios grandes (`2xl` en superficies, píldora en el botón primario) —
   más amigable que el sistema anterior, sin perder densidad en controles.
-- Persuade (landing) va a fondo con el color; Operate lo usa con moderación.
+- Persuade (landing) va a fondo con el color en el hero; Operate lleva el
+  mismo paisaje al canvas de fondo como atmósfera suave (nunca un bloque
+  sólido), en vez de un color plano.
 - Color de estado (verde/ámbar/rojo) sigue totalmente separado del paisaje
   de marca — un canal, no el otro.
 
@@ -297,16 +304,31 @@ botón `☰` (Alpine.js) por debajo del breakpoint `sm`.
 
 ## Elevation & Depth
 
-Sistema **plano por defecto, con una sola sombra**. `shadow-sm`
-(`0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1)`) aparece en
-tarjetas, tablas y métricas — siempre en reposo, nunca como respuesta a
-hover o estado. No hay una escala de elevación: la profundidad es casi
-enteramente de borde (`border border-gray-200`), no de sombra.
+Sistema **plano por defecto, con una sola sombra**, en las SUPERFICIES.
+`shadow-sm` (`0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1)`)
+aparece en tarjetas, tablas y métricas — siempre en reposo, nunca como
+respuesta a hover o estado. No hay una escala de elevación: la profundidad
+de una superficie es casi enteramente de borde (`border border-gray-200`),
+no de sombra.
+
+El CANVAS detrás de esas superficies es un eje aparte: lleva una atmósfera
+de 3 `radial-gradient()` muy suaves (`color-mix()` sobre `--color-primario`/
+`--color-secundario`, sin `background-attachment: fixed` a propósito —
+evita el jank conocido de esa propiedad en mobile Safari, y el portal del
+alumno es mobile-first). Es profundidad de fondo, no de superficie: no
+agrega ni reemplaza ninguna sombra, y no aplica a `.tarjeta`/`.tabla`/
+`.metrica`, que siguen sólo con `shadow-sm` + borde.
 
 ### Named Rules
 **The One Shadow Rule.** Un solo nivel de sombra en todo el sistema. Si un
 componente nuevo necesita distinguirse, se hace con borde o con fondo, no
 agregando una sombra más fuerte.
+
+**The Atmospheric Canvas Rule.** El canvas de fondo (`body`, `.landing`)
+siempre lleva la atmósfera de blobs radiales del paisaje activo — nunca un
+`background-color` sólido y liso. Un componente nuevo no agrega su propio
+degradé de fondo: la atmósfera vive en un solo lugar (`body`/`.landing` en
+`styles/input.css`), no se repite por sección.
 
 ## Shapes
 
@@ -405,12 +427,17 @@ persona.
   borde o fondo, no con más sombra.
 - **Do** usar `rounded-full` solo para el botón primario, el CTA de landing
   y los badges — todo lo demás denso va en `md`, las superficies en `2xl`.
+- **Do** dejar la atmósfera del canvas (`body`/`.landing`) en `color-mix()`
+  sobre los tokens del paisaje — nunca un `background-color` sólido y liso.
 
 ### Don't:
 - **Don't** hardcodear un hex de paisaje (`#1d6f56`, `#f5ede4`, etc.) en un
   componente nuevo — son datos de `Gimnasio.PALETAS`, no constantes.
 - **Don't** introducir una segunda escala de sombra o elevación tipo
   "lifted"/"floating" — el sistema es intencionalmente plano.
+- **Don't** repetir el degradé de blobs del canvas dentro de una tarjeta o
+  sección individual — vive en un solo lugar (`body`/`.landing`), no por
+  componente.
 - **Don't** usar íconos en la navegación de staff — es texto puro hoy.
 - **Don't** inventar prueba social (números, testimonios) en la landing de
   un gimnasio — solo datos reales de ESE gimnasio (horarios, y lo que se

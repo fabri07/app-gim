@@ -7,17 +7,19 @@ TenantOwnedModel concreto para ejercitarlos.
 """
 
 from datetime import date, timedelta
-from io import StringIO
+from io import BytesIO, StringIO
 
 from django.contrib.auth.models import AnonymousUser, User
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import PermissionDenied
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import CommandError, call_command
 from django.http import HttpResponse
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 from django.views.generic import TemplateView, View
+from PIL import Image
 
 from alumnos.identidad import TIPO_EMAIL
 from alumnos.models import Alumno
@@ -25,7 +27,7 @@ from alumnos.services import crear_acceso
 from novedades.models import Novedad, NovedadLeida
 from pagos.models import MedioCobro, PagoMensual
 from rutinas.models import RutinaAsignada, RutinaAsignadaItem
-from tenants import suplantacion
+from tenants import paisaje_matching, suplantacion
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil, RegistroSuplantacion
 
@@ -918,6 +920,114 @@ class GimnasioUpdateViewTests(TestCase):
         response = self.client.get(reverse("home"))
         self.assertContains(response, "--font-gimnasio: 'Sora', var(--font-sans);")
         self.assertNotContains(response, "&#x27;")
+
+
+def _png(color, size=(20, 20), mode="RGB"):
+    """Arma un PNG en memoria de un solo color, para los tests de
+    `paisaje_matching` -- evita depender de un archivo de logo real."""
+    buffer = BytesIO()
+    Image.new(mode, size, color).save(buffer, format="PNG")
+    buffer.seek(0)
+    return buffer
+
+
+class PaisajeMatchingTests(SimpleTestCase):
+    """`tenants/paisaje_matching.py` es Django-free a propósito (no toca la
+    base de datos, solo lee `Gimnasio.PALETAS`) -- mismo criterio que
+    `alumnos/identidad.py`. Distancia RGB simple (no Lab/CIEDE2000) porque
+    con solo 4 paisajes candidatos alcanza, y evita sumar una dependencia
+    nueva (colormath/scikit-image) solo para esto."""
+
+    def test_color_solido_de_bosque_sugiere_bosque(self):
+        imagen = _png((0x1D, 0x6F, 0x56))
+        self.assertEqual(paisaje_matching.sugerir_paisaje(imagen), Gimnasio.Paleta.BOSQUE)
+
+    def test_color_solido_de_oceano_sugiere_oceano(self):
+        imagen = _png((0x1E, 0x3A, 0x5F))
+        self.assertEqual(paisaje_matching.sugerir_paisaje(imagen), Gimnasio.Paleta.OCEANO)
+
+    def test_color_solido_de_arena_sugiere_arena(self):
+        imagen = _png((0xB4, 0x53, 0x2A))
+        self.assertEqual(paisaje_matching.sugerir_paisaje(imagen), Gimnasio.Paleta.ARENA)
+
+    def test_color_solido_de_pizarra_sugiere_pizarra(self):
+        imagen = _png((0x33, 0x47, 0x5B))
+        self.assertEqual(paisaje_matching.sugerir_paisaje(imagen), Gimnasio.Paleta.PIZARRA)
+
+    def test_ignora_fondo_blanco_dominante_y_usa_el_color_del_logo(self):
+        """La mayoría de los píxeles son blancos (fondo típico de un PNG de
+        logo), pero el color que importa es el del isotipo en el centro."""
+        imagen = Image.new("RGB", (40, 40), (255, 255, 255))
+        centro = Image.new("RGB", (10, 10), (0x1E, 0x3A, 0x5F))  # azul de Océano
+        imagen.paste(centro, (15, 15))
+        buffer = BytesIO()
+        imagen.save(buffer, format="PNG")
+        buffer.seek(0)
+        self.assertEqual(paisaje_matching.sugerir_paisaje(buffer), Gimnasio.Paleta.OCEANO)
+
+    def test_ignora_pixeles_transparentes(self):
+        """Un logo PNG con fondo transparente no debe confundir el canal
+        alfa con un color real -- solo los píxeles opacos cuentan."""
+        imagen = Image.new("RGBA", (40, 40), (255, 255, 255, 0))
+        centro = Image.new("RGBA", (10, 10), (0xB4, 0x53, 0x2A, 255))  # terracota de Arena
+        imagen.paste(centro, (15, 15))
+        buffer = BytesIO()
+        imagen.save(buffer, format="PNG")
+        buffer.seek(0)
+        self.assertEqual(paisaje_matching.sugerir_paisaje(buffer), Gimnasio.Paleta.ARENA)
+
+
+class LogoSugerirPaisajeViewTests(TestCase):
+    """Vista de sugerencia (Frente 2): staff-only, no persiste nada -- el
+    dueño confirma con "Guardar cambios" como siempre, igual que ya puede
+    cambiar a mano el paisaje sugerido antes de guardar."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio Central", slug="central")
+        self.staff = User.objects.create_user("dueno", password="clave-123456")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+
+    def _archivo(self, color):
+        return SimpleUploadedFile("logo.png", _png(color).read(), content_type="image/png")
+
+    def test_anonimo_redirige_a_login(self):
+        response = self.client.post(
+            reverse("logo_sugerir_paisaje"), {"logo": self._archivo((0x1E, 0x3A, 0x5F))}
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_alumno_recibe_403(self):
+        alumno_user = User.objects.create_user("alumno-1", password="clave-123456")
+        Perfil.objects.create(usuario=alumno_user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
+        self.client.login(username="alumno-1", password="clave-123456")
+        response = self.client.post(
+            reverse("logo_sugerir_paisaje"), {"logo": self._archivo((0x1E, 0x3A, 0x5F))}
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_recibe_el_paisaje_sugerido(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.post(
+            reverse("logo_sugerir_paisaje"), {"logo": self._archivo((0x1E, 0x3A, 0x5F))}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"paisaje": "oceano"})
+
+    def test_no_persiste_nada_en_el_gimnasio(self):
+        """Es sugerencia pura -- el dueño sigue confirmando con 'Guardar
+        cambios'; esta vista no debe tocar la base."""
+        self.client.login(username="dueno", password="clave-123456")
+        self.client.post(
+            reverse("logo_sugerir_paisaje"), {"logo": self._archivo((0x1E, 0x3A, 0x5F))}
+        )
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.paleta, Gimnasio.Paleta.BOSQUE)
+
+    def test_sin_archivo_devuelve_400(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.post(reverse("logo_sugerir_paisaje"), {})
+        self.assertEqual(response.status_code, 400)
 
 
 class AnaliticaTests(TestCase):

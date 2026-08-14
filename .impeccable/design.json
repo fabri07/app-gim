@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-14T00:00:00Z",
+  "generatedAt": "2026-08-14T12:00:00Z",
   "title": "Design System: TuGimApp",
   "extensions": {
     "colorMeta": {
@@ -188,12 +188,12 @@
   ],
   "narrative": {
     "northStar": "Un Paisaje por Gimnasio",
-    "overview": "El sistema tiene ahora una voz propia y confiada — tipografía geométrica bold (Plus Jakarta Sans por defecto), radios grandes, botones píldora — en vez de la identidad neutra que tenía antes. Esa voz nunca cambia; lo que cambia por gimnasio es el paisaje de color: cada uno elige una de cuatro paletas curadas y completas (fondo cálido + 2 acentos, ya armonizados) en vez de dos colores sueltos como antes. La dirección está inspirada en crossfyapp.com (un competidor directo, referencia tomada a propósito por el material — tipografía pesada, paleta cálida, energía de landing de venta — no calcada composición por composición). El resultado: la marca del producto vive en la forma (tipografía, radio, forma de botón), no en un color fijo. El color es lo que cada gimnasio pone sobre la mesa, elegido de un catálogo — nunca libre — para que ninguna combinación resulte ilegible. Bosque (crema + verde bosque + coral) es el paisaje por defecto y el que usa el propio sistema cuando todavía no hay un gimnasio en contexto. Persuade (la landing pública de cada gimnasio) lleva la energía completa: degradé de marca a todo el ancho del hero, números y botones grandes. Operate (el resto del panel) usa la misma paleta pero contenida: un canvas cálido de fondo y un solo acento, nunca un bloque de color a página completa.",
+    "overview": "El sistema tiene ahora una voz propia y confiada — tipografía geométrica bold (Plus Jakarta Sans por defecto), radios grandes, botones píldora — en vez de la identidad neutra que tenía antes. Esa voz nunca cambia; lo que cambia por gimnasio es el paisaje de color: cada uno elige una de cuatro paletas curadas y completas (fondo cálido + 2 acentos, ya armonizados) en vez de dos colores sueltos como antes. La dirección está inspirada en crossfyapp.com (un competidor directo, referencia tomada a propósito por el material — tipografía pesada, paleta cálida, energía de landing de venta — no calcada composición por composición). El resultado: la marca del producto vive en la forma (tipografía, radio, forma de botón), no en un color fijo. El color es lo que cada gimnasio pone sobre la mesa, elegido de un catálogo — nunca libre — para que ninguna combinación resulte ilegible. Bosque (crema + verde bosque + coral) es el paisaje por defecto y el que usa el propio sistema cuando todavía no hay un gimnasio en contexto. Persuade (la landing pública de cada gimnasio) lleva la energía completa: degradé de marca a todo el ancho del hero, números y botones grandes. Operate (el resto del panel) usa la misma paleta con más moderación, pero ya no es un plano sin vida: el canvas de fondo (body, y .landing bajo el hero) lleva una atmósfera de 3 blobs radiales muy suaves, mezclados con color-mix() sobre --color-primario/--color-secundario — nunca un bloque sólido de color a página completa, pero tampoco un solo hex fijo. Las superficies con datos (.tarjeta, .tabla, .metrica) siguen 100% blancas encima: la expresión vive únicamente en el canvas, nunca estorba una tabla de 40 alumnos.",
     "keyCharacteristics": [
       "Tipografía bold y geométrica como identidad propia del sistema — auto-hospedada por defecto, nunca dependiente de que el gimnasio elija algo.",
       "Cuatro paisajes de color completos y curados (Bosque/Océano/Arena/Pizarra), nunca colores sueltos elegidos libremente.",
       "Radios grandes (2xl en superficies, píldora en el botón primario) — más amigable que el sistema anterior, sin perder densidad en controles.",
-      "Persuade (landing) va a fondo con el color; Operate lo usa con moderación.",
+      "Persuade (landing) va a fondo con el color en el hero; Operate lleva el mismo paisaje al canvas de fondo como atmósfera suave (nunca un bloque sólido), en vez de un color plano.",
       "Color de estado (verde/ámbar/rojo) sigue totalmente separado del paisaje de marca."
     ],
     "rules": [
@@ -202,6 +202,7 @@
       { "name": "The Gym-Swappable Font Rule", "body": "La familia tipográfica siempre se referencia como var(--font-gimnasio) (con el hint family-name: en clases arbitrarias de Tailwind). Nunca se hardcodea un nombre de fuente fuera de Gimnasio.TIPOGRAFIA_FUENTES.", "section": "typography" },
       { "name": "The Self-Hosted Default Rule", "body": "El default (Plus Jakarta Sans) se sirve siempre desde el propio dominio, nunca desde Google — es la única fuente del catálogo sin google_param. Las otras 4 son elección activa del gimnasio; recién ahí se justifica pagar el costo de una carga externa.", "section": "typography" },
       { "name": "The One Shadow Rule", "body": "Un solo nivel de sombra en todo el sistema. Si un componente nuevo necesita distinguirse, se hace con borde o con fondo, no agregando una sombra más fuerte.", "section": "elevation" },
+      { "name": "The Atmospheric Canvas Rule", "body": "El canvas de fondo (body, .landing) siempre lleva la atmósfera de blobs radiales del paisaje activo — nunca un background-color sólido y liso. Un componente nuevo no agrega su propio degradé de fondo: la atmósfera vive en un solo lugar (body/.landing en styles/input.css), no se repite por sección.", "section": "elevation" },
       { "name": "The Two-Radius Rule", "body": "Solo dos escalones de radio conviven en cualquier jerarquía visual: md en controles densos, 2xl en superficies — más full como caso especial para botones primarios y badges. Nunca un tercer escalón intermedio.", "section": "shapes" }
     ],
     "dos": [
@@ -209,14 +210,16 @@
       "Do ofrecer paisajes de color completos y curados (Gimnasio.PALETAS), nunca un color picker libre para identidad de marca.",
       "Do usar verde/ámbar/rojo exclusivamente para estado, con las tres variantes de .badge existentes.",
       "Do mantener shadow-sm como el único nivel de sombra; diferenciar con borde o fondo, no con más sombra.",
-      "Do usar rounded-full solo para el botón primario, el CTA de landing y los badges — todo lo demás denso va en md, las superficies en 2xl."
+      "Do usar rounded-full solo para el botón primario, el CTA de landing y los badges — todo lo demás denso va en md, las superficies en 2xl.",
+      "Do dejar la atmósfera del canvas (body/.landing) en color-mix() sobre los tokens del paisaje — nunca un background-color sólido y liso."
     ],
     "donts": [
       "Don't hardcodear un hex de paisaje (#1d6f56, #f5ede4, etc.) en un componente nuevo — son datos de Gimnasio.PALETAS, no constantes.",
       "Don't introducir una segunda escala de sombra o elevación tipo \"lifted\"/\"floating\" — el sistema es intencionalmente plano.",
       "Don't usar íconos en la navegación de staff — es texto puro hoy.",
       "Don't inventar prueba social (números, testimonios) en la landing de un gimnasio — solo datos reales de ESE gimnasio.",
-      "Don't cargar Google Fonts para la tipografía default — está auto-hospedada a propósito; solo las 4 alternativas la disparan."
+      "Don't cargar Google Fonts para la tipografía default — está auto-hospedada a propósito; solo las 4 alternativas la disparan.",
+      "Don't repetir el degradé de blobs del canvas dentro de una tarjeta o sección individual — vive en un solo lugar (body/.landing), no por componente."
     ]
   }
 }
