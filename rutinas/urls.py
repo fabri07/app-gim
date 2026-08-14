@@ -12,6 +12,7 @@ from rutinas.views import (
     RutinaAsignadaDetailView,
     RutinaAsignadaDiaCompletadoToggleView,
     RutinaAsignadaItemCalificarView,
+    RutinaAsignadaPdfView,
     RutinaMiDiaDetailView,
     RutinaPlantillaCreateView,
     RutinaPlantillaDetailView,
@@ -59,6 +60,11 @@ urlpatterns = [
         "asignadas/<int:pk>/",
         RutinaAsignadaDetailView.as_view(),
         name="asignada_detalle",
+    ),
+    path(
+        "asignadas/<int:pk>/pdf/",
+        RutinaAsignadaPdfView.as_view(),
+        name="asignada_pdf",
     ),
     path(
         "asignadas/items/<int:pk>/calificar/",

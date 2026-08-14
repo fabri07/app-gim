@@ -31,6 +31,7 @@ from rutinas.models import (
     RutinaPlantilla,
     RutinaPlantillaItem,
 )
+from rutinas.pdf import generar_pdf_rutina_asignada
 from tenants.models import Gimnasio, Perfil
 
 
@@ -382,6 +383,40 @@ class RutinaAsignadaSnapshotTests(RutinasTestCase):
         self.assertEqual(item_asignado.ejercicio_nombre_snapshot, "Press de banca")
 
 
+class RutinaPdfTests(RutinasTestCase):
+    """`rutinas/pdf.py` es Django-free a propósito (no toca `django.http`,
+    solo arma bytes) -- se testea llamando a la función directo, sin pasar
+    por una vista."""
+
+    def test_genera_un_pdf_valido_con_ejercicios(self):
+        plantilla, _, _ = self.crear_plantilla_con_items()
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            plantilla=plantilla,
+            fecha_inicio=date(2026, 1, 1),
+        )
+
+        pdf_bytes = generar_pdf_rutina_asignada(asignada)
+
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+    def test_genera_un_pdf_valido_sin_ejercicios(self):
+        """Borde: una asignación recién creada sin items no debe romper la
+        generación (mismo caso que el `{% empty %}` del template HTML)."""
+        asignada = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            nombre_snapshot="Rutina vacía",
+            objetivo_snapshot="Sin definir",
+            fecha_inicio=date(2026, 1, 1),
+        )
+
+        pdf_bytes = generar_pdf_rutina_asignada(asignada)
+
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+
 class DuplicarPlantillaTests(RutinasTestCase):
     """`RutinaPlantilla.duplicar()` crea una copia independiente."""
 
@@ -594,6 +629,7 @@ class RutinasViewsTests(TestCase):
             ),
             reverse("rutinas:asignar"),
             reverse("rutinas:asignada_detalle", args=[self.asignada_a.pk]),
+            reverse("rutinas:asignada_pdf", args=[self.asignada_a.pk]),
         ]
 
     # 1. Anónimo -> redirect a login; rol ALUMNO -> 403 (ver
@@ -776,6 +812,29 @@ class RutinasViewsTests(TestCase):
             reverse("rutinas:asignada_detalle", args=[asignada.pk])
         )
         self.assertContains(response, "Semana actual: 2 de 4")
+
+    def test_asignada_pdf_devuelve_un_pdf_descargable(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("rutinas:asignada_pdf", args=[self.asignada_a.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("attachment", response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF"))
+
+    def test_asignada_pdf_de_otro_gimnasio_da_404(self):
+        asignada_b = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio_b,
+            alumno=self.alumno_b,
+            plantilla=self.plantilla_b,
+            fecha_inicio=date(2026, 1, 1),
+        )
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("rutinas:asignada_pdf", args=[asignada_b.pk])
+        )
+        self.assertEqual(response.status_code, 404)
 
     # 4. El campo `ejercicio` del form de item solo ofrece ejercicios del
     # propio gimnasio -- el cierre del hueco de FK-injection.

@@ -16,9 +16,10 @@ de otro gimnasio, eso ya devuelve 404 antes de tocar ningún item.
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.text import slugify
 from django.views import View
 from django.views.generic import CreateView, DetailView, FormView, ListView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
@@ -33,6 +34,7 @@ from rutinas.models import (
     RutinaPlantilla,
     RutinaPlantillaItem,
 )
+from rutinas.pdf import generar_pdf_rutina_asignada
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 
 
@@ -225,6 +227,25 @@ class RutinaAsignadaDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView
         context = super().get_context_data(**kwargs)
         context["items"] = self.object.items.all()
         return context
+
+
+class RutinaAsignadaPdfView(
+    StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View
+):
+    """Descarga en PDF de una rutina asignada -- pensado para cuando un
+    alumno se queda sin acceso a su portal (p. ej. olvidó el celular) y el
+    staff/dueño necesita imprimirle o pasarle el plan de otra forma. No es
+    un `DetailView`: no renderiza un template, devuelve bytes binarios."""
+
+    model = RutinaAsignada
+
+    def get(self, request, *args, **kwargs):
+        asignada = self.get_object()
+        pdf_bytes = generar_pdf_rutina_asignada(asignada)
+        filename = f"rutina-{slugify(str(asignada.alumno))}-{asignada.pk}.pdf"
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
 
 class RutinaAsignadaItemCalificarView(AlumnoRequiredMixin, View):

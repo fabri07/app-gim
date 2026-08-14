@@ -6,7 +6,10 @@
 <div class="contenido--ancho">
   <div class="acciones-lista">
     <h1>{{ asignada.nombre_snapshot }}</h1>
-    <a class="boton-secundario" href="{% url 'rutinas:plantilla_listado' %}">Volver a plantillas</a>
+    <div class="flex gap-2">
+      <a class="boton-secundario" href="{% url 'rutinas:asignada_pdf' asignada.pk %}">Descargar PDF</a>
+      <a class="boton-secundario" href="{% url 'rutinas:plantilla_listado' %}">Volver a plantillas</a>
+    </div>
   </div>
 
   <div class="tarjeta">
