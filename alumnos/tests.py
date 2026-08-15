@@ -350,6 +350,32 @@ class AlumnoViewsTests(TestCase):
         response = self.client.get(reverse("alumnos:detalle", args=[self.alumno_b.pk]))
         self.assertContains(response, "Sin rutina asignada todavía")
 
+    def test_ficha_con_rutina_asignada_ofrece_ver_rutina_y_descargar_pdf(self):
+        """Antes la tarjeta "Rutina actual" era puro texto sin ningún
+        link -- el lugar más natural para buscar el PDF de un alumno era
+        justo el que no tenía nada clickeable."""
+        from rutinas.models import RutinaAsignada
+
+        rutina = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio_a,
+            alumno=self.alumno_a,
+            nombre_snapshot="Full body",
+            objetivo_snapshot="Hipertrofia",
+            fecha_inicio=datetime.date(2026, 1, 1),
+            activa=True,
+        )
+
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(reverse("alumnos:detalle", args=[self.alumno_a.pk]))
+
+        self.assertContains(
+            response, reverse("rutinas:asignada_detalle", args=[rutina.pk])
+        )
+        self.assertContains(
+            response, reverse("rutinas:asignada_pdf", args=[rutina.pk])
+        )
+        self.assertContains(response, 'hx-boost="false"')
+
 
 class AccesoAlumnoViewsTests(TestCase):
     """Vistas de acceso del alumno.

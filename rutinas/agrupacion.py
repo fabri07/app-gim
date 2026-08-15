@@ -19,7 +19,7 @@ _SIN_GRUPO_DISPLAY = "Sin grupo muscular"
 _DISPLAY_POR_VALOR = dict(Ejercicio.GrupoMuscular.choices)
 
 
-def agrupar_items_por_grupo_muscular(items, semanas=None):
+def agrupar_items_por_grupo_muscular(items, semanas=None, semana_actual=None):
     """`items`: iterable de `RutinaAsignadaItem` de UN día (cualquier
     orden). `semanas`: lista de números de semana a incluir como columna
     en cada fila -- pasarla explícita desde el caller que también arma
@@ -28,6 +28,13 @@ def agrupar_items_por_grupo_muscular(items, semanas=None):
     si alguna cambia de forma independiente; por defecto es
     `1..SEMANAS_POR_CICLO` (usado por `generar_pdf_rutina_asignada`, que
     arma su propio header a partir de la misma constante).
+
+    `semana_actual`: si se pasa, cada celda de semana trae su propio
+    `es_actual` ya calculado (`semana == semana_actual`) -- así el
+    template resalta la columna actual sin repetir la comparación a
+    mano en cada `<td>`. El PDF no la necesita (no hay nada que resaltar
+    en papel) y la deja en su default `None`, que da `es_actual=False`
+    en todas las celdas.
 
     Devuelve una lista de grupos en el orden fijo del catálogo
     `Ejercicio.GrupoMuscular`, con un bucket final "Sin grupo muscular"
@@ -90,6 +97,7 @@ def agrupar_items_por_grupo_muscular(items, semanas=None):
                         {
                             "numero": semana,
                             "item": entrada["semanas"].get(semana),
+                            "es_actual": semana == semana_actual,
                         }
                         for semana in semanas
                     ],

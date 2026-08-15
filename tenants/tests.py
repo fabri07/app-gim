@@ -377,6 +377,34 @@ class HomeViewAlumnoTests(TestCase):
         self.assertContains(response, "Pagado")
         self.assertContains(response, "Gimnasio cerrado el feriado")
 
+    def test_saluda_con_el_nombre_del_alumno_no_con_el_username(self):
+        """El username de un alumno dado de alta por teléfono es el
+        número normalizado (ver `alumnos/identidad.py`) -- el saludo no
+        puede mostrar eso, tiene que mostrar `Alumno.nombre`."""
+        self._crear_alumno_con_login(
+            username="+5493572546151", nombre="Enzo", apellido="Sola"
+        )
+
+        self.client.login(username="+5493572546151", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, "Hola, Enzo")
+        self.assertNotContains(response, "+5493572546151")
+
+    def test_saluda_sin_nombre_cuando_no_hay_alumno_vinculado(self):
+        """Un `Perfil` de rol alumno sin `Alumno` asociado todavía (ver
+        docstring de `HomeView._portal_alumno`) no debe romper el saludo
+        ni mostrar el username crudo."""
+        user = User.objects.create_user("sin_ficha", password="clave-123456")
+        Perfil.objects.create(
+            usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+
+        self.client.login(username="sin_ficha", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, "<h1>Hola</h1>", html=True)
+
     def test_dashboard_muestra_boton_por_dia_sin_ejercicios_sueltos(self):
         """El dashboard ya no lista ejercicios directamente (Fase 8: ver
         `RutinaMiDiaDetailViewTests` para el detalle semana a semana) -- solo
@@ -1185,6 +1213,41 @@ class GimnasioFormFondoImagenTests(SimpleTestCase):
     def test_fondo_tipo_color_no_exige_nada_mas(self):
         form = GimnasioForm(data=self._datos_base(fondo_tipo="color"))
         self.assertTrue(form.is_valid(), form.errors)
+
+
+class GimnasioFormArchivoYEliminarContradiccionTests(SimpleTestCase):
+    """Documenta el comportamiento de `ClearableFileInput` (logo y
+    fondo_imagen) que motivó el JS de `gimnasio_form.html` que evita que
+    esta combinación llegue nunca al server: si el dueño tilda "Eliminar"
+    Y ADEMÁS elige un archivo nuevo en el mismo envío, Django lo trata
+    como una contradicción y rechaza el form entero -- no borra el viejo
+    ni guarda el nuevo. El fix real es de UI (el checkbox se destilda
+    solo al elegir un archivo, ver el script del template) -- esto no
+    prueba el JS (el test client no ejecuta JS), prueba que el
+    comportamiento de Django que lo motiva sigue siendo real."""
+
+    def _datos_base(self, **overrides):
+        datos = {
+            "nombre": "Gimnasio Test",
+            "paleta": "bosque",
+            "tipografia": "plus_jakarta",
+            "fondo_tipo": "color",
+            "texto_bienvenida": "",
+            "contacto": "",
+            "link_instagram": "",
+            "link_whatsapp": "",
+        }
+        datos.update(overrides)
+        return datos
+
+    def test_logo_nuevo_mas_eliminar_tildado_rechaza_el_form(self):
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), nombre="logo.png")
+        form = GimnasioForm(
+            data=self._datos_base(**{"logo-clear": "on"}),
+            files={"logo": archivo},
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("logo", form.errors)
 
 
 class PaisajeMatchingTests(SimpleTestCase):

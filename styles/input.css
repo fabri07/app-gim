@@ -329,6 +329,30 @@
     @apply bg-amber-50;
   }
 
+  /* Tabla ancha "Mi rutina" (columna propia por Series/Reps/Kilos/
+     Descanso/Calificación, repetida por semana). Sin separador vertical
+     por nth-child entre grupos de semana a propósito: las filas donde
+     una semana no tiene fila cargada usan un único <td colspan="5">, así
+     que la cantidad de celdas por fila varía y un separador por posición
+     quedaría desalineado en esas filas. `<details>` de notas queda chico
+     y no rompe el alto de fila cuando está cerrado. */
+  .tabla--rutina-semanas th,
+  .tabla--rutina-semanas td {
+    @apply whitespace-nowrap;
+  }
+
+  .tabla--rutina-semanas details {
+    @apply mt-1;
+  }
+
+  .tabla--rutina-semanas details summary {
+    @apply cursor-pointer text-xs text-gray-500;
+  }
+
+  .tabla--rutina-semanas details p {
+    @apply whitespace-normal text-xs mt-1 max-w-[16rem];
+  }
+
   /* Personalización de gimnasio (white-label): form + preview en vivo */
   .config-layout {
     @apply grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_20rem] gap-8 items-start;

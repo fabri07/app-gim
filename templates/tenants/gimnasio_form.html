@@ -29,7 +29,7 @@
         {% endif %}
         <label for="{{ form.logo.id_for_label }}">Logo</label>
         {{ form.logo }}
-        <p class="texto-suave">PNG o SVG con fondo transparente se ve mejor.</p>
+        <p class="texto-suave">PNG o JPG. Fondo transparente se ve mejor.</p>
         {% if form.logo.errors %}<p class="config-error">{{ form.logo.errors.0 }}</p>{% endif %}
       </div>
 
@@ -285,6 +285,33 @@ al preview.
           });
       });
     }
+
+    // `ClearableFileInput` (hoy logo/fondo_imagen, cualquier otro
+    // ImageField/FileField que se agregue a GimnasioForm después)
+    // rechaza el envío entero si se tilda "Eliminar" Y se elige un
+    // archivo nuevo a la vez -- Django lo trata como contradicción
+    // ("FILE_INPUT_CONTRADICTION") y no borra ni guarda nada, sin que
+    // quede claro por qué. Los dos controles se vuelven mutuamente
+    // excluyentes acá para que esa combinación nunca le llegue al
+    // server. Recorre TODOS los `input[type=file]` del form y deriva el
+    // id del checkbox "Eliminar" a partir del `name` del input (misma
+    // convención que usa Django: `<name>-clear_id`) -- así un campo de
+    // archivo nuevo que se agregue al form queda cubierto solo, sin
+    // tener que acordarse de sumar una llamada más acá.
+    document.querySelectorAll('#form-gimnasio input[type="file"]').forEach(function (inputArchivo) {
+      var checkboxBorrar = document.getElementById(inputArchivo.name + "-clear_id");
+      if (!checkboxBorrar) return;
+      inputArchivo.addEventListener("change", function () {
+        if (inputArchivo.files && inputArchivo.files.length) {
+          checkboxBorrar.checked = false;
+        }
+      });
+      checkboxBorrar.addEventListener("change", function () {
+        if (checkboxBorrar.checked) {
+          inputArchivo.value = "";
+        }
+      });
+    });
   })();
 </script>
 {% endblock %}

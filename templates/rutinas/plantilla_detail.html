@@ -34,7 +34,7 @@
   <div class="tarjeta">
     <div class="acciones-lista">
       <h2>Ejercicios</h2>
-      <a class="boton" href="{% url 'rutinas:item_crear' plantilla.pk %}">Agregar ejercicio</a>
+      <a class="boton" hx-boost="false" href="{% url 'rutinas:item_crear' plantilla.pk %}">Agregar ejercicio</a>
     </div>
 
     <table class="tabla">
@@ -65,7 +65,7 @@
             <td>{{ item.descanso|default:"—" }}</td>
             <td>{{ item.notas|default:"—" }}</td>
             <td>
-              <a href="{% url 'rutinas:item_editar' plantilla.pk item.pk %}">Editar</a>
+              <a hx-boost="false" href="{% url 'rutinas:item_editar' plantilla.pk item.pk %}">Editar</a>
               &middot;
               <form method="post" action="{% url 'rutinas:item_eliminar' plantilla.pk item.pk %}" style="display:inline">
                 {% csrf_token %}

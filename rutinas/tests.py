@@ -664,6 +664,38 @@ class AgruparPorGrupoMuscularTests(RutinasTestCase):
         semanas = grupos[0]["ejercicios"][0]["semanas"]
         self.assertEqual([s["numero"] for s in semanas], [1, 2])
 
+    def test_es_actual_marca_solo_la_semana_indicada(self):
+        """`semana_actual` es opcional -- si no se pasa (caso del PDF,
+        que no resalta nada), todas las celdas quedan `es_actual=False`
+        sin romper."""
+        asignada = self.crear_asignada_vacia()
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=asignada,
+            ejercicio_nombre_snapshot="Sentadilla",
+            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+
+        grupos = agrupar_items_por_grupo_muscular(
+            asignada.items.filter(dia=1), semanas=[1, 2, 3], semana_actual=2
+        )
+        semanas = grupos[0]["ejercicios"][0]["semanas"]
+        self.assertEqual(
+            [s["es_actual"] for s in semanas], [False, True, False]
+        )
+
+        grupos_sin_actual = agrupar_items_por_grupo_muscular(
+            asignada.items.filter(dia=1), semanas=[1, 2, 3]
+        )
+        semanas_sin_actual = grupos_sin_actual[0]["ejercicios"][0]["semanas"]
+        self.assertEqual(
+            [s["es_actual"] for s in semanas_sin_actual], [False, False, False]
+        )
+
 
 class DuplicarPlantillaTests(RutinasTestCase):
     """`RutinaPlantilla.duplicar()` crea una copia independiente."""
@@ -1460,13 +1492,32 @@ class RutinaMiDiaDetailViewTests(TestCase):
         self.assertContains(response, "Sin ejercicios esta semana")
 
     def test_muestra_descanso_y_notas_cuando_estan_cargados(self):
+        """Descanso es su propia columna (no texto "Descanso: X" apilado
+        con lo demás); notas va en un `<details>` -- touch-accessible,
+        no un tooltip por `title` que no se ve en celular."""
         self.item_dia1_semana1.descanso = "90s"
         self.item_dia1_semana1.notas = "Cuidado con la zona lumbar"
         self.item_dia1_semana1.save()
         self.client.login(username="usuario_alumno", password="clave-123456")
         response = self.client.get(self._url(1))
-        self.assertContains(response, "Descanso: 90s")
+        self.assertContains(response, "<td>90s</td>", html=True)
+        self.assertContains(response, "<summary>Notas</summary>", html=True)
         self.assertContains(response, "Cuidado con la zona lumbar")
+        self.assertNotContains(response, 'title="Cuidado con la zona lumbar"')
+
+    def test_tabla_tiene_columna_propia_por_dato_repetida_por_semana(self):
+        """Series/Repeticiones/Kilos/Descanso/Calificación son columnas
+        separadas (header de dos niveles), no texto combinado en una
+        sola celda -- pedido explícito tras ver la app real."""
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.get(self._url(1))
+        self.assertContains(response, "<th scope=\"col\">Series</th>", html=True)
+        self.assertContains(response, "<th scope=\"col\">Reps</th>", html=True)
+        self.assertContains(response, "<th scope=\"col\">Kilos</th>", html=True)
+        self.assertContains(response, "<th scope=\"col\">Descanso</th>", html=True)
+        self.assertContains(response, "Calificación")
+        self.assertContains(response, "<td>3</td>", html=True)
+        self.assertContains(response, "<td>10</td>", html=True)
 
 
 class RutinaAsignadaDiaCompletadoToggleViewTests(TestCase):

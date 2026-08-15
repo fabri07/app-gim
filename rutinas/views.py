@@ -331,6 +331,7 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
         grupos = agrupar_items_por_grupo_muscular(
             rutina_actual.items.filter(dia=dia),
             semanas=[s["numero"] for s in semanas_meta],
+            semana_actual=rutina_actual.semana_actual,
         )
 
         return render(

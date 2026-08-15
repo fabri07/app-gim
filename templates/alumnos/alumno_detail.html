@@ -75,6 +75,8 @@
     {% if rutina_actual %}
       <p><strong>{{ rutina_actual.nombre_snapshot }}</strong> &middot; {{ rutina_actual.objetivo_snapshot }}</p>
       <p class="texto-suave">Desde {{ rutina_actual.fecha_inicio }}</p>
+      <a class="boton-secundario" href="{% url 'rutinas:asignada_detalle' rutina_actual.pk %}">Ver rutina</a>
+      <a class="boton-secundario" hx-boost="false" href="{% url 'rutinas:asignada_pdf' rutina_actual.pk %}">Descargar PDF</a>
     {% else %}
       <p class="texto-suave">Sin rutina asignada todavía.</p>
     {% endif %}

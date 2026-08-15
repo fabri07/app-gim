@@ -354,7 +354,7 @@
   </script>
 {% else %}
   <div class="tarjeta">
-    <h1>Hola, {{ user.username }}</h1>
+    <h1>Hola{% if alumno %}, {{ alumno.nombre }}{% endif %}</h1>
     <p class="texto-suave">{{ perfil.gimnasio.nombre }}</p>
     {% if perfil.gimnasio.texto_bienvenida %}
       <p>{{ perfil.gimnasio.texto_bienvenida }}</p>

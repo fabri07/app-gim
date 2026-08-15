@@ -1,6 +1,20 @@
 {% extends 'base.html' %}
 {% block title %}{% if object %}Editar{% else %}Agregar{% endif %} ejercicio · App Gimnasios{% endblock %}
 
+{% comment %}
+Los dos links que llevan acá ("Agregar ejercicio"/"Editar" en
+plantilla_detail.html) tienen hx-boost="false": esta pantalla necesita
+`{% block extra_style %}` (el CSS de Tom Select, ver abajo), que vive en
+el <head> -- hx-boost por defecto solo swapea el <body>, así que un
+<link> de <head> nunca llega a insertarse en una navegación boosteada
+(a diferencia de un <script> en el body, que sí se re-ejecuta). Sin el
+hx-boost="false" en los links de origen, el buscador cargaba sin CSS
+(se veía como un <select> roto) aunque el JS sí corriera.
+{% endcomment %}
+{% block extra_style %}
+  <link href="https://cdn.jsdelivr.net/npm/tom-select@2/dist/css/tom-select.default.min.css" rel="stylesheet">
+{% endblock %}
+
 {% block content %}
 <div class="tarjeta">
   <h1>{% if object %}Editar ejercicio{% else %}Agregar ejercicio{% endif %}</h1>
@@ -12,4 +26,42 @@
     <a class="boton-secundario" href="{% url 'rutinas:plantilla_detalle' plantilla.pk %}">Cancelar</a>
   </form>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2/dist/js/tom-select.complete.min.js"></script>
+<script>
+  (function inicializarBuscadorEjercicio(intentosRestantes) {
+    // Sin DOMContentLoaded a propósito, mismo criterio que el resto de
+    // los scripts inline del proyecto (gimnasio_form.html, home.html):
+    // correr directo, no esperar un evento que en una navegación
+    // boosteada por htmx no vuelve a dispararse. Esta pantalla en
+    // particular ya fuerza hx-boost="false" en sus dos links de origen
+    // (ver el comment de más arriba, sobre el CSS) así que hoy siempre
+    // es una carga completa de página -- pero dejar el script sin
+    // depender de DOMContentLoaded es gratis y evita repetir el mismo
+    // error si algún día se saca ese hx-boost="false".
+    //
+    // El reintento de acá abajo cubre otro caso: en una carga completa
+    // el navegador bloquea en el <script src> de arriba antes de seguir
+    // con este, así que en la práctica TomSelect ya existe siempre --
+    // pero si esta pantalla alguna vez vuelve a ser alcanzable por un
+    // swap de htmx (que no espera a que un <script src> externo termine
+    // de descargar antes de seguir con el siguiente <script>), reintentar
+    // unas pocas veces evita el "TomSelect is not defined" sin depender
+    // de ese orden de carga.
+    var campo = document.getElementById("id_ejercicio");
+    if (!campo) return;
+    if (typeof TomSelect === "undefined") {
+      if (intentosRestantes > 0) {
+        setTimeout(function () {
+          inicializarBuscadorEjercicio(intentosRestantes - 1);
+        }, 30);
+      }
+      return;
+    }
+    new TomSelect(campo, {
+      sortField: { field: "text", direction: "asc" },
+      create: false,
+    });
+  })(100);
+</script>
 {% endblock %}
