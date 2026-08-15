@@ -10,6 +10,18 @@
           "templates/base.html"
         ],
         "createdAt": "2026-07-29T05:07:28.674Z"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "{{",
+        "createdAt": "2026-08-15T00:28:28.567Z",
+        "reason": "Falso positivo: '{{' es el delimitador de una expresion Django ({{ gimnasio.tipografia_google_param }}), no un nombre de fuente. Las tipografias reales son el catalogo cerrado Gimnasio.TIPOGRAFIA_FUENTES, ya documentado en DESIGN.md."
+      },
+      {
+        "rule": "overused-font",
+        "value": "plus jakarta sans",
+        "createdAt": "2026-08-15T02:39:36.664Z",
+        "reason": "user confirmed: 'deja la tipografia base, esta bien' (2026-08-14). Es el default de --font-gimnasio desde el rediseno 85ca0a3; el dueno de cada gimnasio puede elegir otra del catalogo cerrado Gimnasio.TIPOGRAFIA_FUENTES."
       }
     ]
   }

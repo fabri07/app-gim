@@ -26,9 +26,47 @@
           {% endcomment %}
           --font-gimnasio: {{ gimnasio.tipografia_css_family|safe }};
         }
+        {% if gimnasio.fondo_tipo == "imagen" and gimnasio.fondo_imagen %}
+          body {
+            background-image:
+              linear-gradient(color-mix(in oklab, var(--color-fondo) 55%, transparent), color-mix(in oklab, var(--color-fondo) 55%, transparent)),
+              {% comment %}
+              |safe por el mismo motivo que tipografia_css_family arriba, pero
+              acá el síntoma es peor: en producción R2 va con
+              AWS_QUERYSTRING_AUTH, así que .url trae una URL firmada con
+              query string, y el autoescape convierte cada "&" en "&amp;".
+              <style> es raw text -- el navegador NO decodifica entidades ahí
+              adentro -- así que la firma viaja rota y R2 responde 403: el
+              dueño sube su imagen, la ve bien en el preview, y el fondo real
+              queda en el tinte plano. Es seguro: el nombre del archivo ya pasó
+              por get_valid_filename() del storage, que no deja comillas ni
+              "<".
+              {% endcomment %}
+              url("{{ gimnasio.fondo_imagen.url|safe }}");
+            background-size: cover;
+            background-position: center;
+            background-attachment: scroll;
+          }
+        {% elif gimnasio.fondo_tipo == "doodle" and gimnasio.fondo_doodle_url %}
+          body { background-image: none; }
+          body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            background-color: color-mix(in oklab, var(--color-secundario) 22%, transparent);
+            -webkit-mask-image: url("{{ gimnasio.fondo_doodle_url }}");
+            mask-image: url("{{ gimnasio.fondo_doodle_url }}");
+            -webkit-mask-repeat: repeat;
+            mask-repeat: repeat;
+            -webkit-mask-size: 300px;
+            mask-size: 300px;
+          }
+        {% endif %}
       </style>
     {% endwith %}
   {% endif %}
+  {% block extra_style %}{% endblock %}
   <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
 </head>

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 240 240" width="240" height="240">
+  <!--
+    Doodle de fondo del gimnasio: tile de 240x240 que se repite a 300px
+    (mask-size en base.html/landing.html). Se usa como mask-image, así que
+    solo cuenta el alfa: las formas van llenas y el color lo pone
+    background-color con el secundario del paisaje.
+
+    Dos decisiones que no conviene deshacer sin entenderlas:
+
+    1. Las 9 instancias del tile. El motivo se define una vez en <defs> y se
+       instancia en la grilla -240/0/+240 de los dos ejes; lo que se sale del
+       viewBox lo recorta el viewport del SVG. Así, cualquier figura que cruce
+       un borde reaparece exacta del otro lado y el tileado queda sin costura
+       POR CONSTRUCCIÓN — no por acomodar las formas lejos de los bordes a
+       ojo, que es justamente lo que termina delatando la grilla.
+
+    2. La dispersión. 9 figuras sobre una grilla 3x3 con jitter fuerte,
+       rotación y escala variables por figura. Una versión anterior usaba 4
+       figuras alineadas en dos bandas horizontales y el ojo leía filas
+       obvias apenas se repetía el tile.
+  -->
+  <defs>
+    <g id="motivo" fill="#000">
+      <rect x="-11" y="-2.5" width="22" height="5" rx="2.5"/>
+      <rect x="-17.5" y="-8" width="6.5" height="16" rx="2.6"/>
+      <rect x="11" y="-8" width="6.5" height="16" rx="2.6"/>
+      <rect x="-21.5" y="-5" width="3.5" height="10" rx="1.7"/>
+      <rect x="18" y="-5" width="3.5" height="10" rx="1.7"/>
+    </g>
+    <g id="tile">
+      <use xlink:href="#motivo" href="#motivo" transform="translate(30.8 21.8) rotate(11.5) scale(0.74)"/>
+      <use xlink:href="#motivo" href="#motivo" transform="translate(121.9 33.0) rotate(-33.6) scale(0.84)"/>
+      <use xlink:href="#motivo" href="#motivo" transform="translate(175.9 36.5) rotate(-32.7) scale(0.74)"/>
+      <use xlink:href="#motivo" href="#motivo" transform="translate(36.1 137.0) rotate(-28.6) scale(0.77)"/>
+      <use xlink:href="#motivo" href="#motivo" transform="translate(126.6 143.3) rotate(5.9) scale(0.81)"/>
+      <use xlink:href="#motivo" href="#motivo" transform="translate(224.8 96.4) rotate(27.2) scale(0.79)"/>
+      <use xlink:href="#motivo" href="#motivo" transform="translate(21.5 180.1) rotate(-14.6) scale(0.91)"/>
+      <use xlink:href="#motivo" href="#motivo" transform="translate(103.4 204.2) rotate(10.6) scale(0.81)"/>
+      <use xlink:href="#motivo" href="#motivo" transform="translate(202.5 177.3) rotate(-33.5) scale(0.77)"/>
+    </g>
+  </defs>
+  <use xlink:href="#tile" href="#tile" x="-240" y="-240"/>
+  <use xlink:href="#tile" href="#tile" x="0" y="-240"/>
+  <use xlink:href="#tile" href="#tile" x="240" y="-240"/>
+  <use xlink:href="#tile" href="#tile" x="-240" y="0"/>
+  <use xlink:href="#tile" href="#tile" x="0" y="0"/>
+  <use xlink:href="#tile" href="#tile" x="240" y="0"/>
+  <use xlink:href="#tile" href="#tile" x="-240" y="240"/>
+  <use xlink:href="#tile" href="#tile" x="0" y="240"/>
+  <use xlink:href="#tile" href="#tile" x="240" y="240"/>
+</svg>

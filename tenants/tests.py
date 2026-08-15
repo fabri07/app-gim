@@ -8,7 +8,10 @@ TenantOwnedModel concreto para ejercitarlos.
 
 from datetime import date, timedelta
 from io import BytesIO, StringIO
+from unittest.mock import patch
+from xml.etree import ElementTree
 
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser, User
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import PermissionDenied
@@ -28,6 +31,7 @@ from novedades.models import Novedad, NovedadLeida
 from pagos.models import MedioCobro, PagoMensual
 from rutinas.models import RutinaAsignada, RutinaAsignadaItem
 from tenants import paisaje_matching, suplantacion
+from tenants.forms import GimnasioForm
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil, RegistroSuplantacion
 
@@ -820,6 +824,7 @@ class GimnasioUpdateViewTests(TestCase):
                 "nombre": "Gimnasio Central",
                 "paleta": "oceano",
                 "tipografia": "plus_jakarta",
+                "fondo_tipo": "color",
                 "texto_bienvenida": "¡Bienvenido!",
                 "contacto": "011-1234-5678",
                 "link_instagram": "https://instagram.com/gimnasiocentral",
@@ -854,6 +859,7 @@ class GimnasioUpdateViewTests(TestCase):
                 "nombre": "Gimnasio Central",
                 "paleta": "bosque",
                 "tipografia": "sora",
+                "fondo_tipo": "color",
                 "texto_bienvenida": "",
                 "contacto": "",
                 "link_instagram": "",
@@ -872,6 +878,7 @@ class GimnasioUpdateViewTests(TestCase):
                 "nombre": "Gimnasio Central",
                 "paleta": "bosque",
                 "tipografia": "comic-sans-libre",
+                "fondo_tipo": "color",
                 "texto_bienvenida": "",
                 "contacto": "",
                 "link_instagram": "",
@@ -890,6 +897,7 @@ class GimnasioUpdateViewTests(TestCase):
                 "nombre": "Gimnasio Central",
                 "paleta": "azul-libre-inventado",
                 "tipografia": "plus_jakarta",
+                "fondo_tipo": "color",
                 "texto_bienvenida": "",
                 "contacto": "",
                 "link_instagram": "",
@@ -921,6 +929,157 @@ class GimnasioUpdateViewTests(TestCase):
         self.assertContains(response, "--font-gimnasio: 'Sora', var(--font-sans);")
         self.assertNotContains(response, "&#x27;")
 
+    def _datos_base_fondo(self, **overrides):
+        datos = {
+            "nombre": "Gimnasio Central",
+            "paleta": "bosque",
+            "tipografia": "plus_jakarta",
+            "fondo_tipo": "color",
+            "texto_bienvenida": "",
+            "contacto": "",
+            "link_instagram": "",
+            "link_whatsapp": "",
+        }
+        datos.update(overrides)
+        return datos
+
+    def test_staff_guarda_fondo_tipo_color(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.post(reverse("gimnasio_editar"), self._datos_base_fondo())
+        self.assertRedirects(response, reverse("gimnasio_editar"))
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.fondo_tipo, "color")
+
+    def test_staff_guarda_fondo_tipo_doodle(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            self._datos_base_fondo(fondo_tipo="doodle", fondo_doodle="kettlebell"),
+        )
+        self.assertRedirects(response, reverse("gimnasio_editar"))
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.fondo_doodle, "kettlebell")
+
+    def test_staff_guarda_fondo_tipo_imagen(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            self._datos_base_fondo(
+                fondo_tipo="imagen", fondo_imagen=_imagen_subida((0x1D, 0x6F, 0x56))
+            ),
+        )
+        self.assertRedirects(response, reverse("gimnasio_editar"))
+        self.gimnasio.refresh_from_db()
+        self.assertTrue(self.gimnasio.fondo_imagen)
+
+    def test_imagen_que_excede_el_limite_no_guarda_y_muestra_error(self):
+        self.client.login(username="dueno", password="clave-123456")
+        contenido = _png((0, 0, 0)).read() + b"\x00" * (6 * 1024 * 1024)
+        archivo = SimpleUploadedFile("fondo.png", contenido, content_type="image/png")
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            self._datos_base_fondo(fondo_tipo="imagen", fondo_imagen=archivo),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.gimnasio.refresh_from_db()
+        self.assertFalse(self.gimnasio.fondo_imagen)
+
+    def test_smoke_render_fondo_color_no_agrega_mask_ni_url_fondos(self):
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertNotContains(response, "mask-image")
+        self.assertNotContains(response, 'url("/media/fondos/')
+
+    def test_smoke_render_fondo_doodle_agrega_mask_image(self):
+        self.gimnasio.fondo_tipo = Gimnasio.FondoTipo.DOODLE
+        self.gimnasio.fondo_doodle = Gimnasio.Doodle.MANCUERNAS
+        self.gimnasio.save()
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "mask-image")
+        self.assertContains(response, "mancuernas.svg")
+
+    def test_smoke_render_fondo_imagen_agrega_background_image_url(self):
+        self.gimnasio.fondo_tipo = Gimnasio.FondoTipo.IMAGEN
+        self.gimnasio.fondo_imagen = _imagen_subida((0x1D, 0x6F, 0x56))
+        self.gimnasio.save()
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, 'url("/media/fondos/')
+
+    def test_url_firmada_de_r2_no_sale_html_escapada(self):
+        """En producción R2 va con AWS_QUERYSTRING_AUTH, así que `.url` trae
+        query string firmada. Dentro de <style> (raw text) el navegador no
+        decodifica entidades, así que un "&" autoescapado a "&amp;" rompe la
+        firma y R2 responde 403 -- el fondo simplemente no carga. La suite usa
+        InMemoryStorage (URLs sin query string), por eso hace falta simular la
+        URL firmada a mano acá."""
+        firmada = "https://r2.example/fondos/x.png?X-Amz-Expires=3600&X-Amz-Signature=abc"
+        self.gimnasio.fondo_tipo = Gimnasio.FondoTipo.IMAGEN
+        self.gimnasio.fondo_imagen = _imagen_subida((0x1D, 0x6F, 0x56))
+        self.gimnasio.save()
+        self.client.login(username="dueno", password="clave-123456")
+        with patch(
+            "django.core.files.storage.memory.InMemoryStorage.url",
+            return_value=firmada,
+        ):
+            response = self.client.get(reverse("home"))
+        self.assertContains(response, f'url("{firmada}")')
+        self.assertNotContains(response, "X-Amz-Expires=3600&amp;")
+
+    def test_doodle_sin_archivo_estatico_no_rompe_la_pantalla_de_configuracion(self):
+        """Fuera de DEBUG, `{% static %}` sobre un archivo ausente del manifest
+        levanta ValueError. `gimnasio_editar` arma las URLs de los 4 doodles en
+        Python (context["doodle_svgs"]), así que sin guard un doodle sin archivo
+        da 500 justo en la ÚNICA pantalla donde el dueño podría cambiar el fondo:
+        queda encerrado afuera.
+
+        (En base.html la condición `{% if ... and gimnasio.fondo_doodle_url %}`
+        ya no rompía, pero solo de casualidad: los operadores de smartif.py
+        atrapan cualquier excepción y devuelven False. No es algo en lo que
+        convenga apoyarse.)"""
+        self.gimnasio.fondo_tipo = Gimnasio.FondoTipo.DOODLE
+        self.gimnasio.fondo_doodle = Gimnasio.Doodle.MANCUERNAS
+        self.gimnasio.save()
+        self.client.login(username="dueno", password="clave-123456")
+        with patch(
+            "tenants.models.static", side_effect=ValueError("no está en el manifest")
+        ):
+            response = self.client.get(reverse("gimnasio_editar"))
+        self.assertEqual(response.status_code, 200)
+
+    def test_preview_arranca_con_la_imagen_ya_guardada(self):
+        """Al abrir la pantalla con un fondo de imagen ya guardado, el preview
+        tiene que mostrarlo; si no, miente sobre lo guardado hasta que el dueño
+        vuelve a elegir un archivo."""
+        self.gimnasio.fondo_tipo = Gimnasio.FondoTipo.IMAGEN
+        self.gimnasio.fondo_imagen = _imagen_subida((0x1D, 0x6F, 0x56))
+        self.gimnasio.save()
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.get(reverse("gimnasio_editar"))
+        # La aserción va sobre el bloque json_script puntual, no sobre
+        # "/media/fondos/" suelto: esa ruta ya aparece en el <img> de "imagen
+        # actual", así que un assert laxo pasaría igual sin el fix.
+        self.assertContains(
+            response,
+            f'id="fondo-imagen-url-data" type="application/json">'
+            f'"{self.gimnasio.fondo_imagen.url}"',
+        )
+
+    def test_imagen_rechazada_no_suma_un_error_contradictorio(self):
+        """clean_fondo_imagen() ya explicó por qué se rechaza; clean() no debe
+        agregar además "subí una imagen" a alguien que subió una."""
+        contenido = _png((0, 0, 0)).read() + b"\x00" * (6 * 1024 * 1024)
+        archivo = SimpleUploadedFile("fondo.png", contenido, content_type="image/png")
+        form = GimnasioForm(
+            data=self._datos_base_fondo(fondo_tipo="imagen"),
+            files={"fondo_imagen": archivo},
+            instance=self.gimnasio,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertEqual(len(form.errors["fondo_imagen"]), 1)
+        self.assertIn("5 MB", form.errors["fondo_imagen"][0])
+
 
 def _png(color, size=(20, 20), mode="RGB"):
     """Arma un PNG en memoria de un solo color, para los tests de
@@ -929,6 +1088,103 @@ def _png(color, size=(20, 20), mode="RGB"):
     Image.new(mode, size, color).save(buffer, format="PNG")
     buffer.seek(0)
     return buffer
+
+
+def _imagen_subida(color, size=(1280, 720), formato="PNG", content_type="image/png", nombre="fondo.png"):
+    """Como `_png`, pero envuelta en `SimpleUploadedFile` -- lo que
+    `GimnasioForm`/`request.FILES` necesitan para `fondo_imagen`."""
+    buffer = BytesIO()
+    Image.new("RGB", size, color).save(buffer, format=formato)
+    return SimpleUploadedFile(nombre, buffer.getvalue(), content_type=content_type)
+
+
+class DoodlesAssetsTests(SimpleTestCase):
+    """Los 4 SVG de doodle son assets del repo, no datos: si uno falta o está
+    malformado nadie se entera hasta que un gimnasio lo elige, porque una
+    máscara rota no tira error -- el navegador simplemente no dibuja nada."""
+
+    def test_cada_doodle_del_catalogo_tiene_su_archivo(self):
+        for valor, _ in Gimnasio.Doodle.choices:
+            ruta = settings.BASE_DIR / "static" / "img" / "doodles" / f"{valor}.svg"
+            self.assertTrue(ruta.exists(), f"falta el SVG del doodle {valor}")
+
+    def test_los_svg_son_xml_bien_formado(self):
+        """Un guion doble dentro de un comentario XML (fácil de escribir sin
+        querer) invalida el archivo entero y la máscara deja de cargar, sin
+        ningún síntoma en consola ni en los logs."""
+        for valor, _ in Gimnasio.Doodle.choices:
+            ruta = settings.BASE_DIR / "static" / "img" / "doodles" / f"{valor}.svg"
+            with self.subTest(doodle=valor):
+                try:
+                    ElementTree.parse(ruta)
+                except ElementTree.ParseError as error:
+                    self.fail(f"{valor}.svg no es XML válido: {error}")
+
+
+class GimnasioFormFondoImagenTests(SimpleTestCase):
+    """Validación de `fondo_imagen` (tamaño, resolución mínima, formato) y
+    de la relación cruzada entre `fondo_tipo` y el campo que corresponde --
+    Django-free en el sentido de que `GimnasioForm().is_valid()` acá no
+    dispara ninguna query (ningún campo incluido tiene validador `unique`),
+    mismo criterio que `PaisajeMatchingTests`."""
+
+    def _datos_base(self, **overrides):
+        datos = {
+            "nombre": "Gimnasio Test",
+            "paleta": "bosque",
+            "tipografia": "plus_jakarta",
+            "fondo_tipo": "imagen",
+            "texto_bienvenida": "",
+            "contacto": "",
+            "link_instagram": "",
+            "link_whatsapp": "",
+        }
+        datos.update(overrides)
+        return datos
+
+    def test_imagen_valida_pasa(self):
+        archivos = {"fondo_imagen": _imagen_subida((0x1D, 0x6F, 0x56))}
+        form = GimnasioForm(data=self._datos_base(), files=archivos)
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_imagen_muy_pesada_se_rechaza(self):
+        contenido = _png((0x1D, 0x6F, 0x56)).read() + b"\x00" * (6 * 1024 * 1024)
+        archivo = SimpleUploadedFile("fondo.png", contenido, content_type="image/png")
+        form = GimnasioForm(data=self._datos_base(), files={"fondo_imagen": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("fondo_imagen", form.errors)
+
+    def test_imagen_debajo_de_la_resolucion_minima_se_rechaza(self):
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(640, 360))
+        form = GimnasioForm(data=self._datos_base(), files={"fondo_imagen": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("fondo_imagen", form.errors)
+
+    def test_formato_no_soportado_se_rechaza(self):
+        archivo = _imagen_subida(
+            (0x1D, 0x6F, 0x56), formato="GIF", content_type="image/gif", nombre="fondo.gif"
+        )
+        form = GimnasioForm(data=self._datos_base(), files={"fondo_imagen": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("fondo_imagen", form.errors)
+
+    def test_fondo_tipo_doodle_sin_doodle_elegido_se_rechaza(self):
+        form = GimnasioForm(data=self._datos_base(fondo_tipo="doodle"))
+        self.assertFalse(form.is_valid())
+        self.assertIn("fondo_doodle", form.errors)
+
+    def test_fondo_tipo_doodle_con_doodle_elegido_pasa(self):
+        form = GimnasioForm(data=self._datos_base(fondo_tipo="doodle", fondo_doodle="kettlebell"))
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_fondo_tipo_imagen_sin_archivo_ni_imagen_previa_se_rechaza(self):
+        form = GimnasioForm(data=self._datos_base(fondo_tipo="imagen"))
+        self.assertFalse(form.is_valid())
+        self.assertIn("fondo_imagen", form.errors)
+
+    def test_fondo_tipo_color_no_exige_nada_mas(self):
+        form = GimnasioForm(data=self._datos_base(fondo_tipo="color"))
+        self.assertTrue(form.is_valid(), form.errors)
 
 
 class PaisajeMatchingTests(SimpleTestCase):

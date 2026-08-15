@@ -21,7 +21,7 @@ from core.mixins import TenantScopedMixin
 from tenants import paisaje_matching, suplantacion
 from tenants.forms import GimnasioForm
 from tenants.mixins import StaffRequiredMixin
-from tenants.models import Gimnasio, Perfil
+from tenants.models import Gimnasio, Perfil, doodle_static_url
 
 
 class HomeView(LoginRequiredMixin, TemplateView):
@@ -183,6 +183,29 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         # mapeo tipografía -> familia CSS por su cuenta.
         context["tipografia_fuentes"] = Gimnasio.TIPOGRAFIA_FUENTES
         context["paletas"] = Gimnasio.PALETAS
+        # doodle_static_url (no `static()` pelado) para no romper la única
+        # pantalla donde el dueño puede sacarse de encima un doodle cuyo
+        # archivo falta -- ver su docstring.
+        context["doodle_svgs"] = {
+            valor: doodle_static_url(valor) for valor, _ in Gimnasio.Doodle.choices
+        }
+        # Las miniaturas del selector se pintan con la MISMA URL que usa el
+        # preview: si acá se construyera el path a mano ({% static 'img/doodles/' %}
+        # + valor), HashedFilesMixin no hashea un path terminado en "/", así que
+        # miniatura y preview terminarían apuntando a dos URLs distintas del
+        # mismo asset y la miniatura quedaría sin cache-busting.
+        context["doodle_opciones"] = [
+            (radio, context["doodle_svgs"].get(str(radio.data["value"]), ""))
+            for radio in context["form"]["fondo_doodle"]
+        ]
+        # El preview arranca reflejando lo que YA está guardado; sin esto, al
+        # abrir la pantalla con fondo_tipo="imagen" la ventana caía al fallback
+        # `none` de --preview-fondo-imagen y mostraba un tinte plano, mintiendo
+        # sobre lo guardado hasta que el dueño volvía a elegir un archivo.
+        gimnasio = self.object
+        context["fondo_imagen_url"] = (
+            gimnasio.fondo_imagen.url if gimnasio.fondo_imagen else ""
+        )
         return context
 
     def form_valid(self, form):

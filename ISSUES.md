@@ -757,3 +757,62 @@ cierra.
 **Qué NO asumir:** que la sugerencia es "la mejor" paleta en términos
 perceptuales — es la más cercana en RGB entre 4 opciones ya harmonizadas, no
 un análisis de color profesional.
+
+---
+
+## [2026-08-14] Una URL firmada de R2 dentro de `<style>` se rompe con el autoescape
+**Estado:** resuelto
+**Impacto:** el modo "imagen propia" de `Gimnasio.fondo_tipo` inyecta
+`url("{{ gimnasio.fondo_imagen.url }}")` en el bloque `<style>` de
+`base.html`/`landing.html`. En producción R2 va con `AWS_QUERYSTRING_AUTH`
+(`config/settings.py`), así que `.url` devuelve una URL **presignada** con
+query string; el autoescape de Django convierte cada `&` en `&amp;`, y como
+`<style>` es un elemento *raw text* el navegador no decodifica entidades ahí
+adentro. La firma viajaba rota y R2 respondía 403: el dueño subía su imagen,
+la veía bien en el preview, y el fondo real quedaba en el tinte plano.
+**Resolución:** `|safe` sobre `.url` en las dos plantillas (seguro: el nombre
+de archivo ya pasó por `get_valid_filename()` del storage, que no deja
+comillas ni `<`). En el `<script>` del preview, la misma URL viaja por
+`json_script`, no por interpolación cruda. Es el mismo gotcha que ya estaba
+documentado para `tipografia_css_family`.
+**Qué NO asumir:** que la suite lo cubre. Los tests usan `InMemoryStorage`,
+cuyas URLs (`/media/fondos/x.png`) no tienen query string, así que el bug era
+invisible para toda la suite. El test de regresión
+(`test_url_firmada_de_r2_no_sale_html_escapada`) tiene que **simular** la URL
+firmada a mano.
+
+---
+
+## [2026-08-14] Un `--` en un comentario XML rompe el SVG entero, sin ningún síntoma
+**Estado:** resuelto (con test)
+**Impacto:** al escribir los 4 doodles curados usé `--` como guion dentro del
+comentario de cabecera. `--` es ilegal dentro de un comentario XML: invalida
+el documento completo, el SVG no parsea, la `mask-image` no carga y el
+elemento queda enmascarado **a nada**. El fondo desapareció por completo en
+las tres superficies. No emite ningún error: ni en consola, ni en los logs, ni
+en los tests — una máscara que no carga simplemente no dibuja.
+**Resolución:** guiones em (`—`) en los comentarios, y `DoodlesAssetsTests`,
+que parsea los 4 SVG como XML y verifica que cada opción de
+`Gimnasio.Doodle.choices` tenga su archivo. Verificado que falla al
+reinyectar el `--`.
+**Qué NO asumir:** que "los tests pasan" prueba que un asset se ve. Antes de
+este test, los 4 SVG podían estar rotos y la suite seguía en verde; hizo falta
+mirarlo en un navegador para descubrirlo.
+
+---
+
+## [2026-08-14] La máscara de un doodle se come el borde del elemento
+**Estado:** resuelto
+**Impacto:** dos síntomas de la misma causa. (1) En las miniaturas del
+selector, `mask-image` estaba aplicada al elemento mismo, así que enmascaraba
+también su `border` y su `background`: el swatch perdía el recuadro y quedaban
+figuras flotando. (2) En `.landing` y en la ventana del preview, el
+`::before` con `z-index: -1` quedaba TAPADO por el `background-color` opaco
+del contenedor.
+**Resolución:** la tinta del doodle va siempre en un pseudo-elemento, y el
+contenedor que tenga fondo propio lleva `isolation: isolate` (documentado en
+`DESIGN.md` § The Atmospheric Canvas Rule). `body` es la excepción: su fondo
+se propaga al canvas y pinta primero, así que no lo necesita.
+**Qué NO asumir:** que lo que funciona en `body` funciona igual dentro de un
+div. Las reglas de propagación de fondo del `body` al canvas son un caso
+especial de la especificación, no el comportamiento normal.

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}Mi gimnasio · App Gimnasios{% endblock %}
 {% block main_class %}contenido--ancho{% endblock %}
 
@@ -40,6 +41,55 @@
         {{ form.tipografia.label_tag }}
         {{ form.tipografia }}
         {% if form.tipografia.errors %}<p class="config-error">{{ form.tipografia.errors.0 }}</p>{% endif %}
+      </div>
+
+      <div class="form-seccion">
+        <h2>Fondo</h2>
+
+        <fieldset class="selector-fondo-tipo">
+          <legend class="sr-only">Tipo de fondo</legend>
+          {% for radio in form.fondo_tipo %}
+            <label class="selector-fondo-tipo__opcion">
+              {{ radio.tag }}
+              <span>{{ radio.choice_label }}</span>
+            </label>
+          {% endfor %}
+        </fieldset>
+        {% if form.fondo_tipo.errors %}<p class="config-error">{{ form.fondo_tipo.errors.0 }}</p>{% endif %}
+
+        <div class="config-fondo-imagen" id="bloque-fondo-imagen" {% if object.fondo_tipo != "imagen" %}hidden{% endif %}>
+          {% if object.fondo_imagen %}
+            <div class="config-logo-actual">
+              <img src="{{ object.fondo_imagen.url }}" alt="Fondo actual">
+              <span class="texto-suave">Imagen actual</span>
+            </div>
+          {% endif %}
+          <label for="{{ form.fondo_imagen.id_for_label }}">Imagen de fondo</label>
+          {{ form.fondo_imagen }}
+          <p class="texto-suave">JPEG o PNG, hasta 5 MB, mínimo 1280×720px.</p>
+          {% if form.fondo_imagen.errors %}<p class="config-error">{{ form.fondo_imagen.errors.0 }}</p>{% endif %}
+        </div>
+
+        <fieldset class="config-fondo-doodle" id="bloque-fondo-doodle" {% if object.fondo_tipo != "doodle" %}hidden{% endif %}>
+          <legend class="texto-suave">Elegí un doodle</legend>
+          <div class="selector-doodle-grilla">
+            {% comment %}
+            La URL sale de la vista (doodle_opciones), no de {% static %} acá:
+            un path armado como {% static 'img/doodles/' %} + valor no queda
+            hasheado (HashedFilesMixin no toca paths terminados en "/"), así que
+            la miniatura y el preview servirían dos URLs distintas del mismo
+            archivo y la miniatura se quedaría sin cache-busting.
+            {% endcomment %}
+            {% for radio, doodle_url in doodle_opciones %}
+              <label class="selector-doodle-opcion">
+                {{ radio.tag }}
+                <span class="selector-doodle-miniatura" style="--doodle-url: url('{{ doodle_url }}')"></span>
+                <span class="selector-doodle-etiqueta">{{ radio.choice_label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          {% if form.fondo_doodle.errors %}<p class="config-error">{{ form.fondo_doodle.errors.0 }}</p>{% endif %}
+        </fieldset>
       </div>
 
       <div class="form-seccion">
@@ -86,10 +136,20 @@
 
 {{ tipografia_fuentes|json_script:"tipografia-fuentes-data" }}
 {{ paletas|json_script:"paletas-data" }}
+{{ doodle_svgs|json_script:"doodle-svgs-data" }}
+{% comment %}
+json_script y no una variable pelada dentro del <script>: json_script escapa
+para JSON (que JSON.parse revierte), no a entidades HTML como &amp; -- que en
+un elemento raw text nadie decodifica. Así la URL firmada de R2 llega entera
+al preview.
+{% endcomment %}
+{{ fondo_imagen_url|json_script:"fondo-imagen-url-data" }}
 <script>
   (function () {
     var fuentes = JSON.parse(document.getElementById("tipografia-fuentes-data").textContent);
     var paletas = JSON.parse(document.getElementById("paletas-data").textContent);
+    var doodleSvgs = JSON.parse(document.getElementById("doodle-svgs-data").textContent);
+    var fondoImagenGuardada = JSON.parse(document.getElementById("fondo-imagen-url-data").textContent);
     var ventana = document.getElementById("preview-ventana");
 
     var nombre = document.getElementById("id_nombre");
@@ -132,6 +192,61 @@
           ventana.style.setProperty("--font-gimnasio", fuente.css_family);
         }
       });
+    }
+
+    var bloqueImagen = document.getElementById("bloque-fondo-imagen");
+    var bloqueDoodle = document.getElementById("bloque-fondo-doodle");
+
+    function toggleBloquesFondo(tipo) {
+      if (bloqueImagen) bloqueImagen.hidden = tipo !== "imagen";
+      if (bloqueDoodle) bloqueDoodle.hidden = tipo !== "doodle";
+    }
+
+    document.querySelectorAll('input[name="fondo_tipo"]').forEach(function (radio) {
+      radio.addEventListener("change", function () {
+        if (!radio.checked) return;
+        toggleBloquesFondo(radio.value);
+        ventana.dataset.fondo = radio.value;
+      });
+    });
+
+    var fondoImagenInput = document.getElementById("id_fondo_imagen");
+    if (fondoImagenInput) {
+      fondoImagenInput.addEventListener("change", function () {
+        var archivo = fondoImagenInput.files && fondoImagenInput.files[0];
+        if (!archivo) return;
+        ventana.style.setProperty(
+          "--preview-fondo-imagen",
+          'url("' + URL.createObjectURL(archivo) + '")'
+        );
+      });
+    }
+
+    document.querySelectorAll('input[name="fondo_doodle"]').forEach(function (radio) {
+      radio.addEventListener("change", function () {
+        if (!radio.checked || !doodleSvgs[radio.value]) return;
+        ventana.style.setProperty(
+          "--preview-doodle-url",
+          'url("' + doodleSvgs[radio.value] + '")'
+        );
+      });
+    });
+
+    // Estado inicial (edición de un gimnasio ya guardado, o alta con default "color").
+    var tipoInicial = document.querySelector('input[name="fondo_tipo"]:checked');
+    if (tipoInicial) {
+      toggleBloquesFondo(tipoInicial.value);
+      ventana.dataset.fondo = tipoInicial.value;
+    }
+    var doodleInicial = document.querySelector('input[name="fondo_doodle"]:checked');
+    if (doodleInicial && doodleSvgs[doodleInicial.value]) {
+      ventana.style.setProperty("--preview-doodle-url", 'url("' + doodleSvgs[doodleInicial.value] + '")');
+    }
+    // Sin esto, abrir la pantalla con una imagen ya guardada mostraba el tinte
+    // plano solo (--preview-fondo-imagen caía a su fallback `none`), como si no
+    // hubiera imagen cargada.
+    if (fondoImagenGuardada) {
+      ventana.style.setProperty("--preview-fondo-imagen", 'url("' + fondoImagenGuardada + '")');
     }
 
     var logo = document.getElementById("id_logo");

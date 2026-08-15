@@ -12,8 +12,29 @@ se agregaron en Fase 1, según el modelo de datos del ROADMAP.
 
 from django.conf import settings
 from django.db import models
+from django.templatetags.static import static
 
 from core.models import TenantOwnedModel, TimeStampedModel
+
+
+def doodle_static_url(doodle):
+    """URL del SVG de un doodle, o "" si no hay doodle o el archivo no existe.
+
+    El fallback NO es paranoia: el doodle se resuelve en `base.html`, que se
+    renderiza en TODA página autenticada. Fuera de DEBUG los estáticos los
+    sirve `CompressedManifestStaticFilesStorage`, y un `{% static %}` sin
+    entrada en el manifest levanta `ValueError` -- o sea que un gimnasio con
+    un `fondo_doodle` cuyo archivo no se desplegó (o se renombró después, sin
+    migración de datos) vería un 500 en todo el sitio, incluida
+    `gimnasio_editar`, que es la única pantalla donde podría corregirlo. Un
+    doodle que no se ve es mucho mejor que un tenant encerrado afuera.
+    """
+    if not doodle:
+        return ""
+    try:
+        return static(f"img/doodles/{doodle}.svg")
+    except ValueError:
+        return ""
 
 
 class Gimnasio(TimeStampedModel):
@@ -87,6 +108,17 @@ class Gimnasio(TimeStampedModel):
         Paleta.PIZARRA: {"fondo": "#f0f1f3", "primario": "#33475b", "secundario": "#5b8c5a"},
     }
 
+    class FondoTipo(models.TextChoices):
+        COLOR = "color", "Paisaje de color"
+        IMAGEN = "imagen", "Imagen propia"
+        DOODLE = "doodle", "Doodle temático"
+
+    class Doodle(models.TextChoices):
+        MANCUERNAS = "mancuernas", "Mancuernas"
+        SOGAS = "sogas", "Sogas de battle rope"
+        DISCOS = "discos", "Discos apilados"
+        KETTLEBELL = "kettlebell", "Kettlebells"
+
     logo = models.ImageField(upload_to="logos/", blank=True)
     paleta = models.CharField(
         max_length=20,
@@ -94,6 +126,18 @@ class Gimnasio(TimeStampedModel):
         default=Paleta.BOSQUE,
         help_text="Paleta de colores del panel y del portal del alumno.",
     )
+    #: El fondo (canvas atmosférico / imagen propia / doodle) es independiente
+    #: de `paleta`: primario/secundario para botones y acentos SIEMPRE vienen
+    #: de `paleta`, sin importar `fondo_tipo` -- evita combinaciones
+    #: ilegibles de imagen/doodle + acento no armonizado.
+    fondo_tipo = models.CharField(
+        max_length=10,
+        choices=FondoTipo.choices,
+        default=FondoTipo.COLOR,
+        help_text="Qué se ve detrás del contenido: paisaje de color, una imagen propia, o un doodle temático.",
+    )
+    fondo_imagen = models.ImageField(upload_to="fondos/", blank=True)
+    fondo_doodle = models.CharField(max_length=20, choices=Doodle.choices, blank=True)
     tipografia = models.CharField(
         max_length=20,
         choices=Tipografia.choices,
@@ -112,6 +156,16 @@ class Gimnasio(TimeStampedModel):
 
     def __str__(self):
         return self.nombre
+
+    @property
+    def fondo_doodle_url(self):
+        """URL del doodle elegido (vacía si no hay o si falta el archivo).
+
+        Las plantillas la usan como condición además de como valor: si es ""
+        no entran a la rama de doodle y cae el canvas de color de siempre.
+        Ver `doodle_static_url` para por qué puede venir vacía.
+        """
+        return doodle_static_url(self.fondo_doodle)
 
     @property
     def tipografia_css_family(self):

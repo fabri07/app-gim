@@ -1,6 +1,52 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}{{ gimnasio.nombre }}{% endblock %}
 {% block main_class %}{% endblock %}
+
+{% block extra_style %}
+  {% if gimnasio.fondo_tipo == "imagen" and gimnasio.fondo_imagen %}
+    <style>
+      .landing {
+        background-image:
+          linear-gradient(color-mix(in oklab, var(--color-fondo) 55%, transparent), color-mix(in oklab, var(--color-fondo) 55%, transparent)),
+          {% comment %}
+          |safe: ver el comentario largo en base.html -- sin esto el "&" de la
+          URL firmada de R2 sale como entidad HTML dentro de <style> (raw text,
+          sin decodificación de entidades) y la firma llega rota.
+          {% endcomment %}
+          url("{{ gimnasio.fondo_imagen.url|safe }}");
+        background-size: cover;
+        background-position: center;
+        background-attachment: scroll;
+      }
+    </style>
+  {% elif gimnasio.fondo_tipo == "doodle" and gimnasio.fondo_doodle_url %}
+    <style>
+      /* isolation:isolate -- a diferencia de body (cuyo fondo se propaga al
+         "canvas" y pinta primero, por especificación), .landing es un div
+         normal: sin esto, su propio background-color sólido pintaría ENCIMA
+         del ::before con z-index:-1 (ambos compiten en el stacking context
+         raíz), tapando el doodle por completo. isolation:isolate fuerza a
+         .landing a formar su propio stacking context, así su fondo pinta
+         primero, el ::before queda en el medio, y el contenido arriba de
+         todo -- sin efectos secundarios de posicionamiento. */
+      .landing { background-image: none; isolation: isolate; }
+      .landing::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background-color: color-mix(in oklab, var(--color-secundario) 22%, transparent);
+        -webkit-mask-image: url("{{ gimnasio.fondo_doodle_url }}");
+        mask-image: url("{{ gimnasio.fondo_doodle_url }}");
+        -webkit-mask-repeat: repeat;
+        mask-repeat: repeat;
+        -webkit-mask-size: 300px;
+        mask-size: 300px;
+      }
+    </style>
+  {% endif %}
+{% endblock %}
 
 {% block content %}
 <div class="landing" style="--color-fondo: {{ gimnasio.color_fondo_css }}; --color-primario: {{ gimnasio.color_primario_css }}; --color-secundario: {{ gimnasio.color_secundario_css }}; font-family: {{ gimnasio.tipografia_css_family|safe }};">

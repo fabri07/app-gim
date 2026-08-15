@@ -338,6 +338,92 @@
     @apply text-sm text-red-600 -mt-2 mb-3;
   }
 
+  /* Selector de fondo (Fondo personalizable): 3 modos como píldoras -- radio
+     real oculto, el estado marcado se ve con :has() sobre el label. */
+  .selector-fondo-tipo {
+    @apply flex flex-wrap gap-2 mb-1 border-0 p-0;
+  }
+
+  .selector-fondo-tipo__opcion {
+    @apply flex items-center gap-2 rounded-full border border-gray-200 px-3
+      py-1.5 text-sm cursor-pointer;
+  }
+
+  .selector-fondo-tipo__opcion:has(input:checked) {
+    @apply border-gray-900 bg-gray-50 font-medium;
+  }
+
+  .selector-fondo-tipo__opcion input {
+    @apply accent-gray-900;
+  }
+
+  .config-fondo-imagen,
+  .config-fondo-doodle {
+    @apply mt-3 border-0 p-0;
+  }
+
+  .selector-doodle-grilla {
+    @apply grid grid-cols-2 sm:grid-cols-4 gap-3 mt-2;
+  }
+
+  .selector-doodle-opcion {
+    @apply relative flex flex-col items-center gap-1.5 cursor-pointer;
+  }
+
+  /* opacity:0 (no display:none) para que el radio siga siendo enfocable
+     por teclado -- el estado :checked se refleja vía combinador de
+     hermanos "~" sobre la miniatura y la etiqueta. */
+  .selector-doodle-opcion input {
+    @apply absolute opacity-0 w-0 h-0;
+  }
+
+  /* La miniatura es una muestra: el recuadro lleva el fondo del paisaje y la
+     "tinta" del doodle va en un ::after. La máscara NO puede ir en el
+     elemento mismo -- enmascara también su borde y su background, así que el
+     swatch pierde el recuadro y quedan figuras flotando en el aire. */
+  .selector-doodle-miniatura {
+    @apply relative block w-full aspect-square rounded-xl border-2
+      border-gray-200 overflow-hidden;
+    background-color: var(--color-fondo);
+  }
+
+  .selector-doodle-miniatura::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    /* Mismo mecanismo que el fondo real (body::before en base.html): un único
+       SVG monocromo por doodle, "pintado" acá con --color-secundario en vez de
+       necesitar una miniatura pre-coloreada por doodle. Va más saturado que el
+       22% del fondo real a propósito: en un chip de ~90px el 22% es casi
+       invisible y el dueño no distinguiría un doodle de otro. */
+    background-color: color-mix(in oklab, var(--color-secundario) 55%, transparent);
+    -webkit-mask-image: var(--doodle-url);
+    mask-image: var(--doodle-url);
+    -webkit-mask-repeat: repeat;
+    mask-repeat: repeat;
+    /* 130px, elegido comparando 100/130/160/190 sobre un chip de ~100px: se
+       ven ~6 figuras lo bastante grandes para distinguir mancuerna de disco de
+       kettlebell, y el chip todavía se lee como muestra de un patrón. Más
+       grande (160+) deja cuadrantes vacíos y deja de representar el fondo; a
+       28px (lo que había) cada figura medía ~4px y el chip era un manchón de
+       puntitos. A la escala del fondo real (300px) no entraría ni una figura
+       entera. */
+    -webkit-mask-size: 130px;
+    mask-size: 130px;
+  }
+
+  .selector-doodle-opcion input:checked ~ .selector-doodle-miniatura {
+    @apply border-gray-900;
+  }
+
+  .selector-doodle-etiqueta {
+    @apply text-xs text-gray-500 text-center;
+  }
+
+  .selector-doodle-opcion input:checked ~ .selector-doodle-etiqueta {
+    @apply text-gray-900 font-medium;
+  }
+
   .config-preview {
     @apply sticky top-20;
   }
@@ -347,8 +433,53 @@
   }
 
   .config-preview__ventana {
-    @apply rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden
+    @apply relative rounded-2xl border border-gray-200 shadow-sm overflow-hidden
       font-[family-name:var(--font-gimnasio)];
+    background-color: var(--color-fondo);
+    background-image:
+      radial-gradient(ellipse 70% 55% at 10% -10%, color-mix(in oklab, var(--color-primario) 16%, transparent), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 15%, color-mix(in oklab, var(--color-secundario) 14%, transparent), transparent 65%);
+    background-repeat: no-repeat;
+  }
+
+  /* Los 3 modos de fondo en el preview en vivo (gimnasio_form.html): el
+     server no tiene contexto acá una vez que el JS toma el control, así
+     que se gatea por data-fondo (seteado por el propio JS), no por un
+     condicional Django como en base.html/landing.html. */
+  .config-preview__ventana[data-fondo="imagen"] {
+    background-image:
+      linear-gradient(color-mix(in oklab, var(--color-fondo) 55%, transparent), color-mix(in oklab, var(--color-fondo) 55%, transparent)),
+      var(--preview-fondo-imagen, none);
+    background-size: cover;
+    background-position: center;
+  }
+
+  /* isolation:isolate por el mismo motivo que .landing (ver el comentario
+     largo en landing.html): la ventana del preview es un div normal con
+     background-color propio y opaco, y su ::before con z-index:-1 competiría
+     en el stacking context de .config-preview (que es position:sticky, o sea
+     que SÍ forma uno). Sin aislar, el fondo de la ventana pinta ENCIMA del
+     doodle y el dueño ve un color plano al elegir "Doodle temático". */
+  .config-preview__ventana[data-fondo="doodle"] {
+    background-image: none;
+    isolation: isolate;
+  }
+
+  .config-preview__ventana[data-fondo="doodle"]::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-color: color-mix(in oklab, var(--color-secundario) 22%, transparent);
+    -webkit-mask-image: var(--preview-doodle-url, none);
+    mask-image: var(--preview-doodle-url, none);
+    -webkit-mask-repeat: repeat;
+    mask-repeat: repeat;
+    /* Mitad del fondo real (300px): la ventana del preview representa la
+       pantalla del alumno a escala reducida, así que el patrón se achica en
+       la misma proporción. */
+    -webkit-mask-size: 150px;
+    mask-size: 150px;
   }
 
   .config-preview__chrome {

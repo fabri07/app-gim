@@ -325,10 +325,38 @@ componente nuevo necesita distinguirse, se hace con borde o con fondo, no
 agregando una sombra más fuerte.
 
 **The Atmospheric Canvas Rule.** El canvas de fondo (`body`, `.landing`)
-siempre lleva la atmósfera de blobs radiales del paisaje activo — nunca un
-`background-color` sólido y liso. Un componente nuevo no agrega su propio
-degradé de fondo: la atmósfera vive en un solo lugar (`body`/`.landing` en
-`styles/input.css`), no se repite por sección.
+nunca es un `background-color` sólido y liso: siempre lleva atmósfera. Desde
+"Fondo personalizable" (2026-08-14) esa atmósfera tiene **tres variantes**, y
+el dueño elige cuál con `Gimnasio.fondo_tipo`:
+
+- **`color`** (default): los 3 blobs radiales del paisaje activo. Es lo que
+  ve todo gimnasio que no eligió otra cosa.
+- **`imagen`**: la foto propia del gimnasio, con un velo de `--color-fondo` al
+  55% encima para que `.tarjeta`/`.tabla` sigan legibles.
+- **`doodle`**: un patrón de uno de los 4 doodles curados, tileado a 300px y
+  teñido con `--color-secundario` al 22%.
+
+Las tres viven en un solo lugar (`body`/`.landing`, definido en
+`styles/input.css` y sobreescrito por request en `base.html`/`landing.html`):
+un componente nuevo no agrega su propio degradé ni su propia imagen de fondo,
+y la atmósfera no se repite por sección.
+
+Dos invariantes que valen para las tres variantes:
+
+- **Los acentos no se personalizan con el fondo.** `--color-primario`/
+  `--color-secundario` salen SIEMPRE de `paleta`, sin importar `fondo_tipo`.
+  Una imagen propia no aporta color de marca: evita combinaciones
+  imagen+acento no armonizadas. Es la misma lógica que The Landscape Rule.
+- **Nunca `background-attachment: fixed`**, en ninguna de las tres — jank
+  conocido en mobile Safari, y el portal del alumno es mobile-first.
+
+El doodle se pinta en un pseudo-elemento con `mask-image` (un SVG monocromo
+por doodle, "entintado" con `background-color`), no como imagen coloreada:
+así el mismo archivo estático sirve para cualquier paisaje. Cuando ese
+pseudo-elemento vive dentro de un contenedor con fondo propio —`.landing`, la
+ventana del preview— el contenedor necesita `isolation: isolate`, si no su
+`background-color` pinta ENCIMA del `z-index: -1` y el doodle no se ve.
+(`body` no lo necesita: su fondo se propaga al canvas y pinta primero.)
 
 ## Shapes
 
