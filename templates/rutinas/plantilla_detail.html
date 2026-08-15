@@ -46,6 +46,7 @@
           <th>Ejercicio</th>
           <th>Series</th>
           <th>Repeticiones</th>
+          <th>Kilos</th>
           <th>Descanso</th>
           <th>Notas</th>
           <th></th>
@@ -60,6 +61,7 @@
             <td>{{ item.ejercicio.nombre }}</td>
             <td>{{ item.series }}</td>
             <td>{{ item.repeticiones }}</td>
+            <td>{{ item.kilos|default:"—" }}</td>
             <td>{{ item.descanso|default:"—" }}</td>
             <td>{{ item.notas|default:"—" }}</td>
             <td>
@@ -73,7 +75,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="9" class="texto-suave">Esta plantilla todavía no tiene ejercicios.</td>
+            <td colspan="10" class="texto-suave">Esta plantilla todavía no tiene ejercicios.</td>
           </tr>
         {% endfor %}
       </tbody>

@@ -302,10 +302,31 @@
     @apply flex flex-wrap gap-2 mt-3;
   }
 
-  /* Tarjeta de una semana en la vista de día del alumno. Mismo criterio de
-     color que .turno--mio: verde de estado, no de marca, para "ya lo hice". */
-  .rutina-semana--completada {
-    @apply bg-green-50 border-green-200;
+  /* Resumen de semanas (día del alumno, rediseño agrupado por grupo
+     muscular): tarjetas chicas en fila, una por semana del ciclo. */
+  .rutina-semanas-resumen {
+    @apply flex flex-wrap gap-3;
+  }
+
+  .rutina-semana-resumen {
+    @apply flex flex-col items-start gap-1 rounded-lg border
+      border-gray-200 bg-gray-50 px-3 py-2 text-sm;
+  }
+
+  .rutina-semana-resumen--actual {
+    @apply border-amber-300 bg-amber-50;
+  }
+
+  /* La tabla de 4 semanas por ejercicio es ancha (Ejercicio + Video + 4
+     columnas de semana) -- en mobile (portal del alumno, mobile-first) no
+     entra sin desbordar. Mismo criterio que el heatmap de asistencia del
+     dashboard (overflow-x-auto). */
+  .tabla-ancha-scroll {
+    @apply overflow-x-auto;
+  }
+
+  .rutina-semana-columna--actual {
+    @apply bg-amber-50;
   }
 
   /* Personalización de gimnasio (white-label): form + preview en vivo */

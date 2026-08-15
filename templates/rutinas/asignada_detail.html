@@ -7,7 +7,7 @@
   <div class="acciones-lista">
     <h1>{{ asignada.nombre_snapshot }}</h1>
     <div class="flex gap-2">
-      <a class="boton-secundario" href="{% url 'rutinas:asignada_pdf' asignada.pk %}">Descargar PDF</a>
+      <a class="boton-secundario" hx-boost="false" href="{% url 'rutinas:asignada_pdf' asignada.pk %}">Descargar PDF</a>
       <a class="boton-secundario" href="{% url 'rutinas:plantilla_listado' %}">Volver a plantillas</a>
     </div>
   </div>
@@ -39,6 +39,7 @@
           <th>Ejercicio</th>
           <th>Series</th>
           <th>Repeticiones</th>
+          <th>Kilos</th>
           <th>Descanso</th>
           <th>Notas</th>
           <th>Video</th>
@@ -54,6 +55,7 @@
             <td>{{ item.ejercicio_nombre_snapshot }}</td>
             <td>{{ item.series }}</td>
             <td>{{ item.repeticiones }}</td>
+            <td>{{ item.kilos|default:"—" }}</td>
             <td>{{ item.descanso|default:"—" }}</td>
             <td>{{ item.notas|default:"—" }}</td>
             <td>
@@ -73,7 +75,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="10" class="texto-suave">Esta rutina no tiene ejercicios.</td>
+            <td colspan="11" class="texto-suave">Esta rutina no tiene ejercicios.</td>
           </tr>
         {% endfor %}
       </tbody>

@@ -8,77 +8,95 @@
     <h1>Día {{ dia }}</h1>
     <a class="boton-secundario" href="{% url 'home' %}">Volver a mi rutina</a>
   </div>
-  <p class="texto-suave">
-    {{ rutina_actual.nombre_snapshot }} · Estás en la semana {{ rutina_actual.semana_actual }} de 4
-  </p>
+  <p class="texto-suave">{{ rutina_actual.nombre_snapshot }}</p>
 
-  {% for semana in semanas %}
-    <div class="tarjeta rutina-semana{% if semana.completada %} rutina-semana--completada{% endif %}">
-      <div class="acciones-lista">
-        <h2>
-          Semana {{ semana.numero }}
-          {% if semana.es_actual %}<span class="badge badge--alerta">Actual</span>{% endif %}
+  <div class="tarjeta">
+    <h2>Semanas</h2>
+    <div class="rutina-semanas-resumen">
+      {% for semana in semanas_meta %}
+        <div class="rutina-semana-resumen{% if semana.es_actual %} rutina-semana-resumen--actual{% endif %}">
+          <strong>
+            Semana {{ semana.numero }}
+            {% if semana.es_actual %}<span class="badge badge--alerta">Actual</span>{% endif %}
+          </strong>
           {% if semana.completada %}<span class="badge badge--ok">✓ Entrenado</span>{% endif %}
-        </h2>
-        {% if semana.items %}
-          <form method="post" action="{% url 'rutinas:dia_completado_toggle' dia semana.numero %}">
-            {% csrf_token %}
-            {% if semana.completada %}
-              <button type="submit" class="boton-secundario">Desmarcar</button>
-            {% else %}
-              <button type="submit" class="boton">Marcar como entrenado</button>
-            {% endif %}
-          </form>
-        {% endif %}
-      </div>
-
-      {% if semana.items %}
-        <table class="tabla">
-          <thead>
-            <tr>
-              <th>Ejercicio</th>
-              <th>Series</th>
-              <th>Repeticiones</th>
-              <th>Descanso</th>
-              <th>Notas</th>
-              <th>Video</th>
-              <th>RPE</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for item in semana.items %}
-              <tr>
-                <td>{{ item.ejercicio_nombre_snapshot }}</td>
-                <td>{{ item.series }}</td>
-                <td>{{ item.repeticiones }}</td>
-                <td>{{ item.descanso|default:"—" }}</td>
-                <td>{{ item.notas|default:"—" }}</td>
-                <td>
-                  {% if item.ejercicio_video_snapshot %}
-                    <a href="{{ item.ejercicio_video_snapshot }}" target="_blank" rel="noopener">Ver video</a>
-                  {% else %}
-                    <span class="texto-suave">Sin video</span>
-                  {% endif %}
-                </td>
-                <td>
-                  <form method="post" action="{% url 'rutinas:item_calificar' item.pk %}">
-                    {% csrf_token %}
-                    <select name="rpe" onchange="this.form.submit()" aria-label="Calificar intensidad de {{ item.ejercicio_nombre_snapshot }}">
-                      <option value="" {% if not item.rpe %}selected{% endif %}>Sin calificar</option>
-                      {% for valor, etiqueta in rpe_choices %}
-                        <option value="{{ valor }}" {% if item.rpe == valor %}selected{% endif %}>{{ etiqueta }}</option>
-                      {% endfor %}
-                    </select>
-                  </form>
-                </td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <p class="texto-suave">Sin ejercicios cargados para este día en esta semana.</p>
-      {% endif %}
+          {% if semana.tiene_items %}
+            <form method="post" action="{% url 'rutinas:dia_completado_toggle' dia semana.numero %}">
+              {% csrf_token %}
+              {% if semana.completada %}
+                <button type="submit" class="boton-secundario">Desmarcar</button>
+              {% else %}
+                <button type="submit" class="boton">Marcar como entrenado</button>
+              {% endif %}
+            </form>
+          {% else %}
+            <span class="texto-suave">Sin ejercicios esta semana</span>
+          {% endif %}
+        </div>
+      {% endfor %}
     </div>
-  {% endfor %}
+  </div>
+
+  {% if grupos %}
+    {% for grupo in grupos %}
+      <div class="tarjeta">
+        <h2>{{ grupo.grupo_muscular_display }}</h2>
+        <div class="tabla-ancha-scroll">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th>Ejercicio</th>
+                <th>Video</th>
+                {% for semana in semanas_meta %}
+                  <th{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>
+                    Semana {{ semana.numero }}{% if semana.es_actual %} <span class="badge badge--alerta">Actual</span>{% endif %}
+                  </th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for ejercicio in grupo.ejercicios %}
+                <tr>
+                  <td>{{ ejercicio.nombre }}</td>
+                  <td>
+                    {% if ejercicio.video %}
+                      <a href="{{ ejercicio.video }}" target="_blank" rel="noopener">Ver video</a>
+                    {% else %}
+                      <span class="texto-suave">Sin video</span>
+                    {% endif %}
+                  </td>
+                  {% for semana in ejercicio.semanas %}
+                    <td{% if semana.numero == rutina_actual.semana_actual %} class="rutina-semana-columna--actual"{% endif %}>
+                      {% if semana.item %}
+                        <p>
+                          {{ semana.item.series }}x{{ semana.item.repeticiones }}{% if semana.item.kilos %} · {{ semana.item.kilos }}{% endif %}
+                          {% if semana.item.rpe %}<span class="badge badge--ok" title="{{ semana.item.get_rpe_display }}">✓ Hecho</span>{% endif %}
+                        </p>
+                        {% if semana.item.descanso %}<p class="texto-suave">Descanso: {{ semana.item.descanso }}</p>{% endif %}
+                        {% if semana.item.notas %}<p class="texto-suave">{{ semana.item.notas }}</p>{% endif %}
+                        <form method="post" action="{% url 'rutinas:item_calificar' semana.item.pk %}">
+                          {% csrf_token %}
+                          <select name="rpe" onchange="this.form.submit()" aria-label="Calificar intensidad de {{ ejercicio.nombre }}, semana {{ semana.numero }}">
+                            <option value="" {% if not semana.item.rpe %}selected{% endif %}>Sin calificar</option>
+                            {% for valor, etiqueta in rpe_choices %}
+                              <option value="{{ valor }}" {% if semana.item.rpe == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                            {% endfor %}
+                          </select>
+                        </form>
+                      {% else %}
+                        <span class="texto-suave">—</span>
+                      {% endif %}
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p class="texto-suave">Todavía no hay ejercicios cargados para este día.</p>
+  {% endif %}
 </div>
 {% endblock %}

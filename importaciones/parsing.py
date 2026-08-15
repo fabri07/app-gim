@@ -20,6 +20,7 @@ ALIAS_PLANTILLA = {
     "ejercicio": ["ejercicio", "ejercicios", "exercise", "movimiento"],
     "series": ["series", "serie", "sets"],
     "repeticiones": ["repeticiones", "reps", "repes", "rep"],
+    "kilos": ["kilos", "kilogramos", "carga", "peso", "kg"],
     "descanso": ["descanso", "pausa", "rest"],
     "notas": ["notas", "nota", "observaciones", "comentarios"],
 }
@@ -74,6 +75,7 @@ class ItemParseado:
     ejercicio_original: str
     series: int
     repeticiones: str
+    kilos: str
     descanso: str
     notas: str
 
@@ -187,6 +189,7 @@ def leer_hoja_plantilla(ws):
         clave_orden = (semana, dia)
         contador_orden[clave_orden] = contador_orden.get(clave_orden, 0) + 1
 
+        kilos = valores[campos["kilos"]] if "kilos" in campos else None
         descanso = valores[campos["descanso"]] if "descanso" in campos else None
         notas = valores[campos["notas"]] if "notas" in campos else None
 
@@ -197,6 +200,7 @@ def leer_hoja_plantilla(ws):
             ejercicio_original=str(ejercicio).strip(),
             series=series,
             repeticiones=str(repeticiones).strip(),
+            kilos=str(kilos).strip() if kilos else "",
             descanso=str(descanso).strip() if descanso else "",
             notas=str(notas).strip() if notas else "",
         ))

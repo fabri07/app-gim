@@ -25,6 +25,7 @@ from django.views.generic import CreateView, DetailView, FormView, ListView, Upd
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
+from rutinas.agrupacion import agrupar_items_por_grupo_muscular
 from rutinas.forms import AsignarRutinaForm, RutinaPlantillaForm, RutinaPlantillaItemForm
 from rutinas.models import (
     SEMANAS_POR_CICLO,
@@ -308,25 +309,29 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
         if dia not in set(rutina_actual.items.values_list("dia", flat=True)):
             raise Http404
 
-        items_por_semana = {semana: [] for semana in range(1, SEMANAS_POR_CICLO + 1)}
-        for item in rutina_actual.items.filter(dia=dia):
-            items_por_semana[item.semana].append(item)
-
         semanas_completadas = set(
             rutina_actual.dias_completados.filter(dia=dia).values_list(
                 "semana", flat=True
             )
         )
+        semanas_con_items = set(
+            rutina_actual.items.filter(dia=dia).values_list("semana", flat=True)
+        )
 
-        semanas = [
+        semanas_meta = [
             {
                 "numero": semana,
-                "items": items,
                 "completada": semana in semanas_completadas,
                 "es_actual": semana == rutina_actual.semana_actual,
+                "tiene_items": semana in semanas_con_items,
             }
-            for semana, items in items_por_semana.items()
+            for semana in range(1, SEMANAS_POR_CICLO + 1)
         ]
+
+        grupos = agrupar_items_por_grupo_muscular(
+            rutina_actual.items.filter(dia=dia),
+            semanas=[s["numero"] for s in semanas_meta],
+        )
 
         return render(
             request,
@@ -334,7 +339,8 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
             {
                 "rutina_actual": rutina_actual,
                 "dia": dia,
-                "semanas": semanas,
+                "semanas_meta": semanas_meta,
+                "grupos": grupos,
                 "rpe_choices": RutinaAsignadaItem.RPE.choices,
             },
         )
@@ -343,7 +349,13 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
 class RutinaAsignadaDiaCompletadoToggleView(AlumnoRequiredMixin, View):
     """El alumno marca (o desmarca) como entrenado un día de una semana
     puntual del ciclo. Toggle y no solo "marcar": un click de más no debe
-    dejar al alumno sin forma de deshacerlo."""
+    dejar al alumno sin forma de deshacerlo.
+
+    El chequeo de existencia es por `dia` Y `semana` (no solo `dia`): una
+    semana del ciclo sin ningún ejercicio cargado para este día no debe
+    poder marcarse como entrenada, aunque el día sí tenga ejercicios en
+    otras semanas -- mismo criterio 404 que el resto de las vistas del
+    alumno (`RutinaMiDiaDetailView`, `RutinaAsignadaItemCalificarView`)."""
 
     http_method_names = ["post"]
 
@@ -353,7 +365,9 @@ class RutinaAsignadaDiaCompletadoToggleView(AlumnoRequiredMixin, View):
         dia = kwargs["dia"]
         semana = kwargs["semana"]
         rutina_actual = self.alumno.rutinas_asignadas.filter(activa=True).first()
-        if rutina_actual is None or not rutina_actual.items.filter(dia=dia).exists():
+        if rutina_actual is None or not rutina_actual.items.filter(
+            dia=dia, semana=semana
+        ).exists():
             raise Http404
 
         borrados, _ = RutinaAsignadaDiaCompletado.objects.filter(

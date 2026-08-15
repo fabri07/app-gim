@@ -28,6 +28,7 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from core.models import TenantOwnedModel, TimeStampedModel
+from ejercicios.models import Ejercicio
 
 SEMANAS_POR_CICLO = 4
 
@@ -90,6 +91,7 @@ class RutinaPlantilla(TenantOwnedModel):
                         orden=item.orden,
                         series=item.series,
                         repeticiones=item.repeticiones,
+                        kilos=item.kilos,
                         descanso=item.descanso,
                         notas=item.notas,
                     )
@@ -130,6 +132,11 @@ class RutinaPlantillaItem(TimeStampedModel):
     repeticiones = models.CharField(
         max_length=20,
         help_text='Notación libre: "10", "8-12", "AMRAP", etc.',
+    )
+    kilos = models.CharField(
+        max_length=30,
+        blank=True,
+        help_text='Notación libre: "20kg", "corporal", "15kg c/u", etc.',
     )
     descanso = models.CharField(
         max_length=30, blank=True, help_text='Ej: "60s", "2 min".'
@@ -209,11 +216,13 @@ class RutinaAsignada(TenantOwnedModel):
                         rutina_asignada=asignada,
                         ejercicio_nombre_snapshot=item.ejercicio.nombre,
                         ejercicio_video_snapshot=item.ejercicio.url_video,
+                        grupo_muscular_snapshot=item.ejercicio.grupo_muscular,
                         semana=item.semana,
                         dia=item.dia,
                         orden=item.orden,
                         series=item.series,
                         repeticiones=item.repeticiones,
+                        kilos=item.kilos,
                         descanso=item.descanso,
                         notas=item.notas,
                     )
@@ -256,6 +265,17 @@ class RutinaAsignadaItem(TimeStampedModel):
     )
     ejercicio_nombre_snapshot = models.CharField(max_length=120)
     ejercicio_video_snapshot = models.URLField(blank=True)
+    grupo_muscular_snapshot = models.CharField(
+        max_length=20,
+        choices=Ejercicio.GrupoMuscular.choices,
+        blank=True,
+        help_text="Copiado de Ejercicio.grupo_muscular al momento de "
+        "asignar la rutina, para poder agrupar la vista del alumno y el "
+        "PDF sin depender de una FK viva. Vacío en asignaciones creadas "
+        "antes de este campo (no se puede reconstruir retroactivo con "
+        "confianza) -- ver rutinas/agrupacion.py, que bucketea esos casos "
+        "bajo 'Sin grupo muscular' en vez de romper.",
+    )
     rpe = models.CharField(
         max_length=20,
         choices=RPE.choices,
@@ -275,6 +295,11 @@ class RutinaAsignadaItem(TimeStampedModel):
     orden = models.PositiveSmallIntegerField(help_text="Orden dentro del día.")
     series = models.PositiveSmallIntegerField()
     repeticiones = models.CharField(max_length=20)
+    kilos = models.CharField(
+        max_length=30,
+        blank=True,
+        help_text='Notación libre: "20kg", "corporal", "15kg c/u", etc.',
+    )
     descanso = models.CharField(max_length=30, blank=True)
     notas = models.TextField(blank=True)
 

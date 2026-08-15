@@ -37,6 +37,7 @@ class RutinaPlantillaItemForm(TenantScopedModelForm):
             "orden",
             "series",
             "repeticiones",
+            "kilos",
             "descanso",
             "notas",
         ]

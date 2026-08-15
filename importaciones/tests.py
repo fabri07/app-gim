@@ -164,10 +164,24 @@ class LeerHojaPlantillaTests(SimpleTestCase):
         self.assertEqual(len(hoja.items), 2)
         self.assertEqual(hoja.items[0], ItemParseado(
             semana=1, dia=1, orden=1, ejercicio_original="Press de banca",
-            series=4, repeticiones="8-12", descanso="90s", notas="",
+            series=4, repeticiones="8-12", kilos="", descanso="90s", notas="",
         ))
         self.assertEqual(hoja.items[1].orden, 2)  # segundo item del mismo (semana, dia)
         self.assertEqual(hoja.filas_invalidas, [])
+
+    def test_lee_columna_carga_como_kilos(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones", "Carga"])
+        ws.append([1, "Sentadilla", 4, "8-12", "20kg"])
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(hoja.items[0].kilos, "20kg")
+
+    def test_sin_columna_carga_kilos_queda_vacio(self):
+        """La columna es opcional -- una hoja sin ella sigue importando
+        igual que antes, solo que `kilos` queda "" ."""
+        hoja = leer_hoja_plantilla(_hoja_plantilla_basica())
+        self.assertEqual(hoja.items[0].kilos, "")
 
     def test_dias_por_semana_es_el_maximo_dia_de_filas_validas(self):
         wb = openpyxl.Workbook()
@@ -631,6 +645,37 @@ class ConfirmarImportacionPlantillasTests(TestCase):
         self.assertEqual(Ejercicio.objects.count(), ejercicios_antes)
         importacion.refresh_from_db()
         self.assertEqual(importacion.estado, Importacion.Estado.EN_REVISION)
+
+
+class ConfirmarImportacionPlantillasConCargaTests(TestCase):
+    """La columna 'Carga' del Excel llega hasta `RutinaPlantillaItem.kilos`
+    de punta a punta (parsing -> JSON del preview -> confirm)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user(username="staff", password="clave12345")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Hombres"
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones", "Carga"])
+        ws.append([1, "Sentadilla", 4, "8-12", "20kg"])
+        self.importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+
+    def test_kilos_llega_al_item_creado(self):
+        plantillas = confirmar_importacion_plantillas(
+            importacion=self.importacion,
+            gimnasio=self.gimnasio,
+            decisiones={
+                "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
+                "ejercicios": {
+                    "sentadilla": {"accion": "crear_nuevo", "grupo_muscular": "piernas"},
+                },
+            },
+        )
+        item = plantillas[0].items.get()
+        self.assertEqual(item.kilos, "20kg")
 
 
 class ImportacionBibliotecaTests(TestCase):

@@ -226,6 +226,7 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
                     orden=item["orden"],
                     series=item["series"],
                     repeticiones=item["repeticiones"],
+                    kilos=item["kilos"],
                     descanso=item["descanso"],
                     notas=item["notas"],
                 )

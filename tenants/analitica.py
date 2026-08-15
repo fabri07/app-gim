@@ -11,6 +11,8 @@ sin pasar por toda la vista.
 from django.db.models import Count
 from django.db.models.functions import ExtractHour, ExtractWeekDay
 
+from core.catalogos import orden_con_bucket_vacio
+
 # `ExtractWeekDay` sigue la convención de Django (domingo=1 ... sábado=7),
 # no la de Python (`date.weekday()`). Se reordena acá a lunes..domingo, que
 # es como un dueño de gimnasio piensa la semana.
@@ -93,12 +95,7 @@ def distribucion_por_genero(gimnasio):
 
     etiquetas = dict(Alumno.Sexo.choices)
     etiquetas[""] = "No informado"
-    orden = [
-        Alumno.Sexo.MASCULINO,
-        Alumno.Sexo.FEMENINO,
-        Alumno.Sexo.NO_DECIR,
-        "",
-    ]
+    orden = orden_con_bucket_vacio(Alumno.Sexo.choices)
     return [
         {"etiqueta": etiquetas[valor], "total": conteos.get(valor, 0)} for valor in orden
     ]
