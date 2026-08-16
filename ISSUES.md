@@ -816,3 +816,44 @@ se propaga al canvas y pinta primero, así que no lo necesita.
 **Qué NO asumir:** que lo que funciona en `body` funciona igual dentro de un
 div. Las reglas de propagación de fondo del `body` al canvas son un caso
 especial de la especificación, no el comportamiento normal.
+
+---
+
+## [2026-08-15] La grilla de turnos de 14 días se leía como "el mismo calendario duplicado"
+**Estado:** resuelto
+**Impacto:** `MisTurnosView` (alumno) y `AgendaView` (staff) mostraban 14
+días (2 semanas) desde el lunes de la semana actual en una grilla
+`lg:grid-cols-7`. Con el mismo patrón semanal repetido (mismos horarios,
+mismo orden de días) y la primera fila casi entera en gris
+(`.turno--pasado`, por ser la semana en curso ya transcurrida en parte), el
+usuario lo percibía como "veo el mismo calendario dos veces, uno gris no
+clickeable y otro funcional" — no un bug de renderizado (era una sola
+grilla en el HTML), sino un efecto de layout. El criterio de 14 días se
+había copiado de `MisTurnosView` a `AgendaView` por consistencia visual, sin
+ninguna razón de negocio propia (confirmado con `git log`, sin tests ni
+entradas de este archivo que lo exigieran).
+**Resolución:** `SemanaNavegableMixin` (`turnos/views.py`) pagina la grilla
+semana por semana vía `?semana=<offset>` (0 = actual), con `dias=7` fijo y
+navegación "← Semana anterior / Esta semana / Semana siguiente →" en las dos
+vistas. Una sola fila de 7 columnas por vez, sin el efecto "duplicado".
+**Qué NO asumir:** que alcanza con cambiar el día de inicio (ej. "desde hoy"
+en vez de "desde el lunes"). Con `dias=14` fijo, cualquier punto de partida
+sigue armando 2 filas de 7 con el mismo patrón semanal — el fix de fondo es
+mostrar una sola semana, no correr la ventana.
+
+---
+
+## [2026-08-15] El botón "Reservar" se desbordaba y tapaba la tarjeta del día siguiente
+**Estado:** resuelto
+**Impacto:** `.turno` (`styles/input.css`) era un `flex items-center
+justify-between` horizontal sin `flex-wrap`. En una columna angosta (7 por
+semana), el botón "Reservar" no se achica (mínimo de flexbox = contenido sin
+wrap) y se desbordaba tapando visualmente la tarjeta de horario del día de
+al lado.
+**Resolución:** `.turno` pasa a `flex flex-col items-stretch` (hora/cupo
+arriba, botón o badge de estado debajo, ancho completo de la tarjeta) con
+`.turno form, .turno .boton { width: 100% }`.
+**Qué NO asumir:** que reducir a una sola semana (ver entrada anterior)
+alcanza para resolver esto también. Las columnas siguen siendo angostas en
+pantallas chicas con 7 columnas de una fila; hace falta el fix de CSS
+igual.

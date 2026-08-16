@@ -1462,6 +1462,17 @@ class RutinaMiDiaDetailViewTests(TestCase):
         response = self.client.get(self._url(1))
         self.assertContains(response, "Sin grupo muscular")
 
+    def test_muestra_el_grupo_muscular_como_subtitulo_del_ejercicio(self):
+        """El grupo muscular no solo agrupa (título de sección), también se
+        muestra como subtítulo chico debajo de cada nombre de ejercicio."""
+        self.item_dia1_semana1.grupo_muscular_snapshot = "piernas"
+        self.item_dia1_semana1.save()
+        self.client.login(username="usuario_alumno", password="clave-123456")
+
+        response = self.client.get(self._url(1))
+
+        self.assertContains(response, "Piernas")
+
     def test_calificar_rpe_muestra_marca_de_hecho(self):
         self.client.login(username="usuario_alumno", password="clave-123456")
         self.item_dia1_semana1.rpe = RutinaAsignadaItem.RPE.SEGUIR_INTENSIDAD
@@ -1607,3 +1618,140 @@ class RutinaAsignadaDiaCompletadoToggleViewTests(TestCase):
                 rutina_asignada=self.asignada, dia=1, semana=2
             ).exists()
         )
+
+
+class BackfillGrupoMuscularSnapshotTests(TestCase):
+    """`0006_backfill_grupo_muscular_snapshot.py`: reconstruye
+    `grupo_muscular_snapshot` para items snapshoteados antes de que el campo
+    existiera, buscando un `Ejercicio` de biblioteca con el mismo nombre en
+    el mismo gimnasio. Se ejercita llamando la función de la migración
+    directamente contra los modelos reales (usa `apps.get_model` puro, sin
+    tocar nada específico de `django.db.migrations.state`, así que es
+    equivalente a como corre de verdad con `RunPython`)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Pérez"
+        )
+        self.asignada = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            nombre_snapshot="Full Body",
+            objetivo_snapshot="General",
+            fecha_inicio=timezone.localdate(),
+            activa=True,
+        )
+
+    def _backfill(self):
+        import importlib
+
+        from django.apps import apps
+
+        # El módulo empieza con un dígito (nombre de migración de Django) --
+        # no es un identificador Python válido para un `import` normal.
+        migracion = importlib.import_module(
+            "rutinas.migrations.0006_backfill_grupo_muscular_snapshot"
+        )
+        migracion.backfill_grupo_muscular(apps, None)
+
+    def test_matchea_por_nombre_case_insensitive_dentro_del_gimnasio(self):
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Sentadilla", grupo_muscular="piernas"
+        )
+        item = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot="sentadilla",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+
+        self._backfill()
+
+        item.refresh_from_db()
+        self.assertEqual(item.grupo_muscular_snapshot, "piernas")
+
+    def test_no_matchea_ejercicio_de_otro_gimnasio(self):
+        Ejercicio.objects.create(
+            gimnasio=self.otro_gimnasio, nombre="Sentadilla", grupo_muscular="piernas"
+        )
+        item = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot="Sentadilla",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+
+        self._backfill()
+
+        item.refresh_from_db()
+        self.assertEqual(item.grupo_muscular_snapshot, "")
+
+    def test_no_pisa_un_snapshot_ya_cargado(self):
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Sentadilla", grupo_muscular="piernas"
+        )
+        item = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot="Sentadilla",
+            grupo_muscular_snapshot="core",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+
+        self._backfill()
+
+        item.refresh_from_db()
+        self.assertEqual(item.grupo_muscular_snapshot, "core")
+
+    def test_sin_match_queda_vacio_sin_romper(self):
+        item = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot="Ejercicio que ya no existe",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+
+        self._backfill()
+
+        item.refresh_from_db()
+        self.assertEqual(item.grupo_muscular_snapshot, "")
+
+    def test_duplicados_de_nombre_desempatan_por_id_mas_chico(self):
+        """Regression: dos `Ejercicio` con el mismo nombre (case-insensitive)
+        y distinto grupo muscular en el mismo gimnasio no deben depender del
+        orden de la base -- gana siempre el de `id` más chico."""
+        mas_viejo = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Sentadilla", grupo_muscular="piernas"
+        )
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="sentadilla", grupo_muscular="core"
+        )
+        self.assertLess(mas_viejo.id, Ejercicio.objects.exclude(pk=mas_viejo.pk).get().id)
+        item = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot="Sentadilla",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+
+        self._backfill()
+
+        item.refresh_from_db()
+        self.assertEqual(item.grupo_muscular_snapshot, "piernas")

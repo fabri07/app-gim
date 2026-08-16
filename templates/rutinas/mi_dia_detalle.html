@@ -68,7 +68,10 @@
             <tbody>
               {% for ejercicio in grupo.ejercicios %}
                 <tr>
-                  <td>{{ ejercicio.nombre }}</td>
+                  <td>
+                    {{ ejercicio.nombre }}
+                    <br><span class="texto-suave text-xs">{{ grupo.grupo_muscular_display }}</span>
+                  </td>
                   <td>
                     {% if ejercicio.video %}
                       <a href="{{ ejercicio.video }}" target="_blank" rel="noopener">Ver video</a>

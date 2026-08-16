@@ -7,7 +7,14 @@
   <div class="tarjeta">
     <div class="acciones-lista">
       <h2>Agenda</h2>
-      <a href="{% url 'turnos:configuracion' %}" class="boton-secundario">Configuración</a>
+      <div class="flex gap-2">
+        <a class="boton-secundario" href="?semana={{ semana_anterior }}">&larr; Semana anterior</a>
+        {% if not es_semana_actual %}
+          <a class="boton-secundario" href="?semana=0">Esta semana</a>
+        {% endif %}
+        <a class="boton-secundario" href="?semana={{ semana_siguiente }}">Semana siguiente &rarr;</a>
+        <a href="{% url 'turnos:configuracion' %}" class="boton-secundario">Configuración</a>
+      </div>
     </div>
     <div class="grilla-turnos">
       {% for dia, filas in grilla.items %}

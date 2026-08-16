@@ -30,6 +30,15 @@ from .models import ConfiguracionTurnos, CupoExcepcion, HorarioAtencion, Reserva
 CIERRE_RESERVA = timedelta(hours=1)
 
 
+def lunes_de_semana(offset: int = 0) -> date:
+    """Lunes de la semana actual desplazada `offset` semanas (0 = esta
+    semana, negativo = anteriores, positivo = siguientes). Lógica de fechas
+    pura, sin depender del request -- la usan tanto `MisTurnosView` como
+    `AgendaView` para paginar su grilla semana por semana."""
+    hoy = timezone.localdate()
+    return hoy - timedelta(days=hoy.weekday()) + timedelta(weeks=offset)
+
+
 def _ahora_local() -> datetime:
     """'Ahora' como `datetime` NAIVE en hora local de Argentina.
 

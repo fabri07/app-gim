@@ -6,6 +6,8 @@ El alta de gimnasios NO vive acá: el registro self-serve se cerró y ahora se
 hace con `manage.py crear_gimnasio` (ver `tenants/services.py`).
 """
 
+from datetime import date
+
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
@@ -109,6 +111,9 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "mensualidad_actual": alumno.pagos.filter(
                 mes=hoy.month, anio=hoy.year
             ).first(),
+            "fecha_limite_pago": date(
+                hoy.year, hoy.month, perfil.gimnasio.dia_vencimiento_pago
+            ),
             "ultimas_novedades": Novedad.objects.for_gimnasio(perfil.gimnasio)
             .visibles()
             .para_alumno(alumno)[:5],

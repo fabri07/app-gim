@@ -419,6 +419,9 @@
         {% if mensualidad_actual.monto > 0 %}
           <p>Monto: $ {{ mensualidad_actual.monto }}</p>
         {% endif %}
+        {% if mensualidad_actual.estado != "pagado" %}
+          <p>Fecha límite de pago: {{ fecha_limite_pago|date:"d/m/Y" }}</p>
+        {% endif %}
         {% if mensualidad_actual.estado != "pagado" and medios_cobro %}
           <p>Podés transferir a:</p>
           <ul>

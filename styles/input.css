@@ -279,9 +279,18 @@
     @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-4;
   }
 
+  /* Columna en vez de fila: en columnas angostas (7 por semana) un botón
+     como "Reservar" no se achica en flexbox y se desborda tapando la
+     tarjeta de al lado -- ver ISSUES.md. Con flex-col, hora/cupo arriba y
+     botón o badge de estado debajo, a lo ancho de la tarjeta. */
   .turno {
-    @apply flex items-center justify-between gap-2 rounded-md border
+    @apply flex flex-col items-stretch gap-2 rounded-md border
       border-gray-200 bg-gray-50 px-3 py-2 text-sm mb-2;
+  }
+
+  .turno form,
+  .turno .boton {
+    @apply w-full;
   }
 
   .turno--pasado {
@@ -345,11 +354,21 @@
     @apply mt-1;
   }
 
-  .tabla--rutina-semanas details summary {
+  /* `.celda-notas` (detalle de rutina asignada del staff) reusa el mismo
+     patrón visual de summary/p que "Mi rutina" -- solo el margen superior
+     de `details` difiere (esta tabla no tiene el resto de columnas en
+     `white-space: nowrap`, así que no hace falta el mismo respiro). */
+  .celda-notas details {
+    @apply mt-0;
+  }
+
+  .tabla--rutina-semanas details summary,
+  .celda-notas details summary {
     @apply cursor-pointer text-xs text-gray-500;
   }
 
-  .tabla--rutina-semanas details p {
+  .tabla--rutina-semanas details p,
+  .celda-notas details p {
     @apply whitespace-normal text-xs mt-1 max-w-[16rem];
   }
 

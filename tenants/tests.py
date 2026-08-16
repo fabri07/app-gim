@@ -857,6 +857,7 @@ class GimnasioUpdateViewTests(TestCase):
                 "contacto": "011-1234-5678",
                 "link_instagram": "https://instagram.com/gimnasiocentral",
                 "link_whatsapp": "https://wa.me/5491112345678",
+                "dia_vencimiento_pago": 10,
             },
         )
         self.assertRedirects(response, reverse("gimnasio_editar"))
@@ -892,6 +893,7 @@ class GimnasioUpdateViewTests(TestCase):
                 "contacto": "",
                 "link_instagram": "",
                 "link_whatsapp": "",
+                "dia_vencimiento_pago": 10,
             },
         )
         self.assertRedirects(response, reverse("gimnasio_editar"))
@@ -967,6 +969,7 @@ class GimnasioUpdateViewTests(TestCase):
             "contacto": "",
             "link_instagram": "",
             "link_whatsapp": "",
+            "dia_vencimiento_pago": 10,
         }
         datos.update(overrides)
         return datos
@@ -1166,6 +1169,7 @@ class GimnasioFormFondoImagenTests(SimpleTestCase):
             "contacto": "",
             "link_instagram": "",
             "link_whatsapp": "",
+            "dia_vencimiento_pago": 10,
         }
         datos.update(overrides)
         return datos
@@ -1236,6 +1240,7 @@ class GimnasioFormArchivoYEliminarContradiccionTests(SimpleTestCase):
             "contacto": "",
             "link_instagram": "",
             "link_whatsapp": "",
+            "dia_vencimiento_pago": 10,
         }
         datos.update(overrides)
         return datos

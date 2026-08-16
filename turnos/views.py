@@ -42,10 +42,44 @@ from turnos.services import (
     cancelar_reserva,
     crear_reserva,
     grilla_semanal,
+    lunes_de_semana,
     reconciliar_reservas_desencajadas,
     reservas_por_franja,
     url_google_calendar,
 )
+
+DIAS_POR_SEMANA = 7
+_OFFSET_SEMANA_MAXIMO = 5000  # ~96 años -- de sobra para cualquier uso real
+
+
+class SemanaNavegableMixin:
+    """Pagina una grilla de turnos semana por semana vía `?semana=<offset>`
+    en la URL (0 = semana actual, negativo = semanas anteriores, positivo =
+    siguientes). Comparten esto `MisTurnosView` y `AgendaView` para no
+    duplicar el parseo del query param ni el cálculo del lunes pedido --
+    antes las dos armaban una grilla de 14 días (2 semanas) que en pantalla
+    se leía como "el mismo calendario duplicado" (mismo patrón semanal, una
+    mitad grisada por `turno--pasado`); una sola semana por vez con
+    navegación resuelve eso de raíz en vez de solo maquillarlo."""
+
+    def get_offset_semana(self) -> int:
+        try:
+            offset = int(self.request.GET.get("semana", 0))
+        except (TypeError, ValueError):
+            return 0
+        # `timedelta(weeks=offset)` explota con `OverflowError` para valores
+        # extremos (ej. `?semana=99999999999`, editando la URL a mano) -- se
+        # recorta acá en vez de dejar pasar un 500.
+        return max(-_OFFSET_SEMANA_MAXIMO, min(_OFFSET_SEMANA_MAXIMO, offset))
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        offset = self.get_offset_semana()
+        context["lunes_semana"] = lunes_de_semana(offset)
+        context["semana_anterior"] = offset - 1
+        context["semana_siguiente"] = offset + 1
+        context["es_semana_actual"] = offset == 0
+        return context
 
 
 class ReconciliaReservasMixin:
@@ -177,9 +211,9 @@ class CupoExcepcionEliminarView(
         return redirect("turnos:configuracion")
 
 
-class MisTurnosView(AlumnoRequiredMixin, TemplateView):
-    """Grilla de 14 días (desde el lunes de la semana actual) + "Mis
-    reservas" futuras del alumno logueado.
+class MisTurnosView(AlumnoRequiredMixin, SemanaNavegableMixin, TemplateView):
+    """Grilla de una semana (navegable vía `?semana=`, ver
+    `SemanaNavegableMixin`) + "Mis reservas" futuras del alumno logueado.
 
     `self.alumno` puede ser `None` (Perfil de rol alumno todavía sin ficha
     de `Alumno` vinculada, ver `AlumnoRequiredMixin`) -- en ese caso la
@@ -193,10 +227,11 @@ class MisTurnosView(AlumnoRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        hoy = timezone.localdate()
-        lunes_actual = hoy - timedelta(days=hoy.weekday())
         context["grilla"] = grilla_semanal(
-            self.gimnasio, desde=lunes_actual, dias=14, alumno=self.alumno
+            self.gimnasio,
+            desde=context["lunes_semana"],
+            dias=DIAS_POR_SEMANA,
+            alumno=self.alumno,
         )
 
         if self.alumno is None:
@@ -311,10 +346,10 @@ class CancelarReservaView(AlumnoRequiredMixin, SingleObjectMixin, View):
         return redirect("turnos:mis_turnos")
 
 
-class AgendaView(StaffRequiredMixin, TenantScopedMixin, TemplateView):
-    """Agenda de staff: misma grilla de 14 días que `MisTurnosView`, pero de
-    solo lectura y con el detalle de quién reservó cada franja (Task 6,
-    cierra la Feature A).
+class AgendaView(StaffRequiredMixin, TenantScopedMixin, SemanaNavegableMixin, TemplateView):
+    """Agenda de staff: misma grilla navegable de una semana que
+    `MisTurnosView` (ver `SemanaNavegableMixin`), pero de solo lectura y con
+    el detalle de quién reservó cada franja (Task 6, cierra la Feature A).
 
     `reservas_por_franja` trae TODAS las reservas del rango en una sola query
     (con `select_related("alumno")`) y las agrupa en un dict en Python -- acá
@@ -332,11 +367,10 @@ class AgendaView(StaffRequiredMixin, TenantScopedMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
-        hoy = timezone.localdate()
-        lunes_actual = hoy - timedelta(days=hoy.weekday())
-        grilla = grilla_semanal(self.gimnasio, desde=lunes_actual, dias=14)
+        lunes_semana = context["lunes_semana"]
+        grilla = grilla_semanal(self.gimnasio, desde=lunes_semana, dias=DIAS_POR_SEMANA)
         reservas = reservas_por_franja(
-            self.gimnasio, lunes_actual, lunes_actual + timedelta(days=13)
+            self.gimnasio, lunes_semana, lunes_semana + timedelta(days=DIAS_POR_SEMANA - 1)
         )
 
         context["grilla"] = {

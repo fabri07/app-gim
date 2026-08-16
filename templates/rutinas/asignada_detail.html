@@ -30,56 +30,67 @@
 
   <div class="tarjeta">
     <h2>Ejercicios</h2>
-    <table class="tabla">
-      <thead>
-        <tr>
-          <th>Semana</th>
-          <th>Día</th>
-          <th>Orden</th>
-          <th>Ejercicio</th>
-          <th>Series</th>
-          <th>Repeticiones</th>
-          <th>Kilos</th>
-          <th>Descanso</th>
-          <th>Notas</th>
-          <th>Video</th>
-          <th>RPE reportado</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for item in items %}
+    <div class="tabla-ancha-scroll">
+      <table class="tabla">
+        <thead>
           <tr>
-            <td>{{ item.semana }}</td>
-            <td>{{ item.dia }}</td>
-            <td>{{ item.orden }}</td>
-            <td>{{ item.ejercicio_nombre_snapshot }}</td>
-            <td>{{ item.series }}</td>
-            <td>{{ item.repeticiones }}</td>
-            <td>{{ item.kilos|default:"—" }}</td>
-            <td>{{ item.descanso|default:"—" }}</td>
-            <td>{{ item.notas|default:"—" }}</td>
-            <td>
-              {% if item.ejercicio_video_snapshot %}
-                <a href="{{ item.ejercicio_video_snapshot }}" target="_blank" rel="noopener">Ver video</a>
-              {% else %}
-                <span class="texto-suave">Sin video</span>
-              {% endif %}
-            </td>
-            <td>
-              {% if item.rpe %}
-                {{ item.get_rpe_display }}
-              {% else %}
-                <span class="texto-suave">Sin calificar</span>
-              {% endif %}
-            </td>
+            <th>Semana</th>
+            <th>Día</th>
+            <th>Orden</th>
+            <th>Ejercicio</th>
+            <th>Series</th>
+            <th>Repeticiones</th>
+            <th>Kilos</th>
+            <th>Descanso</th>
+            <th>Notas</th>
+            <th>Video</th>
+            <th>RPE reportado</th>
           </tr>
-        {% empty %}
-          <tr>
-            <td colspan="11" class="texto-suave">Esta rutina no tiene ejercicios.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td>{{ item.semana }}</td>
+              <td>{{ item.dia }}</td>
+              <td>{{ item.orden }}</td>
+              <td>{{ item.ejercicio_nombre_snapshot }}</td>
+              <td>{{ item.series }}</td>
+              <td>{{ item.repeticiones }}</td>
+              <td>{{ item.kilos|default:"—" }}</td>
+              <td>{{ item.descanso|default:"—" }}</td>
+              <td class="celda-notas">
+                {% if item.notas %}
+                  <details>
+                    <summary>Notas</summary>
+                    <p class="texto-suave">{{ item.notas }}</p>
+                  </details>
+                {% else %}
+                  <span class="texto-suave">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if item.ejercicio_video_snapshot %}
+                  <a href="{{ item.ejercicio_video_snapshot }}" target="_blank" rel="noopener">Ver video</a>
+                {% else %}
+                  <span class="texto-suave">Sin video</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if item.rpe %}
+                  {{ item.get_rpe_display }}
+                {% else %}
+                  <span class="texto-suave">Sin calificar</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="11" class="texto-suave">Esta rutina no tiene ejercicios.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 {% endblock %}

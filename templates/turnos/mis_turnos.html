@@ -70,7 +70,16 @@
     </div>
   {% else %}
     <div class="tarjeta">
-      <h2>Turnos disponibles</h2>
+      <div class="acciones-lista">
+        <h2>Turnos disponibles</h2>
+        <div class="flex gap-2">
+          <a class="boton-secundario" href="?semana={{ semana_anterior }}">&larr; Semana anterior</a>
+          {% if not es_semana_actual %}
+            <a class="boton-secundario" href="?semana=0">Esta semana</a>
+          {% endif %}
+          <a class="boton-secundario" href="?semana={{ semana_siguiente }}">Semana siguiente &rarr;</a>
+        </div>
+      </div>
       <div class="grilla-turnos">
         {% for dia, franjas in grilla.items %}
           <div>
@@ -88,7 +97,7 @@
                   {% elif not franja.reservable %}
                     <span class="badge badge--alerta">Reservas cerradas</span>
                   {% else %}
-                    <form method="post" action="{% url 'turnos:reservar' %}" style="display:inline">
+                    <form method="post" action="{% url 'turnos:reservar' %}">
                       {% csrf_token %}
                       <input type="hidden" name="fecha" value="{{ dia|date:'Y-m-d' }}">
                       <input type="hidden" name="hora_inicio" value="{{ franja.hora_inicio|time:'H:i' }}">

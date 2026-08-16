@@ -110,6 +110,13 @@
         </div>
       </div>
 
+      <div class="form-seccion">
+        <h2>Cobros</h2>
+        {{ form.dia_vencimiento_pago.label_tag }}
+        {{ form.dia_vencimiento_pago }}
+        {% if form.dia_vencimiento_pago.errors %}<p class="config-error">{{ form.dia_vencimiento_pago.errors.0 }}</p>{% endif %}
+      </div>
+
       <button type="submit" class="boton">Guardar cambios</button>
     </form>
 

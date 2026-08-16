@@ -52,6 +52,7 @@ from turnos.services import (
     franjas_de_rango,
     franjas_del_dia,
     grilla_semanal,
+    lunes_de_semana,
     reconciliar_reservas_desencajadas,
     reservas_por_franja,
     url_google_calendar,
@@ -1738,7 +1739,7 @@ class MisTurnosViewTests(TestCase):
         self.client.login(username="alumno-1", password="clave-123456")
 
         self.hoy = timezone.localdate()
-        self.lunes_actual = self.hoy - timedelta(days=self.hoy.weekday())
+        self.lunes_actual = lunes_de_semana(0)
 
     def test_muestra_la_ocupacion_de_una_franja_con_reserva_previa(self):
         Reserva.objects.create(
@@ -1870,6 +1871,44 @@ class MisTurnosViewTests(TestCase):
             f for f in grilla[self.lunes_actual] if f.hora_inicio == time(9, 0)
         )
         self.assertEqual(franja_9.ocupadas, 0)
+
+    def test_grilla_muestra_una_sola_semana_por_default(self):
+        """Regression: antes la grilla mostraba 14 días (2 semanas) en una
+        sola pantalla, que en `lg:grid-cols-7` se leía como "el mismo
+        calendario duplicado" -- ver ISSUES.md. Por default (sin `?semana=`)
+        debe mostrar exactamente los 7 días de la semana actual."""
+        response = self.client.get(reverse("turnos:mis_turnos"))
+
+        grilla = response.context["grilla"]
+
+        self.assertEqual(len(grilla), 7)
+        self.assertEqual(min(grilla.keys()), self.lunes_actual)
+        self.assertEqual(max(grilla.keys()), self.lunes_actual + timedelta(days=6))
+
+    def test_semana_siguiente_navega_a_la_proxima_semana(self):
+        response = self.client.get(reverse("turnos:mis_turnos"), {"semana": 1})
+
+        grilla = response.context["grilla"]
+        lunes_siguiente = self.lunes_actual + timedelta(days=7)
+
+        self.assertEqual(min(grilla.keys()), lunes_siguiente)
+        self.assertFalse(response.context["es_semana_actual"])
+
+    def test_semana_offset_invalido_no_rompe_y_usa_semana_actual(self):
+        response = self.client.get(reverse("turnos:mis_turnos"), {"semana": "nope"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(min(response.context["grilla"].keys()), self.lunes_actual)
+
+    def test_semana_offset_extremo_no_rompe_con_overflow(self):
+        """Regression: `timedelta(weeks=offset)` explota con `OverflowError`
+        para offsets extremos -- `?semana=` editado a mano en la URL no debe
+        poder tirar un 500."""
+        response = self.client.get(
+            reverse("turnos:mis_turnos"), {"semana": "99999999999999"}
+        )
+
+        self.assertEqual(response.status_code, 200)
 
 
 class ReservarViewTests(TestCase):
@@ -2187,7 +2226,7 @@ class AgendaViewTests(TestCase):
         self.client.login(username="staff-1", password="clave-123456")
 
         self.hoy = timezone.localdate()
-        self.lunes_actual = self.hoy - timedelta(days=self.hoy.weekday())
+        self.lunes_actual = lunes_de_semana(0)
 
     def test_muestra_ocupacion_y_nombre_del_alumno_anotado(self):
         Reserva.objects.create(
@@ -2221,6 +2260,24 @@ class AgendaViewTests(TestCase):
         response = self.client.get(reverse("turnos:agenda"))
 
         self.assertContains(response, reverse("turnos:configuracion"))
+
+    def test_grilla_muestra_una_sola_semana_por_default(self):
+        response = self.client.get(reverse("turnos:agenda"))
+
+        grilla = response.context["grilla"]
+
+        self.assertEqual(len(grilla), 7)
+        self.assertEqual(min(grilla.keys()), self.lunes_actual)
+        self.assertEqual(max(grilla.keys()), self.lunes_actual + timedelta(days=6))
+
+    def test_semana_anterior_navega_a_la_semana_previa(self):
+        response = self.client.get(reverse("turnos:agenda"), {"semana": -1})
+
+        grilla = response.context["grilla"]
+        lunes_anterior = self.lunes_actual - timedelta(days=7)
+
+        self.assertEqual(min(grilla.keys()), lunes_anterior)
+        self.assertFalse(response.context["es_semana_actual"])
 
 
 class NavStaffTurnosLinkTests(TestCase):

@@ -11,6 +11,7 @@ se agregaron en Fase 1, según el modelo de datos del ROADMAP.
 """
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.templatetags.static import static
 
@@ -148,6 +149,14 @@ class Gimnasio(TimeStampedModel):
     contacto = models.CharField(max_length=120, blank=True)
     link_instagram = models.URLField(blank=True)
     link_whatsapp = models.URLField(blank=True)
+    dia_vencimiento_pago = models.PositiveSmallIntegerField(
+        "Día límite de pago mensual",
+        default=10,
+        validators=[MinValueValidator(1), MaxValueValidator(28)],
+        help_text="Día del mes hasta el cual el alumno puede pagar la "
+        "cuota sin quedar atrasado. Tope en 28 para que el día exista en "
+        "cualquier mes.",
+    )
 
     class Meta:
         verbose_name = "gimnasio"

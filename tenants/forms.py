@@ -39,6 +39,7 @@ class GimnasioForm(forms.ModelForm):
             "contacto",
             "link_instagram",
             "link_whatsapp",
+            "dia_vencimiento_pago",
         ]
         widgets = {
             "fondo_tipo": forms.RadioSelect,
