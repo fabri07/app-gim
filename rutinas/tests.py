@@ -427,15 +427,20 @@ class RutinaPdfTests(RutinasTestCase):
         item = RutinaAsignadaItem(
             series=3, repeticiones="12", kilos="20kg",
             descanso="90s", notas="Cuidado con la zona lumbar",
+            rpe=RutinaAsignadaItem.RPE.AL_LIMITE,
         )
         texto = _celda_semana(item)
+        self.assertIn("Series: 3", texto)
+        self.assertIn("Repeticiones: 12", texto)
+        self.assertIn("Kilos: 20kg", texto)
         self.assertIn("Descanso: 90s", texto)
-        self.assertIn("Cuidado con la zona lumbar", texto)
+        self.assertIn("Calificación: Estoy al límite", texto)
+        self.assertIn("Notas: Cuidado con la zona lumbar", texto)
 
     def test_celda_semana_sin_descanso_ni_notas_queda_compacta(self):
         item = RutinaAsignadaItem(series=3, repeticiones="12")
         texto = _celda_semana(item)
-        self.assertEqual(texto, "3x12")
+        self.assertEqual(texto, "Series: 3\nRepeticiones: 12")
 
     def test_genera_un_pdf_valido_sin_ejercicios(self):
         """Borde: una asignación recién creada sin items no debe romper la

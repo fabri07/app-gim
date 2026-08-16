@@ -26,32 +26,39 @@ def _hex_a_rgb(hexadecimal):
 
 
 def _celda_semana(item):
-    """Texto compacto de una celda semana x ejercicio, p. ej. "3x12 ·
-    20kg (hecho)\\nDescanso: 90s\\nCuidado con la zona lumbar". Sin el
-    símbolo ✓: las core fonts de fpdf2 solo soportan cp1252 (ver
-    comentario de `core_fonts_encoding` más abajo), que no incluye ese
-    carácter -- rompería la generación. Descanso/notas van en líneas
-    aparte y solo si están cargados: son el fallback en papel de un
-    alumno sin acceso a la app, así que la indicación de descanso o
-    cualquier nota de técnica/seguridad del profesor no puede perderse
-    acá aunque en pantalla quede compacta."""
+    """Texto de una celda semana x ejercicio, con un campo por línea
+    (Series/Repeticiones/Kilos/Descanso/Calificación/Notas) -- mismo
+    desglose que la vista del alumno desde "tabla ancha por columna"
+    (`templates/rutinas/mi_dia_detalle.html`, columnas separadas en vez
+    de un texto compacto tipo "3x12"). Calificación usa
+    `get_rpe_display()` (el texto que el alumno eligió, p. ej. "Estoy al
+    límite"), no un genérico "(hecho)". Sin el símbolo ✓: las core fonts
+    de fpdf2 solo soportan cp1252 (ver comentario de
+    `core_fonts_encoding` más abajo), que no lo incluye -- rompería la
+    generación. Cada línea solo aparece si está cargada: son el fallback
+    en papel de un alumno sin acceso a la app, así que la indicación de
+    descanso o cualquier nota de técnica/seguridad del profesor no puede
+    perderse acá aunque en pantalla quede en su propia columna."""
     if item is None:
         return "—"
-    texto = f"{item.series}x{item.repeticiones}"
+    lineas = [f"Series: {item.series}", f"Repeticiones: {item.repeticiones}"]
     if item.kilos:
-        texto += f" · {item.kilos}"
-    if item.rpe:
-        texto += " (hecho)"
+        lineas.append(f"Kilos: {item.kilos}")
     if item.descanso:
-        texto += f"\nDescanso: {item.descanso}"
+        lineas.append(f"Descanso: {item.descanso}")
+    if item.rpe:
+        lineas.append(f"Calificación: {item.get_rpe_display()}")
     if item.notas:
-        texto += f"\n{item.notas}"
-    return texto
+        lineas.append(f"Notas: {item.notas}")
+    return "\n".join(lineas)
 
 
-def _fila_ejercicio(ejercicio):
+def _fila_ejercicio(ejercicio, grupo_muscular_display):
+    nombre = ejercicio["nombre"]
+    if grupo_muscular_display:
+        nombre += f"\n{grupo_muscular_display}"
     return [
-        ejercicio["nombre"],
+        nombre,
         ejercicio["video"] or "—",
         *[_celda_semana(semana["item"]) for semana in ejercicio["semanas"]],
     ]
@@ -133,7 +140,9 @@ def generar_pdf_rutina_asignada(asignada):
                     fila_encabezado.cell(columna)
                 for ejercicio in grupo["ejercicios"]:
                     fila = table.row()
-                    for valor in _fila_ejercicio(ejercicio):
+                    for valor in _fila_ejercicio(
+                        ejercicio, grupo["grupo_muscular_display"]
+                    ):
                         fila.cell(valor)
             pdf.ln(2)
         pdf.ln(4)

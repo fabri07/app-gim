@@ -119,6 +119,26 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   de RPE no se fusiona con el nombre nuevo. Es consecuencia directa de que el
   RPE es una calificación por sesión/semana (lo que pidió el dueño del
   producto), no una opinión general y estable del ejercicio.
+  **Agrupamiento por grupo muscular y PDF** (agregado después de Fase 6):
+  `rutinas/agrupacion.py::agrupar_items_por_grupo_muscular()` es el único
+  lugar que agrupa los items de un día por `grupo_muscular_snapshot` —
+  lo usan tanto el portal del alumno (`RutinaMiDiaDetailView` →
+  `mi_dia_detalle.html`, un día por vez, con las 4 semanas lado a lado en
+  columnas separadas por Series/Reps/Kilos/Descanso/Calificación desde el
+  rediseño "tabla ancha por columna") como `rutinas/pdf.py::
+  generar_pdf_rutina_asignada()` (fpdf2, Django-free a propósito, recorre
+  todos los días). `RutinaAsignadaPdfView` (staff-only, botón "Descargar
+  PDF" en `asignada_detail.html`) es el fallback en papel para cuando un
+  alumno se queda sin acceso al portal — pensado para imprimir, no como
+  documento de marketing. **Mantené el desglose de campos del PDF
+  sincronizado con el de la tabla del portal**: el PDF original (commit
+  `51239e5`) empaquetaba todo en una celda compacta tipo "3x12 · 20kg
+  (hecho)", y quedó desactualizado cuando `d0de225` separó esas columnas
+  en pantalla — se corrigió después para que `_celda_semana` liste
+  Series/Repeticiones/Kilos/Descanso/Calificación (con
+  `item.get_rpe_display()`, no un genérico "(hecho)") en líneas
+  separadas, y cada fila lleve el grupo muscular como subtítulo bajo el
+  nombre del ejercicio, igual que la tabla en pantalla.
 - **`pagos`** — `PagoMensual(TenantOwnedModel)` y `MedioCobro(TenantOwnedModel)`
   (alias/CBU/lo que el gimnasio muestra al alumno para pagar, editable por
   staff). `pagos/models.py` expone `generar_pagos_pendientes(mes, anio)` y
