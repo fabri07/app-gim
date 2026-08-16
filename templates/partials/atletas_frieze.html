@@ -1,0 +1,50 @@
+{% comment %}
+Banda de atletas griegos animados para el hero del login. Un solo motivo
+definido una vez en <symbol> (mismo espíritu que <defs><g id="motivo">... de
+los doodles de fondo en static/img/doodles/), pero acá va inline en el HTML
+-- no como mask-image -- porque necesitamos animar cada instancia por
+separado con @keyframes, y una mask-image no anima contenido interno de
+forma confiable entre navegadores.
+
+fill="currentColor" en vez de fill="#000" (a diferencia de los doodles, que
+se consumen como mask y solo importa el alfa): acá el SVG se ve directo, así
+que el color sale de --color-primario vía la clase .auth-frieze en
+input.css -- nunca un hex fijo (The Runtime Brand Rule).
+
+Cada <use> lleva una pequeña variación estática de rotate/scale (mismo
+espíritu "disperso a mano" que el jitter de los doodles) para que la fila no
+se vea como una figura clonada 5 veces; el @keyframes (definido en
+input.css) es el movimiento, esto es solo la pose de reposo. El delay
+escalonado ("efecto ola") se arma con `style="animation-delay: ..."`
+inline en vez de una regla `:nth-child(N)` por figura en input.css --
+agregar o sacar una figura ya no implica tocar dos archivos.
+{% endcomment %}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="atleta-heleno" viewBox="0 0 60 90" fill="currentColor">
+      <!-- barra + discos, apoyada arriba de la cabeza -->
+      <rect x="8" y="2" width="44" height="4" rx="2"/>
+      <circle cx="10" cy="4" r="6"/>
+      <circle cx="50" cy="4" r="6"/>
+      <!-- cabeza -->
+      <circle cx="30" cy="16" r="7"/>
+      <!-- brazos en V hacia la barra -->
+      <path d="M23 26 L10 8 L14 6 L27 24 Z"/>
+      <path d="M37 26 L50 8 L46 6 L33 24 Z"/>
+      <!-- torso, forma de reloj de arena -->
+      <path d="M24 24 L36 24 L32 50 L28 50 Z"/>
+      <!-- cadera -->
+      <rect x="24" y="48" width="12" height="6" rx="2"/>
+      <!-- piernas en zancada -->
+      <path d="M26 54 L14 88 L21 88 L32 58 Z"/>
+      <path d="M34 54 L47 82 L40 82 L28 58 Z"/>
+    </symbol>
+  </defs>
+</svg>
+<div class="auth-frieze" aria-hidden="true">
+  {% for _ in "12345" %}
+    <svg class="auth-frieze__figura" viewBox="0 0 60 90" style="animation-delay: {% cycle '0s' '0.3s' '0.6s' '0.9s' '1.2s' %}">
+      <use href="#atleta-heleno" transform="rotate({% cycle '-2' '3' '-3' '2' '-2' %} 30 45) scale({% cycle '0.96' '1.04' '1' '0.98' '1.05' %})"/>
+    </svg>
+  {% endfor %}
+</div>

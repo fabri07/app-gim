@@ -732,4 +732,62 @@
   .landing__horarios-franjas {
     @apply text-gray-600;
   }
+
+  /* Login: único lugar del sistema fuera de landing.html que rompe el ancho
+     de .contenido -- mismo truco que .landing (main_class vacío + wrapper
+     propio). A diferencia de .landing, NO lleva colores de gimnasio: login
+     no tiene tenant en contexto todavía, así que usa directamente
+     var(--color-primario)/--color-secundario, que en esta página resuelven
+     al :root global (paisaje Bosque, default documentado en DESIGN.md para
+     login/404). */
+  .auth-hero {
+    @apply w-full max-w-5xl mx-auto px-4 py-12 sm:py-20 grid grid-cols-1
+      lg:grid-cols-2 gap-10 lg:gap-16 items-center;
+  }
+
+  .auth-hero__copy {
+    @apply text-center lg:text-left;
+  }
+
+  .auth-hero__titulo {
+    @apply text-3xl sm:text-4xl font-bold text-gray-900 mb-4;
+  }
+
+  .auth-hero__subtitulo {
+    @apply text-base text-gray-600 max-w-md mx-auto lg:mx-0;
+  }
+
+  .auth-hero__form {
+    @apply w-full max-w-sm mx-auto lg:mx-0 lg:justify-self-end;
+  }
+
+  /* Banda de atletas: la marca de color viene de --color-primario, nunca un
+     hex fijo (The Runtime Brand Rule) -- currentColor en el SVG hereda de
+     acá. */
+  .auth-frieze {
+    @apply flex items-end justify-center lg:justify-start gap-5 sm:gap-8
+      mb-6 text-[var(--color-primario)];
+  }
+
+  /* Primer motion pattern del sistema (ver "The Restrained Motion Rule" en
+     DESIGN.md): amplitud chica, ease-in-out, sin bounce. El delay
+     escalonado por figura ("efecto ola") viene del `style` inline que arma
+     el `{% cycle %}` de partials/atletas_frieze.html, no de reglas
+     :nth-child acá -- agregar/sacar una figura no implica tocar dos
+     archivos. */
+  .auth-frieze__figura {
+    @apply w-9 sm:w-11 h-auto;
+    animation: auth-frieze-levantar 2.4s ease-in-out infinite alternate;
+  }
+
+  @keyframes auth-frieze-levantar {
+    from { transform: translateY(0) rotate(0deg); }
+    to { transform: translateY(-6px) rotate(-2deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .auth-frieze__figura {
+      animation: none;
+    }
+  }
 }

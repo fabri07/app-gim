@@ -441,6 +441,19 @@ tarjeta propia, sobre el canvas de la landing.
 Existe para que sea imposible no notar que se está operando como otra
 persona.
 
+## Motion
+
+Primer uso de `@keyframes` del sistema (banda de atletas animados del
+login) — no había ningún patrón de movimiento antes de esto.
+
+### Named Rules
+**The Restrained Motion Rule.** El movimiento es un acento, no un efecto:
+amplitud chica (pocos px o grados), siempre `ease-in-out`, ciclos de 2-3s,
+nunca `spring`/bounce. Todo `@keyframes` respeta
+`prefers-reduced-motion: reduce` apagando la animación (nunca
+reemplazándola por otra). Se usa con moderación — hoy solo la banda de
+atletas del login; no es licencia para animar tarjetas o botones del panel.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -457,6 +470,8 @@ persona.
   y los badges — todo lo demás denso va en `md`, las superficies en `2xl`.
 - **Do** dejar la atmósfera del canvas (`body`/`.landing`) en `color-mix()`
   sobre los tokens del paisaje — nunca un `background-color` sólido y liso.
+- **Do** usar animación con la misma moderación que la banda de atletas del
+  login — amplitud chica, `prefers-reduced-motion` siempre respetado.
 
 ### Don't:
 - **Don't** hardcodear un hex de paisaje (`#1d6f56`, `#f5ede4`, etc.) en un
@@ -467,6 +482,8 @@ persona.
   sección individual — vive en un solo lugar (`body`/`.landing`), no por
   componente.
 - **Don't** usar íconos en la navegación de staff — es texto puro hoy.
+- **Don't** animar componentes del panel (tarjetas, botones, filas de
+  tabla) solo para llamar la atención — el sistema es plano a propósito.
 - **Don't** inventar prueba social (números, testimonios) en la landing de
   un gimnasio — solo datos reales de ESE gimnasio (horarios, y lo que se
   agregue después siguiendo el mismo criterio).

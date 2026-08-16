@@ -1,21 +1,29 @@
 """Backfillea `RutinaAsignadaItem.grupo_muscular_snapshot` para los items
 creados antes de la migración 0005 (que agregó el campo sin backfill).
 
-Busca, por gimnasio, un `Ejercicio` cuyo `nombre` coincida (case-insensitive)
-con `ejercicio_nombre_snapshot` y copia su `grupo_muscular`. Si no hay match
-o el ejercicio no tiene grupo muscular cargado, el item queda como está
-(mismo comportamiento actual: `rutinas/agrupacion.py` lo bucketea bajo "Sin
-grupo muscular").
+Busca, por gimnasio, un `Ejercicio` cuyo `nombre` coincida con
+`ejercicio_nombre_snapshot` (vía `normalizar_texto` -- lowercase + sin
+tildes + espacios colapsados, el mismo normalizador que ya usa
+`importaciones/matching.py` para este mismo tipo de comparación; un
+`.lower()` a secas dejaría "Sentadilla búlgara" sin matchear
+"Sentadilla bulgara") y copia su `grupo_muscular`. Si no hay match o el
+ejercicio no tiene grupo muscular cargado, el item queda como está (mismo
+comportamiento actual: `rutinas/agrupacion.py` lo bucketea bajo "Sin grupo
+muscular").
 
-Precarga un mapa `{gimnasio_id: {nombre_lower: grupo_muscular}}` en vez de
-consultar `Ejercicio` por cada item (N+1) y actualiza todo con un solo
-`bulk_update` -- importa en gimnasios con backlog grande, donde el paso de
-`migrate` del deploy tiene presupuesto de tiempo acotado (Render free
-tier). Si hay dos `Ejercicio` con el mismo nombre (case-insensitive) en el
+Precarga un mapa `{gimnasio_id: {nombre_normalizado: grupo_muscular}}` en
+vez de consultar `Ejercicio` por cada item (N+1) y actualiza todo con
+`bulk_update` en lotes -- importa en gimnasios con backlog grande, donde el
+paso de `migrate` del deploy tiene presupuesto de tiempo acotado (Render
+free tier). Si hay dos `Ejercicio` con el mismo nombre normalizado en el
 mismo gimnasio, gana el de `id` más chico -- desempate determinístico, en
 vez de un `.first()` sin `order_by` que dependía del orden de la base."""
 
 from django.db import migrations
+
+from importaciones.parsing import normalizar_texto
+
+_TAMANIO_LOTE = 500
 
 
 def backfill_grupo_muscular(apps, schema_editor):
@@ -39,20 +47,20 @@ def backfill_grupo_muscular(apps, schema_editor):
         .order_by("id")
     ):
         mapa_por_gimnasio.setdefault(ejercicio.gimnasio_id, {}).setdefault(
-            ejercicio.nombre.lower(), ejercicio.grupo_muscular
+            normalizar_texto(ejercicio.nombre), ejercicio.grupo_muscular
         )
 
     actualizados = []
     for item in items_sin_grupo:
         mapa = mapa_por_gimnasio.get(item.rutina_asignada.gimnasio_id, {})
-        grupo = mapa.get(item.ejercicio_nombre_snapshot.lower())
+        grupo = mapa.get(normalizar_texto(item.ejercicio_nombre_snapshot))
         if grupo:
             item.grupo_muscular_snapshot = grupo
             actualizados.append(item)
 
     if actualizados:
         RutinaAsignadaItem.objects.bulk_update(
-            actualizados, ["grupo_muscular_snapshot"]
+            actualizados, ["grupo_muscular_snapshot"], batch_size=_TAMANIO_LOTE
         )
 
 

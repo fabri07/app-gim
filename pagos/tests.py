@@ -169,17 +169,18 @@ class MarcarVencidosTests(TestCase):
     def test_pendiente_de_mes_pasado_pasa_a_vencido(self):
         pago_pasado = self._crear_pendiente(mes=5, anio=2026)
 
-        actualizados = marcar_vencidos(mes=7, anio=2026)
+        actualizados = marcar_vencidos(mes=7, anio=2026, dia=15)
 
         pago_pasado.refresh_from_db()
         self.assertEqual(actualizados, 1)
         self.assertEqual(pago_pasado.estado, PagoMensual.Estado.VENCIDO)
 
-    def test_pendiente_de_mes_actual_o_futuro_no_cambia(self):
+    def test_pendiente_de_mes_actual_antes_del_dia_limite_no_cambia(self):
+        """`self.gimnasio` usa el default de `dia_vencimiento_pago` (10)."""
         pago_actual = self._crear_pendiente(mes=7, anio=2026)
         pago_futuro = self._crear_pendiente(mes=8, anio=2026)
 
-        actualizados = marcar_vencidos(mes=7, anio=2026)
+        actualizados = marcar_vencidos(mes=7, anio=2026, dia=5)
 
         pago_actual.refresh_from_db()
         pago_futuro.refresh_from_db()
@@ -187,10 +188,50 @@ class MarcarVencidosTests(TestCase):
         self.assertEqual(pago_actual.estado, PagoMensual.Estado.PENDIENTE)
         self.assertEqual(pago_futuro.estado, PagoMensual.Estado.PENDIENTE)
 
+    def test_pendiente_de_mes_actual_pasado_el_dia_limite_pasa_a_vencido(self):
+        """Regresión: antes de este chequeo, `dia_vencimiento_pago` era
+        solo cosmético en el portal del alumno -- un pago del mes en curso
+        no pasaba a VENCIDO hasta que cambiaba el mes calendario, sin
+        importar el día. `self.gimnasio` usa el default (10)."""
+        pago_actual = self._crear_pendiente(mes=7, anio=2026)
+
+        actualizados = marcar_vencidos(mes=7, anio=2026, dia=15)
+
+        pago_actual.refresh_from_db()
+        self.assertEqual(actualizados, 1)
+        self.assertEqual(pago_actual.estado, PagoMensual.Estado.VENCIDO)
+
+    def test_dia_limite_se_evalua_por_gimnasio(self):
+        """El día límite es un dato de `Gimnasio`, no un valor global --
+        dos gimnasios con día límite distinto en el mismo día del mes
+        pueden tener resultados distintos."""
+        gimnasio_estricto = Gimnasio.objects.create(
+            nombre="Gimnasio B", slug="gimnasio-b", dia_vencimiento_pago=5,
+        )
+        alumno_estricto = Alumno.objects.create(
+            gimnasio=gimnasio_estricto, nombre="Ana", apellido="Gomez",
+        )
+        pago_flexible = self._crear_pendiente(mes=7, anio=2026)  # día límite 10
+        pago_estricto = PagoMensual.objects.create(
+            gimnasio=gimnasio_estricto,
+            alumno=alumno_estricto,
+            mes=7,
+            anio=2026,
+            monto=Decimal("15000.00"),
+        )
+
+        actualizados = marcar_vencidos(mes=7, anio=2026, dia=8)
+
+        pago_flexible.refresh_from_db()
+        pago_estricto.refresh_from_db()
+        self.assertEqual(actualizados, 1)
+        self.assertEqual(pago_flexible.estado, PagoMensual.Estado.PENDIENTE)
+        self.assertEqual(pago_estricto.estado, PagoMensual.Estado.VENCIDO)
+
     def test_pendiente_de_anio_pasado_pasa_a_vencido(self):
         pago_pasado = self._crear_pendiente(mes=12, anio=2025)
 
-        actualizados = marcar_vencidos(mes=1, anio=2026)
+        actualizados = marcar_vencidos(mes=1, anio=2026, dia=15)
 
         pago_pasado.refresh_from_db()
         self.assertEqual(actualizados, 1)

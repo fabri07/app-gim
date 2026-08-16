@@ -142,9 +142,14 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
 - **`pagos`** — `PagoMensual(TenantOwnedModel)` y `MedioCobro(TenantOwnedModel)`
   (alias/CBU/lo que el gimnasio muestra al alumno para pagar, editable por
   staff). `pagos/models.py` expone `generar_pagos_pendientes(mes, anio)` y
-  `marcar_vencidos(mes, anio)`; `python manage.py generar_pagos` corre ambas
-  para el mes actual — lo programa `.github/workflows/generar-pagos.yml`
-  (GitHub Actions, no Render: no hay cron en el plan free).
+  `marcar_vencidos(mes, anio, dia)`; `python manage.py generar_pagos` corre
+  ambas para el mes/día actual — lo programa
+  `.github/workflows/generar-pagos.yml` (GitHub Actions, no Render: no hay
+  cron en el plan free). `marcar_vencidos` vence tanto los pendientes de
+  meses ya cerrados como los del mes en curso que ya pasaron el
+  `Gimnasio.dia_vencimiento_pago` de su propio gimnasio (join por FK, cada
+  gimnasio tiene el suyo) — antes ese campo era solo cosmético en el portal
+  del alumno.
 - **`novedades`** — `Novedad(TenantOwnedModel)` con `NovedadQuerySet.visibles()`
   (activa + publicada + no vencida), y `NovedadLeida` (read-receipt por
   alumno; no es `TenantOwnedModel`, se scopea vía su FK a `Novedad`/`Alumno`

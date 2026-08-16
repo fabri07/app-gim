@@ -129,16 +129,31 @@ def generar_pagos_pendientes(mes, anio):
     return creados
 
 
-def marcar_vencidos(mes, anio):
+def marcar_vencidos(mes, anio, dia):
     """Pasa a VENCIDO todo `PagoMensual` PENDIENTE cuyo mes/año sea
-    estrictamente anterior al mes/año dado (es decir, un pago pendiente
-    de un mes que ya cerró).
+    estrictamente anterior al mes/año dado (un pago de un mes que ya
+    cerró), o que sea del mismo mes/año pero ya se pasó el
+    `Gimnasio.dia_vencimiento_pago` de ESE gimnasio (join vía FK -- cada
+    gimnasio define su propio día límite, no hay uno global). Antes de
+    este chequeo, `dia_vencimiento_pago` era puramente cosmético: se
+    mostraba como fecha límite en el portal del alumno pero un pago del
+    mes en curso solo pasaba a VENCIDO cuando cambiaba el mes calendario,
+    sin importar el día -- un alumno podía estar atrasado según la fecha
+    que el gimnasio le mostraba y seguir viéndose "Pendiente" en el panel
+    del staff hasta el mes siguiente.
+
+    `dia` es el día del mes de la fecha en que corre esto (no un campo de
+    `PagoMensual`, que no tiene día) -- lo pasa el caller
+    (`manage.py generar_pagos`) para no atar esta función a `timezone.now()`
+    y poder testearla con fechas fijas.
 
     Devuelve la cantidad de filas actualizadas (int).
     """
-    pendientes_pasados = PagoMensual.objects.filter(
+    pendientes_vencidos = PagoMensual.objects.filter(
         estado=PagoMensual.Estado.PENDIENTE
     ).filter(
-        models.Q(anio__lt=anio) | models.Q(anio=anio, mes__lt=mes)
+        models.Q(anio__lt=anio)
+        | models.Q(anio=anio, mes__lt=mes)
+        | models.Q(anio=anio, mes=mes, gimnasio__dia_vencimiento_pago__lt=dia)
     )
-    return pendientes_pasados.update(estado=PagoMensual.Estado.VENCIDO)
+    return pendientes_vencidos.update(estado=PagoMensual.Estado.VENCIDO)

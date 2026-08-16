@@ -19,6 +19,17 @@ from rutinas.agrupacion import agrupar_items_por_grupo_muscular
 
 _COLUMNAS = ["Ejercicio", "Video", "Semana 1", "Semana 2", "Semana 3", "Semana 4"]
 
+_NOTAS_MAX_CARACTERES_EN_TABLA = 160
+"""Tope de caracteres de `notas` que entran en la celda de la tabla.
+`pdf.table()` no puede partir una fila entre dos páginas -- si una sola
+celda crece más de lo que entra en una página vacía, la generación entera
+revienta con `ValueError` (reproducido con notas de ~600-700 caracteres).
+Con este tope una celda nunca se acerca a ese límite. El texto NUNCA se
+descarta (puede ser una indicación de seguridad del profesor, ver docstring
+de `_celda_semana`): lo que no entra va completo en el apéndice "Notas
+completas" al final del PDF, armado con `multi_cell` -- que sí pagina sola,
+a diferencia de una fila de tabla."""
+
 
 def _hex_a_rgb(hexadecimal):
     valor = hexadecimal.lstrip("#")
@@ -49,7 +60,13 @@ def _celda_semana(item):
     if item.rpe:
         lineas.append(f"Calificación: {item.get_rpe_display()}")
     if item.notas:
-        lineas.append(f"Notas: {item.notas}")
+        if len(item.notas) > _NOTAS_MAX_CARACTERES_EN_TABLA:
+            lineas.append(
+                f"Notas: {item.notas[:_NOTAS_MAX_CARACTERES_EN_TABLA]}… "
+                "(completa al final del PDF)"
+            )
+        else:
+            lineas.append(f"Notas: {item.notas}")
     return "\n".join(lineas)
 
 
@@ -146,5 +163,32 @@ def generar_pdf_rutina_asignada(asignada):
                         fila.cell(valor)
             pdf.ln(2)
         pdf.ln(4)
+
+    notas_largas = sorted(
+        (
+            item
+            for item in items
+            if len(item.notas) > _NOTAS_MAX_CARACTERES_EN_TABLA
+        ),
+        key=lambda item: (item.dia, item.semana, item.orden),
+    )
+    if notas_largas:
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, "Notas completas", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(2)
+        for item in notas_largas:
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.multi_cell(
+                0,
+                6,
+                f"Día {item.dia} · Semana {item.semana} · "
+                f"{item.ejercicio_nombre_snapshot}",
+                new_x="LMARGIN",
+                new_y="NEXT",
+            )
+            pdf.set_font("Helvetica", "", 10)
+            pdf.multi_cell(0, 6, item.notas, new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(3)
 
     return bytes(pdf.output())

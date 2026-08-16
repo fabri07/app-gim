@@ -22,6 +22,15 @@
         "value": "plus jakarta sans",
         "createdAt": "2026-08-15T02:39:36.664Z",
         "reason": "user confirmed: 'deja la tipografia base, esta bien' (2026-08-14). Es el default de --font-gimnasio desde el rediseno 85ca0a3; el dueno de cada gimnasio puede elegir otra del catalogo cerrado Gimnasio.TIPOGRAFIA_FUENTES."
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#000",
+        "files": [
+          "templates/partials/atletas_frieze.html"
+        ],
+        "createdAt": "2026-08-16T14:31:28.981Z",
+        "reason": "false positive: #000 only appears inside a Django {% comment %} block explaining why this SVG uses currentColor instead of the doodle mask technique's fill=#000, not an actual applied color"
       }
     ]
   }

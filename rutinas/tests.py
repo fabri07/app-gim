@@ -442,6 +442,42 @@ class RutinaPdfTests(RutinasTestCase):
         texto = _celda_semana(item)
         self.assertEqual(texto, "Series: 3\nRepeticiones: 12")
 
+    def test_celda_semana_trunca_notas_muy_largas(self):
+        """`pdf.table()` de fpdf2 no puede partir una fila entre dos
+        páginas: una celda con notas muy largas hace crashear la
+        generación entera con `ValueError` (ver `_NOTAS_MAX_CARACTERES_EN_TABLA`
+        en `rutinas/pdf.py`). La celda trunca; el texto completo va aparte
+        en el apéndice -- se verifica en
+        `test_genera_un_pdf_valido_con_notas_muy_largas` que nunca se pierde."""
+        item = RutinaAsignadaItem(
+            series=3, repeticiones="12", notas="x" * 500,
+        )
+        texto = _celda_semana(item)
+        self.assertIn("(completa al final del PDF)", texto)
+        self.assertNotIn("x" * 500, texto)
+
+    def test_genera_un_pdf_valido_con_notas_muy_largas(self):
+        """Regresión: antes de acotar `_celda_semana`, una nota larga (una
+        indicación de seguridad real que un profesor podría escribir)
+        hacía que `generar_pdf_rutina_asignada` reviente con `ValueError`
+        en vez de generar el PDF -- justo el fallback que CLAUDE.md dice
+        que "tiene que funcionar siempre". Usa una sola palabra sin
+        espacios (peor caso para el word-wrap) para no depender de dónde
+        fpdf2 decide cortar líneas."""
+        plantilla, item1, item2 = self.crear_plantilla_con_items()
+        item1.notas = "a" * 2000
+        item1.save()
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            plantilla=plantilla,
+            fecha_inicio=date(2026, 1, 1),
+        )
+
+        pdf_bytes = generar_pdf_rutina_asignada(asignada)
+
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
     def test_genera_un_pdf_valido_sin_ejercicios(self):
         """Borde: una asignación recién creada sin items no debe romper la
         generación (mismo caso que el `{% empty %}` del template HTML)."""
@@ -1668,6 +1704,31 @@ class BackfillGrupoMuscularSnapshotTests(TestCase):
         item = RutinaAsignadaItem.objects.create(
             rutina_asignada=self.asignada,
             ejercicio_nombre_snapshot="sentadilla",
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+
+        self._backfill()
+
+        item.refresh_from_db()
+        self.assertEqual(item.grupo_muscular_snapshot, "piernas")
+
+    def test_matchea_ignorando_tildes(self):
+        """Regresión: `.lower()` a secas no matchea 'Sentadilla búlgara'
+        (biblioteca) contra 'Sentadilla bulgara' (snapshot sin tilde) --
+        la migración usa `normalizar_texto` (el mismo normalizador de
+        `importaciones/matching.py`), que sí los iguala."""
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Sentadilla búlgara",
+            grupo_muscular="piernas",
+        )
+        item = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot="sentadilla bulgara",
             semana=1,
             dia=1,
             orden=1,

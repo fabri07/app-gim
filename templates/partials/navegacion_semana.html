@@ -1,0 +1,14 @@
+{% comment %}
+Navegación "← Semana anterior / Esta semana / Semana siguiente →", compartida
+por `turnos/agenda.html` (staff) y `turnos/mis_turnos.html` (alumno) -- las
+dos paginan la misma grilla semanal vía `SemanaNavegableMixin`
+(`turnos/views.py`), que ya deja `semana_anterior`/`es_semana_actual`/
+`semana_siguiente` en el contexto de ambas vistas, así que este partial no
+necesita recibir nada explícito: los toma directo del contexto del template
+que lo incluye.
+{% endcomment %}
+<a class="boton-secundario" href="?semana={{ semana_anterior }}">&larr; Semana anterior</a>
+{% if not es_semana_actual %}
+  <a class="boton-secundario" href="?semana=0">Esta semana</a>
+{% endif %}
+<a class="boton-secundario" href="?semana={{ semana_siguiente }}">Semana siguiente &rarr;</a>

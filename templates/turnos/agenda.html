@@ -8,11 +8,7 @@
     <div class="acciones-lista">
       <h2>Agenda</h2>
       <div class="flex gap-2">
-        <a class="boton-secundario" href="?semana={{ semana_anterior }}">&larr; Semana anterior</a>
-        {% if not es_semana_actual %}
-          <a class="boton-secundario" href="?semana=0">Esta semana</a>
-        {% endif %}
-        <a class="boton-secundario" href="?semana={{ semana_siguiente }}">Semana siguiente &rarr;</a>
+        {% include 'partials/navegacion_semana.html' %}
         <a href="{% url 'turnos:configuracion' %}" class="boton-secundario">Configuración</a>
       </div>
     </div>
