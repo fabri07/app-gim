@@ -101,7 +101,14 @@
         <button type="button" class="sm:hidden text-gray-600" @click="navAbierto = !navAbierto" aria-label="Abrir menú">☰</button>
       {% endif %}
       {% if user.is_authenticated %}
-        <form method="post" action="{% url 'logout' %}" class="topbar__salir">
+        {% comment %}
+          hx-boost="false": el logout cambia el usuario autenticado, y el
+          <style> con el fondo del gimnasio (arriba, en <head>) depende de
+          `user.perfil.gimnasio` -- hx-boost por defecto solo swapea el
+          <body>, así que sin esto el fondo del gimnasio anterior sigue
+          apareciendo después de cerrar sesión, hasta un refresh manual.
+        {% endcomment %}
+        <form method="post" action="{% url 'logout' %}" class="topbar__salir" hx-boost="false">
           {% csrf_token %}
           <button type="submit">Salir</button>
         </form>

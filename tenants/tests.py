@@ -206,6 +206,22 @@ class LoginLogoutTests(TestCase):
         response = self.client.get(reverse("home"))
         self.assertEqual(response.status_code, 302)
 
+    def test_form_de_login_no_queda_boosteado(self):
+        """El <style> del fondo del gimnasio vive en <head>, que hx-boost no
+        swapea -- sin hx-boost="false" acá, el fondo no aparece recién
+        logueado hasta un refresh manual."""
+        response = self.client.get(reverse("login"))
+        self.assertContains(response, 'hx-boost="false"')
+
+    def test_form_de_logout_no_queda_boosteado(self):
+        """Mismo motivo que el form de login: sin esto, el fondo del
+        gimnasio anterior sigue apareciendo después de cerrar sesión."""
+        self.client.login(username="alumno1", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertContains(
+            response, f'action="{reverse("logout")}" class="topbar__salir" hx-boost="false"'
+        )
+
 
 class TenantIsolationTests(TestCase):
     """Confirma que dos gimnasios no comparten datos ni perfiles."""
@@ -739,6 +755,22 @@ class HomeViewAlumnoTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("turnos:mis_turnos"))
+
+    def test_alumno_ve_redes_sociales_del_gimnasio(self):
+        self.gimnasio.link_instagram = "https://instagram.com/gimnasioalfa"
+        self.gimnasio.link_whatsapp = "https://wa.me/5491112345678"
+        self.gimnasio.link_facebook = "https://facebook.com/gimnasioalfa"
+        self.gimnasio.save()
+        self._crear_alumno_con_login(username="con-redes", nombre="Lu", apellido="Paz")
+
+        self.client.login(username="con-redes", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.gimnasio.link_instagram)
+        self.assertContains(response, self.gimnasio.link_whatsapp)
+        self.assertContains(response, self.gimnasio.link_facebook)
+        self.assertContains(response, "Facebook")
 
 
 class GimnasioLandingViewTests(TestCase):

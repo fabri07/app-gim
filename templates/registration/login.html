@@ -15,7 +15,13 @@
   <div class="auth-hero__form">
     <div class="tarjeta">
       <h2>Ingresar</h2>
-      <form method="post" novalidate>
+      {% comment %}
+        hx-boost="false": mismo motivo que el form de logout en base.html --
+        el <style> con el fondo del gimnasio vive en <head>, que hx-boost no
+        swapea, así que sin esto el fondo no aparece recién logueado hasta un
+        refresh manual.
+      {% endcomment %}
+      <form method="post" novalidate hx-boost="false">
         {% csrf_token %}
         {{ form.as_p }}
         <button type="submit" class="boton">Entrar</button>

@@ -359,7 +359,7 @@
     {% if perfil.gimnasio.texto_bienvenida %}
       <p>{{ perfil.gimnasio.texto_bienvenida }}</p>
     {% endif %}
-    {% if perfil.gimnasio.contacto or perfil.gimnasio.link_instagram or perfil.gimnasio.link_whatsapp %}
+    {% if perfil.gimnasio.contacto or perfil.gimnasio.link_instagram or perfil.gimnasio.link_whatsapp or perfil.gimnasio.link_facebook %}
       <p class="texto-suave">
         {% if perfil.gimnasio.contacto %}{{ perfil.gimnasio.contacto }}{% endif %}
         {% if perfil.gimnasio.link_instagram %}
@@ -369,6 +369,10 @@
         {% if perfil.gimnasio.link_whatsapp %}
           {% if perfil.gimnasio.contacto or perfil.gimnasio.link_instagram %}&middot;{% endif %}
           <a href="{{ perfil.gimnasio.link_whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>
+        {% endif %}
+        {% if perfil.gimnasio.link_facebook %}
+          {% if perfil.gimnasio.contacto or perfil.gimnasio.link_instagram or perfil.gimnasio.link_whatsapp %}&middot;{% endif %}
+          <a href="{{ perfil.gimnasio.link_facebook }}" target="_blank" rel="noopener">Facebook</a>
         {% endif %}
       </p>
     {% endif %}

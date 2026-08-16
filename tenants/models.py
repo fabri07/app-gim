@@ -149,6 +149,7 @@ class Gimnasio(TimeStampedModel):
     contacto = models.CharField(max_length=120, blank=True)
     link_instagram = models.URLField(blank=True)
     link_whatsapp = models.URLField(blank=True)
+    link_facebook = models.URLField(blank=True)
     dia_vencimiento_pago = models.PositiveSmallIntegerField(
         "Día límite de pago mensual",
         default=10,

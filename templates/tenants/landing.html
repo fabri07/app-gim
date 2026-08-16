@@ -97,6 +97,9 @@
           {% if gimnasio.link_instagram %}
             <a class="boton-secundario" href="{{ gimnasio.link_instagram }}" target="_blank" rel="noopener">Instagram</a>
           {% endif %}
+          {% if gimnasio.link_facebook %}
+            <a class="boton-secundario" href="{{ gimnasio.link_facebook }}" target="_blank" rel="noopener">Facebook</a>
+          {% endif %}
         </div>
         {% if gimnasio.contacto %}
           <p class="texto-suave landing__contacto-texto">{{ gimnasio.contacto }}</p>

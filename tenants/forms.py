@@ -39,6 +39,7 @@ class GimnasioForm(forms.ModelForm):
             "contacto",
             "link_instagram",
             "link_whatsapp",
+            "link_facebook",
             "dia_vencimiento_pago",
         ]
         widgets = {
