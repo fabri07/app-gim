@@ -1,16 +1,79 @@
 {% extends 'base.html' %}
-{% block title %}Ingresar · App Gimnasios{% endblock %}
+{% block title %}{% if gimnasio %}Ingresar · {{ gimnasio.nombre }}{% else %}Ingresar · App Gimnasios{% endif %}{% endblock %}
 {% block main_class %}{% endblock %}
 
+{% block extra_style %}
+{% if gimnasio %}
+  {% comment %}
+    Mismo patrón que landing.html (subproyecto 5): el <style> del <head> de
+    base.html solo se llena para un usuario autenticado (user.perfil.gimnasio),
+    así que un visitante anónimo acá no tiene ninguna variable de gimnasio para
+    heredar. En vez de generalizar ese bloque, se duplica el mismo criterio de
+    landing.html -- variables CSS inline en el wrapper propio de esta página --
+    para no acoplar el head-style de TODA página autenticada a esta necesidad.
+  {% endcomment %}
+  {% if gimnasio.fondo_tipo == "imagen" and gimnasio.fondo_imagen %}
+    <style>
+      .auth-hero--gimnasio {
+        background-image:
+          linear-gradient(color-mix(in oklab, var(--color-fondo) 55%, transparent), color-mix(in oklab, var(--color-fondo) 55%, transparent)),
+          {% comment %}
+          |safe: ver el comentario largo en base.html -- sin esto el "&" de la
+          URL firmada de R2 sale como entidad HTML dentro de <style> (raw text,
+          sin decodificación de entidades) y la firma llega rota.
+          {% endcomment %}
+          url("{{ gimnasio.fondo_imagen.url|safe }}");
+        background-size: cover;
+        background-position: center;
+        background-attachment: scroll;
+      }
+    </style>
+  {% elif gimnasio.fondo_tipo == "doodle" and gimnasio.fondo_doodle_url %}
+    <style>
+      {% comment %}
+        isolation:isolate -- mismo motivo que .landing (ver landing.html):
+        sin esto, el fondo propio de .auth-hero--gimnasio pintaría ENCIMA
+        del ::before con z-index:-1, tapando el doodle por completo.
+      {% endcomment %}
+      .auth-hero--gimnasio { isolation: isolate; }
+      .auth-hero--gimnasio::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background-color: color-mix(in oklab, var(--color-secundario) 22%, transparent);
+        -webkit-mask-image: url("{{ gimnasio.fondo_doodle_url }}");
+        mask-image: url("{{ gimnasio.fondo_doodle_url }}");
+        -webkit-mask-repeat: repeat;
+        mask-repeat: repeat;
+        -webkit-mask-size: 300px;
+        mask-size: 300px;
+      }
+    </style>
+  {% endif %}
+{% endif %}
+{% endblock %}
+
 {% block content %}
-<div class="auth-hero">
+<div class="auth-hero{% if gimnasio %} auth-hero--gimnasio{% endif %}"
+     {% if gimnasio %}style="--color-fondo: {{ gimnasio.color_fondo_css }}; --color-primario: {{ gimnasio.color_primario_css }}; --color-secundario: {{ gimnasio.color_secundario_css }}; font-family: {{ gimnasio.tipografia_css_family|safe }};"{% endif %}>
   <div class="auth-hero__copy">
-    {% include 'partials/atletas_frieze.html' %}
-    <h1 class="auth-hero__titulo">Gestionar tu gimnasio es más fácil con una buena app</h1>
-    <p class="auth-hero__subtitulo">
-      Alumnos, pagos, rutinas y turnos en un solo lugar — así tu box deja de
-      depender de una planilla suelta o un chat de WhatsApp perdido.
-    </p>
+    {% if gimnasio %}
+      {% if gimnasio.logo %}
+        <span class="landing__logo-marco">
+          <img src="{{ gimnasio.logo.url }}" alt="{{ gimnasio.nombre }}" class="landing__logo">
+        </span>
+      {% endif %}
+      <h1 class="auth-hero__titulo">{{ gimnasio.nombre }}</h1>
+      <p class="auth-hero__subtitulo">{{ gimnasio.texto_bienvenida|default:"Ingresá con tu usuario y contraseña." }}</p>
+    {% else %}
+      {% include 'partials/atletas_frieze.html' %}
+      <h1 class="auth-hero__titulo">Gestionar tu gimnasio es más fácil con una buena app</h1>
+      <p class="auth-hero__subtitulo">
+        Alumnos, pagos, rutinas y turnos en un solo lugar — así tu box deja de
+        depender de una planilla suelta o un chat de WhatsApp perdido.
+      </p>
+    {% endif %}
   </div>
   <div class="auth-hero__form">
     <div class="tarjeta">

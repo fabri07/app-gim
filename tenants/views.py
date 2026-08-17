@@ -9,10 +9,11 @@ hace con `manage.py crear_gimnasio` (ver `tenants/services.py`).
 from datetime import date
 
 from django.contrib import messages
+from django.contrib.auth import views as auth_views
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views import View
@@ -166,6 +167,18 @@ class HomeView(LoginRequiredMixin, TemplateView):
         }
 
 
+class LoginView(auth_views.LoginView):
+    """Sin `redirect_authenticated_user`, un usuario ya logueado que visita
+    `/accounts/login/` ve el form de login superpuesto a su propia nav de
+    staff y al fondo de su gimnasio -- Django no redirige a un usuario ya
+    autenticado por default, solo renderiza el form igual (bug real, visto
+    en producción). Vive acá como clase (no como kwarg inline en
+    `tenants/urls.py`) para que `GimnasioLoginView` la herede sin duplicar
+    el flag."""
+
+    redirect_authenticated_user = True
+
+
 class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
     """Personalización white-label (Fase 4): logo, colores, texto de
     bienvenida, contacto y redes. Sin pk en la URL a propósito -- no es
@@ -234,6 +247,15 @@ class LogoSugerirPaisajeView(StaffRequiredMixin, View):
         return JsonResponse({"paisaje": paisaje})
 
 
+def gimnasio_activo_o_404(slug):
+    """Resuelve un Gimnasio público por slug, 404 si no existe o está
+    desactivado -- sin distinguir cuál de los dos casos es. Compartido entre
+    `GimnasioLandingView` y `GimnasioLoginView` para que las dos vistas no
+    puedan divergir en este criterio (antes vivía solo en
+    `GimnasioLandingView.get_queryset`)."""
+    return get_object_or_404(Gimnasio, slug=slug, activo=True)
+
+
 class GimnasioLandingView(DetailView):
     """Landing pública de un gimnasio (subproyecto 5): la primera vista del
     proyecto sin ningún mixin de autenticación -- accesible por cualquiera,
@@ -243,16 +265,17 @@ class GimnasioLandingView(DetailView):
     URL se resuelve por `Gimnasio.slug`, que ya existía desde Fase 1 sin
     ningún uso público hasta ahora.
 
-    `get_queryset` filtra `activo=True` para que un gimnasio desactivado (o
-    un slug que nunca existió) dé 404 -- no tiene sentido publicitar la
-    landing de un gimnasio que ya no opera, y un 404 no revela si el slug
-    alguna vez existió.
+    `get_object` usa `gimnasio_activo_o_404` para que un gimnasio
+    desactivado (o un slug que nunca existió) dé 404 -- no tiene sentido
+    publicitar la landing de un gimnasio que ya no opera, y un 404 no revela
+    si el slug alguna vez existió.
 
     No hay alta de leads propia ni formulario de contacto: el staff asigna
     usuario/contraseña a mano (ver `alumnos/views.py::CrearAccesoView`), así
     que un visitante nuevo no puede autoregistrarse como alumno -- la
     landing solo ofrece contactar al gimnasio (WhatsApp/Instagram/teléfono,
-    campos que ya existían) o, si ya es alumno, ir al login de siempre.
+    campos que ya existían) o, si ya es alumno, ir al login de ESE gimnasio
+    (`GimnasioLoginView`).
     """
 
     model = Gimnasio
@@ -261,8 +284,8 @@ class GimnasioLandingView(DetailView):
     slug_field = "slug"
     slug_url_kwarg = "slug"
 
-    def get_queryset(self):
-        return Gimnasio.objects.filter(activo=True)
+    def get_object(self, queryset=None):
+        return gimnasio_activo_o_404(self.kwargs["slug"])
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -278,6 +301,39 @@ class GimnasioLandingView(DetailView):
             (horarios[0].get_dia_semana_display(), horarios)
             for horarios in horarios_por_dia.values()
         ]
+        return context
+
+
+class GimnasioLoginView(LoginView):
+    """Login con la estética de UN gimnasio específico (resuelto por slug de
+    URL, mismo patrón que `GimnasioLandingView`), enlazado desde su landing
+    pública (`landing.html`).
+
+    El slug es PURAMENTE estético -- el proyecto no tiene subdominios por
+    gimnasio (principio no negociable), así que un alumno de OTRO gimnasio,
+    o un miembro de staff, pueden loguearse igual desde esta URL: la
+    autenticación sigue siendo el mismo `User`/`Perfil` de siempre, sin
+    ninguna restricción adicional. Solo cambia qué `Gimnasio` se le pasa al
+    template para pintar colores/logo/tipografía antes de loguearse.
+
+    No hereda de `DetailView`/`SingleObjectMixin`: `LoginView` ya es una
+    `FormView`, y mezclar dos jerarquías de vista genérica agrega
+    complejidad sin necesidad real -- alcanza con resolver el gimnasio en
+    `dispatch` y agregarlo al contexto.
+
+    Hereda `redirect_authenticated_user=True` de `LoginView` sin duplicar el
+    flag: un usuario ya logueado que visita esta URL también es redirigido
+    a `home`, ignorando el slug (no tiene sentido re-loguearse, y el slug no
+    debe influir a dónde va después de loguearse).
+    """
+
+    def dispatch(self, request, *args, **kwargs):
+        self.gimnasio = gimnasio_activo_o_404(kwargs["slug"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["gimnasio"] = self.gimnasio
         return context
 
 

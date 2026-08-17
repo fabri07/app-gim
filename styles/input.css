@@ -735,14 +735,29 @@
 
   /* Login: único lugar del sistema fuera de landing.html que rompe el ancho
      de .contenido -- mismo truco que .landing (main_class vacío + wrapper
-     propio). A diferencia de .landing, NO lleva colores de gimnasio: login
-     no tiene tenant en contexto todavía, así que usa directamente
-     var(--color-primario)/--color-secundario, que en esta página resuelven
-     al :root global (paisaje Bosque, default documentado en DESIGN.md para
-     login/404). */
+     propio). Por default (sin `gimnasio` en contexto -- login genérico, o
+     cuando LOGIN_URL redirige acá desde una vista protegida sin slug en la
+     URL) usa directamente var(--color-primario)/--color-secundario, que acá
+     resuelven al :root global (paisaje Bosque, default documentado en
+     DESIGN.md para login/404). Con `gimnasio` en contexto (login.html rama
+     login_gimnasio), lleva además la clase `.auth-hero--gimnasio` (ver más
+     abajo), que sí pinta con los colores de ESE gimnasio -- mismo patrón que
+     `.landing`, duplicado en vez de compartido (sin preprocesador CSS). */
   .auth-hero {
     @apply w-full max-w-5xl mx-auto px-4 py-12 sm:py-20 grid grid-cols-1
       lg:grid-cols-2 gap-10 lg:gap-16 items-center;
+  }
+
+  /* Mismo canvas atmosférico que `.landing` (ver el comentario largo más
+     arriba), con las variables que pisa el `style` inline de
+     `login.html` (paisaje del gimnasio visitado, no el :root global). */
+  .auth-hero--gimnasio {
+    background-color: var(--color-fondo);
+    background-image:
+      radial-gradient(ellipse 70% 55% at 10% -10%, color-mix(in oklab, var(--color-primario) 16%, transparent), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 15%, color-mix(in oklab, var(--color-secundario) 14%, transparent), transparent 65%),
+      radial-gradient(ellipse 55% 45% at -5% 100%, color-mix(in oklab, var(--color-primario) 10%, transparent), transparent 60%);
+    background-repeat: no-repeat;
   }
 
   .auth-hero__copy {

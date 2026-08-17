@@ -569,6 +569,68 @@ el color de marca ocupa una región entera, no un acento suelto) y un único
 CTA primario (WhatsApp). El resto del sitio sigue en la paleta neutra
 existente; este tratamiento es exclusivo de `landing.html`.
 
+## Login por gimnasio y fix de usuario ya autenticado (subproyecto 6, más allá del ROADMAP original)
+
+Agregado tras un reporte real en producción, con capturas: un staff ya
+logueado que visitaba `/accounts/login/` veía su propio topbar, la nav
+completa de staff y el fondo de su gimnasio **superpuestos** con el
+formulario de login — muy confuso. Causa: `auth_views.LoginView` no redirige
+por default a un usuario ya autenticado, y `base.html` renderiza el
+topbar/nav en base a `user.is_authenticated` sin ningún caso especial para
+la página de login.
+
+`tenants.views.LoginView` agrega `redirect_authenticated_user = True` sobre
+el `LoginView` de Django — un usuario ya logueado que visita
+`/accounts/login/` (o `g/<slug>/login/`) es redirigido directo a
+`LOGIN_REDIRECT_URL` ("home") en vez de ver el form. Vive como clase propia
+(no como kwarg inline en `tenants/urls.py`) para que `GimnasioLoginView` la
+herede sin duplicar el flag.
+
+**`GimnasioLoginView`** (ruta `g/<slug>/login/`) es la versión "gym-specific":
+resuelve el `Gimnasio` por slug con `gimnasio_activo_o_404` (helper
+extraído de lo que antes era `GimnasioLandingView.get_queryset`, ahora
+compartido por las dos vistas para que no puedan divergir en el criterio de
+404 "no revela si el slug existió alguna vez"). No hereda de
+`DetailView`/`SingleObjectMixin`: `LoginView` ya es una `FormView`, mezclar
+dos jerarquías de vista genérica no aporta nada — alcanza con resolver el
+gimnasio en `dispatch` y agregarlo al contexto.
+
+**El slug es puramente estético, no una barrera de autenticación**: el
+proyecto no tiene subdominios por gimnasio (principio no negociable #6), así
+que un alumno de OTRO gimnasio, o un miembro de staff, pueden loguearse
+igual desde `g/<cualquier-slug>/login/` — es el mismo `User`/`Perfil` de
+siempre, sin restricción adicional. Solo cambia qué `Gimnasio` se le pasa al
+template para pintar colores/logo/tipografía/copy antes de loguearse. Hay
+un test de regresión (`test_alumno_de_otro_gimnasio_puede_loguearse_igual`)
+que fija este comportamiento a propósito.
+
+`templates/registration/login.html` NO reusa el `<style>` del `<head>` de
+`base.html` (que depende de `user.perfil.gimnasio`, inexistente para un
+visitante anónimo) — en cambio duplica el patrón ya usado por
+`landing.html` (variables CSS inline en el wrapper `.auth-hero`,
+`{% block extra_style %}` para fondo imagen/doodle, mismo criterio
+`isolation: isolate` para que el doodle no quede tapado). Se evaluó
+generalizar el bloque de `base.html` para que acepte un `gimnasio` de
+contexto además de `user.perfil.gimnasio`, y se descartó: acoplaría el
+head-style de TODA página autenticada a una necesidad exclusiva del login.
+`.auth-hero--gimnasio` en `styles/input.css` duplica el mismo canvas
+atmosférico de 3 blobs radiales que ya usan `body` y `.landing` — tercera
+copia a propósito, mismo criterio ya documentado ahí: sin preprocesador CSS
+no hay forma limpia de compartirlo.
+
+Con `gimnasio` en contexto, el copy de marketing genérico
+("Gestionar tu gimnasio es más fácil...") y el dibujo de atletas
+(`atletas_frieze.html`) se reemplazan por el nombre del gimnasio y su
+`texto_bienvenida` — decisión explícita del dueño del producto: un alumno
+logueándose a SU gimnasio no debería ver un pitch de venta dirigido a
+dueños de gimnasios. Sin `gimnasio` en contexto (login genérico, o cuando
+Django redirige acá desde `LOGIN_URL` por una vista protegida — ese flujo
+no tiene forma de saber el slug), el template renderiza EXACTAMENTE igual
+que antes: paisaje Bosque default, copy de marketing y atletas.
+
+`landing.html` enlaza "Iniciar sesión" a `login_gimnasio` con el slug del
+gimnasio que se está visitando (antes iba al login genérico, sin contexto).
+
 ## Deploy (Fase 5)
 
 **Estado (2026-07-30): desplegado.** App en `https://app-gim.onrender.com`

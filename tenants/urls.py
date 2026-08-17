@@ -3,8 +3,10 @@ from django.urls import path
 
 from tenants.views import (
     GimnasioLandingView,
+    GimnasioLoginView,
     GimnasioUpdateView,
     HomeView,
+    LoginView,
     LogoSugerirPaisajeView,
     SuplantarView,
     VolverDeSuplantacionView,
@@ -18,7 +20,7 @@ from tenants.views import (
 # desde todo el proyecto, así que ponerlo rompería esas referencias en masa.
 urlpatterns = [
     path("", HomeView.as_view(), name="home"),
-    path("accounts/login/", auth_views.LoginView.as_view(), name="login"),
+    path("accounts/login/", LoginView.as_view(), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("gimnasio/editar/", GimnasioUpdateView.as_view(), name="gimnasio_editar"),
     path(
@@ -35,5 +37,9 @@ urlpatterns = [
         name="suplantacion_volver",
     ),
     path("suplantar/<int:pk>/", SuplantarView.as_view(), name="suplantar"),
+    # La ruta de login va antes que la landing: aunque no hay ambigüedad real
+    # (Django exige match completo, "g/<slug>/" no matchea "g/<slug>/login/"),
+    # mismo criterio de "ruta más específica primero" que el resto del archivo.
+    path("g/<slug:slug>/login/", GimnasioLoginView.as_view(), name="login_gimnasio"),
     path("g/<slug:slug>/", GimnasioLandingView.as_view(), name="landing_gimnasio"),
 ]

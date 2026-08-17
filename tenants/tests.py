@@ -222,6 +222,14 @@ class LoginLogoutTests(TestCase):
             response, f'action="{reverse("logout")}" class="topbar__salir" hx-boost="false"'
         )
 
+    def test_usuario_logueado_que_visita_login_es_redirigido_a_home(self):
+        """Sin `redirect_authenticated_user`, un usuario ya logueado veía el
+        form de login superpuesto a su propia nav y fondo (bug real visto en
+        producción, ver CLAUDE.md)."""
+        self.client.login(username="alumno1", password="clave-123456")
+        response = self.client.get(reverse("login"))
+        self.assertRedirects(response, reverse("home"))
+
 
 class TenantIsolationTests(TestCase):
     """Confirma que dos gimnasios no comparten datos ni perfiles."""
@@ -802,7 +810,7 @@ class GimnasioLandingViewTests(TestCase):
         response = self.client.get(reverse("landing_gimnasio", args=["central"]))
         self.assertContains(response, "https://wa.me/5491112345678")
         self.assertContains(response, "https://instagram.com/gimnasiocentral")
-        self.assertContains(response, reverse("login"))
+        self.assertContains(response, reverse("login_gimnasio", args=["central"]))
 
     def test_gimnasio_inactivo_da_404(self):
         response = self.client.get(reverse("landing_gimnasio", args=["cerrado"]))
@@ -853,6 +861,73 @@ class GimnasioLandingViewTests(TestCase):
         response = self.client.get(reverse("landing_gimnasio", args=["central"]))
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "Horarios de atención")
+
+
+class GimnasioLoginViewTests(TestCase):
+    """Login con la estética de un gimnasio específico (`g/<slug>/login/`),
+    calcada de GimnasioLandingViewTests. Foco: estética presente solo con
+    slug válido, el login genérico no la filtra, 404 igual que la landing,
+    y que el slug sea puramente cosmético (no una barrera de auth)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio Central",
+            slug="central",
+            paleta=Gimnasio.Paleta.OCEANO,
+            texto_bienvenida="¡Sumate a entrenar con nosotros!",
+        )
+        self.gimnasio_inactivo = Gimnasio.objects.create(
+            nombre="Gimnasio Cerrado", slug="cerrado", activo=False
+        )
+        self.otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        self.alumno_otro = User.objects.create_user("alumno-otro", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.alumno_otro, gimnasio=self.otro_gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+
+    def test_anonimo_puede_ver_login_con_estetica_del_gimnasio(self):
+        response = self.client.get(reverse("login_gimnasio", args=["central"]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Gimnasio Central")
+        self.assertContains(response, "¡Sumate a entrenar con nosotros!")
+        self.assertContains(response, self.gimnasio.color_primario_css)
+
+    def test_login_generico_no_muestra_estetica_de_gimnasio(self):
+        response = self.client.get(reverse("login"))
+        self.assertNotContains(response, "Gimnasio Central")
+        self.assertNotContains(response, self.gimnasio.color_primario_css)
+
+    def test_gimnasio_inactivo_da_404(self):
+        response = self.client.get(reverse("login_gimnasio", args=["cerrado"]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_slug_inexistente_da_404(self):
+        response = self.client.get(reverse("login_gimnasio", args=["no-existe"]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_login_exitoso_redirige_a_home(self):
+        response = self.client.post(
+            reverse("login_gimnasio", args=["central"]),
+            {"username": "alumno-otro", "password": "clave-123456"},
+        )
+        self.assertRedirects(response, reverse("home"))
+
+    def test_usuario_logueado_es_redirigido_sin_ver_el_form(self):
+        self.client.login(username="alumno-otro", password="clave-123456")
+        response = self.client.get(reverse("login_gimnasio", args=["central"]))
+        self.assertRedirects(response, reverse("home"))
+
+    def test_alumno_de_otro_gimnasio_puede_loguearse_igual(self):
+        """El slug es puramente estético -- el proyecto no tiene subdominios
+        por gimnasio, así que loguearse desde el login de OTRO gimnasio
+        funciona igual y termina en el propio home del alumno."""
+        response = self.client.post(
+            reverse("login_gimnasio", args=["central"]),
+            {"username": "alumno-otro", "password": "clave-123456"},
+        )
+        self.assertRedirects(response, reverse("home"))
+        home = self.client.get(reverse("home"))
+        self.assertContains(home, "Otro")
 
 
 class GimnasioUpdateViewTests(TestCase):

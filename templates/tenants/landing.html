@@ -108,7 +108,7 @@
 
       <div class="landing__acceso">
         <p class="texto-suave">¿Ya sos alumno de {{ gimnasio.nombre }}?</p>
-        <a class="boton-secundario" href="{% url 'login' %}">Iniciar sesión</a>
+        <a class="boton-secundario" href="{% url 'login_gimnasio' gimnasio.slug %}">Iniciar sesión</a>
       </div>
     </div>
   </section>
