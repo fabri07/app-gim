@@ -66,6 +66,18 @@
       {% endif %}
       <h1 class="auth-hero__titulo">{{ gimnasio.nombre }}</h1>
       <p class="auth-hero__subtitulo">{{ gimnasio.texto_bienvenida|default:"Ingresá con tu usuario y contraseña." }}</p>
+      {% comment %}
+        hx-boost="false": mismo motivo que el link "Iniciar sesión" de
+        landing.html -- el <style> de extra_style (fondo imagen/doodle)
+        vive en <head>, que hx-boost no swapea, así que sin esto el fondo
+        del gimnasio anterior/nuevo queda pegado un instante en una
+        navegación boosteada.
+      {% endcomment %}
+      <p class="auth-hero__cambiar-gimnasio">
+        <a href="{% url 'login' %}?otro_gimnasio=1{% if next %}&next={{ next|urlencode }}{% endif %}" hx-boost="false">
+          ¿No es tu gimnasio?
+        </a>
+      </p>
     {% else %}
       {% include 'partials/atletas_frieze.html' %}
       <h1 class="auth-hero__titulo">Gestionar tu gimnasio es más fácil con una buena app</h1>

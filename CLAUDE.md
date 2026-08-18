@@ -631,6 +631,70 @@ que antes: paisaje Bosque default, copy de marketing y atletas.
 `landing.html` enlaza "Iniciar sesión" a `login_gimnasio` con el slug del
 gimnasio que se está visitando (antes iba al login genérico, sin contexto).
 
+**Cookie `gimnasio_preferido` (recordar el gimnasio entre logins).**
+Primera cookie PROPIA del proyecto (aparte de `sessionid`/`csrftoken` de
+Django). Resuelve el caso que el punto anterior no cubre: un alumno que NO
+llega por el link de su gimnasio (bookmark de la URL genérica, historial
+del navegador) seguía viendo siempre el paisaje Bosque. Tras cualquier
+login exitoso — genérico o por slug — `tenants.views.LoginView.form_valid`
+guarda el slug de `user.perfil.gimnasio` en esta cookie
+(`setear_cookie_gimnasio`). `GimnasioLoginView` hereda `form_valid` sin
+overridearlo, así que también la deja.
+
+La próxima vez que ESE dispositivo llegue a `/accounts/login/` sin sesión
+activa (típicamente porque `LoginRequiredMixin` lo mandó ahí desde
+`LOGIN_URL` con `?next=...`), `LoginView.get` la lee (`gimnasio_de_cookie`)
+y si apunta a un gimnasio activo lo redirige directo a `g/<slug>/login/`
+preservando `?next=` a mano (`RedirectURLMixin.get_redirect_url()` solo lee
+`next` del request actual, no lo hereda de un redirect propio). Si el
+gimnasio de la cookie ya no existe o está inactivo, se ignora en silencio y
+la cookie se borra sola en esa misma respuesta.
+
+Este chequeo SOLO corre en el login genérico: `getattr(self, "gimnasio",
+None)` es `None` únicamente ahí — `GimnasioLoginView.dispatch` ya resolvió
+`self.gimnasio` por el slug de la URL antes de que `get()` corra, así que
+un slug explícito en la URL nunca es pisado por la cookie.
+
+Si dos usuarios de gimnasios distintos comparten dispositivo, cada login
+exitoso pisa la cookie con el gimnasio correcto — se autocorrige solo, sin
+mecanismo de "olvidar" explícito. Para el caso en que alguien SÍ quiere ver
+el login genérico a propósito (por ejemplo, loguearse con la cuenta de otro
+gimnasio en el mismo dispositivo), `login.html` muestra un link "¿No es tu
+gimnasio?" hacia `{% url 'login' %}?otro_gimnasio=1`, que `LoginView.get`
+reconoce para saltear el chequeo esa vez y borrar la cookie vieja — sin
+esto habría un loop de redirect infinito.
+
+Seguridad: `secure=not settings.DEBUG` replica el criterio ya usado en
+`SESSION_COOKIE_SECURE`/`CSRF_COOKIE_SECURE` (`config/settings.py`,
+`if not DEBUG:`). `httponly=True` porque nada del lado del cliente necesita
+leerla. `samesite="Lax"` explícito porque `set_cookie()` NO hereda
+`SESSION_COOKIE_SAMESITE` (ese setting solo aplica al cookie de sesión vía
+`SessionMiddleware`). `max_age` de 1 año, mismo criterio de literal
+explícito que `SECURE_HSTS_SECONDS`. Es puramente cosmética/pre-login: no
+tiene ninguna relación con cómo se resuelve el tenant post-login
+(`user.perfil.gimnasio`, sin cambios). Sin banner de consentimiento a
+propósito: es una cookie estrictamente funcional, no de tracking/publicidad
+— no hay ninguna política escrita en el proyecto que lo restrinja.
+
+**Gotcha de `hx-boost` (encontrado auditando esta feature, corregido acá y
+retroactivamente):** el `{% block extra_style %}` que arma el fondo de
+imagen/doodle vive en `<head>` (`base.html`), y `hx-boost="true"` es global
+en `<body>` — htmx, por default, solo reemplaza `<body>` en una navegación
+boosteada, nunca `<head>`. Mismo patrón que ya rompió 4 veces antes en el
+proyecto (Google Calendar, PDF de rutina, upload de logo, Tom Select) y que
+login/logout ya resuelve desde el commit `8bc7964`. El link "¿No es tu
+gimnasio?" lleva `hx-boost="false"` por este motivo, y de paso se corrigió
+el mismo gap retroactivo en el link "Iniciar sesión" de `landing.html`
+(le faltaba desde que se agregó `GimnasioLoginView`) y en el link de marca
+del topbar (`base.html`) — este último **solo** para el visitante anónimo
+(destino: login genérico): el caso autenticado (destino: `home`) no tiene
+ningún `extra_style` de por medio y conserva la transición boosteada de
+siempre, condicionando el atributo con `{% if not user.is_authenticated %}`
+en vez de sacarlo sin más (perder el boost ahí habría sido una regresión de
+UX para el click más común del sitio). Regla general:
+cualquier link/form nuevo cuyo destino dependa de que `extra_style` se
+actualice necesita `hx-boost="false"`.
+
 ## Deploy (Fase 5)
 
 **Estado (2026-07-30): desplegado.** App en `https://app-gim.onrender.com`

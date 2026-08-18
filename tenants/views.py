@@ -8,14 +8,16 @@ hace con `manage.py crear_gimnasio` (ver `tenants/services.py`).
 
 from datetime import date
 
+from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import views as auth_views
+from django.contrib.auth import REDIRECT_FIELD_NAME, views as auth_views
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.utils.http import urlencode
 from django.views import View
 from django.views.generic import DetailView, TemplateView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
@@ -167,6 +169,57 @@ class HomeView(LoginRequiredMixin, TemplateView):
         }
 
 
+GIMNASIO_COOKIE_NOMBRE = "gimnasio_preferido"
+GIMNASIO_COOKIE_MAX_AGE = 60 * 60 * 24 * 365  # 1 año, mismo criterio que
+                                                # SECURE_HSTS_SECONDS en config/settings.py
+GIMNASIO_OMITIR_PARAM = "otro_gimnasio"
+
+
+def setear_cookie_gimnasio(response, user):
+    """Guarda en `response` el slug de `user.perfil.gimnasio` -- primera
+    cookie propia del proyecto (fuera de sessionid/csrftoken de Django).
+    Puramente cosmética: la próxima vez que este dispositivo llegue al
+    login genérico sin sesión activa (`LoginView.get`), ve directo la
+    estética de este gimnasio en vez del paisaje Bosque default.
+
+    Defensivo ante `Perfil` inexistente -- en la práctica todo usuario que
+    llega a `form_valid` por acá ya tiene uno, pero un superuser de
+    `createsuperuser` no, y no debe romper el login por esto.
+
+    `secure=not settings.DEBUG` replica el criterio ya usado para
+    SESSION_COOKIE_SECURE/CSRF_COOKIE_SECURE (`config/settings.py`,
+    `if not DEBUG:`). `samesite="Lax"` es explícito porque `set_cookie()`
+    NO hereda SESSION_COOKIE_SAMESITE -- ese setting solo aplica al cookie
+    de sesión vía SessionMiddleware.
+    """
+    try:
+        slug = user.perfil.gimnasio.slug
+    except ObjectDoesNotExist:
+        return
+    response.set_cookie(
+        GIMNASIO_COOKIE_NOMBRE,
+        slug,
+        max_age=GIMNASIO_COOKIE_MAX_AGE,
+        secure=not settings.DEBUG,
+        httponly=True,
+        samesite="Lax",
+    )
+
+
+def gimnasio_de_cookie(request):
+    """Gimnasio activo apuntado por la cookie `gimnasio_preferido`, o
+    `None` si no hay cookie, el slug no existe, o el gimnasio está inactivo.
+
+    A diferencia de `gimnasio_activo_o_404`, un slug inválido acá NO es un
+    error -- es una cookie vieja/corrupta (gimnasio dado de baja, o dato
+    corrupto) que `LoginView.get` debe ignorar en silencio y de paso
+    limpiar, no un 404."""
+    slug = request.COOKIES.get(GIMNASIO_COOKIE_NOMBRE)
+    if not slug:
+        return None
+    return Gimnasio.objects.filter(slug=slug, activo=True).first()
+
+
 class LoginView(auth_views.LoginView):
     """Sin `redirect_authenticated_user`, un usuario ya logueado que visita
     `/accounts/login/` ve el form de login superpuesto a su propia nav de
@@ -177,6 +230,86 @@ class LoginView(auth_views.LoginView):
     el flag."""
 
     redirect_authenticated_user = True
+
+    def get(self, request, *args, **kwargs):
+        """Login genérico: si el visitante anónimo trae la cookie
+        `gimnasio_preferido` de una visita anterior, lo manda derecho a
+        `g/<slug>/login/` preservando `?next=`, para que vea la estética de
+        SU gimnasio en vez del paisaje Bosque genérico.
+
+        Solo corre acá, nunca en `GimnasioLoginView`:
+        `getattr(self, "gimnasio", None)` es `None` únicamente en el login
+        genérico -- `GimnasioLoginView.dispatch` ya resolvió `self.gimnasio`
+        por el slug de la URL ANTES de que `get()` corra (y no overridea
+        `get`, así que hereda este método), y ese slug explícito nunca debe
+        ser pisado por la cookie.
+
+        No toca `post()`: el submit del form (con o sin `gimnasio` en
+        contexto) sigue yendo directo a `form_valid`/`form_invalid`, sin que
+        esta lógica interfiera con el envío de credenciales.
+
+        `?otro_gimnasio=1` (enlazado desde "¿No es tu gimnasio?" en
+        `login.html`) desactiva el chequeo UNA vez y borra la cookie vieja
+        -- sin esto, alguien que activamente quiere ver el login genérico
+        quedaría en loop de redirect hacia el gimnasio que la cookie
+        recuerda. Un slug de cookie inexistente/inactivo también se limpia
+        acá (`cookie_invalida`): evita repetir la consulta a `Gimnasio` en
+        cada visita futura con una cookie que ya sabemos que no sirve.
+
+        Todo el bloque (chequeo Y borrado de cookie) queda adentro del
+        `if getattr(self, "gimnasio", None) is None`: sin este scoping, un
+        `GET g/<slug>/login/?otro_gimnasio=1` (URL escrita/copiada a mano,
+        no generada por este template) borraría la cookie igual, aunque
+        `GimnasioLoginView` nunca ofrece ese link -- contradice la garantía
+        de que este mecanismo "solo corre en el login genérico".
+        """
+        if getattr(self, "gimnasio", None) is None:
+            omitir = request.GET.get(GIMNASIO_OMITIR_PARAM) == "1"
+            cookie_invalida = False
+            if not omitir and GIMNASIO_COOKIE_NOMBRE in request.COOKIES:
+                gimnasio = gimnasio_de_cookie(request)
+                if gimnasio is not None:
+                    return self._redirigir_a_login_gimnasio(gimnasio)
+                cookie_invalida = True
+
+            response = super().get(request, *args, **kwargs)
+            if omitir or cookie_invalida:
+                response.delete_cookie(GIMNASIO_COOKIE_NOMBRE)
+            return response
+
+        return super().get(request, *args, **kwargs)
+
+    def _redirigir_a_login_gimnasio(self, gimnasio):
+        """Redirect manual (no pasa por `RedirectURLMixin.get_success_url`,
+        que es para DESPUÉS de loguearse) -- hay que propagar `?next=` a
+        mano: `RedirectURLMixin.get_redirect_url()` solo lee `next` del
+        request ACTUAL, no lo hereda de un redirect propio.
+
+        Se usa `self.get_redirect_url()` (no `request.GET.get(...)` crudo)
+        a propósito: valida el destino con
+        `url_has_allowed_host_and_scheme` antes de reenviarlo -- sin esto,
+        `?next=https://evil.com` viajaría sin validar hasta la URL de
+        `login_gimnasio`, confiando en que ALGO río abajo lo vuelva a
+        validar en vez de cortarlo acá, en el único lugar que lo reenvía."""
+        url = reverse("login_gimnasio", args=[gimnasio.slug])
+        next_url = self.get_redirect_url()
+        if next_url:
+            url = f"{url}?{urlencode({REDIRECT_FIELD_NAME: next_url})}"
+        return redirect(url)
+
+    def form_valid(self, form):
+        """Tras loguearse, guarda qué gimnasio es el de este usuario en la
+        cookie `gimnasio_preferido` (ver `setear_cookie_gimnasio`) para
+        reconocerlo la próxima vez que entre por el login genérico.
+
+        `GimnasioLoginView` hereda este método SIN overridearlo (no define
+        su propio `form_valid`), así que un login que entra por
+        `g/<slug>/login/` también deja la cookie -- confirmado por MRO:
+        `GimnasioLoginView -> LoginView -> auth_views.LoginView`, y
+        `GimnasioLoginView` solo pisa `dispatch`/`get_context_data`."""
+        response = super().form_valid(form)
+        setear_cookie_gimnasio(response, self.request.user)
+        return response
 
 
 class GimnasioUpdateView(StaffRequiredMixin, UpdateView):

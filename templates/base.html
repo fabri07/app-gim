@@ -90,7 +90,17 @@
     </div>
   {% endif %}
   <header class="topbar">
-    <a href="{% if user.is_authenticated %}{% url 'home' %}{% else %}{% url 'login' %}{% endif %}" class="topbar__marca">
+    {% comment %}
+      hx-boost="false" SOLO para el visitante anónimo (destino: login
+      genérico): el <style> de extra_style (fondo imagen/doodle de una
+      landing/login con gimnasio) vive en <head>, que hx-boost no swapea --
+      mismo motivo que el link "¿No es tu gimnasio?" y el de "Iniciar
+      sesión" de landing.html. No se aplica también al caso autenticado
+      (destino: home) a propósito: ahí SÍ conviene la transición boosteada
+      de siempre, no hay ningún extra_style de por medio que dependa de
+      refrescar el <head>.
+    {% endcomment %}
+    <a href="{% if user.is_authenticated %}{% url 'home' %}{% else %}{% url 'login' %}{% endif %}" class="topbar__marca" {% if not user.is_authenticated %}hx-boost="false"{% endif %}>
       {% if user.is_authenticated and user.perfil.gimnasio.logo %}
         <img src="{{ user.perfil.gimnasio.logo.url }}" alt="{{ user.perfil.gimnasio.nombre }}">
       {% endif %}

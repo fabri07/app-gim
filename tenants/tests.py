@@ -21,6 +21,7 @@ from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
+from django.utils.http import urlencode
 from django.views.generic import TemplateView, View
 from PIL import Image
 
@@ -221,6 +222,22 @@ class LoginLogoutTests(TestCase):
         self.assertContains(
             response, f'action="{reverse("logout")}" class="topbar__salir" hx-boost="false"'
         )
+
+    def test_link_de_marca_anonimo_no_queda_boosteado(self):
+        """Mismo motivo que el link "¿No es tu gimnasio?": el anónimo cae en
+        el login genérico, y el extra_style de la página de la que viene
+        (una landing/login con gimnasio) no se refresca sin esto."""
+        response = self.client.get(reverse("landing_gimnasio", args=["gimnasio-de-prueba"]))
+        self.assertContains(response, 'class="topbar__marca" hx-boost="false"')
+
+    def test_link_de_marca_autenticado_sigue_boosteado(self):
+        """A diferencia del caso anónimo, acá NO debe llevar hx-boost="false":
+        no hay ningún extra_style de por medio (el destino es `home`, sin
+        landing/login con gimnasio), y perderlo rompería la transición
+        suave de siempre al clickear el logo para ir al dashboard."""
+        self.client.login(username="alumno1", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, 'class="topbar__marca" >')
 
     def test_usuario_logueado_que_visita_login_es_redirigido_a_home(self):
         """Sin `redirect_authenticated_user`, un usuario ya logueado veía el
@@ -812,6 +829,17 @@ class GimnasioLandingViewTests(TestCase):
         self.assertContains(response, "https://instagram.com/gimnasiocentral")
         self.assertContains(response, reverse("login_gimnasio", args=["central"]))
 
+    def test_link_de_login_no_queda_boosteado(self):
+        """El <style> de extra_style (fondo imagen/doodle del gimnasio
+        destino) vive en <head>, que hx-boost no swapea -- sin
+        hx-boost="false" acá, un click boosteado no se ve con el fondo
+        correcto hasta un refresh manual (mismo motivo que login/logout)."""
+        response = self.client.get(reverse("landing_gimnasio", args=["central"]))
+        self.assertContains(
+            response,
+            f'href="{reverse("login_gimnasio", args=["central"])}" hx-boost="false"',
+        )
+
     def test_gimnasio_inactivo_da_404(self):
         response = self.client.get(reverse("landing_gimnasio", args=["cerrado"]))
         self.assertEqual(response.status_code, 404)
@@ -928,6 +956,100 @@ class GimnasioLoginViewTests(TestCase):
         self.assertRedirects(response, reverse("home"))
         home = self.client.get(reverse("home"))
         self.assertContains(home, "Otro")
+
+    def test_link_no_es_tu_gimnasio_aparece_y_no_queda_boosteado(self):
+        response = self.client.get(reverse("login_gimnasio", args=["central"]))
+        self.assertContains(response, "otro_gimnasio=1")
+        self.assertContains(response, 'hx-boost="false"')
+
+
+class GimnasioPreferidoCookieTests(TestCase):
+    """Cookie `gimnasio_preferido`: recordar el gimnasio entre logins.
+
+    Usa `self.client.post(reverse("login"), ...)` para loguearse, NO
+    `self.client.login(...)` -- ese atajo crea la sesión directo sin pasar
+    por `LoginView.post`/`form_valid`, así que nunca ejecutaría
+    `setear_cookie_gimnasio`."""
+
+    def setUp(self):
+        self.gimnasio_a = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+        self.gimnasio_inactivo = Gimnasio.objects.create(
+            nombre="Cerrado", slug="cerrado", activo=False
+        )
+        self.alumno_a = User.objects.create_user("alumno-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.alumno_a, gimnasio=self.gimnasio_a, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno_b = User.objects.create_user("alumno-b", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.alumno_b, gimnasio=self.gimnasio_b, rol=Perfil.Rol.ALUMNO
+        )
+
+    def test_login_generico_exitoso_setea_la_cookie(self):
+        response = self.client.post(
+            reverse("login"), {"username": "alumno-a", "password": "clave-123456"}
+        )
+        self.assertEqual(response.cookies["gimnasio_preferido"].value, "gimnasio-a")
+
+    def test_login_por_slug_exitoso_tambien_setea_la_cookie(self):
+        """Confirma que GimnasioLoginView hereda form_valid sin duplicarlo."""
+        response = self.client.post(
+            reverse("login_gimnasio", args=["gimnasio-b"]),
+            {"username": "alumno-a", "password": "clave-123456"},
+        )
+        self.assertEqual(response.cookies["gimnasio_preferido"].value, "gimnasio-a")
+
+    def test_dos_logins_sucesivos_de_gimnasios_distintos_pisan_la_cookie(self):
+        self.client.post(
+            reverse("login"), {"username": "alumno-a", "password": "clave-123456"}
+        )
+        self.assertEqual(self.client.cookies["gimnasio_preferido"].value, "gimnasio-a")
+        self.client.post(reverse("logout"))
+        self.client.post(
+            reverse("login"), {"username": "alumno-b", "password": "clave-123456"}
+        )
+        self.assertEqual(self.client.cookies["gimnasio_preferido"].value, "gimnasio-b")
+
+    def test_anonimo_con_cookie_valida_es_redirigido_preservando_next(self):
+        self.client.post(
+            reverse("login"), {"username": "alumno-a", "password": "clave-123456"}
+        )
+        self.client.post(reverse("logout"))
+        response = self.client.get(reverse("home"), follow=True)
+        esperado = (
+            reverse("login_gimnasio", args=["gimnasio-a"])
+            + f"?{urlencode({'next': reverse('home')})}"
+        )
+        self.assertIn((esperado, 302), response.redirect_chain)
+        self.assertContains(response, "Gimnasio A")
+
+    def test_cookie_de_gimnasio_inactivo_se_ignora_y_se_borra(self):
+        self.client.cookies["gimnasio_preferido"] = "cerrado"
+        response = self.client.get(reverse("login"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Gimnasio A")
+        self.assertEqual(response.cookies["gimnasio_preferido"].value, "")
+        self.assertEqual(response.cookies["gimnasio_preferido"]["max-age"], 0)
+
+    def test_cookie_con_slug_inexistente_se_ignora_sin_romper(self):
+        self.client.cookies["gimnasio_preferido"] = "no-existe"
+        response = self.client.get(reverse("login"))
+        self.assertEqual(response.status_code, 200)
+
+    def test_link_otro_gimnasio_evita_el_loop_y_borra_la_cookie(self):
+        self.client.cookies["gimnasio_preferido"] = "gimnasio-a"
+        response = self.client.get(reverse("login") + "?otro_gimnasio=1")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Gimnasio A")
+        self.assertEqual(response.cookies["gimnasio_preferido"].value, "")
+
+    def test_gimnasio_login_view_ignora_la_cookie_de_otro_gimnasio(self):
+        """El slug de la URL nunca debe ser pisado por la cookie."""
+        self.client.cookies["gimnasio_preferido"] = "gimnasio-a"
+        response = self.client.get(reverse("login_gimnasio", args=["gimnasio-b"]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Gimnasio B")
 
 
 class GimnasioUpdateViewTests(TestCase):

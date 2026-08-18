@@ -772,6 +772,14 @@
     @apply text-base text-gray-600 max-w-md mx-auto lg:mx-0;
   }
 
+  .auth-hero__cambiar-gimnasio {
+    @apply text-center lg:text-left text-sm text-gray-500 mt-3;
+  }
+
+  .auth-hero__cambiar-gimnasio a {
+    @apply underline hover:text-gray-700;
+  }
+
   .auth-hero__form {
     @apply w-full max-w-sm mx-auto lg:mx-0 lg:justify-self-end;
   }

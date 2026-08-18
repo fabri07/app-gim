@@ -108,7 +108,14 @@
 
       <div class="landing__acceso">
         <p class="texto-suave">¿Ya sos alumno de {{ gimnasio.nombre }}?</p>
-        <a class="boton-secundario" href="{% url 'login_gimnasio' gimnasio.slug %}">Iniciar sesión</a>
+        {% comment %}
+          hx-boost="false": el <style> de extra_style (fondo imagen/doodle
+          del gimnasio destino) vive en <head>, que hx-boost no swapea --
+          sin esto, un click boosteado no se ve con el fondo personalizado
+          correcto hasta un refresh manual. Mismo criterio que el link
+          "¿No es tu gimnasio?" de login.html.
+        {% endcomment %}
+        <a class="boton-secundario" href="{% url 'login_gimnasio' gimnasio.slug %}" hx-boost="false">Iniciar sesión</a>
       </div>
     </div>
   </section>
