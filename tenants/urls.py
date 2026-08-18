@@ -1,5 +1,6 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path
+from django.views.generic import TemplateView
 
 from tenants.views import (
     GimnasioLandingView,
@@ -23,6 +24,15 @@ urlpatterns = [
     path("accounts/login/", LoginView.as_view(), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("gimnasio/editar/", GimnasioUpdateView.as_view(), name="gimnasio_editar"),
+    # Página estática, sin vista propia -- no hay contexto dinámico que
+    # justifique una clase en views.py. Pública a propósito (sin mixin de
+    # auth): igual que la landing, cualquiera debería poder leerla sin
+    # loguearse.
+    path(
+        "privacidad/",
+        TemplateView.as_view(template_name="tenants/privacidad.html"),
+        name="politica_privacidad",
+    ),
     path(
         "gimnasio/logo/sugerir-paisaje/",
         LogoSugerirPaisajeView.as_view(),

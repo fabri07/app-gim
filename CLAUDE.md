@@ -695,6 +695,38 @@ UX para el click más común del sitio). Regla general:
 cualquier link/form nuevo cuyo destino dependa de que `extra_style` se
 actualice necesita `hx-boost="false"`.
 
+## Política de privacidad y redes sociales en el portal del alumno
+
+`templates/tenants/privacidad.html` (ruta `privacidad/`, nombre
+`politica_privacidad`) es una página estática pública (sin mixin de auth,
+igual que la landing) montada directamente en `tenants/urls.py` con
+`TemplateView.as_view(template_name=...)` — no amerita una clase en
+`views.py` porque no tiene ningún contexto dinámico. Describe la relación
+real del sistema (cada gimnasio es responsable de los datos de sus propios
+alumnos; la aplicación es la plataforma técnica) y las 3 cookies reales que
+usa el proyecto (`sessionid`/`csrftoken` de Django + `gimnasio_preferido`),
+no un texto genérico de "cookies de analítica" que no aplica acá. **Es un
+documento base, no asesoramiento legal** — si el dueño de un gimnasio
+necesita ajustarlo a su jurisdicción, que lo revise con un abogado antes de
+tratarlo como definitivo.
+
+Enlazada desde los dos "perfiles" del sistema: el portal del alumno
+(`home.html`, al pie) y "Mi gimnasio" (`gimnasio_form.html`, debajo del
+form). No se agregó a la nav de staff a propósito — ya tiene 8 ítems tras
+el esfuerzo de bajarlo de 10 (ver importador de Excel), mismo criterio que
+mantuvo afuera el importador.
+
+**Redes sociales del portal del alumno** (`home.html`, rama alumno):
+existían como links de texto sueltos separados por "·"; ahora son botones
+(`.redes-sociales`, clase nueva en `styles/input.css`, mismo patrón `flex
+flex-wrap gap-3` que `.landing__botones`) con el mismo tratamiento visual
+que ya usa `landing.html` para los mismos 3 links (WhatsApp con `.boton`,
+Instagram/Facebook con `.boton-secundario`) — no se creó una clase
+compartida entre los dos templates porque cada una pertenece a un bloque
+BEM distinto (`.landing__botones` vs `.redes-sociales`), y el proyecto ya
+tiene precedente de duplicar en vez de compartir estilos entre bloques
+(ver `.auth-hero--gimnasio`/`.landing` más arriba).
+
 ## Deploy (Fase 5)
 
 **Estado (2026-07-30): desplegado.** App en `https://app-gim.onrender.com`

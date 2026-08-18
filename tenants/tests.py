@@ -796,6 +796,41 @@ class HomeViewAlumnoTests(TestCase):
         self.assertContains(response, self.gimnasio.link_whatsapp)
         self.assertContains(response, self.gimnasio.link_facebook)
         self.assertContains(response, "Facebook")
+        # Botones, no links de texto sueltos -- mismo tratamiento que
+        # landing.html (WhatsApp .boton, el resto .boton-secundario).
+        self.assertContains(
+            response, f'<a class="boton" href="{self.gimnasio.link_whatsapp}"'
+        )
+        self.assertContains(
+            response, f'<a class="boton-secundario" href="{self.gimnasio.link_instagram}"'
+        )
+
+    def test_alumno_ve_link_a_politica_de_privacidad(self):
+        self._crear_alumno_con_login(
+            username="con-privacidad", nombre="Mora", apellido="Diaz"
+        )
+
+        self.client.login(username="con-privacidad", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, reverse("politica_privacidad"))
+
+
+class PoliticaPrivacidadViewTests(TestCase):
+    def test_anonimo_puede_verla(self):
+        response = self.client.get(reverse("politica_privacidad"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Política de privacidad")
+
+    def test_staff_ve_el_link_desde_mi_gimnasio(self):
+        gimnasio = Gimnasio.objects.create(nombre="Gimnasio Beta", slug="beta")
+        staff = User.objects.create_user("dueno-beta", password="clave-123456")
+        Perfil.objects.create(usuario=staff, gimnasio=gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="dueno-beta", password="clave-123456")
+
+        response = self.client.get(reverse("gimnasio_editar"))
+
+        self.assertContains(response, reverse("politica_privacidad"))
 
 
 class GimnasioLandingViewTests(TestCase):

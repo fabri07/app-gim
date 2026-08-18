@@ -311,6 +311,13 @@
     @apply flex flex-wrap gap-2 mt-3;
   }
 
+  /* Redes sociales del gimnasio en el portal del alumno -- mismo patrón que
+     .landing__botones (WhatsApp con .boton, el resto .boton-secundario),
+     pero con su propio nombre porque no forma parte del bloque "landing". */
+  .redes-sociales {
+    @apply flex flex-wrap gap-3 mt-3;
+  }
+
   /* Resumen de semanas (día del alumno, rediseño agrupado por grupo
      muscular): tarjetas chicas en fila, una por semana del ciclo. */
   .rutina-semanas-resumen {

@@ -359,22 +359,21 @@
     {% if perfil.gimnasio.texto_bienvenida %}
       <p>{{ perfil.gimnasio.texto_bienvenida }}</p>
     {% endif %}
-    {% if perfil.gimnasio.contacto or perfil.gimnasio.link_instagram or perfil.gimnasio.link_whatsapp or perfil.gimnasio.link_facebook %}
-      <p class="texto-suave">
-        {% if perfil.gimnasio.contacto %}{{ perfil.gimnasio.contacto }}{% endif %}
-        {% if perfil.gimnasio.link_instagram %}
-          {% if perfil.gimnasio.contacto %}&middot;{% endif %}
-          <a href="{{ perfil.gimnasio.link_instagram }}" target="_blank" rel="noopener">Instagram</a>
-        {% endif %}
+    {% if perfil.gimnasio.contacto %}
+      <p class="texto-suave">{{ perfil.gimnasio.contacto }}</p>
+    {% endif %}
+    {% if perfil.gimnasio.link_whatsapp or perfil.gimnasio.link_instagram or perfil.gimnasio.link_facebook %}
+      <div class="redes-sociales">
         {% if perfil.gimnasio.link_whatsapp %}
-          {% if perfil.gimnasio.contacto or perfil.gimnasio.link_instagram %}&middot;{% endif %}
-          <a href="{{ perfil.gimnasio.link_whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>
+          <a class="boton" href="{{ perfil.gimnasio.link_whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>
+        {% endif %}
+        {% if perfil.gimnasio.link_instagram %}
+          <a class="boton-secundario" href="{{ perfil.gimnasio.link_instagram }}" target="_blank" rel="noopener">Instagram</a>
         {% endif %}
         {% if perfil.gimnasio.link_facebook %}
-          {% if perfil.gimnasio.contacto or perfil.gimnasio.link_instagram or perfil.gimnasio.link_whatsapp %}&middot;{% endif %}
-          <a href="{{ perfil.gimnasio.link_facebook }}" target="_blank" rel="noopener">Facebook</a>
+          <a class="boton-secundario" href="{{ perfil.gimnasio.link_facebook }}" target="_blank" rel="noopener">Facebook</a>
         {% endif %}
-      </p>
+      </div>
     {% endif %}
   </div>
 
@@ -464,5 +463,7 @@
       <p class="texto-suave">No hay novedades publicadas todavía.</p>
     {% endfor %}
   </div>
+
+  <p class="texto-suave"><a href="{% url 'politica_privacidad' %}">Política de privacidad</a></p>
 {% endif %}
 {% endblock %}

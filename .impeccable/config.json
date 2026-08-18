@@ -31,6 +31,42 @@
         ],
         "createdAt": "2026-08-16T14:31:28.981Z",
         "reason": "false positive: #000 only appears inside a Django {% comment %} block explaining why this SVG uses currentColor instead of the doodle mask technique's fill=#000, not an actual applied color"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#86b6ef",
+        "createdAt": "2026-08-18T00:49:57.645Z",
+        "reason": "documentado en templates/tenants/home.html: paleta divergente azul/rojo de RPE y paleta categorica de genero, citadas con comentario propio y validadas con scripts/validate_palette.js (preexistente, no introducido por esta tarea)"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "rgba(227, 73, 72, 0.55)",
+        "createdAt": "2026-08-18T00:49:57.853Z",
+        "reason": "documentado en templates/tenants/home.html: paleta divergente azul/rojo de RPE y paleta categorica de genero, citadas con comentario propio y validadas con scripts/validate_palette.js (preexistente, no introducido por esta tarea)"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#e34948",
+        "createdAt": "2026-08-18T00:49:58.111Z",
+        "reason": "documentado en templates/tenants/home.html: paleta divergente azul/rojo de RPE y paleta categorica de genero, citadas con comentario propio y validadas con scripts/validate_palette.js (preexistente, no introducido por esta tarea)"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#eb6834",
+        "createdAt": "2026-08-18T00:49:58.318Z",
+        "reason": "documentado en templates/tenants/home.html: paleta divergente azul/rojo de RPE y paleta categorica de genero, citadas con comentario propio y validadas con scripts/validate_palette.js (preexistente, no introducido por esta tarea)"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#1baf7a",
+        "createdAt": "2026-08-18T00:49:58.533Z",
+        "reason": "documentado en templates/tenants/home.html: paleta divergente azul/rojo de RPE y paleta categorica de genero, citadas con comentario propio y validadas con scripts/validate_palette.js (preexistente, no introducido por esta tarea)"
+      },
+      {
+        "rule": "design-system-color",
+        "value": "#eda100",
+        "createdAt": "2026-08-18T00:49:58.772Z",
+        "reason": "documentado en templates/tenants/home.html: paleta divergente azul/rojo de RPE y paleta categorica de genero, citadas con comentario propio y validadas con scripts/validate_palette.js (preexistente, no introducido por esta tarea)"
       }
     ]
   }
