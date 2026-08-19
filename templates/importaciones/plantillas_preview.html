@@ -24,29 +24,33 @@
         {% endif %}
         {{ hoja_form }}
         {% if hoja.items %}
-          <table class="tabla">
-            <thead><tr><th>Día</th><th>Ejercicio</th><th>Series</th><th>Repeticiones</th></tr></thead>
-            <tbody>
-              {% for item in hoja.items %}
-                <tr>
-                  <td>{{ item.dia }}</td>
-                  <td>{{ item.ejercicio_original }}</td>
-                  <td>{{ item.series }}</td>
-                  <td>{{ item.repeticiones }}</td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+          <div class="tabla-scroll">
+            <table class="tabla">
+              <thead><tr><th>Día</th><th>Ejercicio</th><th>Series</th><th>Repeticiones</th></tr></thead>
+              <tbody>
+                {% for item in hoja.items %}
+                  <tr>
+                    <td>{{ item.dia }}</td>
+                    <td>{{ item.ejercicio_original }}</td>
+                    <td>{{ item.series }}</td>
+                    <td>{{ item.repeticiones }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
         {% endif %}
         {% if hoja.filas_invalidas %}
-          <table class="tabla">
-            <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
-            <tbody>
-              {% for fila in hoja.filas_invalidas %}
-                <tr><td>{{ fila.fila_excel }}</td><td>{{ fila.motivo }}</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
+          <div class="tabla-scroll">
+            <table class="tabla">
+              <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
+              <tbody>
+                {% for fila in hoja.filas_invalidas %}
+                  <tr><td>{{ fila.fila_excel }}</td><td>{{ fila.motivo }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
         {% endif %}
       </div>
     {% endfor %}

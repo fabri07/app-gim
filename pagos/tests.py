@@ -588,6 +588,11 @@ class AlumnoComprobanteUpdateViewTests(TestCase):
 
     def _archivo(self):
         return SimpleUploadedFile(
+            "comprobante.jpg", b"contenido-de-prueba", content_type="image/jpeg"
+        )
+
+    def _archivo_no_permitido(self):
+        return SimpleUploadedFile(
             "comprobante.pdf", b"contenido-de-prueba", content_type="application/pdf"
         )
 
@@ -617,6 +622,22 @@ class AlumnoComprobanteUpdateViewTests(TestCase):
         self.pago_propio.refresh_from_db()
         self.assertTrue(self.pago_propio.comprobante)
         self.assertEqual(self.pago_propio.estado, PagoMensual.Estado.VENCIDO)
+
+    def test_rechaza_archivo_que_no_es_jpg_ni_png(self):
+        response = self.client.post(
+            reverse("pagos:comprobante_subir", args=[self.pago_propio.pk]),
+            {"comprobante": self._archivo_no_permitido()},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFormError(
+            response.context["form"],
+            "comprobante",
+            "La extensión de archivo “pdf” no está permitida. Las extensiones "
+            "aceptadas son: “jpg, jpeg, png”.",
+        )
+        self.pago_propio.refresh_from_db()
+        self.assertFalse(self.pago_propio.comprobante)
 
     def test_404_en_pago_de_otro_alumno_del_mismo_gimnasio(self):
         response = self.client.get(

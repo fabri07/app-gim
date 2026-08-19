@@ -10,43 +10,45 @@
     <a class="boton-secundario" href="{% url 'importaciones:plantillas_subir' %}">Importar desde Excel</a>
   </div>
 
-  <table class="tabla">
-    <thead>
-      <tr>
-        <th>Nombre</th>
-        <th>Objetivo</th>
-        <th>Nivel</th>
-        <th>Días/semana</th>
-        <th>Estado</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for plantilla in plantillas %}
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
         <tr>
-          <td>{{ plantilla.nombre }}</td>
-          <td>{{ plantilla.objetivo }}</td>
-          <td>{{ plantilla.get_nivel_display }}</td>
-          <td>{{ plantilla.dias_por_semana }}</td>
-          <td>
-            {% if plantilla.activa %}
-              <span class="badge badge--ok">Activa</span>
-            {% else %}
-              <span class="badge badge--riesgo">Inactiva</span>
-            {% endif %}
-          </td>
-          <td>
-            <a href="{% url 'rutinas:plantilla_detalle' plantilla.pk %}">Ver</a>
-            &middot;
-            <a href="{% url 'rutinas:plantilla_editar' plantilla.pk %}">Editar</a>
-          </td>
+          <th>Nombre</th>
+          <th>Objetivo</th>
+          <th>Nivel</th>
+          <th>Días/semana</th>
+          <th>Estado</th>
+          <th></th>
         </tr>
-      {% empty %}
-        <tr>
-          <td colspan="6" class="texto-suave">No hay plantillas de rutina todavía.</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for plantilla in plantillas %}
+          <tr>
+            <td>{{ plantilla.nombre }}</td>
+            <td>{{ plantilla.objetivo }}</td>
+            <td>{{ plantilla.get_nivel_display }}</td>
+            <td>{{ plantilla.dias_por_semana }}</td>
+            <td>
+              {% if plantilla.activa %}
+                <span class="badge badge--ok">Activa</span>
+              {% else %}
+                <span class="badge badge--riesgo">Inactiva</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'rutinas:plantilla_detalle' plantilla.pk %}">Ver</a>
+              &middot;
+              <a href="{% url 'rutinas:plantilla_editar' plantilla.pk %}">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6" class="texto-suave">No hay plantillas de rutina todavía.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

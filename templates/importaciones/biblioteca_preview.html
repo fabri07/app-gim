@@ -14,31 +14,35 @@
   {% endif %}
   <form method="post" hx-boost="false">
     {% csrf_token %}
-    <table class="tabla">
-      <thead><tr><th>Nombre</th><th>Grupo muscular</th><th>Estado</th></tr></thead>
-      <tbody>
-        {% for item in importacion.resultado.items %}
-          <tr>
-            <td>{{ item.nombre_original }}</td>
-            <td>{{ item.grupo_muscular_resuelto|default:"—" }}</td>
-            <td>
-              {% if item.match.tipo == "exacto" %}Ya existe{% else %}Nuevo{% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Nombre</th><th>Grupo muscular</th><th>Estado</th></tr></thead>
+        <tbody>
+          {% for item in importacion.resultado.items %}
+            <tr>
+              <td>{{ item.nombre_original }}</td>
+              <td>{{ item.grupo_muscular_resuelto|default:"—" }}</td>
+              <td>
+                {% if item.match.tipo == "exacto" %}Ya existe{% else %}Nuevo{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
     {% if importacion.resultado.filas_invalidas %}
       <div class="tarjeta">
         <h2>Filas descartadas</h2>
-        <table class="tabla">
-          <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
-          <tbody>
-            {% for fila in importacion.resultado.filas_invalidas %}
-              <tr><td>{{ fila.fila_excel }}</td><td>{{ fila.motivo }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <div class="tabla-scroll">
+          <table class="tabla">
+            <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
+            <tbody>
+              {% for fila in importacion.resultado.filas_invalidas %}
+                <tr><td>{{ fila.fila_excel }}</td><td>{{ fila.motivo }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </div>
     {% endif %}
     {% if pendientes %}

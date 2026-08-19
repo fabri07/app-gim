@@ -17,9 +17,15 @@ no una capa de "servicios" separada: el proyecto es chico y no lo justifica).
 """
 
 from django.db import models
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import (
+    FileExtensionValidator,
+    MaxValueValidator,
+    MinValueValidator,
+)
 
 from core.models import TenantOwnedModel, validar_gimnasio_de
+
+EXTENSIONES_COMPROBANTE_PERMITIDAS = ["jpg", "jpeg", "png"]
 
 
 class MedioCobro(TenantOwnedModel):
@@ -48,11 +54,15 @@ class PagoMensual(TenantOwnedModel):
     (gimnasio, alumno, mes, año): coincide con "se autogeneran... para cada
     alumno activo al inicio del mes" (un pago por mes, no varios).
 
-    `comprobante`: es `FileField` (no `ImageField`) porque el alumno puede
-    subir una foto o un PDF del comprobante. En dev queda en el filesystem
-    local (`MEDIA_ROOT`); Fase 5 cambia el storage a Cloudflare R2 vía
-    `django-storages` sin tocar este campo — el filesystem de Render es
-    efímero y nunca debe recibir uploads reales.
+    `comprobante`: es `FileField` (no `ImageField`, que exige poder abrir el
+    archivo con Pillow al validar -- acá alcanza con el validador de
+    extensión) restringido a `EXTENSIONES_COMPROBANTE_PERMITIDAS`
+    (jpg/jpeg/png): son fotos de un comprobante de transferencia sacadas con
+    el celular, nunca un PDF -- pedido explícito del dueño del producto para
+    que el staff no reciba archivos que no pueda previsualizar de un
+    vistazo. En dev queda en el filesystem local (`MEDIA_ROOT`); en
+    producción vive en Cloudflare R2 vía `django-storages` sin tocar este
+    campo.
     """
 
     class Estado(models.TextChoices):
@@ -75,7 +85,11 @@ class PagoMensual(TenantOwnedModel):
     )
     fecha_pago = models.DateField(null=True, blank=True)
     medio_pago_texto = models.CharField(max_length=60, blank=True)
-    comprobante = models.FileField(upload_to="comprobantes/", blank=True)
+    comprobante = models.FileField(
+        upload_to="comprobantes/",
+        blank=True,
+        validators=[FileExtensionValidator(allowed_extensions=EXTENSIONES_COMPROBANTE_PERMITIDAS)],
+    )
     observaciones = models.TextField(blank=True)
 
     class Meta:

@@ -29,6 +29,9 @@ class ConfirmarPagoForm(TenantScopedModelForm):
     class Meta:
         model = PagoMensual
         fields = ["monto", "fecha_pago", "medio_pago_texto", "comprobante"]
+        widgets = {
+            "comprobante": forms.ClearableFileInput(attrs={"accept": "image/jpeg,image/png"}),
+        }
 
 
 class AlumnoComprobanteForm(forms.ModelForm):
@@ -41,6 +44,9 @@ class AlumnoComprobanteForm(forms.ModelForm):
     class Meta:
         model = PagoMensual
         fields = ["comprobante"]
+        widgets = {
+            "comprobante": forms.ClearableFileInput(attrs={"accept": "image/jpeg,image/png"}),
+        }
 
 
 class MedioCobroForm(TenantScopedModelForm):

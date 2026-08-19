@@ -31,48 +31,50 @@
     </p>
   {% endif %}
 
-  <table class="tabla">
-    <thead>
-      <tr>
-        <th>Nombre</th>
-        <th>Apellido</th>
-        <th>Estado</th>
-        <th>Contacto</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for a in alumnos %}
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
         <tr>
-          <td>{{ a.nombre }}</td>
-          <td>{{ a.apellido }}</td>
-          <td>
-            {% if a.estado == "activo" %}
-              <span class="badge badge--ok">Activo</span>
-            {% else %}
-              <span class="badge badge--riesgo">Inactivo</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if a.email %}{{ a.email }}{% endif %}
-            {% if a.email and a.telefono %}&middot;{% endif %}
-            {% if a.telefono %}{{ a.telefono }}{% endif %}
-            {% if not a.email and not a.telefono %}
-              <span class="texto-suave">Sin datos de contacto</span>
-            {% endif %}
-          </td>
-          <td>
-            <a href="{% url 'alumnos:detalle' a.pk %}">Ver</a>
-            &middot;
-            <a href="{% url 'alumnos:editar' a.pk %}">Editar</a>
-          </td>
+          <th>Nombre</th>
+          <th>Apellido</th>
+          <th>Estado</th>
+          <th>Contacto</th>
+          <th></th>
         </tr>
-      {% empty %}
-        <tr>
-          <td colspan="5" class="texto-suave">No hay alumnos cargados todavía.</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for a in alumnos %}
+          <tr>
+            <td>{{ a.nombre }}</td>
+            <td>{{ a.apellido }}</td>
+            <td>
+              {% if a.estado == "activo" %}
+                <span class="badge badge--ok">Activo</span>
+              {% else %}
+                <span class="badge badge--riesgo">Inactivo</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if a.email %}{{ a.email }}{% endif %}
+              {% if a.email and a.telefono %}&middot;{% endif %}
+              {% if a.telefono %}{{ a.telefono }}{% endif %}
+              {% if not a.email and not a.telefono %}
+                <span class="texto-suave">Sin datos de contacto</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'alumnos:detalle' a.pk %}">Ver</a>
+              &middot;
+              <a href="{% url 'alumnos:editar' a.pk %}">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5" class="texto-suave">No hay alumnos cargados todavía.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

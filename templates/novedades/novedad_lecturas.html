@@ -9,25 +9,27 @@
     <a class="boton" href="{% url 'novedades:listado' %}">Volver</a>
   </div>
 
-  <table class="tabla">
-    <thead>
-      <tr>
-        <th>Alumno</th>
-        <th>Fecha de lectura</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for lectura in lecturas %}
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
         <tr>
-          <td>{{ lectura.alumno }}</td>
-          <td>{{ lectura.creado }}</td>
+          <th>Alumno</th>
+          <th>Fecha de lectura</th>
         </tr>
-      {% empty %}
-        <tr>
-          <td colspan="2" class="texto-suave">Todavía nadie leyó esta novedad.</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for lectura in lecturas %}
+          <tr>
+            <td>{{ lectura.alumno }}</td>
+            <td>{{ lectura.creado }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="2" class="texto-suave">Todavía nadie leyó esta novedad.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

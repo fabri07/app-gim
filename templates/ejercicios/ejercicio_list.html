@@ -30,43 +30,45 @@
     </p>
   {% endif %}
 
-  <table class="tabla">
-    <thead>
-      <tr>
-        <th>Nombre</th>
-        <th>Grupo muscular</th>
-        <th>Estado</th>
-        <th>Video</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for e in ejercicios %}
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
         <tr>
-          <td>{{ e.nombre }}</td>
-          <td>{{ e.get_grupo_muscular_display }}</td>
-          <td>
-            {% if e.activo %}
-              <span class="badge badge--ok">Activo</span>
-            {% else %}
-              <span class="badge badge--riesgo">Inactivo</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if e.url_video %}
-              <a href="{{ e.url_video }}" target="_blank" rel="noopener">Ver video</a>
-            {% else %}
-              <span class="texto-suave">Sin video</span>
-            {% endif %}
-          </td>
-          <td><a href="{% url 'ejercicios:editar' e.pk %}">Editar</a></td>
+          <th>Nombre</th>
+          <th>Grupo muscular</th>
+          <th>Estado</th>
+          <th>Video</th>
+          <th></th>
         </tr>
-      {% empty %}
-        <tr>
-          <td colspan="5" class="texto-suave">No hay ejercicios cargados todavía.</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for e in ejercicios %}
+          <tr>
+            <td>{{ e.nombre }}</td>
+            <td>{{ e.get_grupo_muscular_display }}</td>
+            <td>
+              {% if e.activo %}
+                <span class="badge badge--ok">Activo</span>
+              {% else %}
+                <span class="badge badge--riesgo">Inactivo</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if e.url_video %}
+                <a href="{{ e.url_video }}" target="_blank" rel="noopener">Ver video</a>
+              {% else %}
+                <span class="texto-suave">Sin video</span>
+              {% endif %}
+            </td>
+            <td><a href="{% url 'ejercicios:editar' e.pk %}">Editar</a></td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5" class="texto-suave">No hay ejercicios cargados todavía.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

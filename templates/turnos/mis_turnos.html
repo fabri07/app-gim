@@ -36,31 +36,33 @@
   {% if mis_reservas %}
     <div class="tarjeta">
       <h2>Mis reservas</h2>
-      <table class="tabla">
-        <thead>
-          <tr>
-            <th>Fecha</th>
-            <th>Hora</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for reserva, url_calendar in mis_reservas %}
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead>
             <tr>
-              <td>{{ reserva.fecha }}</td>
-              <td>{{ reserva.hora_inicio }}</td>
-              <td>
-                <a href="{{ url_calendar }}" target="_blank" rel="noopener">Agregar a Google Calendar</a>
-                &middot;
-                <form method="post" action="{% url 'turnos:cancelar' reserva.pk %}" style="display:inline">
-                  {% csrf_token %}
-                  <button type="submit" class="boton-peligro">Cancelar</button>
-                </form>
-              </td>
+              <th>Fecha</th>
+              <th>Hora</th>
+              <th></th>
             </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {% for reserva, url_calendar in mis_reservas %}
+              <tr>
+                <td>{{ reserva.fecha }}</td>
+                <td>{{ reserva.hora_inicio }}</td>
+                <td>
+                  <a href="{{ url_calendar }}" target="_blank" rel="noopener">Agregar a Google Calendar</a>
+                  &middot;
+                  <form method="post" action="{% url 'turnos:cancelar' reserva.pk %}" style="display:inline">
+                    {% csrf_token %}
+                    <button type="submit" class="boton-peligro">Cancelar</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   {% endif %}
 

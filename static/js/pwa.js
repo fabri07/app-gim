@@ -78,6 +78,40 @@ async function activarPush() {
   });
 }
 
+// Splash de instalación (mancuerna) -- se dispara en la PRIMERA apertura en
+// modo standalone, no en `appinstalled`: ese evento no existe en iOS, que
+// instala vía "Compartir > Agregar a inicio" sin que el navegador nunca
+// confirme la instalación. `display-mode: standalone` + `navigator.standalone`
+// (Safari/iOS legacy) cubren ambas plataformas. Una marca en localStorage
+// evita que vuelva a aparecer en aperturas siguientes del mismo dispositivo.
+// No depende de htmx:load a propósito (a diferencia de sincronizarVisibilidadInstalar):
+// es un evento de una sola vez por dispositivo, no algo que deba
+// resincronizarse en cada navegación boosteada.
+function correPWAInstalada() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true
+  );
+}
+
+function mostrarSplashInstalacionSiCorresponde() {
+  const splash = document.getElementById("pwa-splash");
+  if (!splash) return;
+  if (!correPWAInstalada()) return;
+  if (localStorage.getItem("pwa_splash_visto")) return;
+  localStorage.setItem("pwa_splash_visto", "true");
+
+  splash.hidden = false;
+  splash.classList.add("pwa-splash--activo");
+  // Duración fija ligada a la animación CSS (@keyframes pwa-splash-envolvente,
+  // ~2s) -- con prefers-reduced-motion la animación queda apagada (opacity:0
+  // fijo) pero igual se remueve del DOM a este mismo tiempo, así nunca
+  // bloquea la interacción con la app de fondo.
+  setTimeout(() => splash.remove(), 2200);
+}
+
+document.addEventListener("DOMContentLoaded", mostrarSplashInstalacionSiCorresponde);
+
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");

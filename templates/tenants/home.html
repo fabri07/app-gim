@@ -30,30 +30,32 @@
       <h2>Pagos del mes</h2>
       <a class="boton-secundario" href="{% url 'pagos:listado' %}">Ver todos</a>
     </div>
-    <table class="tabla">
-      <thead>
-        <tr><th>Alumno</th><th>Monto</th><th>Estado</th></tr>
-      </thead>
-      <tbody>
-        {% for pago in pagos_del_mes %}
-          <tr>
-            <td>{{ pago.alumno }}</td>
-            <td>{{ pago.monto }}</td>
-            <td>
-              {% if pago.estado == "pagado" %}
-                <span class="badge badge--ok">Pagado</span>
-              {% elif pago.estado == "vencido" %}
-                <span class="badge badge--riesgo">Vencido</span>
-              {% else %}
-                <span class="badge badge--alerta">Pendiente</span>
-              {% endif %}
-            </td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="3" class="texto-suave">Todavía no hay pagos generados para este mes.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead>
+          <tr><th>Alumno</th><th>Monto</th><th>Estado</th></tr>
+        </thead>
+        <tbody>
+          {% for pago in pagos_del_mes %}
+            <tr>
+              <td>{{ pago.alumno }}</td>
+              <td>{{ pago.monto }}</td>
+              <td>
+                {% if pago.estado == "pagado" %}
+                  <span class="badge badge--ok">Pagado</span>
+                {% elif pago.estado == "vencido" %}
+                  <span class="badge badge--riesgo">Vencido</span>
+                {% else %}
+                  <span class="badge badge--alerta">Pendiente</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="3" class="texto-suave">Todavía no hay pagos generados para este mes.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <div class="tarjeta">
@@ -86,22 +88,24 @@
       </div>
       <details class="tabla-detalle">
         <summary>Ver como tabla</summary>
-        <table class="tabla">
-          <thead>
-            <tr>
-              <th>Día</th>
-              {% for hora in asistencia.horas %}<th>{{ hora }}h</th>{% endfor %}
-            </tr>
-          </thead>
-          <tbody>
-            {% for dia in asistencia.dias %}
+        <div class="tabla-scroll">
+          <table class="tabla">
+            <thead>
               <tr>
-                <td>{{ dia.nombre }}</td>
-                {% for celda in dia.celdas %}<td>{{ celda.valor }}</td>{% endfor %}
+                <th>Día</th>
+                {% for hora in asistencia.horas %}<th>{{ hora }}h</th>{% endfor %}
               </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {% for dia in asistencia.dias %}
+                <tr>
+                  <td>{{ dia.nombre }}</td>
+                  {% for celda in dia.celdas %}<td>{{ celda.valor }}</td>{% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </details>
     {% else %}
       <p class="texto-suave">Todavía no hay reservas registradas.</p>
@@ -116,14 +120,16 @@
       </div>
       <details class="tabla-detalle">
         <summary>Ver como tabla</summary>
-        <table class="tabla">
-          <thead><tr><th>Género</th><th>Alumnos</th></tr></thead>
-          <tbody>
-            {% for fila in genero_stats %}
-              <tr><td>{{ fila.etiqueta }}</td><td>{{ fila.total }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <div class="tabla-scroll">
+          <table class="tabla">
+            <thead><tr><th>Género</th><th>Alumnos</th></tr></thead>
+            <tbody>
+              {% for fila in genero_stats %}
+                <tr><td>{{ fila.etiqueta }}</td><td>{{ fila.total }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </details>
     {% endif %}
   </div>
@@ -137,30 +143,32 @@
       </div>
       <details class="tabla-detalle">
         <summary>Ver como tabla</summary>
-        <table class="tabla">
-          <thead>
-            <tr>
-              <th>Ejercicio</th>
-              <th>Podría más intenso</th>
-              <th>Podría seguir así</th>
-              <th>Al límite</th>
-              <th>Debería bajar</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for fila in rpe_por_ejercicio %}
+        <div class="tabla-scroll">
+          <table class="tabla">
+            <thead>
               <tr>
-                <td>{{ fila.ejercicio }}</td>
-                <td>{{ fila.niveles.mas_intenso }}</td>
-                <td>{{ fila.niveles.seguir_intensidad }}</td>
-                <td>{{ fila.niveles.al_limite }}</td>
-                <td>{{ fila.niveles.bajar_intensidad }}</td>
-                <td>{{ fila.total }}</td>
+                <th>Ejercicio</th>
+                <th>Podría más intenso</th>
+                <th>Podría seguir así</th>
+                <th>Al límite</th>
+                <th>Debería bajar</th>
+                <th>Total</th>
               </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {% for fila in rpe_por_ejercicio %}
+                <tr>
+                  <td>{{ fila.ejercicio }}</td>
+                  <td>{{ fila.niveles.mas_intenso }}</td>
+                  <td>{{ fila.niveles.seguir_intensidad }}</td>
+                  <td>{{ fila.niveles.al_limite }}</td>
+                  <td>{{ fila.niveles.bajar_intensidad }}</td>
+                  <td>{{ fila.total }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </details>
     {% else %}
       <p class="texto-suave">Todavía no hay ejercicios calificados con RPE.</p>
@@ -176,14 +184,16 @@
       </div>
       <details class="tabla-detalle">
         <summary>Ver como tabla</summary>
-        <table class="tabla">
-          <thead><tr><th>Ejercicio</th><th>Veces asignado</th></tr></thead>
-          <tbody>
-            {% for fila in ejercicios_mas_asignados %}
-              <tr><td>{{ fila.ejercicio }}</td><td>{{ fila.total }}</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <div class="tabla-scroll">
+          <table class="tabla">
+            <thead><tr><th>Ejercicio</th><th>Veces asignado</th></tr></thead>
+            <tbody>
+              {% for fila in ejercicios_mas_asignados %}
+                <tr><td>{{ fila.ejercicio }}</td><td>{{ fila.total }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </details>
     {% else %}
       <p class="texto-suave">Todavía no hay ejercicios asignados en ninguna rutina.</p>
@@ -199,30 +209,32 @@
       </div>
       <details class="tabla-detalle">
         <summary>Ver como tabla</summary>
-        <table class="tabla">
-          <thead>
-            <tr>
-              <th>Ejercicio</th>
-              <th>Masculino</th>
-              <th>Femenino</th>
-              <th>Prefiere no decir</th>
-              <th>No informado</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for fila in ejercicios_mas_asignados_por_genero %}
+        <div class="tabla-scroll">
+          <table class="tabla">
+            <thead>
               <tr>
-                <td>{{ fila.ejercicio }}</td>
-                <td>{{ fila.generos.masculino }}</td>
-                <td>{{ fila.generos.femenino }}</td>
-                <td>{{ fila.generos.no_decir }}</td>
-                <td>{{ fila.generos.no_informado }}</td>
-                <td>{{ fila.total }}</td>
+                <th>Ejercicio</th>
+                <th>Masculino</th>
+                <th>Femenino</th>
+                <th>Prefiere no decir</th>
+                <th>No informado</th>
+                <th>Total</th>
               </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {% for fila in ejercicios_mas_asignados_por_genero %}
+                <tr>
+                  <td>{{ fila.ejercicio }}</td>
+                  <td>{{ fila.generos.masculino }}</td>
+                  <td>{{ fila.generos.femenino }}</td>
+                  <td>{{ fila.generos.no_decir }}</td>
+                  <td>{{ fila.generos.no_informado }}</td>
+                  <td>{{ fila.total }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       </details>
     {% else %}
       <p class="texto-suave">Todavía no hay ejercicios asignados en ninguna rutina.</p>

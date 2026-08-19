@@ -454,6 +454,21 @@ nunca `spring`/bounce. Todo `@keyframes` respeta
 reemplazándola por otra). Se usa con moderación — hoy solo la banda de
 atletas del login; no es licencia para animar tarjetas o botones del panel.
 
+**Segunda excepción (deliberada): el splash de instalación.**
+`.pwa-splash` (`styles/input.css`, disparado por `static/js/pwa.js` en la
+primera apertura de la PWA en modo standalone — pedido explícito del dueño
+del producto, "un efecto visual parecido a la N de Netflix") rompe a
+propósito la Restrained Motion Rule: amplitud grande (zoom de 0.3x a 1.15x
+con overshoot, `cubic-bezier` con rebote leve), pantalla completa, ~2.2s.
+Se justifica porque es un evento de una sola vez por dispositivo (una marca
+en `localStorage` evita que vuelva a aparecer), no un patrón de interacción
+recurrente — sigue sin ser licencia para animar tarjetas, botones o cualquier
+otra superficie del panel. Como toda animación del sistema, respeta
+`prefers-reduced-motion: reduce` apagándola (el splash directamente no se ve:
+`opacity: 0` sin la animación que la lleva a 1). El fondo usa
+`var(--color-primario)`/`--color-secundario` del gimnasio logueado (The
+Runtime Brand Rule), nunca un hex fijo.
+
 ## Do's and Don'ts
 
 ### Do:

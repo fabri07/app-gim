@@ -35,43 +35,53 @@
     {% endif %}
   </form>
 
-  <table class="tabla">
-    <thead>
-      <tr>
-        <th>Alumno</th>
-        <th>Mes/Año</th>
-        <th>Monto</th>
-        <th>Estado</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for pago in pagos %}
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
         <tr>
-          <td>{{ pago.alumno }}</td>
-          <td>{{ pago.mes|stringformat:"02d" }}/{{ pago.anio }}</td>
-          <td>{{ pago.monto }}</td>
-          <td>
-            {% if pago.estado == "pagado" %}
-              <span class="badge badge--ok">Pagado</span>
-            {% elif pago.estado == "vencido" %}
-              <span class="badge badge--riesgo">Vencido</span>
-            {% else %}
-              <span class="badge badge--alerta">Pendiente</span>
-            {% endif %}
-          </td>
-          <td>
-            <a href="{% url 'pagos:confirmar' pago.pk %}">
-              {% if pago.estado == "pagado" %}Editar{% else %}Confirmar{% endif %}
-            </a>
-          </td>
+          <th>Alumno</th>
+          <th>Mes/Año</th>
+          <th>Monto</th>
+          <th>Estado</th>
+          <th>Comprobante</th>
+          <th></th>
         </tr>
-      {% empty %}
-        <tr>
-          <td colspan="5" class="texto-suave">No hay pagos que coincidan con el filtro.</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for pago in pagos %}
+          <tr>
+            <td>{{ pago.alumno }}</td>
+            <td>{{ pago.mes|stringformat:"02d" }}/{{ pago.anio }}</td>
+            <td>{{ pago.monto }}</td>
+            <td>
+              {% if pago.estado == "pagado" %}
+                <span class="badge badge--ok">Pagado</span>
+              {% elif pago.estado == "vencido" %}
+                <span class="badge badge--riesgo">Vencido</span>
+              {% else %}
+                <span class="badge badge--alerta">Pendiente</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if pago.comprobante %}
+                <a href="{{ pago.comprobante.url }}" target="_blank" rel="noopener">Ver</a>
+              {% else %}
+                <span class="texto-suave">&mdash;</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'pagos:confirmar' pago.pk %}">
+                {% if pago.estado == "pagado" %}Editar{% else %}Confirmar{% endif %}
+              </a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6" class="texto-suave">No hay pagos que coincidan con el filtro.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

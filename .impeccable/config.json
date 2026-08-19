@@ -67,6 +67,12 @@
         "value": "#eda100",
         "createdAt": "2026-08-18T00:49:58.772Z",
         "reason": "documentado en templates/tenants/home.html: paleta divergente azul/rojo de RPE y paleta categorica de genero, citadas con comentario propio y validadas con scripts/validate_palette.js (preexistente, no introducido por esta tarea)"
+      },
+      {
+        "rule": "bounce-easing",
+        "value": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        "createdAt": "2026-08-19T14:23:41.007Z",
+        "reason": "user confirmed: eligió explícitamente 'Splash llamativo estilo Netflix' vía AskUserQuestion, como excepción deliberada a la Restrained Motion Rule (ver DESIGN.md, splash de instalación de la mancuerna, evento único por dispositivo)"
       }
     ]
   }

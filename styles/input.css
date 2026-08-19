@@ -43,6 +43,11 @@
        Tailwind interpreta un valor arbitrario de font como font-weight (el
        uso más común de esa utilidad arbitraria), no font-family. */
     @apply text-gray-900 font-[family-name:var(--font-gimnasio)];
+    /* Red de seguridad: ningún elemento propio depende de scroll horizontal
+       a nivel de página -- si algo ancho (una tabla, una grilla) se cuela
+       sin su propio overflow-x, esto evita que arrastre TODA la página en
+       vez de quedarse contenido. Ver .tabla más abajo. */
+    overflow-x: hidden;
     /* Canvas atmosférico: en vez de un solo color plano, el lienzo de fondo
        lleva 3 blobs radiales muy suaves del paisaje del gimnasio, mezclados
        con color-mix() (nunca un hex fijo -- ver "The Runtime Brand Rule" en
@@ -333,11 +338,18 @@
     @apply border-amber-300 bg-amber-50;
   }
 
-  /* La tabla de 4 semanas por ejercicio es ancha (Ejercicio + Video + 4
-     columnas de semana) -- en mobile (portal del alumno, mobile-first) no
-     entra sin desbordar. Mismo criterio que el heatmap de asistencia del
-     dashboard (overflow-x-auto). */
-  .tabla-ancha-scroll {
+  /* Wrapper estándar para CUALQUIER <table class="tabla"> de listado: un
+     <table> no se encoge por debajo de su ancho mínimo de contenido, y
+     poner overflow-x directo sobre el <table> no es confiable (varios
+     motores lo ignoran en el elemento table en sí) -- por eso el scroll se
+     resuelve en este <div> envolvente, no en `.tabla`. Nació acotado a la
+     tabla de 4 semanas por ejercicio (Ejercicio + Video + 4 columnas de
+     semana, portal del alumno) y se generalizó a todos los listados del
+     panel de staff que pueden desbordar en mobile (alumnos, pagos,
+     ejercicios, rutinas, novedades, turnos, importaciones, dashboard) --
+     mismo criterio que el heatmap de asistencia del dashboard
+     (overflow-x-auto). */
+  .tabla-scroll {
     @apply overflow-x-auto;
   }
 
@@ -817,6 +829,64 @@
 
   @media (prefers-reduced-motion: reduce) {
     .auth-frieze__figura {
+      animation: none;
+    }
+  }
+
+  /* Splash de instalación (mancuerna): SEGUNDA excepción deliberada a la
+     Restrained Motion Rule (la primera es .auth-frieze arriba) -- ver
+     DESIGN.md, sección Motion, "Segunda excepción". Un evento de una sola
+     vez por dispositivo (primera apertura standalone, pwa.js) justifica un
+     movimiento más protagónico que el resto del sistema; no es licencia
+     para animar nada más del panel. El fondo usa var(--color-primario)/
+     --color-secundario del gimnasio logueado (The Runtime Brand Rule),
+     nunca un hex fijo. */
+  .pwa-splash {
+    @apply fixed inset-0 z-50 flex flex-col items-center justify-center
+      gap-5 text-white pointer-events-none;
+    background-image: linear-gradient(135deg, var(--color-primario), var(--color-secundario));
+    opacity: 0;
+  }
+
+  .pwa-splash--activo {
+    animation: pwa-splash-envolvente 2.2s ease-in-out forwards;
+  }
+
+  .pwa-splash__mancuerna {
+    @apply w-36 h-auto;
+    animation: pwa-splash-mancuerna 2.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+
+  .pwa-splash__nombre {
+    @apply text-2xl font-bold tracking-wide text-center px-6;
+    animation: pwa-splash-nombre 2.2s ease-out forwards;
+  }
+
+  @keyframes pwa-splash-envolvente {
+    0% { opacity: 0; }
+    12% { opacity: 1; }
+    82% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  @keyframes pwa-splash-mancuerna {
+    0% { transform: scale(0.3) rotate(-20deg); }
+    55% { transform: scale(1.15) rotate(6deg); }
+    75% { transform: scale(1) rotate(0deg); }
+    100% { transform: scale(1) rotate(0deg); }
+  }
+
+  @keyframes pwa-splash-nombre {
+    0%, 35% { opacity: 0; transform: translateY(8px); }
+    55% { opacity: 1; transform: translateY(0); }
+    85% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pwa-splash--activo,
+    .pwa-splash__mancuerna,
+    .pwa-splash__nombre {
       animation: none;
     }
   }

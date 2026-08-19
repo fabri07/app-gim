@@ -9,58 +9,60 @@
     <a class="boton" href="{% url 'novedades:crear' %}">Nueva novedad</a>
   </div>
 
-  <table class="tabla">
-    <thead>
-      <tr>
-        <th>Título</th>
-        <th>Publicación</th>
-        <th>Visible hasta</th>
-        <th>Activa</th>
-        <th>Visible ahora</th>
-        <th>Leída por</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for novedad in novedades %}
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
         <tr>
-          <td>{{ novedad.titulo }}</td>
-          <td>{{ novedad.fecha_publicacion }}</td>
-          <td>{{ novedad.visible_hasta|default:"Sin vencimiento" }}</td>
-          <td>
-            {% if novedad.activa %}
-              <span class="badge badge--ok">Activa</span>
-            {% else %}
-              <span class="badge badge--riesgo">Oculta</span>
-            {% endif %}
-          </td>
-          <td>
-            {% if novedad.pk in ids_visibles %}
-              <span class="badge badge--ok">Visible</span>
-            {% else %}
-              <span class="badge badge--riesgo">No visible</span>
-            {% endif %}
-          </td>
-          <td>
-            <a href="{% url 'novedades:lecturas' novedad.pk %}">{{ novedad.lecturas_count }}/{{ alumnos_activos_count }}</a>
-          </td>
-          <td>
-            <a href="{% url 'novedades:editar' novedad.pk %}">Editar</a>
-            {% if novedad.activa %}
-              &middot;
-              <form method="post" action="{% url 'novedades:ocultar' novedad.pk %}" style="display:inline">
-                {% csrf_token %}
-                <button type="submit" class="boton-peligro">Ocultar</button>
-              </form>
-            {% endif %}
-          </td>
+          <th>Título</th>
+          <th>Publicación</th>
+          <th>Visible hasta</th>
+          <th>Activa</th>
+          <th>Visible ahora</th>
+          <th>Leída por</th>
+          <th></th>
         </tr>
-      {% empty %}
-        <tr>
-          <td colspan="7" class="texto-suave">No hay novedades publicadas todavía.</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+      </thead>
+      <tbody>
+        {% for novedad in novedades %}
+          <tr>
+            <td>{{ novedad.titulo }}</td>
+            <td>{{ novedad.fecha_publicacion }}</td>
+            <td>{{ novedad.visible_hasta|default:"Sin vencimiento" }}</td>
+            <td>
+              {% if novedad.activa %}
+                <span class="badge badge--ok">Activa</span>
+              {% else %}
+                <span class="badge badge--riesgo">Oculta</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if novedad.pk in ids_visibles %}
+                <span class="badge badge--ok">Visible</span>
+              {% else %}
+                <span class="badge badge--riesgo">No visible</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'novedades:lecturas' novedad.pk %}">{{ novedad.lecturas_count }}/{{ alumnos_activos_count }}</a>
+            </td>
+            <td>
+              <a href="{% url 'novedades:editar' novedad.pk %}">Editar</a>
+              {% if novedad.activa %}
+                &middot;
+                <form method="post" action="{% url 'novedades:ocultar' novedad.pk %}" style="display:inline">
+                  {% csrf_token %}
+                  <button type="submit" class="boton-peligro">Ocultar</button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="7" class="texto-suave">No hay novedades publicadas todavía.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}

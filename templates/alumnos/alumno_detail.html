@@ -84,38 +84,40 @@
 
   <div class="tarjeta">
     <h2>Pagos</h2>
-    <table class="tabla">
-      <thead>
-        <tr>
-          <th>Mes</th>
-          <th>Año</th>
-          <th>Monto</th>
-          <th>Estado</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for pago in pagos %}
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead>
           <tr>
-            <td>{{ pago.mes }}</td>
-            <td>{{ pago.anio }}</td>
-            <td>{{ pago.monto }}</td>
-            <td>
-              {% if pago.estado == "pagado" %}
-                <span class="badge badge--ok">Pagado</span>
-              {% elif pago.estado == "pendiente" %}
-                <span class="badge badge--alerta">Pendiente</span>
-              {% else %}
-                <span class="badge badge--riesgo">Vencido</span>
-              {% endif %}
-            </td>
+            <th>Mes</th>
+            <th>Año</th>
+            <th>Monto</th>
+            <th>Estado</th>
           </tr>
-        {% empty %}
-          <tr>
-            <td colspan="4" class="texto-suave">Sin pagos registrados todavía.</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {% for pago in pagos %}
+            <tr>
+              <td>{{ pago.mes }}</td>
+              <td>{{ pago.anio }}</td>
+              <td>{{ pago.monto }}</td>
+              <td>
+                {% if pago.estado == "pagado" %}
+                  <span class="badge badge--ok">Pagado</span>
+                {% elif pago.estado == "pendiente" %}
+                  <span class="badge badge--alerta">Pendiente</span>
+                {% else %}
+                  <span class="badge badge--riesgo">Vencido</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="4" class="texto-suave">Sin pagos registrados todavía.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 {% endblock %}
