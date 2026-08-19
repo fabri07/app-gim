@@ -44,6 +44,11 @@ document.addEventListener("click", (event) => {
   }
   if (event.target.closest("[data-pwa-activar-push]")) {
     activarPush();
+    return;
+  }
+  const botonCopiar = event.target.closest("[data-copiar-alias]");
+  if (botonCopiar) {
+    copiarAlias(botonCopiar);
   }
 });
 
@@ -78,15 +83,19 @@ async function activarPush() {
   });
 }
 
-// Splash de instalación (mancuerna) -- se dispara en la PRIMERA apertura en
-// modo standalone, no en `appinstalled`: ese evento no existe en iOS, que
-// instala vía "Compartir > Agregar a inicio" sin que el navegador nunca
-// confirme la instalación. `display-mode: standalone` + `navigator.standalone`
-// (Safari/iOS legacy) cubren ambas plataformas. Una marca en localStorage
-// evita que vuelva a aparecer en aperturas siguientes del mismo dispositivo.
+// Splash de instalación (mancuerna) -- se dispara en CADA apertura en modo
+// standalone (pedido explícito: "debería aparecer siempre que se abra la
+// app"), no en `appinstalled`: ese evento no existe en iOS, que instala vía
+// "Compartir > Agregar a inicio" sin que el navegador nunca confirme la
+// instalación. `display-mode: standalone` + `navigator.standalone`
+// (Safari/iOS legacy) cubren ambas plataformas. `sessionStorage` (no
+// `localStorage`) es la marca correcta acá: dura mientras la app sigue
+// abierta (evita repetirlo en cada navegación con hx-boost="false" -- login,
+// logout, confirmar pago -- dentro de la MISMA apertura) pero se resetea
+// sola en la apertura siguiente, sin lógica propia de "sesión de app".
 // No depende de htmx:load a propósito (a diferencia de sincronizarVisibilidadInstalar):
-// es un evento de una sola vez por dispositivo, no algo que deba
-// resincronizarse en cada navegación boosteada.
+// es un evento de arranque de la app, no algo que deba resincronizarse en
+// cada navegación boosteada.
 function correPWAInstalada() {
   return (
     window.matchMedia("(display-mode: standalone)").matches ||
@@ -98,8 +107,8 @@ function mostrarSplashInstalacionSiCorresponde() {
   const splash = document.getElementById("pwa-splash");
   if (!splash) return;
   if (!correPWAInstalada()) return;
-  if (localStorage.getItem("pwa_splash_visto")) return;
-  localStorage.setItem("pwa_splash_visto", "true");
+  if (sessionStorage.getItem("pwa_splash_visto")) return;
+  sessionStorage.setItem("pwa_splash_visto", "true");
 
   splash.hidden = false;
   splash.classList.add("pwa-splash--activo");
@@ -111,6 +120,22 @@ function mostrarSplashInstalacionSiCorresponde() {
 }
 
 document.addEventListener("DOMContentLoaded", mostrarSplashInstalacionSiCorresponde);
+
+async function copiarAlias(boton) {
+  const alias = boton.dataset.copiarAlias;
+  try {
+    await navigator.clipboard.writeText(alias);
+  } catch (e) {
+    return; // clipboard no disponible (permiso denegado, contexto no seguro): sin feedback, sin romper nada
+  }
+  const textoOriginal = boton.textContent;
+  boton.textContent = "Copiado";
+  boton.disabled = true;
+  setTimeout(() => {
+    boton.textContent = textoOriginal;
+    boton.disabled = false;
+  }, 1500);
+}
 
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);

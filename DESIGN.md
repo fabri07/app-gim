@@ -455,17 +455,25 @@ reemplazándola por otra). Se usa con moderación — hoy solo la banda de
 atletas del login; no es licencia para animar tarjetas o botones del panel.
 
 **Segunda excepción (deliberada): el splash de instalación.**
-`.pwa-splash` (`styles/input.css`, disparado por `static/js/pwa.js` en la
-primera apertura de la PWA en modo standalone — pedido explícito del dueño
-del producto, "un efecto visual parecido a la N de Netflix") rompe a
+`.pwa-splash` (`styles/input.css`, disparado por `static/js/pwa.js` en CADA
+apertura de la PWA en modo standalone — pedido explícito del dueño del
+producto, "un efecto visual parecido a la N de Netflix", que además pidió
+que se vea siempre al abrir la app, no solo la primera vez) rompe a
 propósito la Restrained Motion Rule: amplitud grande (zoom de 0.3x a 1.15x
 con overshoot, `cubic-bezier` con rebote leve), pantalla completa, ~2.2s.
-Se justifica porque es un evento de una sola vez por dispositivo (una marca
-en `localStorage` evita que vuelva a aparecer), no un patrón de interacción
-recurrente — sigue sin ser licencia para animar tarjetas, botones o cualquier
-otra superficie del panel. Como toda animación del sistema, respeta
-`prefers-reduced-motion: reduce` apagándola (el splash directamente no se ve:
-`opacity: 0` sin la animación que la lleva a 1). El fondo usa
+Se justifica porque es un evento de arranque de la app (una marca en
+`sessionStorage`, no `localStorage`, evita que se repita dentro de la MISMA
+apertura — p.ej. al loguearse o confirmar un pago, navegaciones con
+`hx-boost="false"` — pero se resetea sola en la apertura siguiente), no un
+patrón de interacción recurrente dentro de una pantalla — sigue sin ser
+licencia para animar tarjetas, botones o cualquier otra superficie del
+panel. Como toda animación del sistema, respeta `prefers-reduced-motion:
+reduce` apagándola (el splash directamente no se ve: `opacity: 0` sin la
+animación que la lleva a 1). Se renderiza tanto autenticado (`base.html`,
+colores de `user.perfil.gimnasio`) como en el login con estética por
+gimnasio (`login.html`, colores del `gimnasio` resuelto por slug/cookie) vía
+el partial `partials/pwa_splash.html`, porque abrir la PWA instalada sin
+sesión activa cae ahí. El fondo usa
 `var(--color-primario)`/`--color-secundario` del gimnasio logueado (The
 Runtime Brand Rule), nunca un hex fijo.
 

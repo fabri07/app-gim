@@ -5,11 +5,16 @@
 
 {% block content %}
 <div class="contenido--ancho">
-  <h1>Personalizar mi gimnasio</h1>
-  <p class="texto-suave">
-    Estos datos se ven en el portal del alumno y en la barra superior: logo,
-    colores, tipografía, mensaje de bienvenida, contacto y redes.
-  </p>
+  <div class="acciones-lista">
+    <div>
+      <h1>Personalizar mi gimnasio</h1>
+      <p class="texto-suave">
+        Estos datos se ven en el portal del alumno y en la barra superior: logo,
+        colores, tipografía, mensaje de bienvenida, contacto y redes.
+      </p>
+    </div>
+    <a class="boton-secundario" href="{% url 'pagos:medios_listado' %}">Medios de cobro</a>
+  </div>
 
   <div class="config-layout">
     <form method="post" enctype="multipart/form-data" novalidate hx-boost="false" class="tarjeta" id="form-gimnasio">

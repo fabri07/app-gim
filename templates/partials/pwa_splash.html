@@ -1,0 +1,24 @@
+{% comment %}
+  Splash de instalación (mancuerna): pwa.js lo muestra en CADA apertura de la
+  PWA en modo standalone (no en `appinstalled`, que no existe en iOS) --
+  excepción deliberada a la Restrained Motion Rule de DESIGN.md, documentada
+  ahí. `hidden` por default: si JS no corre, nunca se pinta.
+
+  Recibe `gimnasio_splash` por contexto (`{% include ... with gimnasio_splash=... %}`),
+  nunca `user.perfil.gimnasio` directo: este partial se usa tanto autenticado
+  (base.html) como en el login con estética por gimnasio (login.html, usuario
+  anónimo, donde `user.perfil` no existe). Los 3 colores se fijan inline acá
+  -- no alcanza con heredar `:root`, que solo lo pisa el <style> de
+  base.html para un usuario YA autenticado; en el login anónimo esas
+  variables nunca se setean globalmente.
+{% endcomment %}
+<div id="pwa-splash" class="pwa-splash" hidden aria-hidden="true" style="--color-fondo: {{ gimnasio_splash.color_fondo_css }}; --color-primario: {{ gimnasio_splash.color_primario_css }}; --color-secundario: {{ gimnasio_splash.color_secundario_css }};">
+  <svg class="pwa-splash__mancuerna" viewBox="0 0 64 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+    <rect x="1" y="2" width="9" height="20" rx="3"></rect>
+    <rect x="8" y="9" width="6" height="6" rx="1"></rect>
+    <rect x="14" y="10" width="36" height="4" rx="2"></rect>
+    <rect x="50" y="9" width="6" height="6" rx="1"></rect>
+    <rect x="54" y="2" width="9" height="20" rx="3"></rect>
+  </svg>
+  <span class="pwa-splash__nombre">{{ gimnasio_splash.nombre }}</span>
+</div>

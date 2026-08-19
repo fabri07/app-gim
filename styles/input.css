@@ -202,6 +202,16 @@
       transition cursor-pointer border-none;
   }
 
+  /* Variante compacta de .boton-secundario para ir inline junto a texto
+     (p.ej. el alias de un medio de cobro) -- .boton-secundario a tamaño
+     completo (px-4 py-2) desbalancea una lista de texto corrida. */
+  .boton-copiar {
+    @apply inline-flex items-center justify-center rounded-md border
+      border-gray-300 text-gray-700 bg-white px-2 py-0.5 text-xs font-medium
+      no-underline hover:bg-gray-50 transition cursor-pointer
+      disabled:opacity-70 disabled:cursor-default;
+  }
+
   .texto-suave {
     @apply text-sm text-gray-500;
   }

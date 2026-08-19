@@ -445,6 +445,7 @@
                 <strong>{{ medio.alias }}</strong>
                 {% if medio.titular %}· {{ medio.titular }}{% endif %}
                 {% if medio.entidad %}· {{ medio.entidad }}{% endif %}
+                <button type="button" class="boton-copiar" data-copiar-alias="{{ medio.alias }}">Copiar</button>
               </li>
             {% endfor %}
           </ul>

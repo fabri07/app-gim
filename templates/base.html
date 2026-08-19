@@ -75,24 +75,20 @@
   <script src="{% static 'js/pwa.js' %}" defer></script>
 </head>
 <body hx-boost="true" data-vapid-public-key="{{ VAPID_PUBLIC_KEY }}" data-suplantacion="{% if request.session.suplantacion %}true{% else %}false{% endif %}" {% if user.is_authenticated and user.perfil.rol == "staff" %}x-data="{ navAbierto: false }"{% endif %}>
+  {% comment %}
+    Dos ramas -- Django no permite mezclar `and`/`or` en un mismo {% if %} --
+    porque el splash tiene que aparecer tanto para un usuario YA autenticado
+    (base.html normal) como para un visitante anónimo en la pantalla de
+    login CON estética por gimnasio (login.html, `gimnasio` en contexto vía
+    slug de URL o cookie `gimnasio_preferido`): abrir la PWA instalada
+    redirige siempre a `/` (`start_url` del manifest), y sin sesión activa
+    eso termina en el login -- el splash tiene que verse ahí también, no
+    solo adentro de la app ya logueada.
+  {% endcomment %}
   {% if user.is_authenticated and user.perfil.gimnasio %}
-    {% comment %}
-      Splash de instalación (mancuerna): pwa.js lo muestra UNA sola vez, en
-      la primera apertura de la PWA en modo standalone (no en `appinstalled`,
-      que no existe en iOS) -- excepción deliberada a la Restrained Motion
-      Rule de DESIGN.md, documentada ahí. `hidden` por default: si JS no
-      corre (o el usuario nunca abre la app instalada), nunca se pinta.
-    {% endcomment %}
-    <div id="pwa-splash" class="pwa-splash" hidden aria-hidden="true">
-      <svg class="pwa-splash__mancuerna" viewBox="0 0 64 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-        <rect x="1" y="2" width="9" height="20" rx="3"></rect>
-        <rect x="8" y="9" width="6" height="6" rx="1"></rect>
-        <rect x="14" y="10" width="36" height="4" rx="2"></rect>
-        <rect x="50" y="9" width="6" height="6" rx="1"></rect>
-        <rect x="54" y="2" width="9" height="20" rx="3"></rect>
-      </svg>
-      <span class="pwa-splash__nombre">{{ user.perfil.gimnasio.nombre }}</span>
-    </div>
+    {% include 'partials/pwa_splash.html' with gimnasio_splash=user.perfil.gimnasio %}
+  {% elif gimnasio %}
+    {% include 'partials/pwa_splash.html' with gimnasio_splash=gimnasio %}
   {% endif %}
   {% if request.session.suplantacion %}
     {% comment %}
