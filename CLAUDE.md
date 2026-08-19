@@ -727,6 +727,104 @@ BEM distinto (`.landing__botones` vs `.redes-sociales`), y el proyecto ya
 tiene precedente de duplicar en vez de compartir estilos entre bloques
 (ver `.auth-hero--gimnasio`/`.landing` más arriba).
 
+## PWA instalable + Web Push (app `notificaciones`, más allá del ROADMAP original)
+
+Agregado tras un pedido explícito de uno o más gimnasios pagos ("una app
+para el celular"). Se evaluó Expo/React Native y se descartó: hubiera
+significado construir una API REST completa sobre Django (hoy no existe
+ninguna) y duplicar toda la UI de alumno y staff en dos códigos separados
+para siempre. En cambio, `app_gim` se hizo **instalable como PWA** desde el
+navegador (sin publicar en app stores) — reusa el 100% de las templates
+Django/HTMX existentes, y agrega solo la capa de instalabilidad + push
+notifications.
+
+- **`notificaciones`** es la app más nueva del proyecto, **última** en
+  `INSTALLED_APPS` a propósito: sus signals/servicios leen
+  `Novedad`/`RutinaAsignada`/`Reserva`/`PagoMensual`/`Gimnasio`/`Perfil`, así
+  que depende de todo el dominio (mismo criterio de orden que el resto de
+  `INSTALLED_APPS`).
+- **`SuscripcionPush`** (una fila por dispositivo/navegador, NO OneToOne con
+  el usuario — un alumno puede tener el celu y la PC suscriptos) **es
+  `TenantOwnedModel`**, no solo scopeada vía FK a `usuario`: mismo argumento
+  que `RegistroSuplantacion` — la consulta natural de un broadcast es "todas
+  las suscripciones de MI gimnasio", no "las de este usuario". `gimnasio` se
+  stampa en el alta desde `usuario.perfil.gimnasio`, nunca del cliente.
+- **`RecordatorioEnviado`** es el mecanismo de dedup para los eventos que
+  dispara el cron (ver abajo) — modelo satélite en `notificaciones`, sin
+  agregar ningún campo "ya notificado" a `Novedad`/`PagoMensual`/`Reserva`,
+  mismo patrón que `calendario.ReservaCalendarEvent`.
+- **Manifest e íconos dinámicos por gimnasio**: `notificaciones/views.py`
+  expone `/g/<slug>/manifest.json` y `/g/<slug>/icono-<192|512>.png`
+  (`notificaciones/icons.py`, Pillow, reusa `Gimnasio.color_*_css`/
+  `PALETAS`). Se generan on-the-fly y se cachean con el cache default de
+  Django (clave invalidada por `gimnasio.modificado`) — **no** hay un
+  `ImageField` nuevo en `Gimnasio`. El logo en R2 sale con URL firmada que
+  expira en 1h (`AWS_QUERYSTRING_EXPIRE`), no apta para `icons[].src` de un
+  manifest, por eso el ícono se sirve siempre a través de esta vista propia,
+  nunca apuntando directo a `gimnasio.logo.url`.
+- **`/sw.js` se sirve en la RAÍZ del dominio** (`ServiceWorkerView`, no vía
+  `{% static %}`): WhiteNoise con `CompressedManifestStaticFilesStorage`
+  hashea nombres de archivo en producción, lo que rompería la URL estable
+  que un service worker necesita, y limitaría su scope a `/static/` salvo
+  el header `Service-Worker-Allowed`. `static/js/sw.js` (el contenido real)
+  **nunca cachea HTML ni `/media/`**, solo `/static/` (assets versionados,
+  cache-first) — el sitio es multi-tenant resuelto por `user.perfil.gimnasio`
+  (no por slug en la URL para rutas autenticadas), así que cachear HTML
+  podría filtrar el tema/logo de un gimnasio a otro usuario en un
+  dispositivo compartido.
+- **Envío** (`notificaciones/services.py`): `VAPID_PRIVATE_KEY`/
+  `VAPID_PUBLIC_KEY`/`VAPID_ADMIN_EMAIL` todo-o-nada (mismo criterio que las
+  `GOOGLE_*`) → `PUSH_ENABLED` en `False` sin las 3 (y siempre `False` bajo
+  `TESTING`, mismo criterio que R2). La PWA es instalable de entrada aunque
+  `PUSH_ENABLED` sea `False` — solo push queda apagado. `_enviar` construye
+  un `Vapid01` explícito con `Vapid01.from_pem(...)` (no pasa el string
+  crudo a `pywebpush.webpush(vapid_private_key=...)`, que solo entiende
+  ruta-de-archivo o el formato raw/DER de `Vapid.from_string`, NO un PEM con
+  headers) — así `VAPID_PRIVATE_KEY` puede guardarse tal cual la imprime
+  `vapid --gen`.
+- **7 eventos** disparan una notificación: novedad publicada, pago por
+  vencer, pago vencido, turno próximo, rutina nueva asignada, nueva reserva
+  (avisa al staff) y comprobante subido (avisa al staff). Los 3 que
+  enganchan a un `post_save` viable (`notificaciones/signals.py`: Novedad,
+  RutinaAsignada, Reserva) siguen el mismo patrón que `calendario/
+  signals.py` — `if raw: return`, `transaction.on_commit(...)` para el
+  envío real, viven en `notificaciones` (no en `novedades`/`rutinas`/
+  `turnos`) para no acoplar esas apps a la infraestructura de push. **Pago
+  vencido NO usa signal**: `marcar_vencidos()` usa `QuerySet.update()`, que
+  no dispara `post_save` (límite ya documentado en el propio código) — el
+  cron lo detecta por `modificado__date=hoy` sin que `pagos/` sepa que
+  `notificaciones` existe.
+- **Comprobante subido por el alumno es un flujo NUEVO**: hasta acá, quien
+  subía el comprobante era siempre el staff, en `ConfirmarPagoView`. Ahora
+  `pagos:comprobante_subir` (`AlumnoComprobanteUpdateView`,
+  `AlumnoRequiredMixin`) deja que el alumno suba el comprobante de su propio
+  `PagoMensual` PENDIENTE/VENCIDO — **no cambia `estado`**, el staff sigue
+  siendo el único que confirma el pago. Esta vista dispara la notificación
+  con una llamada directa (no un signal): un `post_save` genérico sobre
+  `PagoMensual` no podría distinguir "subió el alumno" de "confirmó el
+  staff" sin flags frágiles.
+- **Cron único** (`notificaciones/management/commands/
+  enviar_recordatorios.py`, `.github/workflows/enviar-recordatorios.yml`,
+  cada 15 min) cubre los eventos que dependen del paso del tiempo: novedades
+  con `fecha_publicacion` de hoy (publicación programada a futuro, que el
+  signal no ve al crearse), pagos a `dia_vencimiento_pago - hoy.day` entre 0
+  y 3 días, pagos recién vencidos, y turnos dentro de los próximos 60
+  minutos (usa `turnos/services.py::_ahora_local()`, no `timezone.now()`
+  pelado, para no comparar aware-UTC contra naive-local). Es el primer cron
+  del proyecto con granularidad menor a diaria — hasta acá todo (`generar-
+  pagos.yml`, `backup.yml`) corría 1 vez por día; GitHub Actions no
+  garantiza puntualidad exacta al minuto en `schedule`, así que "avisá 1
+  hora antes" es aproximado, no exacto.
+- **Suplantación**: bloqueada server-side (403 en
+  `SuscripcionPushCreateView` si `suplantacion.esta_activa(request)`) y
+  client-side (`pwa.js` no intenta pedir permiso si `data-suplantacion` es
+  `"true"` en `<body>`) — un staff suplantando a un alumno nunca debe
+  suscribir su propio dispositivo a nombre del alumno.
+- **Botones "Instalar app"/"Activar notificaciones"** viven una sola vez en
+  el topbar de `base.html` (no duplicados en la nav de staff y en el portal
+  del alumno por separado): el topbar ya es común a los dos roles, así que
+  alcanza con condicionar la visibilidad ahí.
+
 ## Deploy (Fase 5)
 
 **Estado (2026-07-30): desplegado.** App en `https://app-gim.onrender.com`

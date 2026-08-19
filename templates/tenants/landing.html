@@ -4,6 +4,8 @@
 {% block main_class %}{% endblock %}
 
 {% block extra_style %}
+  <link rel="manifest" href="{% url 'notificaciones:pwa_manifest' gimnasio.slug %}">
+  <meta name="theme-color" content="{{ gimnasio.color_primario_css }}">
   {% if gimnasio.fondo_tipo == "imagen" and gimnasio.fondo_imagen %}
     <style>
       .landing {

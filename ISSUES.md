@@ -857,3 +857,60 @@ arriba, botón o badge de estado debajo, ancho completo de la tarjeta) con
 alcanza para resolver esto también. Las columnas siguen siendo angostas en
 pantallas chicas con 7 columnas de una fila; hace falta el fix de CSS
 igual.
+
+---
+
+## [2026-08-19] PWA + Web Push: riesgos aceptados a propósito
+
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** al agregar la app `notificaciones` (PWA instalable + push, ver
+`CLAUDE.md`) se tomaron varias simplificaciones de MVP en vez de resolverlas
+de punta a punta. Cada una es independiente:
+
+1. **Íconos del manifest sin `purpose: maskable`.** El logo de cada
+   gimnasio es blanco-etiquetado y no hay garantía de que tenga la zona de
+   seguridad (80% central) que exige un ícono maskable — declararlo así
+   igual podría recortar mal un logo real. Se dejó solo `purpose: "any"`.
+   Si algún launcher de Android empieza a verse mal, revisar acá primero.
+2. **Placeholder de ícono sin logo usa la fuente default de Pillow**
+   (`ImageFont.load_default`), no una tipografía cuidada — un gimnasio sin
+   logo subido ve iniciales con una fuente genérica en vez de algo
+   prolijo. Sale barato de arreglar (empaquetar una fuente en `static/
+   fonts/` y pasarla a `ImageFont.truetype`) si algún gimnasio se queja.
+3. **El cron de recordatorios (`enviar-recordatorios.yml`) corre cada 15
+   min vía `schedule` de GitHub Actions, que NO garantiza puntualidad
+   exacta al minuto** (mismo límite ya documentado para `backup.yml`) —
+   "avisá 1 hora antes de tu turno" puede llegar con algunos minutos de
+   margen de más o de menos. No hay Celery/Redis/worker en el proyecto
+   (ver CLAUDE.md, sección Deploy) así que no hay una alternativa más fina
+   sin sumar infraestructura nueva.
+4. **El service worker (`static/js/sw.js`) no tiene fallback offline** —
+   sin conexión, la PWA simplemente no carga nada (no hay pantalla "estás
+   offline" ni cache de la shell de la app). Decisión YAGNI: el producto
+   no tiene ningún caso de uso que dependa de funcionar sin internet.
+5. **Web Push en iOS requiere Safari 16.4+.** Un alumno con una versión de
+   iOS más vieja no va a poder activar notificaciones — el botón
+   simplemente no hace nada (feature-detected en `pwa.js`, no rompe). No
+   es un bug de esta implementación, es un límite de la plataforma; no
+   vale la pena invertir en un fallback nativo (FCM/APNs) solo para cubrir
+   ese segmento, dado el principio "primero se cobra, después se
+   sofistica".
+6. **Todos los gimnasios comparten origin y `/sw.js`** (no hay subdominios
+   por gimnasio en el MVP, principio no negociable #6). Cada manifest tiene
+   un `id` distinto (`/g/<slug>/`), que es el mecanismo estándar de la spec
+   de Web App Manifest para que el navegador trate instalaciones del mismo
+   origin como apps independientes — pero si una misma persona es staff o
+   alumno en dos gimnasios distintos e instala las dos PWAs en el mismo
+   dispositivo, comparten el mismo service worker registrado a nivel
+   origin. No es un problema funcional (el SW no hace nada tenant-specific,
+   nunca cachea HTML), pero el comportamiento de instalación/actualización
+   en el launcher del SO puede variar según el navegador. Solucionarlo del
+   todo requeriría subdominios por gimnasio, fuera de alcance del MVP.
+
+**Resolución / próximo paso:** ninguno de los 6 puntos bloquea el uso real
+de la feature. Reevaluar (1) y (2) si algún gimnasio pagos lo señala como
+problema visual concreto; reevaluar (3) solo si el producto crece al punto
+de justificar Celery/Redis por otras razones también; (6) solo sería un
+problema real si aparece un caso concreto de una persona con doble rol en
+dos gimnasios pagos distintos queriendo las dos apps instaladas.

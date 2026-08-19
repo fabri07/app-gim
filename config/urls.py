@@ -8,6 +8,7 @@ from django.urls import include, path
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("", include("tenants.urls")),
+    path("", include("notificaciones.urls")),
     path("alumnos/", include("alumnos.urls")),
     path("ejercicios/", include("ejercicios.urls")),
     path("rutinas/", include("rutinas.urls")),

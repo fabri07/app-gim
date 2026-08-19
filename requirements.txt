@@ -22,3 +22,7 @@ rapidfuzz==3.13.0
 
 # Descarga de PDF de rutina asignada (rutinas/pdf.py)
 fpdf2==2.8.8
+
+# PWA / Web Push (app notificaciones) -- trae py-vapid transitivo, con el
+# comando `vapid` para generar el par de claves VAPID
+pywebpush==2.4.0

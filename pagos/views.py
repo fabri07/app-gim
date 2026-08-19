@@ -10,12 +10,14 @@ La única acción de escritura del staff es confirmar un pago existente
 """
 
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, ListView, UpdateView
 
 from core.mixins import TenantScopedMixin
-from tenants.mixins import StaffRequiredMixin
-from pagos.forms import ConfirmarPagoForm, MedioCobroForm
+from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
+from pagos.forms import AlumnoComprobanteForm, ConfirmarPagoForm, MedioCobroForm
 from pagos.models import MedioCobro, PagoMensual
 
 
@@ -62,6 +64,47 @@ class ConfirmarPagoView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
         form.instance.estado = PagoMensual.Estado.PAGADO
         response = super().form_valid(form)
         messages.success(self.request, "Pago confirmado correctamente.")
+        return response
+
+
+class AlumnoComprobanteUpdateView(AlumnoRequiredMixin, UpdateView):
+    """El alumno sube el comprobante de SU PROPIO pago PENDIENTE/VENCIDO.
+    No cambia `estado`: sigue siendo el staff quien confirma el pago en
+    `ConfirmarPagoView`. `get_queryset` acota por alumno, gimnasio Y estado
+    -- un pago ya PAGADO, de otro alumno, o de otro gimnasio da 404, mismo
+    criterio que `RutinaAsignadaItemCalificarView`/`CancelarReservaView`."""
+
+    model = PagoMensual
+    form_class = AlumnoComprobanteForm
+    template_name = "pagos/comprobante_alumno_form.html"
+    success_url = reverse_lazy("home")
+
+    def get_queryset(self):
+        if self.alumno is None:
+            return PagoMensual.objects.none()
+        return PagoMensual.objects.filter(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            estado__in=[PagoMensual.Estado.PENDIENTE, PagoMensual.Estado.VENCIDO],
+        )
+
+    def get(self, request, *args, **kwargs):
+        if self.alumno is None:
+            raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        if self.alumno is None:
+            raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
+        return super().post(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, "Comprobante subido. El staff lo va a revisar.")
+        pago = self.object
+        from notificaciones import services as notificaciones_services
+
+        transaction.on_commit(lambda: notificaciones_services.notificar_comprobante_subido(pago))
         return response
 
 

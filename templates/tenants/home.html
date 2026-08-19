@@ -437,6 +437,9 @@
             {% endfor %}
           </ul>
         {% endif %}
+        {% if mensualidad_actual.estado != "pagado" %}
+          <a class="boton-secundario" href="{% url 'pagos:comprobante_subir' mensualidad_actual.pk %}">Subir comprobante</a>
+        {% endif %}
       {% else %}
         <p class="texto-suave">Sin información de tu cuota este mes.</p>
       {% endif %}

@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Subir comprobante · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Subir comprobante</h1>
+  <p class="texto-suave">{{ object.mes|stringformat:"02d" }}/{{ object.anio }}</p>
+  <form method="post" enctype="multipart/form-data" novalidate hx-boost="false">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="boton">Subir comprobante</button>
+    <a class="boton-secundario" href="{% url 'home' %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

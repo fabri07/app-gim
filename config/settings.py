@@ -77,6 +77,9 @@ INSTALLED_APPS = [
     #   novedades  -> Novedad (sin dependencias de dominio)
     #   turnos     -> ConfiguracionTurnos/HorarioAtencion/CupoExcepcion/Reserva (FK a alumnos)
     #   calendario -> integración opcional con Google Calendar (FK a alumnos/turnos)
+    #   notificaciones -> manifest/SW/push (FK a Gimnasio/Perfil, lee
+    #                     Novedad/RutinaAsignada/Reserva/PagoMensual) -- depende
+    #                     de todo el dominio, va última
     'core',
     'tenants',
     'ejercicios',
@@ -87,6 +90,7 @@ INSTALLED_APPS = [
     'novedades',
     'turnos',
     'calendario',
+    'notificaciones',
 ]
 
 MIDDLEWARE = [
@@ -121,6 +125,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'notificaciones.context_processors.vapid_public_key',
             ],
         },
     },
@@ -310,6 +315,34 @@ if _google_seteadas and len(_google_seteadas) < len(_GOOGLE_VARS):
 # Bandera que consumen `calendario.services`/vistas/templates para prender o no
 # la integración. True solo si están las 4 credenciales.
 GOOGLE_CALENDAR_ENABLED = len(_google_seteadas) == len(_GOOGLE_VARS)
+
+
+# PWA / Web Push (app `notificaciones`). Mismo criterio todo-o-nada que
+# GOOGLE_*/R2_*: sin las 3 variables, `notificaciones.services` se vuelve
+# no-op -- la PWA sigue siendo instalable (manifest/SW no dependen de esto),
+# solo no se mandan notificaciones. Generar el par de claves una sola vez con
+# `vapid --gen` + `vapid --applicationServerKey` (comando de `py-vapid`,
+# dependencia transitiva de `pywebpush`); nunca commitear los .pem.
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_ADMIN_EMAIL = os.environ.get("VAPID_ADMIN_EMAIL", "")
+
+_VAPID_VARS = ["VAPID_PRIVATE_KEY", "VAPID_PUBLIC_KEY", "VAPID_ADMIN_EMAIL"]
+_vapid_seteadas = [v for v in _VAPID_VARS if os.environ.get(v)]
+
+if _vapid_seteadas and len(_vapid_seteadas) < len(_VAPID_VARS):
+    _vapid_faltantes = ", ".join(v for v in _VAPID_VARS if v not in _vapid_seteadas)
+    raise ImproperlyConfigured(
+        f"Configuración de Web Push incompleta: falta(n) {_vapid_faltantes}. "
+        "Las 3 variables VAPID_* deben estar todas seteadas (o ninguna, para "
+        "que la app funcione sin push) -- ver .env.example."
+    )
+
+# Forzado a False en la suite de tests independientemente de las env vars:
+# mismo criterio ya usado para R2 (ver STORAGES más abajo) -- `manage.py
+# test` no debe salir a la red por ningún motivo, aunque algún test olvide
+# mockear `notificaciones.services._enviar`.
+PUSH_ENABLED = len(_vapid_seteadas) == len(_VAPID_VARS) and not TESTING
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

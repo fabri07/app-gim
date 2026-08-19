@@ -3,10 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}App Gimnasios{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   {% if user.is_authenticated and user.perfil.gimnasio %}
     {% with gimnasio=user.perfil.gimnasio %}
+      <link rel="manifest" href="{% url 'notificaciones:pwa_manifest' gimnasio.slug %}">
+      <meta name="theme-color" content="{{ gimnasio.color_primario_css }}">
       {% if gimnasio.tipografia_google_param %}
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -69,8 +72,9 @@
   {% block extra_style %}{% endblock %}
   <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <script src="{% static 'js/pwa.js' %}" defer></script>
 </head>
-<body hx-boost="true" {% if user.is_authenticated and user.perfil.rol == "staff" %}x-data="{ navAbierto: false }"{% endif %}>
+<body hx-boost="true" data-vapid-public-key="{{ VAPID_PUBLIC_KEY }}" data-suplantacion="{% if request.session.suplantacion %}true{% else %}false{% endif %}" {% if user.is_authenticated and user.perfil.rol == "staff" %}x-data="{ navAbierto: false }"{% endif %}>
   {% if request.session.suplantacion %}
     {% comment %}
       Se lee de la sesión y no del usuario logueado a propósito: mientras dura
@@ -107,6 +111,12 @@
       <span>{{ user.perfil.gimnasio.nombre|default:"App Gimnasios" }}</span>
     </a>
     <div class="flex items-center gap-3">
+      {% if user.is_authenticated and user.perfil.gimnasio %}
+        <button type="button" data-pwa-instalar hidden class="boton-secundario">Instalar app</button>
+        {% if VAPID_PUBLIC_KEY and not request.session.suplantacion %}
+          <button type="button" data-pwa-activar-push class="boton-secundario">Activar notificaciones</button>
+        {% endif %}
+      {% endif %}
       {% if user.is_authenticated and user.perfil.rol == "staff" %}
         <button type="button" class="sm:hidden text-gray-600" @click="navAbierto = !navAbierto" aria-label="Abrir menú">☰</button>
       {% endif %}

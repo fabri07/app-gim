@@ -1,0 +1,48 @@
+# Recordatorios push por eventos que dependen del paso del tiempo (novedades
+# programadas, pagos por vencer/vencidos, turnos próximos), ver
+# notificaciones/management/commands/enviar_recordatorios.py.
+#
+# Vive acá (GitHub Actions) y no en render.yaml por el mismo motivo que
+# generar-pagos.yml: Render no ofrece plan free para cron jobs. `*/15 * * * *`
+# en vez de cada 5 min: GitHub Actions no garantiza puntualidad exacta al
+# minuto, y 15 min es un balance razonable para "avisá 1 hora antes" de un
+# turno (MINUTOS_AVISO_TURNO en el command).
+#
+# A diferencia de generar-pagos.yml (que documenta por qué NO pasa las
+# R2_*/GOOGLE_*), este workflow SÍ necesita las 3 VAPID_* porque manda
+# pushes reales -- no copiar el patrón "sin secrets" acá.
+
+name: Enviar recordatorios push
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enviar-recordatorios-production
+  cancel-in-progress: false
+
+jobs:
+  enviar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # SHA pineado, no tag: un tag es mutable y puede reapuntarse a otro commit.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Correr enviar_recordatorios
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_POOLED }}
+          DJANGO_DEBUG: "False"
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_ADMIN_EMAIL: ${{ secrets.VAPID_ADMIN_EMAIL }}
+        run: python manage.py enviar_recordatorios

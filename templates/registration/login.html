@@ -4,6 +4,8 @@
 
 {% block extra_style %}
 {% if gimnasio %}
+  <link rel="manifest" href="{% url 'notificaciones:pwa_manifest' gimnasio.slug %}">
+  <meta name="theme-color" content="{{ gimnasio.color_primario_css }}">
   {% comment %}
     Mismo patrón que landing.html (subproyecto 5): el <style> del <head> de
     base.html solo se llena para un usuario autenticado (user.perfil.gimnasio),

@@ -9,9 +9,11 @@ sin pytest ni factories (el proyecto es chico, KISS/YAGNI).
 
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.urls import reverse
@@ -531,3 +533,132 @@ class MedioCobroViewTests(TestCase):
         self.assertRedirects(response, reverse("pagos:medios_listado"))
         self.medio_a.refresh_from_db()
         self.assertFalse(self.medio_a.activo)
+
+
+class AlumnoComprobanteUpdateViewTests(TestCase):
+    """El alumno sube el comprobante de SU PROPIO pago PENDIENTE/VENCIDO
+    (`AlumnoComprobanteUpdateView`, evento 8 de `notificaciones` -- ver
+    `CLAUDE.md`). No existía este flujo antes: el staff era quien subía el
+    comprobante al confirmar (`ConfirmarPagoViewTests`, arriba)."""
+
+    def setUp(self):
+        self.gimnasio_a = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+
+        self.alumno_a = Alumno.objects.create(
+            gimnasio=self.gimnasio_a, nombre="Ana", apellido="Gómez"
+        )
+        self.otro_alumno_a = Alumno.objects.create(
+            gimnasio=self.gimnasio_a, nombre="Bruno", apellido="Pérez"
+        )
+        self.alumno_b = Alumno.objects.create(
+            gimnasio=self.gimnasio_b, nombre="Carla", apellido="Ruiz"
+        )
+
+        self.user_a = User.objects.create_user("alumno-a", password="clave-123456")
+        self.perfil_a = Perfil.objects.create(
+            usuario=self.user_a, gimnasio=self.gimnasio_a, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno_a.perfil = self.perfil_a
+        self.alumno_a.save()
+
+        self.pago_propio = PagoMensual.objects.create(
+            gimnasio=self.gimnasio_a,
+            alumno=self.alumno_a,
+            mes=3,
+            anio=2026,
+            monto=Decimal("15000.00"),
+        )
+        self.pago_de_otro_alumno = PagoMensual.objects.create(
+            gimnasio=self.gimnasio_a,
+            alumno=self.otro_alumno_a,
+            mes=3,
+            anio=2026,
+            monto=Decimal("15000.00"),
+        )
+        self.pago_de_otro_gimnasio = PagoMensual.objects.create(
+            gimnasio=self.gimnasio_b,
+            alumno=self.alumno_b,
+            mes=3,
+            anio=2026,
+            monto=Decimal("15000.00"),
+        )
+
+        self.client.login(username="alumno-a", password="clave-123456")
+
+    def _archivo(self):
+        return SimpleUploadedFile(
+            "comprobante.pdf", b"contenido-de-prueba", content_type="application/pdf"
+        )
+
+    @patch("notificaciones.services._enviar")
+    def test_sube_comprobante_a_su_propio_pago_pendiente(self, mock_enviar):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                reverse("pagos:comprobante_subir", args=[self.pago_propio.pk]),
+                {"comprobante": self._archivo()},
+            )
+
+        self.assertRedirects(response, reverse("home"))
+        self.pago_propio.refresh_from_db()
+        self.assertTrue(self.pago_propio.comprobante)
+        self.assertEqual(self.pago_propio.estado, PagoMensual.Estado.PENDIENTE)
+
+    def test_sube_comprobante_a_pago_vencido(self):
+        self.pago_propio.estado = PagoMensual.Estado.VENCIDO
+        self.pago_propio.save(update_fields=["estado"])
+
+        response = self.client.post(
+            reverse("pagos:comprobante_subir", args=[self.pago_propio.pk]),
+            {"comprobante": self._archivo()},
+        )
+
+        self.assertRedirects(response, reverse("home"))
+        self.pago_propio.refresh_from_db()
+        self.assertTrue(self.pago_propio.comprobante)
+        self.assertEqual(self.pago_propio.estado, PagoMensual.Estado.VENCIDO)
+
+    def test_404_en_pago_de_otro_alumno_del_mismo_gimnasio(self):
+        response = self.client.get(
+            reverse("pagos:comprobante_subir", args=[self.pago_de_otro_alumno.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_404_en_pago_de_otro_gimnasio(self):
+        response = self.client.get(
+            reverse("pagos:comprobante_subir", args=[self.pago_de_otro_gimnasio.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_404_en_pago_ya_pagado(self):
+        self.pago_propio.estado = PagoMensual.Estado.PAGADO
+        self.pago_propio.save(update_fields=["estado"])
+
+        response = self.client.get(
+            reverse("pagos:comprobante_subir", args=[self.pago_propio.pk])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    @patch("notificaciones.services._enviar")
+    def test_dispara_notificacion_al_staff_del_gimnasio_correcto(self, mock_enviar):
+        from notificaciones.models import SuscripcionPush
+
+        staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(usuario=staff, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF)
+        SuscripcionPush.objects.create(
+            gimnasio=self.gimnasio_a,
+            usuario=staff,
+            endpoint="https://push.example.com/staff-a",
+            p256dh="p",
+            auth="a",
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(
+                reverse("pagos:comprobante_subir", args=[self.pago_propio.pk]),
+                {"comprobante": self._archivo()},
+            )
+
+        mock_enviar.assert_called_once()
+        (suscripcion_llamada, _payload), _ = mock_enviar.call_args
+        self.assertEqual(suscripcion_llamada.usuario, staff)

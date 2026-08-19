@@ -19,6 +19,8 @@ mantener el mismo contrato en todos los forms de Fase 2, aunque ninguno de
 estos campos sea un FK tenant-owned que necesite acotarse.
 """
 
+from django import forms
+
 from core.forms import TenantScopedModelForm
 from pagos.models import MedioCobro, PagoMensual
 
@@ -27,6 +29,18 @@ class ConfirmarPagoForm(TenantScopedModelForm):
     class Meta:
         model = PagoMensual
         fields = ["monto", "fecha_pago", "medio_pago_texto", "comprobante"]
+
+
+class AlumnoComprobanteForm(forms.ModelForm):
+    """Solo `comprobante`: el alumno nunca toca monto/fecha_pago/estado --
+    eso lo sigue definiendo el staff en `ConfirmarPagoView`. No hereda de
+    `TenantScopedModelForm` porque no hay ningún FK tenant-owned en este
+    form que necesite acotarse (a diferencia de `ConfirmarPagoForm`, que sí
+    lo hereda por consistencia con el resto de Fase 2)."""
+
+    class Meta:
+        model = PagoMensual
+        fields = ["comprobante"]
 
 
 class MedioCobroForm(TenantScopedModelForm):
