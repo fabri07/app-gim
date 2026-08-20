@@ -25,7 +25,7 @@ from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
 from tenants import google_login, paisaje_matching, suplantacion
-from tenants.forms import GimnasioForm
+from tenants.forms import GimnasioForm, ResetPasswordStaffForm
 from tenants.mixins import StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil, doodle_static_url
 
@@ -599,6 +599,42 @@ class GoogleLoginCallbackView(View):
         if next_url:
             url = f"{url}?{urlencode({REDIRECT_FIELD_NAME: next_url})}"
         return redirect(url)
+
+
+class StaffPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
+    """Último paso de "olvidé mi contraseña" (SOLO staff -- el filtro real
+    vive en `ResetPasswordStaffForm.get_users`, acá no hace falta repetir
+    ningún chequeo de rol: el token de Django ya está firmado para el
+    usuario específico que pasó ese filtro al pedir el reset, no hay forma
+    de forjar uno válido para otro usuario).
+
+    `post_reset_login=True` loguea automático apenas confirma la
+    contraseña nueva, sin pedirle que la vuelva a tipear para entrar.
+    `backend` explícito, mismo criterio que suplantación y el login con
+    Google (el proyecto no tiene `AUTHENTICATION_BACKENDS` custom, así que
+    hay que decirle a `login()` cuál usar).
+    """
+
+    post_reset_login = True
+    post_reset_login_backend = "django.contrib.auth.backends.ModelBackend"
+
+    def get_user(self, uidb64):
+        """El hash del token de Django no incluye `is_active` -- desactivar
+        la cuenta DESPUÉS de pedir el reset no invalida un link ya emitido
+        por sí solo. Mismo gotcha que `tenants/suplantacion.py::iniciar` y
+        `GoogleLoginCallbackView` ya cubren explícitamente: `login()` de
+        Django no revalida `is_active` por su cuenta. Devolver `None` acá
+        hace que `dispatch()` trate el link como inválido, igual que un
+        token vencido o forjado."""
+        user = super().get_user(uidb64)
+        if user is not None and not user.is_active:
+            return None
+        return user
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        setear_cookie_gimnasio(response, self.request.user)
+        return response
 
 
 class SuplantarView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):

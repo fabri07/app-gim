@@ -127,6 +127,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'notificaciones.context_processors.vapid_public_key',
                 'tenants.context_processors.google_staff_login_disponible',
+                'tenants.context_processors.password_reset_disponible',
             ],
         },
     },
@@ -242,25 +243,35 @@ STORAGES = {
     },
 }
 
-# Las 4 variables de R2 son todo-o-nada: si se seteó alguna pero no las
-# otras (p.ej. se completó a mano en el dashboard de Render de una en una),
-# preferimos fallar fuerte y claro al arrancar en vez de un KeyError críptico
-# más abajo -- o peor, silenciosamente quedar en FileSystemStorage.
-_R2_VARS = ["R2_BUCKET_NAME", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT_URL"]
-_r2_seteadas = [v for v in _R2_VARS if os.environ.get(v)]
+# Varias integraciones opcionales de este archivo (R2, Google Calendar,
+# login con Google, email) comparten el mismo criterio todo-o-nada: si se
+# seteó alguna variable del grupo pero no las otras (p.ej. se completó a
+# mano en el dashboard de Render de una en una), preferimos fallar fuerte y
+# claro al arrancar -- en vez de un KeyError críptico más abajo, o peor,
+# quedar silenciosamente en el modo degradado. Devuelve True solo si TODAS
+# las variables están seteadas, False si NINGUNA lo está.
+def _bandera_todo_o_nada(nombres, etiqueta, degradacion):
+    seteadas = [v for v in nombres if os.environ.get(v)]
+    if seteadas and len(seteadas) < len(nombres):
+        faltantes = ", ".join(v for v in nombres if v not in seteadas)
+        raise ImproperlyConfigured(
+            f"Configuración de {etiqueta} incompleta: falta(n) {faltantes}. "
+            f"Las {len(nombres)} variables deben estar todas seteadas "
+            f"(o ninguna, {degradacion}) -- ver .env.example."
+        )
+    return len(seteadas) == len(nombres)
 
-if _r2_seteadas and len(_r2_seteadas) < len(_R2_VARS):
-    _r2_faltantes = ", ".join(v for v in _R2_VARS if v not in _r2_seteadas)
-    raise ImproperlyConfigured(
-        f"Configuración de R2 incompleta: falta(n) {_r2_faltantes}. "
-        "Las 4 variables R2_* deben estar todas seteadas (o ninguna, para "
-        "usar FileSystemStorage local) -- ver .env.example."
-    )
+
+R2_ENABLED = _bandera_todo_o_nada(
+    ["R2_BUCKET_NAME", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_ENDPOINT_URL"],
+    "R2",
+    "para usar FileSystemStorage local",
+)
 
 # `not TESTING`: la validación de arriba sí corre siempre (una config parcial
 # es un error de entorno en cualquier contexto), pero el backend real nunca se
 # activa en la suite -- ver el comentario de STORAGES.
-if _r2_seteadas and not TESTING:
+if R2_ENABLED and not TESTING:
     STORAGES["default"] = {"BACKEND": "storages.backends.s3.S3Storage"}
     AWS_STORAGE_BUCKET_NAME = os.environ["R2_BUCKET_NAME"]
     AWS_ACCESS_KEY_ID = os.environ["R2_ACCESS_KEY_ID"]
@@ -297,21 +308,16 @@ GOOGLE_TOKEN_ENCRYPTION_KEY = os.environ.get("GOOGLE_TOKEN_ENCRYPTION_KEY", "")
 # https://developers.google.com/workspace/calendar/api/auth
 GOOGLE_CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.app.created"]
 
-_GOOGLE_VARS = [
-    "GOOGLE_OAUTH_CLIENT_ID",
-    "GOOGLE_OAUTH_CLIENT_SECRET",
-    "GOOGLE_OAUTH_REDIRECT_URI",
-    "GOOGLE_TOKEN_ENCRYPTION_KEY",
-]
-_google_seteadas = [v for v in _GOOGLE_VARS if os.environ.get(v)]
-
-if _google_seteadas and len(_google_seteadas) < len(_GOOGLE_VARS):
-    _google_faltantes = ", ".join(v for v in _GOOGLE_VARS if v not in _google_seteadas)
-    raise ImproperlyConfigured(
-        f"Configuración de Google Calendar incompleta: falta(n) {_google_faltantes}. "
-        "Las 4 variables GOOGLE_* deben estar todas seteadas (o ninguna, para "
-        "degradar al deep-link) -- ver .env.example."
-    )
+GOOGLE_CALENDAR_ENABLED = _bandera_todo_o_nada(
+    [
+        "GOOGLE_OAUTH_CLIENT_ID",
+        "GOOGLE_OAUTH_CLIENT_SECRET",
+        "GOOGLE_OAUTH_REDIRECT_URI",
+        "GOOGLE_TOKEN_ENCRYPTION_KEY",
+    ],
+    "Google Calendar",
+    "para degradar al deep-link",
+)
 
 # Frente C: login con Google para staff/dueño (coexiste con usuario+contraseña,
 # no lo reemplaza -- ver ISSUES.md [2026-07-29]). Reusa el MISMO Client
@@ -327,28 +333,42 @@ if _google_seteadas and len(_google_seteadas) < len(_GOOGLE_VARS):
 GOOGLE_LOGIN_REDIRECT_URI = os.environ.get("GOOGLE_LOGIN_REDIRECT_URI", "")
 GOOGLE_LOGIN_SCOPES = ["openid", "email"]
 
-_GOOGLE_LOGIN_VARS = [
-    "GOOGLE_OAUTH_CLIENT_ID",
-    "GOOGLE_OAUTH_CLIENT_SECRET",
-    "GOOGLE_LOGIN_REDIRECT_URI",
-]
-_google_login_seteadas = [v for v in _GOOGLE_LOGIN_VARS if os.environ.get(v)]
+GOOGLE_STAFF_LOGIN_ENABLED = _bandera_todo_o_nada(
+    ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_LOGIN_REDIRECT_URI"],
+    "login con Google",
+    "para que solo quede el login por contraseña",
+)
 
-if _google_login_seteadas and len(_google_login_seteadas) < len(_GOOGLE_LOGIN_VARS):
-    _google_login_faltantes = ", ".join(
-        v for v in _GOOGLE_LOGIN_VARS if v not in _google_login_seteadas
-    )
-    raise ImproperlyConfigured(
-        f"Configuración de login con Google incompleta: falta(n) {_google_login_faltantes}. "
-        "Las 3 variables deben estar todas seteadas (o ninguna, para que solo "
-        "quede el login por contraseña) -- ver .env.example."
-    )
+# "Olvidé mi contraseña" -- reset por email, SOLO para staff/dueño (ver
+# tenants.forms.ResetPasswordStaffForm: el reset de un alumno queda afuera
+# aunque su identificador sea un email, decisión de producto explícita).
+# Resend vía el `EMAIL_BACKEND` SMTP que Django ya trae -- sin
+# django-anymail ni el paquete `resend`, mismo criterio de "reusar antes
+# que agregar dependencias" que el login con Google. `EMAIL_PORT`/
+# `EMAIL_USE_TLS` son constantes (el submission port TLS de Resend), no
+# variables de entorno: no hay motivo real para que varíen entre entornos.
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "")
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
 
-GOOGLE_STAFF_LOGIN_ENABLED = len(_google_login_seteadas) == len(_GOOGLE_LOGIN_VARS)
-
-# Bandera que consumen `calendario.services`/vistas/templates para prender o no
-# la integración. True solo si están las 4 credenciales.
-GOOGLE_CALENDAR_ENABLED = len(_google_seteadas) == len(_GOOGLE_VARS)
+# Bandera que consumen tenants/context_processors.py y login.html para
+# mostrar u ocultar "¿Olvidaste tu contraseña?". Sin configurar, el
+# EMAIL_BACKEND cae al de consola (nunca rompe nada, solo no manda mails
+# reales) -- coherente con que el link quede oculto en ese caso, para no
+# ofrecer un flujo que no entrega nada.
+PASSWORD_RESET_ENABLED = _bandera_todo_o_nada(
+    ["EMAIL_HOST", "EMAIL_HOST_USER", "EMAIL_HOST_PASSWORD", "DEFAULT_FROM_EMAIL"],
+    "email",
+    "para que 'olvidé mi contraseña' quede oculto",
+)
+EMAIL_BACKEND = (
+    "django.core.mail.backends.smtp.EmailBackend"
+    if PASSWORD_RESET_ENABLED
+    else "django.core.mail.backends.console.EmailBackend"
+)
 
 
 # PWA / Web Push (app `notificaciones`). Mismo criterio todo-o-nada que
@@ -361,22 +381,18 @@ VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
 VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
 VAPID_ADMIN_EMAIL = os.environ.get("VAPID_ADMIN_EMAIL", "")
 
-_VAPID_VARS = ["VAPID_PRIVATE_KEY", "VAPID_PUBLIC_KEY", "VAPID_ADMIN_EMAIL"]
-_vapid_seteadas = [v for v in _VAPID_VARS if os.environ.get(v)]
-
-if _vapid_seteadas and len(_vapid_seteadas) < len(_VAPID_VARS):
-    _vapid_faltantes = ", ".join(v for v in _VAPID_VARS if v not in _vapid_seteadas)
-    raise ImproperlyConfigured(
-        f"Configuración de Web Push incompleta: falta(n) {_vapid_faltantes}. "
-        "Las 3 variables VAPID_* deben estar todas seteadas (o ninguna, para "
-        "que la app funcione sin push) -- ver .env.example."
-    )
-
 # Forzado a False en la suite de tests independientemente de las env vars:
 # mismo criterio ya usado para R2 (ver STORAGES más abajo) -- `manage.py
 # test` no debe salir a la red por ningún motivo, aunque algún test olvide
 # mockear `notificaciones.services._enviar`.
-PUSH_ENABLED = len(_vapid_seteadas) == len(_VAPID_VARS) and not TESTING
+PUSH_ENABLED = (
+    _bandera_todo_o_nada(
+        ["VAPID_PRIVATE_KEY", "VAPID_PUBLIC_KEY", "VAPID_ADMIN_EMAIL"],
+        "Web Push",
+        "para que la app funcione sin push",
+    )
+    and not TESTING
+)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

@@ -103,6 +103,19 @@
         {{ form.as_p }}
         <button type="submit" class="boton">Entrar</button>
       </form>
+      {% if PASSWORD_RESET_DISPONIBLE %}
+        <p class="texto-suave text-center my-2">
+          {% comment %}
+            hx-boost="false" por consistencia con el resto de los links de
+            esta página (mismo gotcha documentado en CLAUDE.md): en
+            g/<slug>/login/ el <head> lleva colores/manifest del gimnasio
+            vía extra_style, y un swap boosteado (que solo reemplaza
+            <body>) dejaría esos valores del gimnasio anterior pegados en
+            vez de revertir al default al entrar a esta pantalla genérica.
+          {% endcomment %}
+          <a href="{% url 'password_reset' %}" hx-boost="false">¿Olvidaste tu contraseña?</a>
+        </p>
+      {% endif %}
       {% if GOOGLE_STAFF_LOGIN_DISPONIBLE %}
         <p class="texto-suave text-center my-2">o</p>
         {% comment %}

@@ -2,6 +2,7 @@ from django.contrib.auth import views as auth_views
 from django.urls import path
 from django.views.generic import TemplateView
 
+from tenants.forms import ResetPasswordStaffForm
 from tenants.views import (
     GimnasioLandingView,
     GimnasioLoginView,
@@ -11,6 +12,7 @@ from tenants.views import (
     HomeView,
     LoginView,
     LogoSugerirPaisajeView,
+    StaffPasswordResetConfirmView,
     SuplantarView,
     VolverDeSuplantacionView,
 )
@@ -32,6 +34,31 @@ urlpatterns = [
         "accounts/google/callback/",
         GoogleLoginCallbackView.as_view(),
         name="login_google_callback",
+    ),
+    # "Olvidé mi contraseña" -- SOLO staff/dueño (ResetPasswordStaffForm
+    # filtra por Perfil.rol=STAFF; un alumno con email como identificador
+    # nunca recibe el mail, ver tenants/forms.py). Nombres de ruta/vista
+    # estándar de Django (no `include('django.contrib.auth.urls')` a
+    # propósito, mismo criterio granular que el resto de este archivo).
+    path(
+        "accounts/password_reset/",
+        auth_views.PasswordResetView.as_view(form_class=ResetPasswordStaffForm),
+        name="password_reset",
+    ),
+    path(
+        "accounts/password_reset/done/",
+        auth_views.PasswordResetDoneView.as_view(),
+        name="password_reset_done",
+    ),
+    path(
+        "accounts/reset/<uidb64>/<token>/",
+        StaffPasswordResetConfirmView.as_view(),
+        name="password_reset_confirm",
+    ),
+    path(
+        "accounts/reset/done/",
+        auth_views.PasswordResetCompleteView.as_view(),
+        name="password_reset_complete",
     ),
     path("gimnasio/editar/", GimnasioUpdateView.as_view(), name="gimnasio_editar"),
     # Página estática, sin vista propia -- no hay contexto dinámico que

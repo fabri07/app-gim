@@ -206,7 +206,12 @@ class LoginTemplateGoogleButtonTests(TestCase):
         response = self.client.get(reverse("login"))
         self.assertNotContains(response, "Iniciar sesión con Google")
 
-    @override_settings(GOOGLE_STAFF_LOGIN_ENABLED=True)
+    # PASSWORD_RESET_ENABLED explícito en False: si quedara en lo que tenga
+    # el entorno, el link "¿Olvidaste tu contraseña?" (también hx-boost="false")
+    # metería un count de más y este test "pasaría" aunque el botón de
+    # Google perdiera el suyo -- exactamente la fragilidad que rompió en
+    # silencio la primera versión del test análogo en tests_password_reset.py.
+    @override_settings(GOOGLE_STAFF_LOGIN_ENABLED=True, PASSWORD_RESET_ENABLED=False)
     def test_boton_lleva_hx_boost_false(self):
         # Sin loguearse, la página ya trae 2 hx-boost="false" (el link de
         # marca del topbar y el form de contraseña) -- si el botón de Google

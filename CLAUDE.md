@@ -14,7 +14,8 @@ comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Est
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
 **Fase actual: código de Fases 0-6 completo en `main` y desplegado.** La app
-vive en `https://app-gim.onrender.com` (Render, free tier) y el bucket de
+vive en `https://www.tugimapp.com` (Render, free tier, dominio propio desde
+el 2026-08-19) y el bucket de
 Cloudflare R2 (`app-gim-media`) ya está creado y en uso — los pasos manuales
 de Fase 5 que dependían de cuentas de terceros están hechos. Ver "Deploy
 (Fase 5)" más abajo para el estado exacto y lo que sigue pendiente. Fases 0-4
@@ -319,9 +320,12 @@ desarrollador. Spec y plan en `docs/superpowers/{specs,plans}/
   - **Conectar/desconectar Google Calendar está bloqueado mientras se
     suplanta**: el flujo OAuth usa la cuenta de Google de quien está frente al
     navegador, así que el staff vincularía la suya al calendario del alumno.
-  - **Deuda para el Frente C**: `tenants/suplantacion.BACKEND` apunta a
-    `ModelBackend`. Cuando exista `PerfilModelBackend` (y django-axes por
-    delante) hay que actualizarla, o `login()` elige mal el backend.
+  - **Deuda para un futuro `PerfilModelBackend`**: `tenants/suplantacion.BACKEND`
+    apunta a `ModelBackend`. El login con Google (Frente C, ver sección propia
+    más abajo) ya existe y también loguea con `backend="...ModelBackend"`
+    explícito, así que esta deuda sigue exactamente igual que antes — si
+    algún día aparece `PerfilModelBackend` (y django-axes por delante), hay
+    que actualizar los DOS lugares, o `login()` elige mal el backend.
 
 ## Turnos, reservas y Google Calendar (más allá del ROADMAP original)
 
@@ -695,6 +699,154 @@ UX para el click más común del sitio). Regla general:
 cualquier link/form nuevo cuyo destino dependa de que `extra_style` se
 actualice necesita `hx-boost="false"`.
 
+## Login con Google para staff (Frente C)
+
+Agregado a pedido explícito del usuario ("ya tengo otra app con Google
+funcionando"), cerrando el ítem que el propio proyecto venía anticipando
+desde Fase 3 (`tenants/services.py::crear_gimnasio` ya usa el email del
+dueño como `username`) pero nunca había construido. **Coexiste con
+usuario+contraseña, no lo reemplaza** — decisión explícita del dueño del
+producto: el staff elige cómo entrar cada vez. Coincide con lo que
+`ISSUES.md` [2026-07-29] ya dejaba anotado ("no inutilizar las contraseñas
+de staff hasta que Google esté verificado contra producción").
+
+- **Solo para staff/dueño, nunca para alumnos** — decisión explícita: los
+  alumnos siguen sin autoregistrarse (el staff les asigna usuario/
+  contraseña, ver Fase 3 arriba), y Google abriría esa puerta si se lo
+  diera a ellos también. El spec (sin código) de "Sub-cuentas de staff"
+  (`docs/superpowers/specs/2026-08-12-subcuentas-staff-design.md`) ya
+  anotaba que esto aplicaría a cualquier `Perfil(rol=STAFF)`, dueño o
+  futuro empleado — sigue así: el matching es "¿hay un
+  `Perfil(rol=STAFF)` activo con ese email?", sin distinguir niveles
+  (`Perfil.nivel` todavía no existe en el modelo).
+- **Nunca crea cuentas nuevas.** Es la restricción más importante del
+  diseño: `tenants/google_login.py` solo VERIFICA la identidad de Google
+  (`verificar_identidad()`, que intercambia el `code` y valida el
+  `id_token` con `google.oauth2.id_token.verify_oauth2_token` — nunca
+  confía en un email de query param) y `GoogleLoginCallbackView`
+  (`tenants/views.py`) busca un `User` YA EXISTENTE por
+  `username=email, is_active=True` con `Perfil.rol == STAFF`. Si no
+  matchea, mensaje de error genérico (no distingue "no existe" de "es
+  alumno" de "está desactivado" — mismo criterio anti-enumeración que el
+  resto del proyecto) y listo — respeta al pie de la letra la política de
+  "no self-service" que cerró `/accounts/register/` (ver `ISSUES.md`
+  [2026-07-29]).
+- **Reusa el mismo Client ID/Secret de Google Cloud que ya usaba Google
+  Calendar** (`calendario/services.py`), agregando solo una "Authorized
+  redirect URI" adicional en la MISMA consola de Google Cloud — nunca se
+  reemplaza la de Calendar, se suma. Variable nueva:
+  `GOOGLE_LOGIN_REDIRECT_URI`. Todo-o-nada independiente y paralelo al
+  chequeo de Calendar (`GOOGLE_STAFF_LOGIN_ENABLED`, `config/settings.py`)
+  — **riesgo aceptado**: como comparte `CLIENT_ID`/`CLIENT_SECRET` con el
+  chequeo de Calendar, un entorno nuevo que solo quisiera activar login
+  (sin Calendar) tendría que setear las 4 variables de Calendar igual, o
+  el chequeo de Calendar revienta en el arranque por verlas "parciales".
+  No es un problema hoy: local y producción ya tienen las 4 de Calendar
+  completas.
+- **Mismo patrón OAuth que Calendar (`Flow` + PKCE), pero mucho más chico**:
+  no persiste tokens a largo plazo (no hace falta `GOOGLE_TOKEN_ENCRYPTION_KEY`
+  acá), solo intercambia el `code` una vez y lee el email verificado.
+  `access_type="online"` (no `offline`: no hace falta `refresh_token` para
+  una verificación puntual) y `prompt="select_account"` (para que un staff
+  con varias cuentas de Google pueda elegir cuál usar).
+  `GoogleLoginRedirectView`/`GoogleLoginCallbackView` (`tenants/views.py`)
+  siguen el mismo esqueleto que `ConectarCalendarioView`/
+  `CalendarioCallbackView` (`calendario/views.py`): `state` con TTL de 10
+  minutos guardado en sesión, mismo manejo de `?error=` (usuario canceló
+  el consentimiento en Google).
+- **`next` se preserva a través del roundtrip a Google** (login →
+  `accounts.google.com` → vuelta) guardándolo en sesión en el paso de
+  redirect y leyéndolo en el callback, validado con
+  `url_has_allowed_host_and_scheme` (mismo criterio que
+  `LoginView._redirigir_a_login_gimnasio`) para que un `?next=` externo no
+  pueda usarse para un open redirect.
+- **`login(request, usuario, backend="django.contrib.auth.backends.ModelBackend")`
+  con el backend explícito** — mismo patrón que ya usa
+  `tenants/suplantacion.py`. Esto NO toca ni resuelve la deuda ya anotada
+  de `PerfilModelBackend` (ver "Accesos, revocación y suplantación" más
+  arriba): sigue pendiente, sin relación con este login.
+- **`setear_cookie_gimnasio(response, usuario)` en el login exitoso** —
+  mismo efecto secundario que `LoginView.form_valid` para el login por
+  contraseña, así el staff que entra por Google también deja la cookie
+  `gimnasio_preferido`.
+- **Botón "Iniciar sesión con Google"** en `templates/registration/login.html`
+  (aparece en las dos variantes, login genérico y `g/<slug>/login/`, mismo
+  template), condicionado a `GOOGLE_STAFF_LOGIN_DISPONIBLE` — nuevo
+  context processor global (`tenants/context_processors.py`, mismo patrón
+  que `VAPID_PUBLIC_KEY`). **Lleva `hx-boost="false"` explícito**: redirige
+  cross-origin a `accounts.google.com`, mismo gotcha de siempre (ver
+  "Login por gimnasio..." arriba) — es la 9na aparición documentada de este
+  patrón en el proyecto.
+
+## "Olvidé mi contraseña" — reset por email, SOLO para staff (más allá del ROADMAP original)
+
+Agregado a pedido explícito del usuario, destrabado por el dominio propio
+(`tugimapp.com`, sección "Deploy" más abajo) — antes no había forma real de
+mandar email transaccional. Hasta acá, si el dueño de un gimnasio se
+olvidaba la contraseña, la única salida era que el desarrollador la
+reseteara a mano desde la Shell de Render (`manage.py changepassword`).
+
+- **Hallazgo real de diseño, no solo teórico:** el `PasswordResetForm`
+  estándar de Django busca por `User.email`. Pero
+  `alumnos/services.py::crear_acceso` también puebla `User.email` cuando el
+  staff elige EMAIL (no teléfono) como identificador del alumno — el mismo
+  campo que usaría una cuenta de staff. Sin filtro extra, un alumno con
+  email como identificador podría auto-resetear su propia contraseña,
+  contradiciendo la decisión de producto de que el staff es quien
+  asigna/regenera el acceso del alumno. **`tenants/forms.py::ResetPasswordStaffForm`**
+  sobreescribe `get_users(email)` (el punto de extensión que la propia
+  documentación de Django recomienda para restringir el reset a un
+  subconjunto de usuarios) filtrando además por `Perfil.rol == STAFF`. Un
+  alumno con email como identificador sigue viendo la misma pantalla
+  genérica de "si el email existe, te mandamos instrucciones"
+  (anti-enumeración que Django ya trae por default) pero **nunca** recibe
+  el mail. `alumnos/identidad.py` **no cambia** — el alumno sigue pudiendo
+  usar email o teléfono como identificador, a elección del staff; ninguno
+  de los dos casos le da acceso a este flujo.
+- **Email: Resend vía el `EMAIL_BACKEND` SMTP que Django ya trae, sin
+  librerías nuevas** (ni `django-anymail` ni el paquete `resend`) — mismo
+  criterio de "reusar antes que agregar dependencias" que el login con
+  Google. `config/settings.py`: `EMAIL_HOST`/`EMAIL_HOST_USER`/
+  `EMAIL_HOST_PASSWORD`/`DEFAULT_FROM_EMAIL` todo-o-nada vía
+  `_bandera_todo_o_nada()` — helper extraído el 2026-08-20 (hallazgo de
+  code-review) que unifica el criterio que antes se copiaba a mano en R2,
+  Google Calendar, Google Login y VAPID/Web Push; **si agregás una 6ta
+  integración opcional con el mismo criterio, usá este helper en vez de
+  copiar el bloque de nuevo** → `PASSWORD_RESET_ENABLED`, que controla si
+  el link "¿Olvidaste tu
+  contraseña?" se muestra en `login.html` (nuevo context processor
+  `password_reset_disponible`). Sin configurar, `EMAIL_BACKEND` cae al de
+  consola de Django — nunca rompe nada, el link simplemente queda oculto
+  para no ofrecer un flujo que no entrega nada. `EMAIL_PORT`/`EMAIL_USE_TLS`
+  son constantes fijas (el submission port TLS de Resend), no variables de
+  entorno. **En tests, Django ya fuerza `EMAIL_BACKEND` a `locmem`
+  automáticamente** (built-in del test runner) — a diferencia de R2/Google,
+  no hace falta usar `TESTING` para esto.
+- **Las 4 vistas de Django, wireadas a mano** (`tenants/urls.py`), mismo
+  criterio que `login`/`logout` (nunca `include('django.contrib.auth.urls')`
+  en este proyecto): `password_reset`, `password_reset_done`,
+  `password_reset_confirm`, `password_reset_complete`. No hace falta
+  ningún chequeo de rol adicional en el paso de confirmación: el token de
+  Django ya está firmado para el usuario específico que pasó el filtro de
+  `ResetPasswordStaffForm` al pedir el reset.
+- **`StaffPasswordResetConfirmView`** (`tenants/views.py`, subclase de
+  `auth_views.PasswordResetConfirmView`) con `post_reset_login=True`
+  (loguea automático apenas confirma la contraseña nueva, sin volver a
+  tipearla) y `post_reset_login_backend` explícito (mismo criterio que
+  suplantación y el login con Google — el proyecto no tiene
+  `AUTHENTICATION_BACKENDS` custom). Override de `form_valid` para llamar
+  `setear_cookie_gimnasio(response, self.request.user)`, mismo efecto
+  secundario que los otros dos logins (contraseña, Google).
+  `templates/registration/`: 4 HTML (extienden `base.html`, reusan
+  `.tarjeta`/`.boton` — sin la lógica de estética-por-gimnasio de
+  `login.html`, esta pantalla no depende de ningún slug) +
+  `password_reset_subject.txt` + `password_reset_email.html` (texto plano,
+  sin HTML email — mismo criterio YAGNI que el resto del proyecto).
+- **Fuera de alcance, decisión reconfirmada:** reset de contraseña para
+  alumnos — sigue como hoy, el staff regenera el acceso desde el panel
+  (`CambiarPasswordAlumnoView`). Rate limiting/`django-axes` sigue siendo
+  deuda futura del Frente C (C5), no se agregó acá.
+
 ## Política de privacidad y redes sociales en el portal del alumno
 
 `templates/tenants/privacidad.html` (ruta `privacidad/`, nombre
@@ -827,19 +979,26 @@ notifications.
 
 ## Deploy (Fase 5)
 
-**Estado (2026-07-30): desplegado.** App en `https://app-gim.onrender.com`
-(Render free tier, Blueprint aplicado), media en el bucket R2
-`app-gim-media`. Repo en `https://github.com/fabri07/app-gim` (privado).
+**Estado (2026-08-19): desplegado y con dominio propio.** App en
+`https://www.tugimapp.com` (y `https://tugimapp.com`) — Render free tier,
+Blueprint aplicado, media en el bucket R2 `app-gim-media`. Repo en
+`https://github.com/fabri07/app-gim` (privado).
 
-**Dominio propio: `tugimapp.com`** — comprado en Cloudflare el 2026-07-30, por
-un año. Todavía NO está apuntado a Render. Cuando se conecte hay que tocar
-cuatro cosas, y ninguna es opcional: (1) `DJANGO_ALLOWED_HOSTS` y (2)
-`DJANGO_CSRF_TRUSTED_ORIGINS` en Render; (3) el redirect URI de Google Calendar
-en la consola de Google Cloud (`https://tugimapp.com/calendario/callback/`),
-que si no queda apuntando a `app-gim.onrender.com` y rompe la integración; y
-(4) los registros SPF/DKIM que pida el proveedor de email. El dominio es
-justamente lo que destraba el email transaccional: sin verificación de dominio,
-Resend solo deja enviar a la casilla propia.
+**Dominio propio: `tugimapp.com`** — comprado en Cloudflare el 2026-07-30,
+apuntado a Render el 2026-08-19. `app-gim.onrender.com` ya **no responde**
+("Not Found") — el dominio propio es la única forma de llegar a la app
+desde ahora. Certificados SSL (root y `www`) emitidos y verificados.
+`DJANGO_ALLOWED_HOSTS`/`DJANGO_CSRF_TRUSTED_ORIGINS` en Render ya incluyen
+el dominio nuevo (confirmado funcionando: login, con y sin Google, carga
+sin error de host). Los redirect URIs de Google (Calendar Y el login nuevo
+de staff, ver sección propia más abajo) se actualizaron en Render
+(`GOOGLE_OAUTH_REDIRECT_URI`/`GOOGLE_LOGIN_REDIRECT_URI`) y ya estaban
+dados de alta en la consola de Google Cloud apuntando a `tugimapp.com` antes
+del corte, así que no hubo ventana de corte para ninguna de las dos
+integraciones. **Pendiente, sin confirmar todavía**: los registros SPF/DKIM
+que pida el proveedor de email — el dominio es lo que destraba el email
+transaccional (sin verificación de dominio, Resend solo deja enviar a la
+casilla propia), pero no hay evidencia de que este paso ya se haya hecho.
 
 - **Plan elegido: arrancar en el free tier de Render, upgradear cuando entre
   el primer gimnasio pago** (decisión del usuario, coincide con "primero se
@@ -909,19 +1068,22 @@ Resend solo deja enviar a la casilla propia.
   `config/settings.py` define `TESTING = "test" in sys.argv` y lo usa en dos
   lados: `PASSWORD_HASHERS` (MD5, para que la suite sea rápida) y
   `STORAGES["default"]` (`InMemoryStorage`). La rama de R2 está guardada con
-  `if _r2_seteadas and not TESTING`. **Si agregás un servicio externo nuevo,
+  `if R2_ENABLED and not TESTING`. **Si agregás un servicio externo nuevo,
   usá `TESTING` para desactivarlo en la suite** — el criterio es que
   `manage.py test` no salga a la red por ningún motivo.
 - **Google Calendar (opcional) — credenciales creadas.** Las 4 env vars
   `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`/
   `GOOGLE_OAUTH_REDIRECT_URI`/`GOOGLE_TOKEN_ENCRYPTION_KEY` están en el
   `.env` local (redirect a `http://localhost:8000/calendario/callback/`); en
-  Render el redirect tiene que ser el de producción
-  (`https://app-gim.onrender.com/calendario/callback/`) y estar dado de alta
-  en la consola de Google Cloud. Las 4 o ninguna — `settings.py` revienta al
-  arrancar si están parciales; sin ellas la app funciona igual, el alumno
-  simplemente no ve la opción de conectar su calendario
-  (`GOOGLE_CALENDAR_ENABLED = False`).
+  Render el redirect apunta al dominio propio
+  (`https://www.tugimapp.com/calendario/callback/`, actualizado el
+  2026-08-19 junto con el dominio) y está dado de alta en la consola de
+  Google Cloud. Las 4 o ninguna — `settings.py` revienta al arrancar si
+  están parciales; sin ellas la app funciona igual, el alumno simplemente
+  no ve la opción de conectar su calendario (`GOOGLE_CALENDAR_ENABLED =
+  False`). Login con Google para staff (Frente C, sección propia más abajo)
+  reusa el mismo Client ID/Secret con una variable de redirect propia
+  (`GOOGLE_LOGIN_REDIRECT_URI`), también apuntando a `tugimapp.com`.
 - **Estado del respaldo (2026-07-30): operativo y verificado de punta a punta.**
   Secrets cargados, bucket `app-gim-backups` con lifecycle en `daily/` y bucket
   lock en `monthly/`, los dos checks de Healthchecks andando. Verificados con
@@ -933,9 +1095,11 @@ Resend solo deja enviar a la casilla propia.
 - **Lo que sigue pendiente**: (a) **rotar la contraseña de Neon** (quedó
   expuesta en texto plano) y actualizarla en los tres lugares — `DATABASE_URL`
   en Render y los dos secrets de GitHub; ojo que ya no hay base vieja como
-  vuelta atrás, así que verificar las tres puntas después; (b) apuntar
-  `tugimapp.com`; (c) smoke test manual end-to-end de turnos → Google Calendar
-  contra producción.
+  vuelta atrás, así que verificar las tres puntas después; (b) ~~apuntar
+  `tugimapp.com`~~ **hecho el 2026-08-19** — ver más arriba; (c) smoke test
+  manual end-to-end de turnos → Google Calendar contra producción, ahora en
+  el dominio nuevo; (d) confirmar si los registros SPF/DKIM del email ya se
+  cargaron (ver nota de dominio más arriba — sin confirmar todavía).
 - **Settings de producción** (`config/settings.py`): `DATABASE_URL` (Postgres
   si está seteada, SQLite si no — mismo criterio que el resto del archivo),
   `STORAGES["default"]` cambia a `storages.backends.s3.S3Storage` solo si

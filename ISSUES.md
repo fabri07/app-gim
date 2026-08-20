@@ -565,7 +565,10 @@ tardaba **65 s** por eso.
 **Resolución / próximo paso:** `config/settings.py` calcula `TESTING = "test"
 in sys.argv` una sola vez (ya se usaba para `PASSWORD_HASHERS`) y ahora también
 lo usa para el storage: en tests el backend es `InMemoryStorage`, y la rama de
-R2 quedó guardada con `if _r2_seteadas and not TESTING`. La validación de
+R2 quedó guardada con `if R2_ENABLED and not TESTING` (la variable se
+llamaba `_r2_seteadas` al momento de este cambio; renombrada a `R2_ENABLED`
+el 2026-08-20 al extraer un helper compartido para las 5 integraciones que
+ya seguían este mismo patrón todo-o-nada). La validación de
 "las 4 o ninguna" **sigue corriendo siempre** — una config parcial es un error
 de entorno en cualquier contexto. La suite bajó de 65 s a **7,2 s** (453 tests)
 y verificado contra el bucket: 817 objetos antes de correrla, 817 después.

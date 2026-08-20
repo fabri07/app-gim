@@ -6,10 +6,12 @@ dejó de ser self-serve y se hace con `manage.py crear_gimnasio`.
 """
 
 from django import forms
+from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import PasswordResetForm
 from django.core.files.uploadedfile import UploadedFile
 from PIL import Image
 
-from tenants.models import Gimnasio
+from tenants.models import Gimnasio, Perfil
 
 _FONDO_IMAGEN_TAMANIO_MAXIMO = 5 * 1024 * 1024
 _FONDO_IMAGEN_ANCHO_MINIMO = 1280
@@ -105,3 +107,34 @@ class GimnasioForm(forms.ModelForm):
                 "Subí una imagen para este modo de fondo (o elegí otro tipo).",
             )
         return cleaned_data
+
+
+class ResetPasswordStaffForm(PasswordResetForm):
+    """Olvidé mi contraseña -- SOLO para cuentas de staff/dueño.
+
+    `PasswordResetForm.get_users()` busca por `User.email`, pero
+    `alumnos/services.py::crear_acceso` también puebla ese campo cuando el
+    staff elige email (no teléfono) como identificador del alumno -- el
+    mismo campo que usaría una cuenta de staff. Sin este override, un
+    alumno con email como identificador podría auto-resetear su propia
+    contraseña, contradiciendo la decisión de producto de que el staff es
+    quien asigna/regenera el acceso del alumno. Punto de extensión
+    recomendado por la propia documentación de Django para restringir el
+    reset a un subconjunto de usuarios.
+
+    Un email que no matchea (no existe, es de un alumno, está inactivo, o
+    no tiene contraseña usable) sigue mostrando la misma pantalla genérica
+    de "si el email existe, te mandamos instrucciones" -- comportamiento
+    anti-enumeración que Django ya trae por default, sin tocar nada acá.
+    """
+
+    def get_users(self, email):
+        UserModel = get_user_model()
+        activos = UserModel._default_manager.filter(
+            **{
+                f"{UserModel.get_email_field_name()}__iexact": email,
+                "is_active": True,
+                "perfil__rol": Perfil.Rol.STAFF,
+            }
+        )
+        return (u for u in activos if u.has_usable_password())
