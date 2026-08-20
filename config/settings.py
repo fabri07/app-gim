@@ -126,6 +126,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'notificaciones.context_processors.vapid_public_key',
+                'tenants.context_processors.google_staff_login_disponible',
             ],
         },
     },
@@ -311,6 +312,39 @@ if _google_seteadas and len(_google_seteadas) < len(_GOOGLE_VARS):
         "Las 4 variables GOOGLE_* deben estar todas seteadas (o ninguna, para "
         "degradar al deep-link) -- ver .env.example."
     )
+
+# Frente C: login con Google para staff/dueño (coexiste con usuario+contraseña,
+# no lo reemplaza -- ver ISSUES.md [2026-07-29]). Reusa el MISMO Client
+# ID/Secret de Google Cloud que Calendar (un OAuth client admite varias
+# "Authorized redirect URIs"); no hace falta GOOGLE_TOKEN_ENCRYPTION_KEY acá
+# porque este flujo no persiste tokens, solo verifica el email del staff en
+# el momento. Chequeo todo-o-nada independiente y paralelo al de Calendar
+# (ver `tenants.google_login`) -- CLIENT_ID/CLIENT_SECRET quedan compartidas
+# entre los dos chequeos a propósito: si algún día se arma un entorno nuevo
+# con SOLO estas 3 variables (sin las 4 de Calendar), el chequeo de arriba
+# va a reventar en el arranque -- hace falta setear las 4 de Calendar igual,
+# aunque no se use.
+GOOGLE_LOGIN_REDIRECT_URI = os.environ.get("GOOGLE_LOGIN_REDIRECT_URI", "")
+GOOGLE_LOGIN_SCOPES = ["openid", "email"]
+
+_GOOGLE_LOGIN_VARS = [
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_LOGIN_REDIRECT_URI",
+]
+_google_login_seteadas = [v for v in _GOOGLE_LOGIN_VARS if os.environ.get(v)]
+
+if _google_login_seteadas and len(_google_login_seteadas) < len(_GOOGLE_LOGIN_VARS):
+    _google_login_faltantes = ", ".join(
+        v for v in _GOOGLE_LOGIN_VARS if v not in _google_login_seteadas
+    )
+    raise ImproperlyConfigured(
+        f"Configuración de login con Google incompleta: falta(n) {_google_login_faltantes}. "
+        "Las 3 variables deben estar todas seteadas (o ninguna, para que solo "
+        "quede el login por contraseña) -- ver .env.example."
+    )
+
+GOOGLE_STAFF_LOGIN_ENABLED = len(_google_login_seteadas) == len(_GOOGLE_LOGIN_VARS)
 
 # Bandera que consumen `calendario.services`/vistas/templates para prender o no
 # la integración. True solo si están las 4 credenciales.

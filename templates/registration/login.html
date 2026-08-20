@@ -103,6 +103,20 @@
         {{ form.as_p }}
         <button type="submit" class="boton">Entrar</button>
       </form>
+      {% if GOOGLE_STAFF_LOGIN_DISPONIBLE %}
+        <p class="texto-suave text-center my-2">o</p>
+        {% comment %}
+          hx-boost="false": el link redirige cross-origin a
+          accounts.google.com -- mismo gotcha (y misma solución) que
+          "Conectar mi Google Calendar" en templates/turnos/mis_turnos.html.
+          `next` ya viene validado por LoginView.get_context_data (Django
+          nunca expone un `next` inseguro acá), mismo criterio que el link
+          "¿No es tu gimnasio?" de arriba.
+        {% endcomment %}
+        <a href="{% url 'login_google' %}{% if next %}?next={{ next|urlencode }}{% endif %}" class="boton-secundario" hx-boost="false">
+          Iniciar sesión con Google
+        </a>
+      {% endif %}
     </div>
   </div>
 </div>

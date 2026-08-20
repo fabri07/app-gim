@@ -6,27 +6,30 @@ El alta de gimnasios NO vive acá: el registro self-serve se cerró y ahora se
 hace con `manage.py crear_gimnasio` (ver `tenants/services.py`).
 """
 
-from datetime import date
+import logging
+from datetime import date, datetime
 
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import REDIRECT_FIELD_NAME, views as auth_views
+from django.contrib.auth import REDIRECT_FIELD_NAME, get_user_model, login, views as auth_views
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
-from django.utils.http import urlencode
+from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views import View
 from django.views.generic import DetailView, TemplateView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
-from tenants import paisaje_matching, suplantacion
+from tenants import google_login, paisaje_matching, suplantacion
 from tenants.forms import GimnasioForm
 from tenants.mixins import StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil, doodle_static_url
+
+logger = logging.getLogger(__name__)
 
 
 class HomeView(LoginRequiredMixin, TemplateView):
@@ -468,6 +471,134 @@ class GimnasioLoginView(LoginView):
         context = super().get_context_data(**kwargs)
         context["gimnasio"] = self.gimnasio
         return context
+
+
+_GOOGLE_LOGIN_STATE_KEY = "google_login_state"
+_GOOGLE_LOGIN_STATE_TS_KEY = "google_login_state_ts"
+_GOOGLE_LOGIN_VERIFIER_KEY = "google_login_verifier"
+_GOOGLE_LOGIN_NEXT_KEY = "google_login_next"
+_GOOGLE_LOGIN_STATE_MAX_SEGUNDOS = 600  # el state en sesión vale 10 minutos, mismo criterio que calendario
+
+
+def _next_url_seguro(request, next_url):
+    """Mismo chequeo que `RedirectURLMixin.get_redirect_url()` (usado por
+    `LoginView`/`GimnasioLoginView`), pero aplicado a un valor que viene de
+    SESIÓN (guardado en `GoogleLoginRedirectView`) en vez de leerlo de los
+    parámetros del request actual -- el callback de Google no trae `next`,
+    solo `code`/`state`/`error`."""
+    if not next_url:
+        return ""
+    es_seguro = url_has_allowed_host_and_scheme(
+        url=next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    )
+    return next_url if es_seguro else ""
+
+
+class GoogleLoginRedirectView(View):
+    """Arranca el flujo de login con Google: guarda `state`/`verifier`/`next`
+    en sesión y manda al staff a Google. Sin mixin de auth -- lo usa
+    justamente quien todavía NO está logueado. Mismo patrón que
+    `ConectarCalendarioView` (`calendario/views.py`), pero sin
+    `AlumnoRequiredMixin` ni chequeo de suplantación (no aplican acá: no hay
+    sesión activa todavía)."""
+
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        if not google_login.disponible():
+            messages.info(request, "El login con Google no está disponible.")
+            return redirect("login")
+
+        next_url = _next_url_seguro(request, request.GET.get(REDIRECT_FIELD_NAME, ""))
+        url, state, verifier = google_login.build_authorization_url()
+        request.session[_GOOGLE_LOGIN_STATE_KEY] = state
+        request.session[_GOOGLE_LOGIN_STATE_TS_KEY] = timezone.now().isoformat()
+        request.session[_GOOGLE_LOGIN_VERIFIER_KEY] = verifier
+        request.session[_GOOGLE_LOGIN_NEXT_KEY] = next_url
+        return redirect(url)
+
+
+class GoogleLoginCallbackView(View):
+    """Callback de Google: valida el `state`, intercambia el `code`, busca
+    una cuenta de staff activa con ese email y loguea -- **nunca crea una
+    cuenta nueva** (la política de "no self-service" del proyecto se
+    mantiene igual acá, ver `ISSUES.md` [2026-07-29]). Mismo patrón de
+    validación de `state`/manejo de errores que `CalendarioCallbackView`."""
+
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        next_url = request.session.pop(_GOOGLE_LOGIN_NEXT_KEY, "")
+
+        if request.GET.get("error"):
+            messages.warning(request, "No se completó el login con Google (permiso cancelado).")
+            return self._volver_al_login(next_url)
+
+        if not self._state_valido(request):
+            messages.error(request, "La conexión con Google expiró o es inválida. Probá de nuevo.")
+            return self._volver_al_login(next_url)
+
+        code = request.GET.get("code")
+        state = request.GET.get("state")
+        verifier = request.session.pop(_GOOGLE_LOGIN_VERIFIER_KEY, None)
+        if not code:
+            messages.error(request, "Google no devolvió el código de autorización.")
+            return self._volver_al_login(next_url)
+
+        try:
+            email = google_login.verificar_identidad(code, state, verifier)
+        except Exception as exc:  # noqa: BLE001 - no romper el login, mensaje genérico
+            logger.warning("Fallo verificando identidad de Google: %s", type(exc).__name__)
+            messages.error(request, "No se pudo verificar tu cuenta de Google. Probá de nuevo.")
+            return self._volver_al_login(next_url)
+
+        usuario = self._buscar_staff_activo(email)
+        if usuario is None:
+            # Mensaje genérico a propósito -- no distingue "no existe" de "es
+            # alumno" de "está desactivado" (mismo criterio anti-enumeración
+            # que el resto del proyecto): un email que NO es de un staff
+            # activo nunca debe revelar por qué falló.
+            messages.error(
+                request,
+                "No encontramos una cuenta de staff con ese email. Pedile al "
+                "dueño del gimnasio que te dé de alta.",
+            )
+            return self._volver_al_login(next_url)
+
+        login(request, usuario, backend="django.contrib.auth.backends.ModelBackend")
+        response = redirect(next_url or reverse("home"))
+        setear_cookie_gimnasio(response, usuario)
+        return response
+
+    def _buscar_staff_activo(self, email):
+        User = get_user_model()
+        usuario = User.objects.filter(username=email, is_active=True).first()
+        if usuario is None:
+            return None
+        perfil = getattr(usuario, "perfil", None)
+        if perfil is None or perfil.rol != Perfil.Rol.STAFF:
+            return None
+        return usuario
+
+    def _state_valido(self, request) -> bool:
+        esperado = request.session.pop(_GOOGLE_LOGIN_STATE_KEY, None)
+        ts = request.session.pop(_GOOGLE_LOGIN_STATE_TS_KEY, None)
+        recibido = request.GET.get("state")
+        if not esperado or not recibido or esperado != recibido or not ts:
+            return False
+        try:
+            emitido = datetime.fromisoformat(ts)
+        except ValueError:
+            return False
+        return (timezone.now() - emitido).total_seconds() <= _GOOGLE_LOGIN_STATE_MAX_SEGUNDOS
+
+    def _volver_al_login(self, next_url):
+        url = reverse("login")
+        if next_url:
+            url = f"{url}?{urlencode({REDIRECT_FIELD_NAME: next_url})}"
+        return redirect(url)
 
 
 class SuplantarView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):
