@@ -12,10 +12,11 @@ de alta a mano es proporcionado y elimina el abuso de raíz.
 El email es además el usuario con el que el dueño va a entrar por Google, así
 que tiene que ser su cuenta de Google real.
 
-Mientras el login con Google no exista (Frente C), el comando genera una
-contraseña provisoria y la imprime: sin ella un gimnasio recién creado no
-podría entrar de ninguna forma. `--sin-password` es el modo definitivo y hoy
-solo sirve para probarlo.
+Login con Google (Frente C) ya está verificado contra producción
+(2026-08-19/20): `--sin-password` es seguro para un gimnasio real, no solo
+para pruebas. Sigue sin ser el default (por ahora se sigue generando una
+contraseña provisoria salvo que se pida `--sin-password` explícitamente) —
+ver el docstring de `tenants.services.crear_gimnasio` para el detalle.
 """
 
 from django.core.exceptions import ValidationError
@@ -49,7 +50,8 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Crea la cuenta sin contraseña usable (solo login con Google). "
-                "No usar hasta que el login con Google esté funcionando."
+                "Login con Google ya está verificado en producción — seguro "
+                "de usar con un gimnasio real."
             ),
         )
 

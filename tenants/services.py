@@ -65,14 +65,15 @@ def crear_gimnasio(nombre, email, slug=None, password=None, sin_password=False):
     Devuelve `(gimnasio, usuario, password)`. `password` es `None` cuando la
     cuenta quedó sin contraseña usable.
 
-    **Estado transitorio (2026-07-30):** el destino de esta cuenta es entrar
-    por Google y no tener contraseña — `set_unusable_password()` además la deja
+    **Login con Google (Frente C) ya está verificado contra producción
+    (2026-08-19/20)** — `sin_password=True` es seguro para un gimnasio real,
+    no solo para pruebas: el dueño entra directo con su cuenta de Google
+    (tiene que ser el email real). `set_unusable_password()` además la deja
     automáticamente fuera del reset por mail, porque
-    `PasswordResetForm.get_users()` filtra por `has_usable_password()`. Pero el
-    login con Google es el Frente C y todavía NO existe, así que por defecto se
-    genera una contraseña provisoria: sin ella, un gimnasio recién dado de alta
-    no podría entrar de ninguna forma. Cuando Google esté verificado contra
-    producción, `sin_password` pasa a ser el default y este parámetro se borra.
+    `PasswordResetForm.get_users()` filtra por `has_usable_password()`. El
+    default sigue siendo generar una contraseña provisoria (`sin_password`
+    es opt-in, no default) — decisión explícita del dueño del producto, no
+    una limitación técnica pendiente.
 
     Atómico: si algo falla no queda ni un gimnasio huérfano ni un usuario sin
     perfil.
