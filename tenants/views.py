@@ -641,6 +641,30 @@ class StaffPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
         return response
 
 
+class StaffPasswordChangeView(StaffRequiredMixin, auth_views.PasswordChangeView):
+    """Permite que un staff YA LOGUEADO cambie su propia contraseña de
+    forma proactiva -- distinto de "olvidé mi contraseña" (por email, para
+    quien ya perdió el acceso) y de la regeneración que el staff hace sobre
+    la cuenta de un ALUMNO (`alumnos/views.py`, staff-iniciado sobre otra
+    cuenta). `StaffRequiredMixin` es lo que bloquea a un alumno con 403 --
+    no alcanza con ocultar el link en la nav, la política del proyecto es
+    que las contraseñas de alumno las controla siempre el staff, nunca el
+    propio alumno.
+
+    Django llama `update_session_auth_hash()` internamente al cambiar la
+    contraseña (`PasswordChangeView.form_valid`), así que el usuario sigue
+    autenticado después -- no hace falta overridear nada de eso acá."""
+
+    template_name = "registration/password_change_form.html"
+    success_url = reverse_lazy("password_change_done")
+
+
+class StaffPasswordChangeDoneView(StaffRequiredMixin, auth_views.PasswordChangeDoneView):
+    """Pantalla de confirmación tras `StaffPasswordChangeView`."""
+
+    template_name = "registration/password_change_done.html"
+
+
 class SuplantarView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):
     """Entrar como un alumno. POST-only: cambia quién sos en la sesión.
 

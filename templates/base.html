@@ -133,6 +133,7 @@
         {% endif %}
       {% endif %}
       {% if user.is_authenticated and user.perfil.rol == "staff" %}
+        <a href="{% url 'password_change' %}" class="boton-secundario">Cambiar contraseña</a>
         <button type="button" class="sm:hidden text-gray-600" @click="navAbierto = !navAbierto" aria-label="Abrir menú">☰</button>
       {% endif %}
       {% if user.is_authenticated %}

@@ -2336,3 +2336,95 @@ class SuplantacionMiddlewareRobustezTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response.url)
         self.assertNotIn("_auth_user_id", self.client.session)
+
+
+class StaffPasswordChangeViewTests(TestCase):
+    """Task 6: el staff pueda cambiar su propia contraseña, estando ya
+    logueado -- distinto de "olvidé mi contraseña" (StaffPasswordResetConfirmView)
+    y de la regeneración staff->alumno (`alumnos/views.py`). Debe seguir
+    siendo inaccesible para un alumno: `StaffRequiredMixin` es lo que lo
+    garantiza (403), no solo la ausencia del link en la nav."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio Central", slug="central")
+        self.staff = User.objects.create_user("dueno-central", password="clave-vieja-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno_user = User.objects.create_user(
+            "alumno-central", password="clave-alumno-123"
+        )
+        Perfil.objects.create(
+            usuario=self.alumno_user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+
+    def test_anonimo_redirige_a_login(self):
+        response = self.client.get(reverse("password_change"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_alumno_recibe_403(self):
+        self.client.login(username="alumno-central", password="clave-alumno-123")
+
+        response = self.client.get(reverse("password_change"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_ve_el_formulario(self):
+        self.client.login(username="dueno-central", password="clave-vieja-123")
+
+        response = self.client.get(reverse("password_change"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cambiar contraseña")
+
+    def test_link_solo_visible_para_staff(self):
+        self.client.login(username="dueno-central", password="clave-vieja-123")
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, reverse("password_change"))
+
+        self.client.logout()
+        self.client.login(username="alumno-central", password="clave-alumno-123")
+        response = self.client.get(reverse("home"))
+        self.assertNotContains(response, reverse("password_change"))
+
+    def test_staff_cambia_su_contraseña_con_exito_y_sigue_logueado(self):
+        self.client.login(username="dueno-central", password="clave-vieja-123")
+
+        response = self.client.post(
+            reverse("password_change"),
+            {
+                "old_password": "clave-vieja-123",
+                "new_password1": "clave-nueva-456!",
+                "new_password2": "clave-nueva-456!",
+            },
+        )
+
+        self.assertRedirects(response, reverse("password_change_done"))
+        self.staff.refresh_from_db()
+        self.assertTrue(self.staff.check_password("clave-nueva-456!"))
+
+        # `update_session_auth_hash` mantuvo la sesión activa: un request
+        # posterior sigue autenticado como el mismo usuario, sin redirigir a
+        # login.
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.staff.pk)
+
+    def test_contraseña_actual_incorrecta_se_rechaza(self):
+        self.client.login(username="dueno-central", password="clave-vieja-123")
+
+        response = self.client.post(
+            reverse("password_change"),
+            {
+                "old_password": "esta-no-es-la-actual",
+                "new_password1": "clave-nueva-456!",
+                "new_password2": "clave-nueva-456!",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["form"].errors.get("old_password"))
+        self.staff.refresh_from_db()
+        self.assertTrue(self.staff.check_password("clave-vieja-123"))
