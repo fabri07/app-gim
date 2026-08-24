@@ -25,7 +25,7 @@ from django.views.generic import CreateView, DetailView, FormView, ListView, Upd
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
-from rutinas.agrupacion import agrupar_items_por_grupo_muscular
+from rutinas.agrupacion import listar_ejercicios_del_dia
 from rutinas.forms import AsignarRutinaForm, RutinaPlantillaForm, RutinaPlantillaItemForm
 from rutinas.models import (
     SEMANAS_POR_CICLO,
@@ -328,7 +328,7 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
             for semana in range(1, SEMANAS_POR_CICLO + 1)
         ]
 
-        grupos = agrupar_items_por_grupo_muscular(
+        ejercicios = listar_ejercicios_del_dia(
             rutina_actual.items.filter(dia=dia),
             semanas=[s["numero"] for s in semanas_meta],
             semana_actual=rutina_actual.semana_actual,
@@ -341,7 +341,7 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
                 "rutina_actual": rutina_actual,
                 "dia": dia,
                 "semanas_meta": semanas_meta,
-                "grupos": grupos,
+                "ejercicios": ejercicios,
                 "rpe_choices": RutinaAsignadaItem.RPE.choices,
             },
         )

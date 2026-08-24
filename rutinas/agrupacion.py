@@ -1,25 +1,29 @@
-"""Agrupa los items de UN día de una `RutinaAsignada` por grupo muscular.
+"""Arma la lista de ejercicios de UN día de una `RutinaAsignada`.
 
 Punto único de esta lógica: la usan tanto `RutinaMiDiaDetailView` (portal
 del alumno, un día por vez) como `generar_pdf_rutina_asignada` (recorre
-todos los días) -- así el portal y el PDF muestran exactamente el mismo
-agrupamiento sin duplicar la lógica.
+todos los días) -- así el portal y el PDF muestran exactamente la misma
+lista sin duplicar la lógica.
+
+Hasta 2026-08-24 esta función subdividía el resultado en secciones por
+grupo muscular; se sacó esa subdivisión a pedido de un cliente real (la
+encontró confusa) y ahora devuelve una lista plana -- el grupo muscular de
+cada ejercicio se sigue calculando y devolviendo (`grupo_muscular_display`),
+solo que ya no se usa para dividir en secciones.
 
 Django-free a propósito (no hace queries, solo itera lo que le pasan) --
 se testea con instancias armadas a mano, mismo criterio que
 `tenants/paisaje_matching.py`.
 """
 
-from core.catalogos import orden_con_bucket_vacio
 from ejercicios.models import Ejercicio
 from rutinas.models import SEMANAS_POR_CICLO
 
-_ORDEN_GRUPOS = orden_con_bucket_vacio(Ejercicio.GrupoMuscular.choices)
 _SIN_GRUPO_DISPLAY = "Sin grupo muscular"
 _DISPLAY_POR_VALOR = dict(Ejercicio.GrupoMuscular.choices)
 
 
-def agrupar_items_por_grupo_muscular(items, semanas=None, semana_actual=None):
+def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
     """`items`: iterable de `RutinaAsignadaItem` de UN día (cualquier
     orden). `semanas`: lista de números de semana a incluir como columna
     en cada fila -- pasarla explícita desde el caller que también arma
@@ -36,30 +40,33 @@ def agrupar_items_por_grupo_muscular(items, semanas=None, semana_actual=None):
     en papel) y la deja en su default `None`, que da `es_actual=False`
     en todas las celdas.
 
-    Devuelve una lista de grupos en el orden fijo del catálogo
-    `Ejercicio.GrupoMuscular`, con un bucket final "Sin grupo muscular"
-    para items snapshoteados antes de que existiera `grupo_muscular_snapshot`
-    (rutinas asignadas viejas) -- nunca se descartan.
+    "El mismo ejercicio" a través de las 4 semanas se identifica por
+    `ejercicio_nombre_snapshot` (no hay FK viva al `Ejercicio` original)
+    -- mismo riesgo aceptado que ya documenta `CLAUDE.md` para agrupar RPE
+    por nombre. El orden de la lista devuelta usa el `orden` de la semana
+    más baja disponible para cada ejercicio (no un mínimo entre semanas,
+    que podría no corresponder a ninguna fila real si el staff cargó
+    órdenes distintos por semana) -- es el mismo campo que ya describe el
+    orden real dentro del día (`RutinaAsignadaItem.orden`, "Orden dentro
+    del día"), así que una lista plana ordenada por él respeta el orden
+    que el staff cargó.
 
-    Dentro de un grupo, "el mismo ejercicio" a través de las 4 semanas se
-    identifica por `ejercicio_nombre_snapshot` (no hay FK viva al
-    `Ejercicio` original) -- mismo riesgo aceptado que ya documenta
-    `CLAUDE.md` para agrupar RPE por nombre. El orden entre ejercicios de
-    un mismo grupo usa el `orden` de la semana más baja disponible para
-    ese ejercicio (no un mínimo entre semanas, que podría no corresponder
-    a ninguna fila real si el staff cargó órdenes distintos por semana).
+    Cada ejercicio del resultado trae su propio `grupo_muscular_display`
+    (calculado igual que antes de sacar la subdivisión en secciones) --
+    el dato no se pierde, solo deja de usarse para dividir en secciones.
     """
     if semanas is None:
         semanas = list(range(1, SEMANAS_POR_CICLO + 1))
 
-    por_grupo = {}
+    por_nombre = {}
     for item in items:
-        grupo = item.grupo_muscular_snapshot
-        ejercicios_del_grupo = por_grupo.setdefault(grupo, {})
-        entrada = ejercicios_del_grupo.setdefault(
+        entrada = por_nombre.setdefault(
             item.ejercicio_nombre_snapshot,
             {
                 "nombre": item.ejercicio_nombre_snapshot,
+                "grupo_muscular_display": _DISPLAY_POR_VALOR.get(
+                    item.grupo_muscular_snapshot, _SIN_GRUPO_DISPLAY
+                ),
                 "video": "",
                 "semanas": {},
             },
@@ -68,49 +75,34 @@ def agrupar_items_por_grupo_muscular(items, semanas=None, semana_actual=None):
         if not entrada["video"] and item.ejercicio_video_snapshot:
             entrada["video"] = item.ejercicio_video_snapshot
 
+    ejercicios_ordenados = []
+    for entrada in por_nombre.values():
+        semana_mas_baja = min(entrada["semanas"])
+        orden = entrada["semanas"][semana_mas_baja].orden
+        ejercicios_ordenados.append((orden, entrada))
+    ejercicios_ordenados.sort(key=lambda par: par[0])
+
     resultado = []
-    for grupo in _ORDEN_GRUPOS:
-        ejercicios_del_grupo = por_grupo.get(grupo)
-        if not ejercicios_del_grupo:
-            continue
-
-        ejercicios_ordenados = []
-        for entrada in ejercicios_del_grupo.values():
-            semana_mas_baja = min(entrada["semanas"])
-            orden = entrada["semanas"][semana_mas_baja].orden
-            ejercicios_ordenados.append((orden, entrada))
-        ejercicios_ordenados.sort(key=lambda par: par[0])
-
-        ejercicios = []
-        for orden, entrada in ejercicios_ordenados:
-            ejercicios.append(
-                {
-                    "nombre": entrada["nombre"],
-                    "video": entrada["video"],
-                    "orden": orden,
-                    # Lista (no dict): los templates de Django no pueden
-                    # indexar un dict con una clave dinámica sin un filtro
-                    # custom, así que cada celda ya trae su propio número
-                    # de semana -- se itera en paralelo con la metadata de
-                    # columnas del caller (mismo `semanas`, ver arriba).
-                    "semanas": [
-                        {
-                            "numero": semana,
-                            "item": entrada["semanas"].get(semana),
-                            "es_actual": semana == semana_actual,
-                        }
-                        for semana in semanas
-                    ],
-                }
-            )
-
+    for orden, entrada in ejercicios_ordenados:
         resultado.append(
             {
-                "grupo_muscular": grupo,
-                "grupo_muscular_display": _DISPLAY_POR_VALOR.get(
-                    grupo, _SIN_GRUPO_DISPLAY
-                ),
-                "ejercicios": ejercicios,
+                "nombre": entrada["nombre"],
+                "grupo_muscular_display": entrada["grupo_muscular_display"],
+                "video": entrada["video"],
+                "orden": orden,
+                # Lista (no dict): los templates de Django no pueden
+                # indexar un dict con una clave dinámica sin un filtro
+                # custom, así que cada celda ya trae su propio número
+                # de semana -- se itera en paralelo con la metadata de
+                # columnas del caller (mismo `semanas`, ver arriba).
+                "semanas": [
+                    {
+                        "numero": semana,
+                        "item": entrada["semanas"].get(semana),
+                        "es_actual": semana == semana_actual,
+                    }
+                    for semana in semanas
+                ],
             }
         )
     return resultado

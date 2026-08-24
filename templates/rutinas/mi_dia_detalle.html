@@ -37,85 +37,82 @@
     </div>
   </div>
 
-  {% if grupos %}
-    {% for grupo in grupos %}
-      <div class="tarjeta">
-        <h2>{{ grupo.grupo_muscular_display }}</h2>
-        <div class="tabla-scroll">
-          <table class="tabla tabla--rutina-semanas">
-            <thead>
+  {% if ejercicios %}
+    <div class="tarjeta">
+      <div class="tabla-scroll">
+        <table class="tabla tabla--rutina-semanas">
+          <thead>
+            <tr>
+              <th rowspan="2" scope="col">Ejercicio</th>
+              <th rowspan="2" scope="col">Video</th>
+              {% for semana in semanas_meta %}
+                <th colspan="5" scope="colgroup"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>
+                  Semana {{ semana.numero }}{% if semana.es_actual %} <span class="badge badge--alerta">Actual</span>{% endif %}
+                </th>
+              {% endfor %}
+            </tr>
+            <tr>
+              {% for semana in semanas_meta %}
+                {% with clase_actual=semana.es_actual|yesno:"rutina-semana-columna--actual," %}
+                  <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Series</th>
+                  <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Reps</th>
+                  <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Kilos</th>
+                  <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Descanso</th>
+                  <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Calificación</th>
+                {% endwith %}
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for ejercicio in ejercicios %}
               <tr>
-                <th rowspan="2" scope="col">Ejercicio</th>
-                <th rowspan="2" scope="col">Video</th>
-                {% for semana in semanas_meta %}
-                  <th colspan="5" scope="colgroup"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>
-                    Semana {{ semana.numero }}{% if semana.es_actual %} <span class="badge badge--alerta">Actual</span>{% endif %}
-                  </th>
-                {% endfor %}
-              </tr>
-              <tr>
-                {% for semana in semanas_meta %}
+                <td>
+                  {{ ejercicio.nombre }}
+                  <br><span class="texto-suave text-xs">{{ ejercicio.grupo_muscular_display }}</span>
+                </td>
+                <td>
+                  {% if ejercicio.video %}
+                    <a href="{{ ejercicio.video }}" target="_blank" rel="noopener">Ver video</a>
+                  {% else %}
+                    <span class="texto-suave">Sin video</span>
+                  {% endif %}
+                </td>
+                {% for semana in ejercicio.semanas %}
                   {% with clase_actual=semana.es_actual|yesno:"rutina-semana-columna--actual," %}
-                    <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Series</th>
-                    <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Reps</th>
-                    <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Kilos</th>
-                    <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Descanso</th>
-                    <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Calificación</th>
+                    {% if semana.item %}
+                      <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.series }}</td>
+                      <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.repeticiones }}</td>
+                      <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.kilos|default:"—" }}</td>
+                      <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.descanso|default:"—" }}</td>
+                      <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>
+                        <form method="post" action="{% url 'rutinas:item_calificar' semana.item.pk %}">
+                          {% csrf_token %}
+                          <select name="rpe" onchange="this.form.submit()" aria-label="Calificar intensidad de {{ ejercicio.nombre }}, semana {{ semana.numero }}">
+                            <option value="" {% if not semana.item.rpe %}selected{% endif %}>Sin calificar</option>
+                            {% for valor, etiqueta in rpe_choices %}
+                              <option value="{{ valor }}" {% if semana.item.rpe == valor %}selected{% endif %}>{{ etiqueta }}</option>
+                            {% endfor %}
+                          </select>
+                        </form>
+                        {% if semana.item.rpe %}<span class="badge badge--ok">✓ Hecho</span>{% endif %}
+                        {% if semana.item.notas %}
+                          <details>
+                            <summary>Notas</summary>
+                            <p class="texto-suave">{{ semana.item.notas }}</p>
+                          </details>
+                        {% endif %}
+                      </td>
+                    {% else %}
+                      <td colspan="5" class="texto-suave{% if clase_actual %} {{ clase_actual }}{% endif %}">—</td>
+                    {% endif %}
                   {% endwith %}
                 {% endfor %}
               </tr>
-            </thead>
-            <tbody>
-              {% for ejercicio in grupo.ejercicios %}
-                <tr>
-                  <td>
-                    {{ ejercicio.nombre }}
-                    <br><span class="texto-suave text-xs">{{ grupo.grupo_muscular_display }}</span>
-                  </td>
-                  <td>
-                    {% if ejercicio.video %}
-                      <a href="{{ ejercicio.video }}" target="_blank" rel="noopener">Ver video</a>
-                    {% else %}
-                      <span class="texto-suave">Sin video</span>
-                    {% endif %}
-                  </td>
-                  {% for semana in ejercicio.semanas %}
-                    {% with clase_actual=semana.es_actual|yesno:"rutina-semana-columna--actual," %}
-                      {% if semana.item %}
-                        <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.series }}</td>
-                        <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.repeticiones }}</td>
-                        <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.kilos|default:"—" }}</td>
-                        <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.descanso|default:"—" }}</td>
-                        <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>
-                          <form method="post" action="{% url 'rutinas:item_calificar' semana.item.pk %}">
-                            {% csrf_token %}
-                            <select name="rpe" onchange="this.form.submit()" aria-label="Calificar intensidad de {{ ejercicio.nombre }}, semana {{ semana.numero }}">
-                              <option value="" {% if not semana.item.rpe %}selected{% endif %}>Sin calificar</option>
-                              {% for valor, etiqueta in rpe_choices %}
-                                <option value="{{ valor }}" {% if semana.item.rpe == valor %}selected{% endif %}>{{ etiqueta }}</option>
-                              {% endfor %}
-                            </select>
-                          </form>
-                          {% if semana.item.rpe %}<span class="badge badge--ok">✓ Hecho</span>{% endif %}
-                          {% if semana.item.notas %}
-                            <details>
-                              <summary>Notas</summary>
-                              <p class="texto-suave">{{ semana.item.notas }}</p>
-                            </details>
-                          {% endif %}
-                        </td>
-                      {% else %}
-                        <td colspan="5" class="texto-suave{% if clase_actual %} {{ clase_actual }}{% endif %}">—</td>
-                      {% endif %}
-                    {% endwith %}
-                  {% endfor %}
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
-    {% endfor %}
+    </div>
   {% else %}
     <p class="texto-suave">Todavía no hay ejercicios cargados para este día.</p>
   {% endif %}

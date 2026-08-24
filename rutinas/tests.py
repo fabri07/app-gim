@@ -31,7 +31,7 @@ from rutinas.models import (
     RutinaPlantilla,
     RutinaPlantillaItem,
 )
-from rutinas.agrupacion import agrupar_items_por_grupo_muscular
+from rutinas.agrupacion import listar_ejercicios_del_dia
 from rutinas.pdf import _celda_semana, generar_pdf_rutina_asignada
 from tenants.models import Gimnasio, Perfil
 
@@ -494,7 +494,7 @@ class RutinaPdfTests(RutinasTestCase):
         self.assertTrue(pdf_bytes.startswith(b"%PDF"))
 
 
-class AgruparPorGrupoMuscularTests(RutinasTestCase):
+class ListarEjerciciosDelDiaTests(RutinasTestCase):
     """`rutinas/agrupacion.py` -- Django-free, se testea con instancias
     armadas a mano (no hace queries)."""
 
@@ -507,11 +507,11 @@ class AgruparPorGrupoMuscularTests(RutinasTestCase):
             fecha_inicio=date(2026, 1, 1),
         )
 
-    def test_agrupa_en_el_orden_del_catalogo_no_alfabetico(self):
+    def test_devuelve_lista_plana_sin_subdivision_por_grupo(self):
+        """No hay más nivel de agrupación por grupo muscular -- cada
+        ejercicio del resultado conserva su propio `grupo_muscular_display`,
+        pero el resultado es una única lista, no una lista de grupos."""
         asignada = self.crear_asignada_vacia()
-        # PIERNAS antes que PECHO en la BD, pero el catálogo tiene PECHO
-        # primero (Ejercicio.GrupoMuscular.choices) -- el resultado debe
-        # respetar el orden del catálogo, no el de inserción.
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
@@ -533,16 +533,18 @@ class AgruparPorGrupoMuscularTests(RutinasTestCase):
             repeticiones="10",
         )
 
-        grupos = agrupar_items_por_grupo_muscular(asignada.items.filter(dia=1))
+        ejercicios = listar_ejercicios_del_dia(asignada.items.filter(dia=1))
 
         self.assertEqual(
-            [g["grupo_muscular"] for g in grupos],
-            [Ejercicio.GrupoMuscular.PECHO, Ejercicio.GrupoMuscular.PIERNAS],
+            [e["nombre"] for e in ejercicios], ["Sentadilla", "Press de banca"]
         )
+        self.assertEqual(ejercicios[0]["grupo_muscular_display"], "Piernas")
+        self.assertEqual(ejercicios[1]["grupo_muscular_display"], "Pecho")
 
-    def test_items_sin_grupo_muscular_van_al_bucket_final(self):
+    def test_item_sin_grupo_muscular_muestra_display_sin_grupo(self):
         """Simula una `RutinaAsignadaItem` creada antes de que existiera
-        `grupo_muscular_snapshot` (queda "" por default)."""
+        `grupo_muscular_snapshot` (queda "" por default) -- no se
+        descarta, se muestra con el display "Sin grupo muscular"."""
         asignada = self.crear_asignada_vacia()
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
@@ -553,22 +555,11 @@ class AgruparPorGrupoMuscularTests(RutinasTestCase):
             series=3,
             repeticiones="10",
         )
-        RutinaAsignadaItem.objects.create(
-            rutina_asignada=asignada,
-            ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
-            semana=1,
-            dia=1,
-            orden=2,
-            series=3,
-            repeticiones="10",
-        )
 
-        grupos = agrupar_items_por_grupo_muscular(asignada.items.filter(dia=1))
+        ejercicios = listar_ejercicios_del_dia(asignada.items.filter(dia=1))
 
-        self.assertEqual(grupos[-1]["grupo_muscular"], "")
-        self.assertEqual(grupos[-1]["grupo_muscular_display"], "Sin grupo muscular")
-        self.assertEqual(grupos[-1]["ejercicios"][0]["nombre"], "Ejercicio viejo")
+        self.assertEqual(ejercicios[0]["nombre"], "Ejercicio viejo")
+        self.assertEqual(ejercicios[0]["grupo_muscular_display"], "Sin grupo muscular")
 
     def test_mismo_ejercicio_a_traves_de_semanas_se_identifica_por_nombre(self):
         asignada = self.crear_asignada_vacia()
@@ -604,10 +595,8 @@ class AgruparPorGrupoMuscularTests(RutinasTestCase):
             repeticiones="6",
         )
 
-        grupos = agrupar_items_por_grupo_muscular(asignada.items.filter(dia=1))
+        ejercicios = listar_ejercicios_del_dia(asignada.items.filter(dia=1))
 
-        self.assertEqual(len(grupos), 1)
-        ejercicios = grupos[0]["ejercicios"]
         self.assertEqual(len(ejercicios), 1)
         semanas = ejercicios[0]["semanas"]
         self.assertEqual([s["numero"] for s in semanas], [1, 2, 3, 4])
@@ -641,19 +630,19 @@ class AgruparPorGrupoMuscularTests(RutinasTestCase):
             repeticiones="8",
         )
 
-        grupos = agrupar_items_por_grupo_muscular(asignada.items.filter(dia=1))
+        ejercicios = listar_ejercicios_del_dia(asignada.items.filter(dia=1))
 
         self.assertEqual(
-            grupos[0]["ejercicios"][0]["video"],
+            ejercicios[0]["video"],
             "https://youtube.com/watch?v=sentadilla",
         )
 
     def test_orden_usa_la_semana_mas_baja_disponible_no_el_minimo(self):
         """Si el `orden` varía entre semanas para el mismo ejercicio, el
-        orden entre ejercicios del grupo debe salir de la semana MÁS BAJA
-        cargada para ese ejercicio, no del valor mínimo de `orden` entre
-        todas sus filas (que podría no corresponder a ninguna semana
-        realmente presente)."""
+        orden en la lista debe salir de la semana MÁS BAJA cargada para
+        ese ejercicio, no del valor mínimo de `orden` entre todas sus
+        filas (que podría no corresponder a ninguna semana realmente
+        presente)."""
         asignada = self.crear_asignada_vacia()
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
@@ -676,10 +665,10 @@ class AgruparPorGrupoMuscularTests(RutinasTestCase):
             repeticiones="10",
         )
 
-        grupos = agrupar_items_por_grupo_muscular(asignada.items.filter(dia=1))
+        ejercicios = listar_ejercicios_del_dia(asignada.items.filter(dia=1))
 
         # La semana más baja disponible es la 2 (orden=5), no la 4 (orden=1).
-        self.assertEqual(grupos[0]["ejercicios"][0]["orden"], 5)
+        self.assertEqual(ejercicios[0]["orden"], 5)
 
     def test_respeta_la_lista_de_semanas_pasada_explicita(self):
         """El caller (p. ej. `RutinaMiDiaDetailView`) puede pasar qué
@@ -698,11 +687,11 @@ class AgruparPorGrupoMuscularTests(RutinasTestCase):
             repeticiones="10",
         )
 
-        grupos = agrupar_items_por_grupo_muscular(
+        ejercicios = listar_ejercicios_del_dia(
             asignada.items.filter(dia=1), semanas=[1, 2]
         )
 
-        semanas = grupos[0]["ejercicios"][0]["semanas"]
+        semanas = ejercicios[0]["semanas"]
         self.assertEqual([s["numero"] for s in semanas], [1, 2])
 
     def test_es_actual_marca_solo_la_semana_indicada(self):
@@ -721,18 +710,18 @@ class AgruparPorGrupoMuscularTests(RutinasTestCase):
             repeticiones="10",
         )
 
-        grupos = agrupar_items_por_grupo_muscular(
+        ejercicios = listar_ejercicios_del_dia(
             asignada.items.filter(dia=1), semanas=[1, 2, 3], semana_actual=2
         )
-        semanas = grupos[0]["ejercicios"][0]["semanas"]
+        semanas = ejercicios[0]["semanas"]
         self.assertEqual(
             [s["es_actual"] for s in semanas], [False, True, False]
         )
 
-        grupos_sin_actual = agrupar_items_por_grupo_muscular(
+        ejercicios_sin_actual = listar_ejercicios_del_dia(
             asignada.items.filter(dia=1), semanas=[1, 2, 3]
         )
-        semanas_sin_actual = grupos_sin_actual[0]["ejercicios"][0]["semanas"]
+        semanas_sin_actual = ejercicios_sin_actual[0]["semanas"]
         self.assertEqual(
             [s["es_actual"] for s in semanas_sin_actual], [False, False, False]
         )
@@ -1471,7 +1460,7 @@ class RutinaMiDiaDetailViewTests(TestCase):
         response = self.client.get(self._url(99))
         self.assertEqual(response.status_code, 404)
 
-    def test_muestra_las_4_semanas_agrupadas(self):
+    def test_muestra_las_4_semanas(self):
         self.client.login(username="usuario_alumno", password="clave-123456")
         response = self.client.get(self._url(1))
         self.assertEqual(response.status_code, 200)
@@ -1494,18 +1483,18 @@ class RutinaMiDiaDetailViewTests(TestCase):
         response = self.client.get(self._url(1))
         self.assertContains(response, "—")
 
-    def test_items_sin_grupo_muscular_snapshoteado_van_al_bucket_sin_grupo(self):
+    def test_items_sin_grupo_muscular_snapshoteado_muestran_display_sin_grupo(self):
         """Los items de este fixture no tienen `grupo_muscular_snapshot`
         (creados sin ese valor, como una rutina asignada antes de que el
-        campo existiera) -- deben caer en el bucket "Sin grupo muscular"
-        en vez de romper la vista."""
+        campo existiera) -- deben mostrar "Sin grupo muscular" como
+        subtítulo en vez de romper la vista."""
         self.client.login(username="usuario_alumno", password="clave-123456")
         response = self.client.get(self._url(1))
         self.assertContains(response, "Sin grupo muscular")
 
     def test_muestra_el_grupo_muscular_como_subtitulo_del_ejercicio(self):
-        """El grupo muscular no solo agrupa (título de sección), también se
-        muestra como subtítulo chico debajo de cada nombre de ejercicio."""
+        """El grupo muscular ya no agrupa en secciones -- se muestra como
+        subtítulo chico debajo de cada nombre de ejercicio."""
         self.item_dia1_semana1.grupo_muscular_snapshot = "piernas"
         self.item_dia1_semana1.save()
         self.client.login(username="usuario_alumno", password="clave-123456")
@@ -1513,6 +1502,26 @@ class RutinaMiDiaDetailViewTests(TestCase):
         response = self.client.get(self._url(1))
 
         self.assertContains(response, "Piernas")
+
+    def test_ejercicios_de_distinto_grupo_muscular_van_en_una_sola_tabla(self):
+        """Regresión: hasta 2026-08-24 cada grupo muscular armaba su propia
+        `<tarjeta>` con su propia `<table>` -- un cliente real lo encontró
+        confuso y se sacó la subdivisión. "Sentadilla" (piernas) y
+        "Sentadilla con salto" (pecho, a propósito para este test) deben
+        aparecer juntos en una única tabla, no en dos tarjetas separadas."""
+        self.item_dia1_semana1.grupo_muscular_snapshot = "piernas"
+        self.item_dia1_semana1.save()
+        self.item_dia1_semana2.grupo_muscular_snapshot = "pecho"
+        self.item_dia1_semana2.save()
+        self.client.login(username="usuario_alumno", password="clave-123456")
+
+        response = self.client.get(self._url(1))
+
+        self.assertContains(response, "Piernas")
+        self.assertContains(response, "Pecho")
+        self.assertContains(
+            response, '<table class="tabla tabla--rutina-semanas">', count=1
+        )
 
     def test_calificar_rpe_muestra_marca_de_hecho(self):
         self.client.login(username="usuario_alumno", password="clave-123456")

@@ -15,7 +15,7 @@ con el resto de la app.
 
 from fpdf import FPDF, FontFace
 
-from rutinas.agrupacion import agrupar_items_por_grupo_muscular
+from rutinas.agrupacion import listar_ejercicios_del_dia
 
 _COLUMNAS = ["Ejercicio", "Video", "Semana 1", "Semana 2", "Semana 3", "Semana 4"]
 
@@ -83,10 +83,10 @@ def _fila_ejercicio(ejercicio, grupo_muscular_display):
 
 def generar_pdf_rutina_asignada(asignada):
     """Arma el PDF de `asignada`: una sección por día, y dentro de cada
-    día los ejercicios agrupados por grupo muscular con las 4 semanas
-    lado a lado (`rutinas/agrupacion.py`, el mismo criterio que usa el
-    portal del alumno -- así el PDF y la vista en pantalla se leen
-    igual). Devuelve los bytes del archivo."""
+    día una lista plana de ejercicios con las 4 semanas lado a lado
+    (`rutinas/agrupacion.py`, el mismo criterio que usa el portal del
+    alumno -- así el PDF y la vista en pantalla se leen igual). Devuelve
+    los bytes del archivo."""
     color_acento = _hex_a_rgb(asignada.gimnasio.color_primario_css)
 
     pdf = FPDF()
@@ -144,24 +144,17 @@ def generar_pdf_rutina_asignada(asignada):
         pdf.set_font("Helvetica", "B", 14)
         pdf.cell(0, 10, f"Día {dia}", new_x="LMARGIN", new_y="NEXT")
 
-        for grupo in agrupar_items_por_grupo_muscular(items_del_dia):
-            pdf.set_font("Helvetica", "B", 12)
-            pdf.cell(
-                0, 8, grupo["grupo_muscular_display"], new_x="LMARGIN", new_y="NEXT"
-            )
-
-            pdf.set_font("Helvetica", "", 9)
-            with pdf.table(headings_style=encabezado_tabla) as table:
-                fila_encabezado = table.row()
-                for columna in _COLUMNAS:
-                    fila_encabezado.cell(columna)
-                for ejercicio in grupo["ejercicios"]:
-                    fila = table.row()
-                    for valor in _fila_ejercicio(
-                        ejercicio, grupo["grupo_muscular_display"]
-                    ):
-                        fila.cell(valor)
-            pdf.ln(2)
+        pdf.set_font("Helvetica", "", 9)
+        with pdf.table(headings_style=encabezado_tabla) as table:
+            fila_encabezado = table.row()
+            for columna in _COLUMNAS:
+                fila_encabezado.cell(columna)
+            for ejercicio in listar_ejercicios_del_dia(items_del_dia):
+                fila = table.row()
+                for valor in _fila_ejercicio(
+                    ejercicio, ejercicio["grupo_muscular_display"]
+                ):
+                    fila.cell(valor)
         pdf.ln(4)
 
     notas_largas = sorted(
