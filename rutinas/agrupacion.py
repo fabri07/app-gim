@@ -51,9 +51,13 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
     del día"), así que una lista plana ordenada por él respeta el orden
     que el staff cargó.
 
-    Cada ejercicio del resultado trae su propio `grupo_muscular_display`
-    (calculado igual que antes de sacar la subdivisión en secciones) --
-    el dato no se pierde, solo deja de usarse para dividir en secciones.
+    Cada ejercicio del resultado trae su propio `grupo_muscular_display`,
+    tomado del mismo item de la semana más baja disponible que ya define
+    `orden` -- no del primer item iterado. Un ejercicio reasignado a otro
+    grupo muscular en la biblioteca entre semanas de una misma rutina
+    (caso raro) queda así determinado por la semana más baja, igual que
+    `orden`, y no por el orden en que el caller haya iterado `items` (que
+    esta función, según el docstring de arriba, no puede asumir).
     """
     if semanas is None:
         semanas = list(range(1, SEMANAS_POR_CICLO + 1))
@@ -64,9 +68,6 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
             item.ejercicio_nombre_snapshot,
             {
                 "nombre": item.ejercicio_nombre_snapshot,
-                "grupo_muscular_display": _DISPLAY_POR_VALOR.get(
-                    item.grupo_muscular_snapshot, _SIN_GRUPO_DISPLAY
-                ),
                 "video": "",
                 "semanas": {},
             },
@@ -78,16 +79,20 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
     ejercicios_ordenados = []
     for entrada in por_nombre.values():
         semana_mas_baja = min(entrada["semanas"])
-        orden = entrada["semanas"][semana_mas_baja].orden
-        ejercicios_ordenados.append((orden, entrada))
+        item_semana_mas_baja = entrada["semanas"][semana_mas_baja]
+        orden = item_semana_mas_baja.orden
+        grupo_muscular_display = _DISPLAY_POR_VALOR.get(
+            item_semana_mas_baja.grupo_muscular_snapshot, _SIN_GRUPO_DISPLAY
+        )
+        ejercicios_ordenados.append((orden, entrada, grupo_muscular_display))
     ejercicios_ordenados.sort(key=lambda par: par[0])
 
     resultado = []
-    for orden, entrada in ejercicios_ordenados:
+    for orden, entrada, grupo_muscular_display in ejercicios_ordenados:
         resultado.append(
             {
                 "nombre": entrada["nombre"],
-                "grupo_muscular_display": entrada["grupo_muscular_display"],
+                "grupo_muscular_display": grupo_muscular_display,
                 "video": entrada["video"],
                 "orden": orden,
                 # Lista (no dict): los templates de Django no pueden

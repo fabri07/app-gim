@@ -561,6 +561,42 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         self.assertEqual(ejercicios[0]["nombre"], "Ejercicio viejo")
         self.assertEqual(ejercicios[0]["grupo_muscular_display"], "Sin grupo muscular")
 
+    def test_grupo_muscular_display_usa_la_semana_mas_baja_no_el_orden_de_iteracion(self):
+        """Si el mismo ejercicio quedó snapshoteado con un grupo muscular
+        distinto entre semanas (p. ej. se recategorizó en la biblioteca a
+        mitad de una rutina de 4 semanas), `grupo_muscular_display` tiene
+        que venir del item de la semana MÁS BAJA -- igual criterio que ya
+        usa `orden` -- y no de cuál item llegó primero en `items` (la
+        función documenta que acepta "cualquier orden")."""
+        asignada = self.crear_asignada_vacia()
+        item_semana_2 = RutinaAsignadaItem.objects.create(
+            rutina_asignada=asignada,
+            ejercicio_nombre_snapshot="Sentadilla",
+            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.CORE,
+            semana=2,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+        item_semana_1 = RutinaAsignadaItem.objects.create(
+            rutina_asignada=asignada,
+            ejercicio_nombre_snapshot="Sentadilla",
+            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+
+        # Iterable armado a mano, semana 2 ANTES que semana 1 -- si la
+        # función leyera `grupo_muscular_display` del primer item iterado
+        # (bug real, no solo hipotético) este test lo detecta.
+        ejercicios = listar_ejercicios_del_dia([item_semana_2, item_semana_1])
+
+        self.assertEqual(ejercicios[0]["grupo_muscular_display"], "Piernas")
+
     def test_mismo_ejercicio_a_traves_de_semanas_se_identifica_por_nombre(self):
         asignada = self.crear_asignada_vacia()
         RutinaAsignadaItem.objects.create(
