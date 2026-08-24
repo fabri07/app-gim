@@ -900,4 +900,40 @@
       animation: none;
     }
   }
+
+  /* Importador de plantillas (Proyecto 2, Task 5): arrastrar y soltar como
+     mejora progresiva sobre el <select> de grupo_muscular por fila -- el
+     <select> sigue siendo el control autoritativo y funcional sin mouse (no
+     hay soporte táctil nativo de HTML5 drag-and-drop sin polyfills, así que
+     el staff en mobile sigue usando el <select> tal cual). */
+  .rutina-zonas {
+    @apply grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4;
+  }
+
+  .rutina-drop-zona {
+    @apply flex items-center justify-center min-h-[3rem] rounded-lg border-2
+      border-dashed border-gray-300 bg-gray-50 px-2 py-3 text-center
+      text-sm font-medium text-gray-600;
+  }
+
+  .rutina-drop-zona--activo {
+    @apply border-[var(--color-primario)] bg-gray-100 text-gray-900;
+  }
+
+  .rutina-fila-grupo {
+    @apply flex flex-wrap items-center gap-2 mt-2;
+  }
+
+  /* Anula el `w-full mb-3` global de `select` (línea ~90) -- en este layout
+     el <select> convive con el chip en la misma fila, mismo criterio que
+     `.filtros select`. */
+  .rutina-fila-grupo select {
+    @apply w-auto mb-0;
+  }
+
+  .rutina-chip {
+    @apply inline-flex items-center rounded-full border border-gray-300
+      bg-white px-3 py-1 text-xs font-medium text-gray-700 cursor-grab
+      select-none;
+  }
 }
