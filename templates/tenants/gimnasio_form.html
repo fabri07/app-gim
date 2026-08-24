@@ -14,6 +14,7 @@
       </p>
     </div>
     <a class="boton-secundario" href="{% url 'pagos:medios_listado' %}">Medios de cobro</a>
+    <a class="boton-secundario" href="{% url 'password_change' %}">Cambiar contraseña</a>
   </div>
 
   <div class="config-layout">
@@ -34,7 +35,7 @@
         {% endif %}
         <label for="{{ form.logo.id_for_label }}">Logo</label>
         {{ form.logo }}
-        <p class="texto-suave">PNG o JPG. Fondo transparente se ve mejor.</p>
+        <p class="texto-suave">{{ form.logo.help_text }}</p>
         {% if form.logo.errors %}<p class="config-error">{{ form.logo.errors.0 }}</p>{% endif %}
       </div>
 
@@ -71,7 +72,7 @@
           {% endif %}
           <label for="{{ form.fondo_imagen.id_for_label }}">Imagen de fondo</label>
           {{ form.fondo_imagen }}
-          <p class="texto-suave">JPEG o PNG, hasta 5 MB, mínimo 1280×720px.</p>
+          <p class="texto-suave">{{ form.fondo_imagen.help_text }}</p>
           {% if form.fondo_imagen.errors %}<p class="config-error">{{ form.fondo_imagen.errors.0 }}</p>{% endif %}
         </div>
 

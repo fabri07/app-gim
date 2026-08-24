@@ -26,12 +26,16 @@ class EjercicioListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         self.grupo_muscular = self.request.GET.get("grupo_muscular", "")
         if self.grupo_muscular:
             queryset = queryset.filter(grupo_muscular=self.grupo_muscular)
+        self.q = self.request.GET.get("q", "").strip()
+        if self.q:
+            queryset = queryset.filter(nombre__icontains=self.q)
         return queryset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["grupos_musculares"] = Ejercicio.GrupoMuscular.choices
         context["grupo_muscular_actual"] = self.grupo_muscular
+        context["q_actual"] = self.q
         return context
 
 

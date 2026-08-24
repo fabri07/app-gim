@@ -59,6 +59,21 @@
     {% if ejercicio_formset.forms %}
       <div class="tarjeta">
         <h2>Ejercicios a resolver</h2>
+        <p class="texto-suave">
+          Para los ejercicios nuevos: arrastrá cada chip a su grupo
+          muscular, o elegilo directamente en el desplegable de la fila
+          (funciona igual con teclado, lector de pantalla o celular). Para
+          los que ya coinciden con uno existente, el grupo muscular lo
+          conserva el ejercicio de la biblioteca -- el desplegable no se
+          usa.
+        </p>
+        <div class="rutina-zonas" aria-hidden="true">
+          {% for valor, etiqueta in ejercicio_formset.forms.0.grupo_muscular.field.choices %}
+            {% if valor %}
+              <div class="rutina-drop-zona" data-grupo-muscular="{{ valor }}">{{ etiqueta }}</div>
+            {% endif %}
+          {% endfor %}
+        </div>
         {% for info, f in ejercicios_con_form %}
           <div class="tarjeta">
             <p>
@@ -69,13 +84,84 @@
             </p>
             {{ f.nombre_normalizado }}
             {{ f.accion }}
-            {{ f.grupo_muscular }}
+            <div class="rutina-fila-grupo">
+              {{ f.grupo_muscular }}
+              {% if info.tipo != "ambiguo" %}
+                <span
+                  id="chip-{{ f.grupo_muscular.id_for_label }}"
+                  class="rutina-chip"
+                  draggable="true"
+                  data-select="{{ f.grupo_muscular.id_for_label }}"
+                  aria-hidden="true"
+                >{{ info.nombre_original }}</span>
+              {% endif %}
+            </div>
             {% for error in f.grupo_muscular.errors %}
               <p class="texto-error">{{ error }}</p>
             {% endfor %}
             {{ f.ejercicio_existente_id.as_hidden }}
           </div>
         {% endfor %}
+        <script>
+          (function () {
+            var form = document.currentScript.closest("form");
+            var zonas = form.querySelectorAll(".rutina-drop-zona");
+            var selects = form.querySelectorAll('select[name$="-grupo_muscular"]');
+
+            function asignar(chip, zona) {
+              zona.appendChild(chip);
+              var select = document.getElementById(chip.dataset.select);
+              if (select && select.value !== zona.dataset.grupoMuscular) {
+                select.value = zona.dataset.grupoMuscular;
+                select.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+            }
+
+            form.querySelectorAll(".rutina-chip").forEach(function (chip) {
+              // Recuerda la fila de origen para poder devolver el chip ahí
+              // si el staff limpia el <select> a mano (vuelve a "sin asignar").
+              chip._filaOrigen = chip.parentNode;
+              chip.addEventListener("dragstart", function (event) {
+                event.dataTransfer.setData("text/plain", chip.id);
+                event.dataTransfer.effectAllowed = "move";
+              });
+            });
+
+            zonas.forEach(function (zona) {
+              zona.addEventListener("dragover", function (event) {
+                event.preventDefault();
+                zona.classList.add("rutina-drop-zona--activo");
+              });
+              zona.addEventListener("dragleave", function () {
+                zona.classList.remove("rutina-drop-zona--activo");
+              });
+              zona.addEventListener("drop", function (event) {
+                event.preventDefault();
+                zona.classList.remove("rutina-drop-zona--activo");
+                var chip = document.getElementById(event.dataTransfer.getData("text/plain"));
+                if (chip) { asignar(chip, zona); }
+              });
+            });
+
+            selects.forEach(function (select) {
+              var chip = form.querySelector('.rutina-chip[data-select="' + select.id + '"]');
+              if (!chip) { return; }
+              select.addEventListener("change", function () {
+                if (select.value) {
+                  var zona = form.querySelector(
+                    '.rutina-drop-zona[data-grupo-muscular="' + select.value + '"]'
+                  );
+                  if (zona && zona !== chip.parentNode) { zona.appendChild(chip); }
+                } else if (chip._filaOrigen) {
+                  chip._filaOrigen.appendChild(chip);
+                }
+              });
+              // Sincroniza el estado inicial (p. ej. al volver a esta pantalla
+              // con errores de validación, donde el <select> ya trae un valor).
+              if (select.value) { select.dispatchEvent(new Event("change")); }
+            });
+          })();
+        </script>
       </div>
     {% endif %}
 

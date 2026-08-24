@@ -917,3 +917,74 @@ problema visual concreto; reevaluar (3) solo si el producto crece al punto
 de justificar Celery/Redis por otras razones también; (6) solo sería un
 problema real si aparece un caso concreto de una persona con doble rol en
 dos gimnasios pagos distintos queriendo las dos apps instaladas.
+
+---
+
+## [2026-08-24] Login con Google: el warning "app no verificada" es de Google, no un bug de código
+
+**Estado:** aceptado (mientras no se complete la verificación de Google)
+
+**Impacto:** un cliente real reportó ver el warning propio de Google ("Esta
+app no está verificada") al intentar loguearse con su cuenta de Gmail.
+`tenants/google_login.py`/`GoogleLoginCallbackView` no tienen ningún mensaje
+que diga literalmente "no verificado" — el más cercano es el genérico "No se
+pudo verificar tu cuenta de Google. Probá de nuevo." de un `except Exception`
+amplio, y ni siquiera ese llega a ejecutarse en este caso: el warning aparece
+en la propia pantalla de `accounts.google.com`, ANTES de que el código de la
+app reciba nada del callback. Causa: el consent screen de Google Cloud sigue
+en modo **"Testing"** (tope de 100 usuarios, todos dados de alta a mano en la
+lista de "Test users" — cualquier cuenta que no esté ahí ve el warning). Ya
+documentado una vez para Google Calendar en la entrada `[2026-07-07] Parte C:
+sync best-effort e integración apagada por defecto` ("Producción arranca en
+modo OAuth 'Testing' de Google (hasta 100 usuarios, sin verificación/CASA)").
+Login con Google para staff (Frente C, ver CLAUDE.md) reusa el MISMO Client
+ID/Secret que Calendar con una redirect URI propia — hereda el mismo estado
+de publishing del proyecto de Google Cloud, así que el mismo síntoma que ya
+se sabía posible para Calendar aparece ahora también en login, con un cliente
+real afectado.
+
+**Resolución / próximo paso:**
+1. **Inmediata:** agregar el email de Gmail del cliente afectado a la lista
+   de "Test users" del consent screen en Google Cloud Console.
+2. **De fondo, para no repetir este paso manual con cada cliente nuevo:**
+   completar la verificación de Google para pasar el consent screen a "In
+   production". Los scopes de login (`GOOGLE_LOGIN_SCOPES = ["openid",
+   "email"]`, `config/settings.py`) son no sensibles, así que debería ser una
+   verificación estándar (dominio + branding del consent screen), no la
+   revisión pesada que exigen scopes sensibles como `calendar.app.created`.
+
+**Qué NO asumir:** que esto se arregla tocando código. El warning lo emite
+Google en su propia pantalla, antes de que `GoogleLoginCallbackView` reciba
+el `code` — no hay mensaje de error de la app que interceptar ni corregir
+para este caso puntual.
+
+---
+
+## [2026-08-24] Drag-and-drop del importador (grupo muscular): riesgos aceptados a propósito
+
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** al agregar arrastrar-y-soltar en `templates/importaciones/
+plantillas_preview.html` (asignar `grupo_muscular` a un ejercicio nuevo
+detectado en el Excel de plantillas, ver CLAUDE.md) se tomaron dos
+simplificaciones de MVP:
+
+1. **El drag-and-drop nativo de HTML5 (`draggable`, eventos `dragstart`/
+   `dragover`/`drop`) no tiene soporte táctil/mobile** — ningún navegador
+   móvil dispara esos eventos con el dedo. El `<select>` por fila NO es un
+   fallback opcional acá: es el control REQUERIDO para cualquier staff que
+   cargue la importación desde el celular, el chip es pura conveniencia de
+   mouse en desktop. Por eso el chip lleva `aria-hidden="true"` y nunca
+   `tabindex` — el `<select>` sigue siendo la única vía funcional para
+   teclado, lector de pantalla y touch por igual.
+2. **El resaltado CSS de `dragleave` puede parpadear** al arrastrar sobre una
+   zona que ya tiene chips adentro — al cruzar el borde de un chip hijo, el
+   navegador dispara `dragleave` de la zona padre y después `dragenter` de
+   nuevo, un quirk conocido de los eventos de drag nativos con elementos
+   anidados. Puramente cosmético (el chip igual termina en la zona correcta
+   al soltar), sin impacto funcional.
+
+**Resolución / próximo paso:** ninguno de los dos bloquea el uso real de la
+feature. (1) no tiene arreglo sin reimplementar con Pointer Events (fuera de
+alcance mientras el `<select>` siga cubriendo el caso mobile); (2) solo vale
+la pena tocarlo si algún staff lo reporta como confuso en la práctica.

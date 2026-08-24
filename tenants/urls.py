@@ -12,6 +12,8 @@ from tenants.views import (
     HomeView,
     LoginView,
     LogoSugerirPaisajeView,
+    StaffPasswordChangeDoneView,
+    StaffPasswordChangeView,
     StaffPasswordResetConfirmView,
     SuplantarView,
     VolverDeSuplantacionView,
@@ -59,6 +61,19 @@ urlpatterns = [
         "accounts/reset/done/",
         auth_views.PasswordResetCompleteView.as_view(),
         name="password_reset_complete",
+    ),
+    # Staff YA LOGUEADO cambiando su propia contraseña de forma proactiva --
+    # distinto del "olvidé mi contraseña" de arriba. Mismo criterio de
+    # wireado manual, nunca `include('django.contrib.auth.urls')`.
+    path(
+        "accounts/password_change/",
+        StaffPasswordChangeView.as_view(),
+        name="password_change",
+    ),
+    path(
+        "accounts/password_change/done/",
+        StaffPasswordChangeDoneView.as_view(),
+        name="password_change_done",
     ),
     path("gimnasio/editar/", GimnasioUpdateView.as_view(), name="gimnasio_editar"),
     # Página estática, sin vista propia -- no hay contexto dinámico que

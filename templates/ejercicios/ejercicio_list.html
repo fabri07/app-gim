@@ -12,6 +12,10 @@
 
   <form method="get" class="filtros">
     <div>
+      <label for="q">Buscar</label>
+      <input type="text" name="q" id="q" value="{{ q_actual }}" placeholder="Nombre del ejercicio...">
+    </div>
+    <div>
       <label for="grupo_muscular">Grupo muscular</label>
       <select name="grupo_muscular" id="grupo_muscular" onchange="this.form.submit()">
         <option value="" {% if not grupo_muscular_actual %}selected{% endif %}>Todos</option>
@@ -23,9 +27,12 @@
     <button type="submit" class="boton-secundario">Filtrar</button>
   </form>
 
-  {% if grupo_muscular_actual %}
+  {% if grupo_muscular_actual or q_actual %}
     <p class="texto-suave">
-      Mostrando solo: <strong>{{ grupo_muscular_actual }}</strong>
+      Mostrando solo:
+      {% if q_actual %}<strong>"{{ q_actual }}"</strong>{% endif %}
+      {% if grupo_muscular_actual and q_actual %}&middot;{% endif %}
+      {% if grupo_muscular_actual %}<strong>{{ grupo_muscular_actual }}</strong>{% endif %}
       &middot; <a href="{% url 'ejercicios:listado' %}">quitar filtro</a>
     </p>
   {% endif %}

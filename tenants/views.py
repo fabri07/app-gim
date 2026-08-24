@@ -551,7 +551,11 @@ class GoogleLoginCallbackView(View):
             email = google_login.verificar_identidad(code, state, verifier)
         except Exception as exc:  # noqa: BLE001 - no romper el login, mensaje genérico
             logger.warning("Fallo verificando identidad de Google: %s", type(exc).__name__)
-            messages.error(request, "No se pudo verificar tu cuenta de Google. Probá de nuevo.")
+            messages.error(
+                request,
+                "No se pudo verificar tu cuenta de Google. Probá de nuevo o "
+                "iniciá sesión con tu usuario y contraseña.",
+            )
             return self._volver_al_login(next_url)
 
         usuario = self._buscar_staff_activo(email)
@@ -635,6 +639,30 @@ class StaffPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
         response = super().form_valid(form)
         setear_cookie_gimnasio(response, self.request.user)
         return response
+
+
+class StaffPasswordChangeView(StaffRequiredMixin, auth_views.PasswordChangeView):
+    """Permite que un staff YA LOGUEADO cambie su propia contraseña de
+    forma proactiva -- distinto de "olvidé mi contraseña" (por email, para
+    quien ya perdió el acceso) y de la regeneración que el staff hace sobre
+    la cuenta de un ALUMNO (`alumnos/views.py`, staff-iniciado sobre otra
+    cuenta). `StaffRequiredMixin` es lo que bloquea a un alumno con 403 --
+    no alcanza con ocultar el link en la nav, la política del proyecto es
+    que las contraseñas de alumno las controla siempre el staff, nunca el
+    propio alumno.
+
+    Django llama `update_session_auth_hash()` internamente al cambiar la
+    contraseña (`PasswordChangeView.form_valid`), así que el usuario sigue
+    autenticado después -- no hace falta overridear nada de eso acá."""
+
+    template_name = "registration/password_change_form.html"
+    success_url = reverse_lazy("password_change_done")
+
+
+class StaffPasswordChangeDoneView(StaffRequiredMixin, auth_views.PasswordChangeDoneView):
+    """Pantalla de confirmación tras `StaffPasswordChangeView`."""
+
+    template_name = "registration/password_change_done.html"
 
 
 class SuplantarView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):

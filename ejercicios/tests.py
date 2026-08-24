@@ -199,3 +199,87 @@ class EjercicioViewsTests(TestCase):
         nombres = {e.nombre for e in response.context["ejercicios"]}
         self.assertEqual(nombres, {"Sentadilla", "Sentadilla búlgara"})
         self.assertNotContains(response, "Press de banca")
+
+    def test_filtro_por_texto_libre(self):
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Sentadilla",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Press de banca",
+            grupo_muscular=Ejercicio.GrupoMuscular.PECHO,
+        )
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Sentadilla búlgara",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(
+            reverse("ejercicios:listado"),
+            {"q": "Sentadilla"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        nombres = {e.nombre for e in response.context["ejercicios"]}
+        self.assertEqual(nombres, {"Sentadilla", "Sentadilla búlgara"})
+        self.assertNotContains(response, "Press de banca")
+
+    def test_filtro_por_texto_libre_case_insensitive(self):
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Sentadilla",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Press de banca",
+            grupo_muscular=Ejercicio.GrupoMuscular.PECHO,
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(
+            reverse("ejercicios:listado"),
+            {"q": "SENTADILLA"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        nombres = {e.nombre for e in response.context["ejercicios"]}
+        self.assertEqual(nombres, {"Sentadilla"})
+        self.assertNotContains(response, "Press de banca")
+
+    def test_filtro_combinado_grupo_muscular_y_texto_libre(self):
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Sentadilla",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Press de banca",
+            grupo_muscular=Ejercicio.GrupoMuscular.PECHO,
+        )
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Sentadilla búlgara",
+            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+        )
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Press inclinado",
+            grupo_muscular=Ejercicio.GrupoMuscular.PECHO,
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(
+            reverse("ejercicios:listado"),
+            {"grupo_muscular": Ejercicio.GrupoMuscular.PECHO, "q": "Press"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        nombres = {e.nombre for e in response.context["ejercicios"]}
+        self.assertEqual(nombres, {"Press de banca", "Press inclinado"})
+        self.assertNotContains(response, "Sentadilla")

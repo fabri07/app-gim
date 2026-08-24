@@ -1483,6 +1483,64 @@ class GimnasioFormFondoImagenTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
 
 
+class GimnasioFormLogoTests(SimpleTestCase):
+    """Validación de `logo` (tamaño, resolución mínima, formato) -- espejo
+    de `GimnasioFormFondoImagenTests`, pero con los umbrales propios del
+    logo (2 MB, mínimo 200x200px): es un asset más chico que el fondo. La
+    lógica de validación en sí se comparte vía `_validar_imagen()`
+    (`tenants/forms.py`), estos tests solo fijan que `clean_logo` la invoca
+    con los umbrales correctos."""
+
+    def _datos_base(self, **overrides):
+        datos = {
+            "nombre": "Gimnasio Test",
+            "paleta": "bosque",
+            "tipografia": "plus_jakarta",
+            "fondo_tipo": "color",
+            "texto_bienvenida": "",
+            "contacto": "",
+            "link_instagram": "",
+            "link_whatsapp": "",
+            "dia_vencimiento_pago": 10,
+        }
+        datos.update(overrides)
+        return datos
+
+    def test_logo_valido_pasa(self):
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(200, 200), nombre="logo.png")
+        form = GimnasioForm(data=self._datos_base(), files={"logo": archivo})
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_logo_muy_pesado_se_rechaza(self):
+        contenido = _png((0x1D, 0x6F, 0x56), size=(200, 200)).read() + b"\x00" * (3 * 1024 * 1024)
+        archivo = SimpleUploadedFile("logo.png", contenido, content_type="image/png")
+        form = GimnasioForm(data=self._datos_base(), files={"logo": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("logo", form.errors)
+
+    def test_logo_debajo_de_la_resolucion_minima_se_rechaza(self):
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(100, 100), nombre="logo.png")
+        form = GimnasioForm(data=self._datos_base(), files={"logo": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("logo", form.errors)
+
+    def test_logo_formato_no_soportado_se_rechaza(self):
+        archivo = _imagen_subida(
+            (0x1D, 0x6F, 0x56),
+            size=(200, 200),
+            formato="GIF",
+            content_type="image/gif",
+            nombre="logo.gif",
+        )
+        form = GimnasioForm(data=self._datos_base(), files={"logo": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("logo", form.errors)
+
+    def test_sin_archivo_el_form_sigue_siendo_valido(self):
+        form = GimnasioForm(data=self._datos_base())
+        self.assertTrue(form.is_valid(), form.errors)
+
+
 class GimnasioFormArchivoYEliminarContradiccionTests(SimpleTestCase):
     """Documenta el comportamiento de `ClearableFileInput` (logo y
     fondo_imagen) que motivó el JS de `gimnasio_form.html` que evita que
@@ -2278,3 +2336,101 @@ class SuplantacionMiddlewareRobustezTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse("login"), response.url)
         self.assertNotIn("_auth_user_id", self.client.session)
+
+
+class StaffPasswordChangeViewTests(TestCase):
+    """Task 6: el staff pueda cambiar su propia contraseña, estando ya
+    logueado -- distinto de "olvidé mi contraseña" (StaffPasswordResetConfirmView)
+    y de la regeneración staff->alumno (`alumnos/views.py`). Debe seguir
+    siendo inaccesible para un alumno: `StaffRequiredMixin` es lo que lo
+    garantiza (403), no solo la ausencia del link en la nav."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio Central", slug="central")
+        self.staff = User.objects.create_user("dueno-central", password="clave-vieja-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno_user = User.objects.create_user(
+            "alumno-central", password="clave-alumno-123"
+        )
+        Perfil.objects.create(
+            usuario=self.alumno_user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+
+    def test_anonimo_redirige_a_login(self):
+        response = self.client.get(reverse("password_change"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("login"), response.url)
+
+    def test_alumno_recibe_403(self):
+        self.client.login(username="alumno-central", password="clave-alumno-123")
+
+        response = self.client.get(reverse("password_change"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_ve_el_formulario(self):
+        self.client.login(username="dueno-central", password="clave-vieja-123")
+
+        response = self.client.get(reverse("password_change"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cambiar contraseña")
+
+    def test_link_solo_visible_para_staff(self):
+        # El link vive en "Mi gimnasio" (`tenants:gimnasio_editar`), no en
+        # el topbar global (`base.html`) -- se sacó de ahí para no sumar un
+        # ítem más al topbar en mobile (ver ISSUES.md). La página ya es
+        # staff-only por su propio `StaffRequiredMixin` (403 para un
+        # alumno), así que la aserción real es "el staff lo ve al entrar
+        # a esa pantalla".
+        self.client.login(username="dueno-central", password="clave-vieja-123")
+        response = self.client.get(reverse("gimnasio_editar"))
+        self.assertContains(response, reverse("password_change"))
+
+        self.client.logout()
+        self.client.login(username="alumno-central", password="clave-alumno-123")
+        response = self.client.get(reverse("gimnasio_editar"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_cambia_su_contraseña_con_exito_y_sigue_logueado(self):
+        self.client.login(username="dueno-central", password="clave-vieja-123")
+
+        response = self.client.post(
+            reverse("password_change"),
+            {
+                "old_password": "clave-vieja-123",
+                "new_password1": "clave-nueva-456!",
+                "new_password2": "clave-nueva-456!",
+            },
+        )
+
+        self.assertRedirects(response, reverse("password_change_done"))
+        self.staff.refresh_from_db()
+        self.assertTrue(self.staff.check_password("clave-nueva-456!"))
+
+        # `update_session_auth_hash` mantuvo la sesión activa: un request
+        # posterior sigue autenticado como el mismo usuario, sin redirigir a
+        # login.
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(int(self.client.session["_auth_user_id"]), self.staff.pk)
+
+    def test_contraseña_actual_incorrecta_se_rechaza(self):
+        self.client.login(username="dueno-central", password="clave-vieja-123")
+
+        response = self.client.post(
+            reverse("password_change"),
+            {
+                "old_password": "esta-no-es-la-actual",
+                "new_password1": "clave-nueva-456!",
+                "new_password2": "clave-nueva-456!",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["form"].errors.get("old_password"))
+        self.staff.refresh_from_db()
+        self.assertTrue(self.staff.check_password("clave-vieja-123"))
