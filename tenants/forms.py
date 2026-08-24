@@ -106,6 +106,19 @@ class GimnasioForm(forms.ModelForm):
         # ausencia de selección ya se resuelve con required=False (heredado
         # de blank=True) más la validación cruzada en clean().
         self.fields["fondo_doodle"].choices = Gimnasio.Doodle.choices
+        # `help_text` armado acá (no hardcodeado en el template) para que
+        # los números mostrados nunca puedan desincronizarse de los
+        # umbrales que `clean_logo`/`clean_fondo_imagen` realmente aplican
+        # -- una sola fuente de verdad para las dos puntas.
+        self.fields["logo"].help_text = (
+            f"JPEG o PNG, hasta {_LOGO_TAMANIO_MAXIMO // (1024 * 1024)} MB, "
+            f"mínimo {_LOGO_ANCHO_MINIMO}×{_LOGO_ALTO_MINIMO}px. "
+            "Fondo transparente se ve mejor."
+        )
+        self.fields["fondo_imagen"].help_text = (
+            f"JPEG o PNG, hasta {_FONDO_IMAGEN_TAMANIO_MAXIMO // (1024 * 1024)} MB, "
+            f"mínimo {_FONDO_IMAGEN_ANCHO_MINIMO}×{_FONDO_IMAGEN_ALTO_MINIMO}px."
+        )
 
     def clean_fondo_imagen(self):
         archivo = self.cleaned_data.get("fondo_imagen")

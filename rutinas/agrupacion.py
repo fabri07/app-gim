@@ -76,25 +76,18 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
         if not entrada["video"] and item.ejercicio_video_snapshot:
             entrada["video"] = item.ejercicio_video_snapshot
 
-    ejercicios_ordenados = []
+    resultado = []
     for entrada in por_nombre.values():
         semana_mas_baja = min(entrada["semanas"])
         item_semana_mas_baja = entrada["semanas"][semana_mas_baja]
-        orden = item_semana_mas_baja.orden
-        grupo_muscular_display = _DISPLAY_POR_VALOR.get(
-            item_semana_mas_baja.grupo_muscular_snapshot, _SIN_GRUPO_DISPLAY
-        )
-        ejercicios_ordenados.append((orden, entrada, grupo_muscular_display))
-    ejercicios_ordenados.sort(key=lambda par: par[0])
-
-    resultado = []
-    for orden, entrada, grupo_muscular_display in ejercicios_ordenados:
         resultado.append(
             {
                 "nombre": entrada["nombre"],
-                "grupo_muscular_display": grupo_muscular_display,
+                "grupo_muscular_display": _DISPLAY_POR_VALOR.get(
+                    item_semana_mas_baja.grupo_muscular_snapshot, _SIN_GRUPO_DISPLAY
+                ),
                 "video": entrada["video"],
-                "orden": orden,
+                "orden": item_semana_mas_baja.orden,
                 # Lista (no dict): los templates de Django no pueden
                 # indexar un dict con una clave dinámica sin un filtro
                 # custom, así que cada celda ya trae su propio número
@@ -110,4 +103,5 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
                 ],
             }
         )
+    resultado.sort(key=lambda ejercicio: ejercicio["orden"])
     return resultado
