@@ -2380,14 +2380,20 @@ class StaffPasswordChangeViewTests(TestCase):
         self.assertContains(response, "Cambiar contraseña")
 
     def test_link_solo_visible_para_staff(self):
+        # El link vive en "Mi gimnasio" (`tenants:gimnasio_editar`), no en
+        # el topbar global (`base.html`) -- se sacó de ahí para no sumar un
+        # ítem más al topbar en mobile (ver ISSUES.md). La página ya es
+        # staff-only por su propio `StaffRequiredMixin` (403 para un
+        # alumno), así que la aserción real es "el staff lo ve al entrar
+        # a esa pantalla".
         self.client.login(username="dueno-central", password="clave-vieja-123")
-        response = self.client.get(reverse("home"))
+        response = self.client.get(reverse("gimnasio_editar"))
         self.assertContains(response, reverse("password_change"))
 
         self.client.logout()
         self.client.login(username="alumno-central", password="clave-alumno-123")
-        response = self.client.get(reverse("home"))
-        self.assertNotContains(response, reverse("password_change"))
+        response = self.client.get(reverse("gimnasio_editar"))
+        self.assertEqual(response.status_code, 403)
 
     def test_staff_cambia_su_contraseña_con_exito_y_sigue_logueado(self):
         self.client.login(username="dueno-central", password="clave-vieja-123")

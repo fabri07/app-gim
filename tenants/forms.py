@@ -56,7 +56,12 @@ def _validar_imagen(
     except Exception:
         raise forms.ValidationError("El archivo no es una imagen válida.")
     if formato not in formatos_validos:
-        raise forms.ValidationError("Solo se aceptan imágenes JPEG o PNG.")
+        # Ordenado alfabéticamente para que el mensaje sea determinístico
+        # (un `set` no garantiza orden de iteración) -- para el caso actual
+        # de los dos únicos llamadores ({"JPEG", "PNG"}) da exactamente
+        # "JPEG o PNG".
+        formatos_legibles = " o ".join(sorted(formatos_validos))
+        raise forms.ValidationError(f"Solo se aceptan imágenes {formatos_legibles}.")
     if ancho < ancho_minimo or alto < alto_minimo:
         raise forms.ValidationError(mensaje_dimension)
     archivo.seek(0)

@@ -1664,3 +1664,7 @@ class EjercicioResolucionMuestraContextoTests(TestCase):
         # El pk crudo de `ejercicio_existente_id` ya no puede quedar
         # expuesto como un <input type="number"> editable sin etiqueta.
         self.assertNotContains(response, 'type="number"')
+        # Exactamente una zona de drop por valor de `Ejercicio.GrupoMuscular`
+        # -- si el catálogo cambia de tamaño sin tocar el template, este test
+        # lo detecta (Fix post-review, drag-and-drop del importador).
+        self.assertContains(response, 'class="rutina-drop-zona"', count=8)

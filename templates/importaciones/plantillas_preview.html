@@ -60,11 +60,14 @@
       <div class="tarjeta">
         <h2>Ejercicios a resolver</h2>
         <p class="texto-suave">
-          Arrastrá cada chip a su grupo muscular, o elegilo directamente en
-          el desplegable de la fila (funciona igual con teclado, lector de
-          pantalla o celular).
+          Para los ejercicios nuevos: arrastrá cada chip a su grupo
+          muscular, o elegilo directamente en el desplegable de la fila
+          (funciona igual con teclado, lector de pantalla o celular). Para
+          los que ya coinciden con uno existente, el grupo muscular lo
+          conserva el ejercicio de la biblioteca -- el desplegable no se
+          usa.
         </p>
-        <div class="rutina-zonas">
+        <div class="rutina-zonas" aria-hidden="true">
           {% for valor, etiqueta in ejercicio_formset.forms.0.grupo_muscular.field.choices %}
             {% if valor %}
               <div class="rutina-drop-zona" data-grupo-muscular="{{ valor }}">{{ etiqueta }}</div>
@@ -83,12 +86,15 @@
             {{ f.accion }}
             <div class="rutina-fila-grupo">
               {{ f.grupo_muscular }}
-              <span
-                id="chip-{{ f.grupo_muscular.id_for_label }}"
-                class="rutina-chip"
-                draggable="true"
-                data-select="{{ f.grupo_muscular.id_for_label }}"
-              >{{ info.nombre_original }}</span>
+              {% if info.tipo != "ambiguo" %}
+                <span
+                  id="chip-{{ f.grupo_muscular.id_for_label }}"
+                  class="rutina-chip"
+                  draggable="true"
+                  data-select="{{ f.grupo_muscular.id_for_label }}"
+                  aria-hidden="true"
+                >{{ info.nombre_original }}</span>
+              {% endif %}
             </div>
             {% for error in f.grupo_muscular.errors %}
               <p class="texto-error">{{ error }}</p>

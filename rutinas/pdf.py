@@ -70,8 +70,9 @@ def _celda_semana(item):
     return "\n".join(lineas)
 
 
-def _fila_ejercicio(ejercicio, grupo_muscular_display):
+def _fila_ejercicio(ejercicio):
     nombre = ejercicio["nombre"]
+    grupo_muscular_display = ejercicio["grupo_muscular_display"]
     if grupo_muscular_display:
         nombre += f"\n{grupo_muscular_display}"
     return [
@@ -151,9 +152,7 @@ def generar_pdf_rutina_asignada(asignada):
                 fila_encabezado.cell(columna)
             for ejercicio in listar_ejercicios_del_dia(items_del_dia):
                 fila = table.row()
-                for valor in _fila_ejercicio(
-                    ejercicio, ejercicio["grupo_muscular_display"]
-                ):
+                for valor in _fila_ejercicio(ejercicio):
                     fila.cell(valor)
         pdf.ln(4)
 
