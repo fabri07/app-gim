@@ -34,7 +34,7 @@
         {% endif %}
         <label for="{{ form.logo.id_for_label }}">Logo</label>
         {{ form.logo }}
-        <p class="texto-suave">PNG o JPG. Fondo transparente se ve mejor.</p>
+        <p class="texto-suave">JPEG o PNG, hasta 2 MB, mínimo 200×200px. Fondo transparente se ve mejor.</p>
         {% if form.logo.errors %}<p class="config-error">{{ form.logo.errors.0 }}</p>{% endif %}
       </div>
 

@@ -18,6 +18,50 @@ _FONDO_IMAGEN_ANCHO_MINIMO = 1280
 _FONDO_IMAGEN_ALTO_MINIMO = 720
 _FONDO_IMAGEN_FORMATOS_VALIDOS = {"JPEG", "PNG"}
 
+# El logo es un asset más chico que el fondo: presupuesto de tamaño menor y
+# piso de resolución menor. El piso de 200x200 no es arbitrario --
+# notificaciones/icons.py::generar_icono estira el logo a un ícono PWA de
+# hasta 512x512 (ImageOps.pad); sin este mínimo un logo muy chico queda
+# pixelado ahí.
+_LOGO_TAMANIO_MAXIMO = 2 * 1024 * 1024
+_LOGO_ANCHO_MINIMO = 200
+_LOGO_ALTO_MINIMO = 200
+_LOGO_FORMATOS_VALIDOS = {"JPEG", "PNG"}
+
+
+def _validar_imagen(
+    archivo,
+    *,
+    ancho_minimo,
+    alto_minimo,
+    tamanio_maximo_bytes,
+    formatos_validos,
+    mensaje_tamanio,
+    mensaje_dimension,
+):
+    """Valida un archivo de imagen recién subido: tamaño máximo, que Pillow
+    pueda abrirlo, formato permitido y dimensión mínima -- lógica compartida
+    por `clean_fondo_imagen` y `clean_logo`, cada uno con sus propios
+    umbrales y mensajes. Devuelve el archivo con el puntero al principio
+    (PIL lo consume al leer, y el form todavía necesita el archivo completo
+    para guardarlo en el storage) si pasa todas las validaciones, o levanta
+    `forms.ValidationError` en la primera que falle.
+    """
+    if archivo.size > tamanio_maximo_bytes:
+        raise forms.ValidationError(mensaje_tamanio)
+    try:
+        imagen = Image.open(archivo)
+        ancho, alto = imagen.size
+        formato = imagen.format
+    except Exception:
+        raise forms.ValidationError("El archivo no es una imagen válida.")
+    if formato not in formatos_validos:
+        raise forms.ValidationError("Solo se aceptan imágenes JPEG o PNG.")
+    if ancho < ancho_minimo or alto < alto_minimo:
+        raise forms.ValidationError(mensaje_dimension)
+    archivo.seek(0)
+    return archivo
+
 
 class GimnasioForm(forms.ModelForm):
     """Personalización del gimnasio (Fase 4, "Personalización por
@@ -64,25 +108,37 @@ class GimnasioForm(forms.ModelForm):
             # No hay archivo nuevo en este request: es el valor ya guardado
             # (o ninguno) -- ya pasó esta validación cuando se subió.
             return archivo
-        if archivo.size > _FONDO_IMAGEN_TAMANIO_MAXIMO:
-            raise forms.ValidationError("La imagen no puede pesar más de 5 MB.")
-        try:
-            imagen = Image.open(archivo)
-            ancho, alto = imagen.size
-            formato = imagen.format
-        except Exception:
-            raise forms.ValidationError("El archivo no es una imagen válida.")
-        if formato not in _FONDO_IMAGEN_FORMATOS_VALIDOS:
-            raise forms.ValidationError("Solo se aceptan imágenes JPEG o PNG.")
-        if ancho < _FONDO_IMAGEN_ANCHO_MINIMO or alto < _FONDO_IMAGEN_ALTO_MINIMO:
-            raise forms.ValidationError(
+        return _validar_imagen(
+            archivo,
+            ancho_minimo=_FONDO_IMAGEN_ANCHO_MINIMO,
+            alto_minimo=_FONDO_IMAGEN_ALTO_MINIMO,
+            tamanio_maximo_bytes=_FONDO_IMAGEN_TAMANIO_MAXIMO,
+            formatos_validos=_FONDO_IMAGEN_FORMATOS_VALIDOS,
+            mensaje_tamanio="La imagen no puede pesar más de 5 MB.",
+            mensaje_dimension=(
                 f"La imagen debe medir al menos "
                 f"{_FONDO_IMAGEN_ANCHO_MINIMO}×{_FONDO_IMAGEN_ALTO_MINIMO}px."
-            )
-        # PIL consumió el puntero al leer -- el form todavía necesita el
-        # archivo completo para guardarlo en el storage.
-        archivo.seek(0)
-        return archivo
+            ),
+        )
+
+    def clean_logo(self):
+        archivo = self.cleaned_data.get("logo")
+        if not archivo or not isinstance(archivo, UploadedFile):
+            # No hay archivo nuevo en este request: es el valor ya guardado
+            # (o ninguno) -- ya pasó esta validación cuando se subió.
+            return archivo
+        return _validar_imagen(
+            archivo,
+            ancho_minimo=_LOGO_ANCHO_MINIMO,
+            alto_minimo=_LOGO_ALTO_MINIMO,
+            tamanio_maximo_bytes=_LOGO_TAMANIO_MAXIMO,
+            formatos_validos=_LOGO_FORMATOS_VALIDOS,
+            mensaje_tamanio="El logo no puede pesar más de 2 MB.",
+            mensaje_dimension=(
+                f"El logo debe medir al menos "
+                f"{_LOGO_ANCHO_MINIMO}×{_LOGO_ALTO_MINIMO}px."
+            ),
+        )
 
     def clean(self):
         cleaned_data = super().clean()

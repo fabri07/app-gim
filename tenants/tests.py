@@ -1483,6 +1483,64 @@ class GimnasioFormFondoImagenTests(SimpleTestCase):
         self.assertTrue(form.is_valid(), form.errors)
 
 
+class GimnasioFormLogoTests(SimpleTestCase):
+    """Validación de `logo` (tamaño, resolución mínima, formato) -- espejo
+    de `GimnasioFormFondoImagenTests`, pero con los umbrales propios del
+    logo (2 MB, mínimo 200x200px): es un asset más chico que el fondo. La
+    lógica de validación en sí se comparte vía `_validar_imagen()`
+    (`tenants/forms.py`), estos tests solo fijan que `clean_logo` la invoca
+    con los umbrales correctos."""
+
+    def _datos_base(self, **overrides):
+        datos = {
+            "nombre": "Gimnasio Test",
+            "paleta": "bosque",
+            "tipografia": "plus_jakarta",
+            "fondo_tipo": "color",
+            "texto_bienvenida": "",
+            "contacto": "",
+            "link_instagram": "",
+            "link_whatsapp": "",
+            "dia_vencimiento_pago": 10,
+        }
+        datos.update(overrides)
+        return datos
+
+    def test_logo_valido_pasa(self):
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(200, 200), nombre="logo.png")
+        form = GimnasioForm(data=self._datos_base(), files={"logo": archivo})
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_logo_muy_pesado_se_rechaza(self):
+        contenido = _png((0x1D, 0x6F, 0x56), size=(200, 200)).read() + b"\x00" * (3 * 1024 * 1024)
+        archivo = SimpleUploadedFile("logo.png", contenido, content_type="image/png")
+        form = GimnasioForm(data=self._datos_base(), files={"logo": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("logo", form.errors)
+
+    def test_logo_debajo_de_la_resolucion_minima_se_rechaza(self):
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(100, 100), nombre="logo.png")
+        form = GimnasioForm(data=self._datos_base(), files={"logo": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("logo", form.errors)
+
+    def test_logo_formato_no_soportado_se_rechaza(self):
+        archivo = _imagen_subida(
+            (0x1D, 0x6F, 0x56),
+            size=(200, 200),
+            formato="GIF",
+            content_type="image/gif",
+            nombre="logo.gif",
+        )
+        form = GimnasioForm(data=self._datos_base(), files={"logo": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("logo", form.errors)
+
+    def test_sin_archivo_el_form_sigue_siendo_valido(self):
+        form = GimnasioForm(data=self._datos_base())
+        self.assertTrue(form.is_valid(), form.errors)
+
+
 class GimnasioFormArchivoYEliminarContradiccionTests(SimpleTestCase):
     """Documenta el comportamiento de `ClearableFileInput` (logo y
     fondo_imagen) que motivó el JS de `gimnasio_form.html` que evita que
