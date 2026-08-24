@@ -777,6 +777,12 @@ de staff hasta que Google esté verificado contra producción").
   cross-origin a `accounts.google.com`, mismo gotcha de siempre (ver
   "Login por gimnasio..." arriba) — es la 9na aparición documentada de este
   patrón en el proyecto.
+- **Si un cliente ve el warning de Google "esta app no está verificada"**: no
+  es un bug de código, es el consent screen de Google Cloud en modo
+  "Testing" (mismo Client ID que Google Calendar, mismo límite de 100
+  usuarios de la lista "Test users") — ver `ISSUES.md` `[2026-08-24]` para
+  el diagnóstico completo y los dos pasos (alta manual del email como Test
+  user + verificación de Google para pasar a "In production").
 
 ## "Olvidé mi contraseña" — reset por email, SOLO para staff (más allá del ROADMAP original)
 

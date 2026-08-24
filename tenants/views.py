@@ -551,7 +551,11 @@ class GoogleLoginCallbackView(View):
             email = google_login.verificar_identidad(code, state, verifier)
         except Exception as exc:  # noqa: BLE001 - no romper el login, mensaje genérico
             logger.warning("Fallo verificando identidad de Google: %s", type(exc).__name__)
-            messages.error(request, "No se pudo verificar tu cuenta de Google. Probá de nuevo.")
+            messages.error(
+                request,
+                "No se pudo verificar tu cuenta de Google. Probá de nuevo o "
+                "iniciá sesión con tu usuario y contraseña.",
+            )
             return self._volver_al_login(next_url)
 
         usuario = self._buscar_staff_activo(email)
