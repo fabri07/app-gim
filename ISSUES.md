@@ -957,3 +957,34 @@ real afectado.
 Google en su propia pantalla, antes de que `GoogleLoginCallbackView` reciba
 el `code` — no hay mensaje de error de la app que interceptar ni corregir
 para este caso puntual.
+
+---
+
+## [2026-08-24] Drag-and-drop del importador (grupo muscular): riesgos aceptados a propósito
+
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** al agregar arrastrar-y-soltar en `templates/importaciones/
+plantillas_preview.html` (asignar `grupo_muscular` a un ejercicio nuevo
+detectado en el Excel de plantillas, ver CLAUDE.md) se tomaron dos
+simplificaciones de MVP:
+
+1. **El drag-and-drop nativo de HTML5 (`draggable`, eventos `dragstart`/
+   `dragover`/`drop`) no tiene soporte táctil/mobile** — ningún navegador
+   móvil dispara esos eventos con el dedo. El `<select>` por fila NO es un
+   fallback opcional acá: es el control REQUERIDO para cualquier staff que
+   cargue la importación desde el celular, el chip es pura conveniencia de
+   mouse en desktop. Por eso el chip lleva `aria-hidden="true"` y nunca
+   `tabindex` — el `<select>` sigue siendo la única vía funcional para
+   teclado, lector de pantalla y touch por igual.
+2. **El resaltado CSS de `dragleave` puede parpadear** al arrastrar sobre una
+   zona que ya tiene chips adentro — al cruzar el borde de un chip hijo, el
+   navegador dispara `dragleave` de la zona padre y después `dragenter` de
+   nuevo, un quirk conocido de los eventos de drag nativos con elementos
+   anidados. Puramente cosmético (el chip igual termina en la zona correcta
+   al soltar), sin impacto funcional.
+
+**Resolución / próximo paso:** ninguno de los dos bloquea el uso real de la
+feature. (1) no tiene arreglo sin reimplementar con Pointer Events (fuera de
+alcance mientras el `<select>` siga cubriendo el caso mobile); (2) solo vale
+la pena tocarlo si algún staff lo reporta como confuso en la práctica.

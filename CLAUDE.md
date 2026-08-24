@@ -120,17 +120,24 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   de RPE no se fusiona con el nombre nuevo. Es consecuencia directa de que el
   RPE es una calificación por sesión/semana (lo que pidió el dueño del
   producto), no una opinión general y estable del ejercicio.
-  **Agrupamiento por grupo muscular y PDF** (agregado después de Fase 6):
-  `rutinas/agrupacion.py::agrupar_items_por_grupo_muscular()` es el único
-  lugar que agrupa los items de un día por `grupo_muscular_snapshot` —
-  lo usan tanto el portal del alumno (`RutinaMiDiaDetailView` →
+  **Lista de ejercicios del día y PDF** (agregado después de Fase 6, y
+  simplificado el 2026-08-24 a pedido de un cliente real): `rutinas/
+  agrupacion.py::listar_ejercicios_del_dia()` es el único lugar que arma
+  la lista de ejercicios de un día de una `RutinaAsignada` — la usan
+  tanto el portal del alumno (`RutinaMiDiaDetailView` →
   `mi_dia_detalle.html`, un día por vez, con las 4 semanas lado a lado en
   columnas separadas por Series/Reps/Kilos/Descanso/Calificación desde el
   rediseño "tabla ancha por columna") como `rutinas/pdf.py::
   generar_pdf_rutina_asignada()` (fpdf2, Django-free a propósito, recorre
-  todos los días). `RutinaAsignadaPdfView` (staff-only, botón "Descargar
-  PDF" en `asignada_detail.html`) es el fallback en papel para cuando un
-  alumno se queda sin acceso al portal — pensado para imprimir, no como
+  todos los días). Hasta esa fecha la función dividía el resultado en
+  secciones por `grupo_muscular_snapshot`; un cliente real la encontró
+  confusa y se sacó esa subdivisión — ahora devuelve una lista PLANA
+  (ordenada por `RutinaAsignadaItem.orden`), y cada ejercicio sigue
+  trayendo su propio `grupo_muscular_display` (se calcula igual que
+  antes) como subtítulo bajo el nombre, ya no como encabezado de
+  sección. `RutinaAsignadaPdfView` (staff-only, botón "Descargar PDF" en
+  `asignada_detail.html`) es el fallback en papel para cuando un alumno
+  se queda sin acceso al portal — pensado para imprimir, no como
   documento de marketing. **Mantené el desglose de campos del PDF
   sincronizado con el de la tabla del portal**: el PDF original (commit
   `51239e5`) empaquetaba todo en una celda compacta tipo "3x12 · 20kg
@@ -139,7 +146,8 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   Series/Repeticiones/Kilos/Descanso/Calificación (con
   `item.get_rpe_display()`, no un genérico "(hecho)") en líneas
   separadas, y cada fila lleve el grupo muscular como subtítulo bajo el
-  nombre del ejercicio, igual que la tabla en pantalla.
+  nombre del ejercicio, igual que la tabla en pantalla — esa regla de
+  sincronía se mantiene, aunque ya no haya secciones que sincronizar.
 - **`pagos`** — `PagoMensual(TenantOwnedModel)` y `MedioCobro(TenantOwnedModel)`
   (alias/CBU/lo que el gimnasio muestra al alumno para pagar, editable por
   staff). `pagos/models.py` expone `generar_pagos_pendientes(mes, anio)` y
@@ -520,7 +528,13 @@ plan original).
   `hx-boost="false"` por el upload de logo) de cómo el alumno va a ver esos
   cambios antes de guardar. Es lo que le faltaba a Fase 1/2: el modelo tenía
   estos campos desde Fase 1 pero no había ninguna vista para editarlos fuera
-  de `/admin/`.
+  de `/admin/`. **Validación del logo** (`GimnasioForm.clean_logo`,
+  `tenants/forms.py`): tamaño máximo, formato (JPEG/PNG) y resolución
+  mínima, mismos chequeos que ya tenía `clean_fondo_imagen` (Fase 4) —
+  ambos comparten el helper `_validar_imagen()`, con sus propios
+  umbrales/mensajes por campo (el logo tiene un piso de resolución más
+  chico, 200×200, porque `notificaciones/icons.py` lo estira a un ícono
+  PWA de hasta 512×512 y un logo muy chico quedaría pixelado ahí).
 - **HTMX**: `hx-boost="true"` en `<body>` (`base.html`) — convierte toda
   navegación por `<a>`/`<form>` normal en transiciones AJAX sin reescribir
   ninguna vista (siguen devolviendo la página completa; htmx solo evita el
@@ -848,6 +862,15 @@ reseteara a mano desde la Shell de Render (`manage.py changepassword`).
   `login.html`, esta pantalla no depende de ningún slug) +
   `password_reset_subject.txt` + `password_reset_email.html` (texto plano,
   sin HTML email — mismo criterio YAGNI que el resto del proyecto).
+- **"Cambiar contraseña" self-service (distinto de "olvidé mi
+  contraseña")**: `StaffPasswordChangeView`/`StaffPasswordChangeDoneView`
+  (`tenants/views.py`, rutas `password_change`/`password_change_done`) le
+  dejan a un staff YA LOGUEADO cambiar su propia contraseña sabiendo la
+  actual — no depende de email/`PASSWORD_RESET_ENABLED`, así que funciona
+  aunque Resend no esté configurado. El link vive en `templates/tenants/
+  gimnasio_form.html` ("Mi gimnasio"), no en el topbar global de
+  `base.html` (se sacó de ahí, ver ISSUES.md 2026-08-24, para no sumar un
+  ítem más en mobile).
 - **Fuera de alcance, decisión reconfirmada:** reset de contraseña para
   alumnos — sigue como hoy, el staff regenera el acceso desde el panel
   (`CambiarPasswordAlumnoView`). Rate limiting/`django-axes` sigue siendo
