@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import os
 import sys
+from datetime import date
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -128,6 +129,7 @@ TEMPLATES = [
                 'notificaciones.context_processors.vapid_public_key',
                 'tenants.context_processors.google_staff_login_disponible',
                 'tenants.context_processors.password_reset_disponible',
+                'tenants.context_processors.tour_onboarding_disponible',
             ],
         },
     },
@@ -393,6 +395,15 @@ PUSH_ENABLED = (
     )
     and not TESTING
 )
+
+# Tour de bienvenida para staff nuevo (notas dismissibles guiando los
+# primeros pasos: logo, colores/fondo, importar ejercicios/rutinas). El
+# progreso vive en localStorage (ver static/js/tour_onboarding.js), no en la
+# base -- esta fecha es la única pieza server-side: sin ella no habría forma
+# de distinguir un dueño nuevo de uno que ya usa la app hace meses (el
+# navegador de ambos arranca sin la clave de localStorage seteada). Perfiles
+# de staff creados antes de esta fecha nunca ven el tour.
+TOUR_ONBOARDING_DESDE = date(2026, 8, 26)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

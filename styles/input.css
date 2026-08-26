@@ -936,4 +936,54 @@
       bg-white px-3 py-1 text-xs font-medium text-gray-700 cursor-grab
       select-none;
   }
+
+  /* Tour de bienvenida para staff nuevo (static/js/tour_onboarding.js):
+     modificador de posicionamiento sobre `.tarjeta` (reusa su fondo, borde,
+     sombra y padding -- no los duplica) para una tarjeta flotante fija,
+     generada por JS. No es un coachmark apuntando a elementos puntuales, que
+     exigiría recalcular posición contra un nav que colapsa distinto en
+     mobile/PC. z-40 (por debajo de .pwa-splash, z-50) porque el splash es
+     una toma de pantalla completa de un instante, no algo con lo que la
+     tarjeta compita en jerarquía. mb-0 pisa el mb-6 de `.tarjeta`, que no
+     tiene sentido en un elemento `fixed`. */
+  .tour-tarjeta {
+    @apply fixed z-40 bottom-4 right-4 max-w-sm mb-0 space-y-3;
+    border-color: var(--color-primario);
+  }
+
+  .tour-tarjeta__encabezado {
+    @apply flex items-center justify-between gap-3;
+  }
+
+  .tour-tarjeta__contador {
+    @apply text-xs font-medium uppercase tracking-wide text-gray-400;
+  }
+
+  .tour-tarjeta__cerrar {
+    @apply bg-transparent border-none p-0 text-xl leading-none text-gray-400
+      hover:text-gray-700 cursor-pointer;
+  }
+
+  .tour-tarjeta__titulo {
+    @apply text-base font-semibold text-gray-900;
+  }
+
+  .tour-tarjeta__texto {
+    @apply text-sm text-gray-600;
+  }
+
+  .tour-tarjeta__acciones {
+    @apply flex justify-end;
+  }
+
+  .tour-tarjeta__descartar {
+    @apply block text-xs text-gray-400 underline bg-transparent
+      border-none p-0 cursor-pointer;
+  }
+
+  @media (max-width: 640px) {
+    .tour-tarjeta {
+      @apply left-4 right-4 max-w-none;
+    }
+  }
 }

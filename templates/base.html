@@ -73,8 +73,26 @@
   <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
   <script src="{% static 'js/pwa.js' %}" defer></script>
+  <script src="{% static 'js/tour_onboarding.js' %}" defer></script>
 </head>
 <body hx-boost="true" data-vapid-public-key="{{ VAPID_PUBLIC_KEY }}" data-suplantacion="{% if request.session.suplantacion %}true{% else %}false{% endif %}" {% if user.is_authenticated and user.perfil.rol == "staff" %}x-data="{ navAbierto: false }"{% endif %}>
+  {% comment %}
+    hx-boost solo reemplaza el CONTENIDO de <body> (su innerHTML), nunca los
+    atributos del propio tag <body> -- así que CUALQUIER dato del tour que
+    pueda cambiar de un swap boosteado a otro va acá, nunca en el <body>
+    mismo. No es solo la página (navegación normal): suplantar/volver
+    (formularios boosteados sin hx-boost="false") cambian `request.user` en
+    el mismo swap, así que habilitado/gimnasio también pueden cambiar de una
+    respuesta a la siguiente -- ponerlos en <body> dejaría, por ejemplo, el
+    tour del staff pegado y visible mientras suplanta a un alumno.
+  {% endcomment %}
+  <span
+    id="tour-datos-marcador"
+    hidden
+    data-tour-pagina="{% block tour_pagina %}{% endblock %}"
+    data-tour-habilitado="{% if tour_onboarding_habilitado %}true{% endif %}"
+    {% if user.is_authenticated and user.perfil.gimnasio %}data-tour-gimnasio="{{ user.perfil.gimnasio.slug }}"{% endif %}
+  ></span>
   {% comment %}
     Dos ramas -- Django no permite mezclar `and`/`or` en un mismo {% if %} --
     porque el splash tiene que aparecer tanto para un usuario YA autenticado

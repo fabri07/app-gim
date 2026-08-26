@@ -6,10 +6,11 @@ patrón de ~/gestor-pedidos/core/tests.py — en Fase 0 todavía no existe ning�
 TenantOwnedModel concreto para ejercitarlos.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from io import BytesIO, StringIO
 from unittest.mock import patch
 from xml.etree import ElementTree
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser, User
@@ -19,7 +20,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import CommandError, call_command
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, TestCase
-from django.urls import NoReverseMatch, reverse
+from django.urls import NoReverseMatch, resolve, reverse
 from django.utils import timezone
 from django.utils.http import urlencode
 from django.views.generic import TemplateView, View
@@ -32,6 +33,7 @@ from novedades.models import Novedad, NovedadLeida
 from pagos.models import MedioCobro, PagoMensual
 from rutinas.models import RutinaAsignada, RutinaAsignadaItem
 from tenants import paisaje_matching, suplantacion
+from tenants.context_processors import tour_onboarding_disponible
 from tenants.forms import GimnasioForm
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil, RegistroSuplantacion
@@ -261,6 +263,84 @@ class TenantIsolationTests(TestCase):
 
         self.assertEqual(perfil.gimnasio, gimnasio_a)
         self.assertNotEqual(perfil.gimnasio, gimnasio_b)
+
+
+class TourOnboardingDisponibleTests(TestCase):
+    """`Perfil.creado` (auto_now_add) es la única señal server-side del tour
+    de bienvenida: perfiles de staff creados antes de TOUR_ONBOARDING_DESDE
+    nunca lo ven, aunque nunca hayan abierto la app (ver settings.py)."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+
+    def _habilitado(self, user):
+        request = self.factory.get("/")
+        # Refetch: `Perfil.objects.create(usuario=user, ...)` deja cacheado
+        # `user.perfil` en memoria con el `creado` de la creación real -- el
+        # `.update()` de `_crear_perfil` lo pisa en la base, pero no en ese
+        # caché, así que sin refetch el test leería el `creado` viejo.
+        request.user = (
+            User.objects.get(pk=user.pk) if user.is_authenticated else user
+        )
+        return tour_onboarding_disponible(request)["tour_onboarding_habilitado"]
+
+    def _crear_perfil(self, username, rol, creado):
+        user = User.objects.create_user(username, password="clave-123456")
+        perfil = Perfil.objects.create(usuario=user, gimnasio=self.gimnasio, rol=rol)
+        # auto_now_add ignora el valor pasado a create(); update() lo esquiva.
+        Perfil.objects.filter(pk=perfil.pk).update(
+            creado=timezone.make_aware(datetime.combine(creado, datetime.min.time()))
+        )
+        return user
+
+    def test_staff_creado_antes_del_corte_no_ve_el_tour(self):
+        user = self._crear_perfil(
+            "staff-viejo", Perfil.Rol.STAFF,
+            settings.TOUR_ONBOARDING_DESDE - timedelta(days=1),
+        )
+        self.assertFalse(self._habilitado(user))
+
+    def test_staff_creado_despues_del_corte_ve_el_tour(self):
+        user = self._crear_perfil(
+            "staff-nuevo", Perfil.Rol.STAFF,
+            settings.TOUR_ONBOARDING_DESDE + timedelta(days=1),
+        )
+        self.assertTrue(self._habilitado(user))
+
+    def test_alumno_no_ve_el_tour(self):
+        user = self._crear_perfil(
+            "alumno-1", Perfil.Rol.ALUMNO,
+            settings.TOUR_ONBOARDING_DESDE + timedelta(days=1),
+        )
+        self.assertFalse(self._habilitado(user))
+
+    def test_usuario_anonimo_no_ve_el_tour(self):
+        self.assertFalse(self._habilitado(AnonymousUser()))
+
+    def test_medianoche_utc_no_se_confunde_con_medianoche_local(self):
+        # 01:00 UTC en la fecha de corte es todavía las 22:00 del día
+        # anterior en Buenos Aires (UTC-3) -- sin convertir a hora local,
+        # `.date()` diría que el perfil ya cruzó el corte un día antes de lo
+        # que corresponde en el calendario local.
+        user = User.objects.create_user("staff-limite", password="clave-123456")
+        perfil = Perfil.objects.create(
+            usuario=user, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        corte = settings.TOUR_ONBOARDING_DESDE
+        creado_utc = datetime(corte.year, corte.month, corte.day, 1, 0, tzinfo=ZoneInfo("UTC"))
+        Perfil.objects.filter(pk=perfil.pk).update(creado=creado_utc)
+        self.assertFalse(self._habilitado(user))
+
+    def test_admin_no_habilita_el_tour(self):
+        user = self._crear_perfil(
+            "staff-admin", Perfil.Rol.STAFF,
+            settings.TOUR_ONBOARDING_DESDE + timedelta(days=1),
+        )
+        request = self.factory.get("/admin/")
+        request.user = User.objects.get(pk=user.pk)
+        request.resolver_match = resolve("/admin/")
+        self.assertFalse(tour_onboarding_disponible(request)["tour_onboarding_habilitado"])
 
 
 class _VistaDeStaff(StaffRequiredMixin, TemplateView):

@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Inicio · App Gimnasios{% endblock %}
 {% block main_class %}{% if perfil.rol == "staff" %}contenido--ancho{% else %}contenido{% endif %}{% endblock %}
+{% block tour_pagina %}home{% endblock %}
 
 {% block content %}
 {% if perfil.rol == "staff" %}

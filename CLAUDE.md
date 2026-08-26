@@ -1006,6 +1006,67 @@ notifications.
   del alumno por separado): el topbar ya es común a los dos roles, así que
   alcanza con condicionar la visibilidad ahí.
 
+## Tour de bienvenida para staff nuevo (más allá del ROADMAP original)
+
+Notas dismissibles ("x" o "Siguiente") que guían al staff nuevo en 6 pasos
+(logo → colores/tipografía → fondo → importar ejercicios → crear rutina),
+mostradas de a una según en qué pantalla está — pedido explícito del usuario
+para que un dueño nuevo entienda la app en ~5 minutos sin tocar `/admin/`.
+
+- **Elegibilidad, la única pieza server-side**:
+  `tenants.context_processors.tour_onboarding_disponible` habilita el tour
+  solo para `Perfil.rol == STAFF` cuyo `Perfil.creado` (auto_now_add, sin
+  campo ni migración nueva) sea posterior a `settings.TOUR_ONBOARDING_DESDE`
+  — sin esto, un dueño que ya usa la app hace meses lo vería igual, porque
+  `localStorage` no tiene forma de distinguir "nuevo" de "viejo" por sí solo.
+  La comparación usa `timezone.localtime(perfil.creado).date()`, no
+  `.date()` a secas: `creado` se guarda en UTC, y sin convertir a hora local
+  (`TIME_ZONE = America/Argentina/Buenos_Aires`) un Perfil creado entre las
+  21:00 y 23:59 caería en el día siguiente. El context processor corta
+  temprano si `request.resolver_match.app_name == "admin"` — evita una
+  query de `perfil` de más contra Neon (scale-to-zero) en cada carga de
+  `/admin/`, donde el tour nunca se renderiza igual.
+- **Todo el progreso vive en `localStorage`** (`static/js/tour_onboarding.js`),
+  namespaced por gimnasio (`tour_onboarding_paso_<slug>`) para el caso raro
+  de que el mismo navegador se use para más de un gimnasio. Un solo índice de
+  paso avanza con "Siguiente" o la "x" (misma acción); "No mostrar más" lo
+  termina del todo. Sin botón de reinicio (YAGNI).
+- **Cada paso está asociado a una pantalla** (`home`, `gimnasio_editar`,
+  `ejercicios`, `rutinas`) declarada por esa pantalla en un bloque
+  `{% block tour_pagina %}{% endblock %}`. La tarjeta solo se muestra cuando
+  el paso actual coincide con la pantalla — el staff avanza navegando con el
+  nav normal, sin que nada bloquee la navegación.
+- **Gotcha real de `hx-boost` encontrado implementando esto (10ma+ aparición
+  del patrón, ver "Login por gimnasio..." más arriba para las anteriores),
+  pero de una variante nueva**: `hx-boost` reemplaza el *contenido* de
+  `<body>` en cada navegación boosteada, pero NUNCA los atributos del propio
+  tag `<body>` — un `data-tour-pagina` puesto ahí quedaba pegado en el valor
+  de la primera carga completa (siempre "home"), sin actualizarse al navegar.
+  Un review posterior encontró que el mismo problema aplicaba a
+  `data-tour-habilitado`/`data-tour-gimnasio`, y no solo por navegación
+  normal: `suplantar`/`suplantacion_volver` (formularios boosteados, sin
+  `hx-boost="false"`) cambian `request.user` en el mismo swap, así que el
+  tour del staff podía quedar visible mientras suplanta a un alumno (o
+  escondido para el staff recién vuelto). Los tres viven ahora en
+  `#tour-datos-marcador`, un único `<span hidden>` como primer hijo de
+  `<body>` — regla general: cualquier dato que dependa de la respuesta
+  actual (qué template hijo se renderiza, o directamente quién es
+  `request.user`) va en un elemento DENTRO de `<body>`, nunca en un atributo
+  de `<body>` mismo.
+- La tarjeta (`.tour-tarjeta` en `styles/input.css`) es un modificador de
+  posicionamiento sobre `.tarjeta` (reusa fondo/borde/sombra/padding, no los
+  duplica) para una tarjeta flotante fija generada por JS (`crearTarjetaTour`
+  le pone las dos clases), no un coachmark apuntando a elementos puntuales —
+  evita recalcular posición contra un nav que colapsa distinto en mobile/PC.
+- **Gotcha de testing manual, no de código**: el service worker de la PWA
+  (`static/js/sw.js`) cachea `/static/` con estrategia cache-first — durante
+  el desarrollo de esta feature, un `tour_onboarding.js` editado no se veía
+  reflejado en el navegador hasta desregistrar el Service Worker manualmente
+  (`navigator.serviceWorker.getRegistrations()` + `unregister()`), aunque el
+  servidor ya sirviera el archivo nuevo. Si un cambio a un `.js`/`.css` no
+  parece aplicarse en local con la PWA instalada o ya visitada, sospechá del
+  Service Worker antes que del código.
+
 ## Deploy (Fase 5)
 
 **Estado (2026-08-19): desplegado y con dominio propio.** App en
