@@ -84,6 +84,12 @@ class EjercicioViewsTests(TestCase):
         Perfil.objects.create(
             usuario=self.alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
         )
+        self.piernas = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
+        self.brazos = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Brazos"
+        )
 
     def test_anonimo_es_redirigido_al_login(self):
         url = reverse("ejercicios:listado")
@@ -97,9 +103,7 @@ class EjercicioViewsTests(TestCase):
 
     def test_staff_puede_listar_ejercicios_de_su_gimnasio(self):
         Ejercicio.objects.create(
-            gimnasio=self.gimnasio,
-            nombre="Sentadilla",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+            gimnasio=self.gimnasio, nombre="Sentadilla", categoria=self.piernas
         )
         self.client.login(username="staff-a", password="clave-123456")
         response = self.client.get(reverse("ejercicios:listado"))
@@ -112,7 +116,7 @@ class EjercicioViewsTests(TestCase):
             reverse("ejercicios:crear"),
             {
                 "nombre": "Press militar",
-                "grupo_muscular": Ejercicio.GrupoMuscular.HOMBROS,
+                "categoria_nueva": "Hombros",
                 "descripcion": "",
                 "url_video": "",
                 "activo": "on",
@@ -121,20 +125,21 @@ class EjercicioViewsTests(TestCase):
         self.assertRedirects(response, reverse("ejercicios:listado"))
         ejercicio = Ejercicio.objects.get(nombre="Press militar")
         self.assertEqual(ejercicio.gimnasio, self.gimnasio)
-        self.assertEqual(ejercicio.grupo_muscular, Ejercicio.GrupoMuscular.HOMBROS)
+        self.assertEqual(ejercicio.categoria.nombre, "Hombros")
+        self.assertEqual(ejercicio.categoria.gimnasio, self.gimnasio)
 
     def test_staff_puede_editar_un_ejercicio_de_su_gimnasio(self):
         ejercicio = Ejercicio.objects.create(
             gimnasio=self.gimnasio,
             nombre="Curl de biceps",
-            grupo_muscular=Ejercicio.GrupoMuscular.BRAZOS,
+            categoria=self.brazos,
         )
         self.client.login(username="staff-a", password="clave-123456")
         response = self.client.post(
             reverse("ejercicios:editar", args=[ejercicio.pk]),
             {
                 "nombre": "Curl de biceps con barra",
-                "grupo_muscular": Ejercicio.GrupoMuscular.BRAZOS,
+                "categoria": self.brazos.pk,
                 "descripcion": "",
                 "url_video": "https://youtube.com/watch?v=abc123",
                 "activo": "",  # desmarcado: prueba el toggle de `activo` vía el form
@@ -174,27 +179,25 @@ class EjercicioViewsTests(TestCase):
         ejercicio_b.refresh_from_db()
         self.assertEqual(ejercicio_b.nombre, "Dominadas")
 
-    def test_filtro_por_grupo_muscular(self):
-        Ejercicio.objects.create(
-            gimnasio=self.gimnasio,
-            nombre="Sentadilla",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+    def test_filtro_por_categoria(self):
+        pecho = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Pecho"
         )
         Ejercicio.objects.create(
-            gimnasio=self.gimnasio,
-            nombre="Press de banca",
-            grupo_muscular=Ejercicio.GrupoMuscular.PECHO,
+            gimnasio=self.gimnasio, nombre="Sentadilla", categoria=self.piernas
+        )
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Press de banca", categoria=pecho
         )
         Ejercicio.objects.create(
             gimnasio=self.gimnasio,
             nombre="Sentadilla búlgara",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria=self.piernas,
         )
         self.client.login(username="staff-a", password="clave-123456")
 
         response = self.client.get(
-            reverse("ejercicios:listado"),
-            {"grupo_muscular": Ejercicio.GrupoMuscular.PIERNAS},
+            reverse("ejercicios:listado"), {"categoria": self.piernas.pk}
         )
 
         self.assertEqual(response.status_code, 200)
@@ -609,3 +612,104 @@ class SembrarCategoriasInicialesTests(TestCase):
         self.assertEqual(
             CategoriaEjercicio.objects.for_gimnasio(gimnasio).count(), 8
         )
+
+
+class EjercicioFormCategoriaTests(TestCase):
+    """El staff puede elegir una categoría existente **o escribir una nueva**
+    sin salir del alta del ejercicio: mandarlo a otra pantalla y hacerlo
+    volver a tipear todo era la fricción que pidió sacar el dueño."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.otro = Gimnasio.objects.create(nombre="B", slug="b")
+        self.empuje = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="EMPUJE"
+        )
+
+    def _form(self, **datos):
+        from ejercicios.forms import EjercicioForm
+
+        base = {"nombre": "Push up", "descripcion": "", "url_video": "", "activo": True}
+        return EjercicioForm(data={**base, **datos}, gimnasio=self.gimnasio)
+
+    def test_elegir_una_categoria_existente(self):
+        form = self._form(categoria=self.empuje.pk)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        ejercicio = form.save(commit=False)
+        ejercicio.gimnasio = self.gimnasio
+        ejercicio.save()
+        self.assertEqual(ejercicio.categoria, self.empuje)
+
+    def test_escribir_una_categoria_nueva_la_crea(self):
+        form = self._form(categoria_nueva="TRACCIÓN")
+
+        self.assertTrue(form.is_valid(), form.errors)
+        ejercicio = form.save(commit=False)
+        ejercicio.gimnasio = self.gimnasio
+        ejercicio.save()
+
+        self.assertEqual(ejercicio.categoria.nombre, "TRACCIÓN")
+        self.assertEqual(ejercicio.categoria.gimnasio, self.gimnasio)
+
+    def test_categoria_nueva_que_ya_existe_reusa_la_que_hay(self):
+        """Escribir 'empuje' con 'EMPUJE' ya cargada no debe crear una
+        segunda: es la misma categoría escrita distinto."""
+        form = self._form(categoria_nueva="empuje")
+
+        self.assertTrue(form.is_valid(), form.errors)
+        ejercicio = form.save(commit=False)
+        ejercicio.gimnasio = self.gimnasio
+        ejercicio.save()
+
+        self.assertEqual(ejercicio.categoria, self.empuje)
+        self.assertEqual(
+            CategoriaEjercicio.objects.for_gimnasio(self.gimnasio).count(), 1
+        )
+
+    def test_no_se_puede_elegir_y_escribir_a_la_vez(self):
+        form = self._form(categoria=self.empuje.pk, categoria_nueva="TRACCIÓN")
+
+        self.assertFalse(form.is_valid())
+
+    def test_la_categoria_es_obligatoria(self):
+        """La base la acepta vacía (por la fila suelta del Excel real), pero
+        el alta manual no: si no, se acumulan ejercicios que no salen en
+        ningún filtro."""
+        form = self._form()
+
+        self.assertFalse(form.is_valid())
+
+    def test_no_ofrece_categorias_de_otro_gimnasio(self):
+        ajena = CategoriaEjercicio.objects.create(
+            gimnasio=self.otro, nombre="Ajena"
+        )
+
+        form = self._form(categoria=ajena.pk)
+
+        self.assertFalse(form.is_valid())
+
+    def test_no_ofrece_categorias_desactivadas(self):
+        """Una categoría desactivada no se ofrece para asignar, pero los
+        ejercicios que ya la tienen la conservan."""
+        vieja = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Vieja", activo=False
+        )
+
+        form = self._form(categoria=vieja.pk)
+
+        self.assertFalse(form.is_valid())
+
+    def test_editar_conserva_la_categoria_desactivada_que_ya_tenia(self):
+        vieja = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Vieja", activo=False
+        )
+        ejercicio = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Antiguo", categoria=vieja
+        )
+
+        from ejercicios.forms import EjercicioForm
+
+        form = EjercicioForm(instance=ejercicio, gimnasio=self.gimnasio)
+
+        self.assertIn(vieja, form.fields["categoria"].queryset)

@@ -13,7 +13,7 @@ from django.views.generic import CreateView, ListView, UpdateView
 from core.mixins import TenantScopedMixin
 from tenants.mixins import StaffRequiredMixin
 from ejercicios.forms import EjercicioForm
-from ejercicios.models import Ejercicio
+from ejercicios.models import CategoriaEjercicio, Ejercicio
 
 
 class EjercicioListView(StaffRequiredMixin, TenantScopedMixin, ListView):
@@ -22,10 +22,19 @@ class EjercicioListView(StaffRequiredMixin, TenantScopedMixin, ListView):
     context_object_name = "ejercicios"
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        self.grupo_muscular = self.request.GET.get("grupo_muscular", "")
-        if self.grupo_muscular:
-            queryset = queryset.filter(grupo_muscular=self.grupo_muscular)
+        queryset = super().get_queryset().select_related("categoria")
+        # El filtro viaja por id, no por texto: las categorías son por
+        # gimnasio, así que un slug global ya no identifica nada.
+        self.categoria_actual = None
+        categoria_id = self.request.GET.get("categoria", "").strip()
+        if categoria_id.isdigit():
+            self.categoria_actual = (
+                CategoriaEjercicio.objects.for_gimnasio(self.gimnasio)
+                .filter(pk=categoria_id)
+                .first()
+            )
+            if self.categoria_actual is not None:
+                queryset = queryset.filter(categoria=self.categoria_actual)
         self.q = self.request.GET.get("q", "").strip()
         if self.q:
             queryset = queryset.filter(nombre__icontains=self.q)
@@ -33,8 +42,13 @@ class EjercicioListView(StaffRequiredMixin, TenantScopedMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["grupos_musculares"] = Ejercicio.GrupoMuscular.choices
-        context["grupo_muscular_actual"] = self.grupo_muscular
+        # Todas, no solo las activas: el staff tiene que poder filtrar por una
+        # categoría que desactivó para encontrar los ejercicios que quedaron
+        # colgados de ella (mismo criterio que `MedioCobroListView`).
+        context["categorias"] = CategoriaEjercicio.objects.for_gimnasio(
+            self.gimnasio
+        )
+        context["categoria_actual"] = self.categoria_actual
         context["q_actual"] = self.q
         return context
 

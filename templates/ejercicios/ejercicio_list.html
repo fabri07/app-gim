@@ -17,23 +17,23 @@
       <input type="text" name="q" id="q" value="{{ q_actual }}" placeholder="Nombre del ejercicio...">
     </div>
     <div>
-      <label for="grupo_muscular">Grupo muscular</label>
-      <select name="grupo_muscular" id="grupo_muscular" onchange="this.form.submit()">
-        <option value="" {% if not grupo_muscular_actual %}selected{% endif %}>Todos</option>
-        {% for valor, etiqueta in grupos_musculares %}
-          <option value="{{ valor }}" {% if grupo_muscular_actual == valor %}selected{% endif %}>{{ etiqueta }}</option>
+      <label for="categoria">Categoría</label>
+      <select name="categoria" id="categoria" onchange="this.form.submit()">
+        <option value="" {% if not categoria_actual %}selected{% endif %}>Todas</option>
+        {% for c in categorias %}
+          <option value="{{ c.pk }}" {% if categoria_actual.pk == c.pk %}selected{% endif %}>{{ c.nombre }}{% if not c.activo %} (inactiva){% endif %}</option>
         {% endfor %}
       </select>
     </div>
     <button type="submit" class="boton-secundario">Filtrar</button>
   </form>
 
-  {% if grupo_muscular_actual or q_actual %}
+  {% if categoria_actual or q_actual %}
     <p class="texto-suave">
       Mostrando solo:
       {% if q_actual %}<strong>"{{ q_actual }}"</strong>{% endif %}
-      {% if grupo_muscular_actual and q_actual %}&middot;{% endif %}
-      {% if grupo_muscular_actual %}<strong>{{ grupo_muscular_actual }}</strong>{% endif %}
+      {% if categoria_actual and q_actual %}&middot;{% endif %}
+      {% if categoria_actual %}<strong>{{ categoria_actual.nombre }}</strong>{% endif %}
       &middot; <a href="{% url 'ejercicios:listado' %}">quitar filtro</a>
     </p>
   {% endif %}
@@ -53,7 +53,7 @@
         {% for e in ejercicios %}
           <tr>
             <td>{{ e.nombre }}</td>
-            <td>{{ e.get_grupo_muscular_display }}</td>
+            <td>{{ e.categoria.nombre|default:"—" }}</td>
             <td>
               {% if e.activo %}
                 <span class="badge badge--ok">Activo</span>
