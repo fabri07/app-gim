@@ -248,6 +248,33 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
     return plantillas_creadas
 
 
+def _motivo_si_no_entra(item):
+    """`None` si la fila entra en la tabla, o el motivo si algún campo se pasa
+    de largo.
+
+    Postgres rechaza un `varchar` demasiado largo con un `DataError` que
+    voltea la transacción entera: una sola celda mal pegada mataba la
+    importación de las otras 747 filas con un 500 sin explicación. SQLite no
+    valida largos, así que esto NUNCA lo iba a encontrar un test local sin
+    chequearlo a mano (ver `ISSUES.md` [2026-08-27]).
+
+    Los límites se leen del modelo, no se copian acá: si mañana el campo
+    cambia de tamaño, este chequeo lo acompaña solo.
+    """
+    limites = {
+        "nombre_original": (Ejercicio._meta.get_field("nombre"), "El nombre"),
+        "url_video": (Ejercicio._meta.get_field("url_video"), "El link del video"),
+    }
+    for clave, (campo, etiqueta) in limites.items():
+        valor = item.get(clave) or ""
+        if len(valor) > campo.max_length:
+            return (
+                f"{etiqueta} tiene {len(valor)} caracteres y el máximo es "
+                f"{campo.max_length}"
+            )
+    return None
+
+
 def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
     """Análogo a `previsualizar_importacion_plantillas` pero para el import
     de biblioteca: cada fila es un ejercicio suelto (nombre + grupo
@@ -286,6 +313,11 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
     items = []
     primera_fila_por_nombre = {}  # nombre_normalizado -> fila_excel de la 1ra aparición
     for item in items_parseados:
+        motivo = _motivo_si_no_entra(item)
+        if motivo:
+            filas_invalidas_json.append({"fila_excel": item["fila_excel"], "motivo": motivo})
+            continue
+
         nombre_normalizado = normalizar_texto(item["nombre_original"])
         if nombre_normalizado in primera_fila_por_nombre:
             # Dos filas del MISMO archivo que normalizan al mismo nombre
@@ -359,18 +391,65 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
     )
 
 
-def _categoria_para(*, item, decision, gimnasio, cache):
+class _CatalogoCategorias:
+    """Las categorías del gimnasio, leídas UNA sola vez por confirmación.
+
+    Antes cada ejercicio a crear disparaba su propio SELECT para resolver la
+    categoría, y `Ejercicio.objects.create()` su propio INSERT: dos
+    round-trips por fila. Con la biblioteca real de un cliente (748
+    ejercicios) eso son ~1500 idas y vueltas contra Neon, más de los 30 s de
+    timeout de gunicorn -- el worker moría y el staff veía un 502 (ver
+    `ISSUES.md` [2026-08-27]). El catálogo de un gimnasio son decenas de
+    filas: entra entero en memoria sin problema.
+    """
+
+    def __init__(self, gimnasio):
+        from ejercicios.models import CategoriaEjercicio
+
+        self.gimnasio = gimnasio
+        self._modelo = CategoriaEjercicio
+        # Sin filtrar por `activo`: una categoría desactivada sigue siendo
+        # una elección válida del preview, y reusarla es preferible a chocar
+        # contra la UniqueConstraint creando una segunda con el mismo nombre.
+        categorias = list(CategoriaEjercicio.objects.for_gimnasio(gimnasio))
+        self.por_id = {c.pk: c for c in categorias}
+        self.por_clave = {c.nombre_normalizado: c for c in categorias}
+
+    def por_pk(self, pk):
+        """`None` si no existe o es de otro gimnasio -- el queryset ya venía
+        acotado con `for_gimnasio`, así que el aislamiento no depende de que
+        cada llamador se acuerde de filtrar."""
+        return self.por_id.get(pk)
+
+    def crear_o_reusar(self, nombre):
+        """Las categorías marcadas "nueva" en el preview se crean acá.
+
+        Sigue siendo un `get_or_create`: si alguien creó esa misma categoría
+        desde el panel entre el preview y esta confirmación, se reusa en vez
+        de chocar contra la `UniqueConstraint`. Lo que cambió es que ya no
+        corre una vez por ejercicio, sino una vez por categoría distinta.
+        """
+        clave = normalizar_texto(nombre)
+        if clave not in self.por_clave:
+            categoria, _ = self._modelo.objects.get_or_create(
+                gimnasio=self.gimnasio,
+                nombre_normalizado=clave,
+                defaults={"nombre": nombre},
+            )
+            self.por_clave[clave] = categoria
+            self.por_id[categoria.pk] = categoria
+        return self.por_clave[clave]
+
+
+def _categoria_para(*, item, decision, catalogo):
     """Resuelve la `CategoriaEjercicio` de un ejercicio a crear.
 
     Prioridad: lo que el staff eligió a mano en el preview gana sobre lo que
     resolvió el importador -- si tocó el desplegable, fue porque el
     automático no le servía.
 
-    `cache` evita repetir el `get_or_create` de la misma categoría nueva por
-    cada uno de los cientos de ejercicios que la comparten.
+    No toca la base: todo sale de `catalogo`, que ya la leyó una vez.
     """
-    from ejercicios.models import CategoriaEjercicio
-
     if decision.get("sin_categoria"):
         # El staff eligió explícitamente dejarlo sin clasificar; no se cae
         # al automático, que es justo lo que quiso descartar.
@@ -378,11 +457,7 @@ def _categoria_para(*, item, decision, gimnasio, cache):
 
     elegida = decision.get("categoria_id")
     if elegida:
-        categoria = (
-            CategoriaEjercicio.objects.for_gimnasio(gimnasio)
-            .filter(pk=elegida)
-            .first()
-        )
+        categoria = catalogo.por_pk(elegida)
         if categoria is None:
             raise ImportacionInvalida(
                 f"La categoría elegida para «{item['nombre_original']}» no "
@@ -395,11 +470,7 @@ def _categoria_para(*, item, decision, gimnasio, cache):
         return None
 
     if resuelta["tipo"] == "existente":
-        categoria = (
-            CategoriaEjercicio.objects.for_gimnasio(gimnasio)
-            .filter(pk=resuelta["categoria_id"])
-            .first()
-        )
+        categoria = catalogo.por_pk(resuelta["categoria_id"])
         if categoria is None:
             # Alguien la borró entre el preview y la confirmación. Falla
             # ruidoso, igual que la rama de elección manual: crear cientos de
@@ -411,15 +482,7 @@ def _categoria_para(*, item, decision, gimnasio, cache):
             )
         return categoria
 
-    nombre = resuelta["nombre"]
-    clave = normalizar_texto(nombre)
-    if clave not in cache:
-        cache[clave], _ = CategoriaEjercicio.objects.get_or_create(
-            gimnasio=gimnasio,
-            nombre_normalizado=clave,
-            defaults={"nombre": nombre},
-        )
-    return cache[clave]
+    return catalogo.crear_o_reusar(resuelta["nombre"])
 
 
 def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
@@ -434,8 +497,7 @@ def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
     `nombre_normalizado`, así que si alguien creó esa misma categoría desde
     el panel entre el preview y esta confirmación, se reusa en vez de chocar
     contra la `UniqueConstraint`."""
-    creados = []
-    categorias_creadas = {}
+    a_crear = []
     with transaction.atomic():
         importacion = Importacion.objects.select_for_update().get(pk=importacion.pk)
         if importacion.gimnasio_id != gimnasio.id:
@@ -443,6 +505,7 @@ def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
         if importacion.estado != Importacion.Estado.EN_REVISION:
             raise ImportacionInvalida("Esta importación ya fue procesada.")
 
+        catalogo = _CatalogoCategorias(gimnasio)
         for item in importacion.resultado["items"]:
             try:
                 decision = decisiones["items"][item["nombre_normalizado"]]
@@ -453,19 +516,21 @@ def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
             if not decision["incluir"] or item["match"]["tipo"] == "exacto":
                 # "exacto" ya existe en la biblioteca: no se recrea.
                 continue
-            categoria = _categoria_para(
-                item=item,
-                decision=decision,
-                gimnasio=gimnasio,
-                cache=categorias_creadas,
-            )
-            ejercicio = Ejercicio.objects.create(
+            a_crear.append(Ejercicio(
                 gimnasio=gimnasio,
                 nombre=item["nombre_original"],
-                categoria=categoria,
+                categoria=_categoria_para(
+                    item=item, decision=decision, catalogo=catalogo,
+                ),
                 url_video=item["url_video"],
-            )
-            creados.append(ejercicio)
+            ))
+
+        # Un INSERT (o unos pocos, si el driver limita los parámetros) en vez
+        # de uno por ejercicio. `Ejercicio` no tiene `save()` propio ni
+        # señales enganchadas, así que saltear el `save()` por instancia no
+        # cambia nada -- `creado`/`modificado` los sigue completando
+        # `bulk_create`.
+        creados = Ejercicio.objects.bulk_create(a_crear)
 
         importacion.estado = Importacion.Estado.CONFIRMADA
         importacion.confirmado_en = timezone.now()

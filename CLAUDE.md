@@ -531,6 +531,31 @@ plan original).
   plantillas, aceptado como riesgo documentado en vez de arreglado, porque
   el dueño confirmó que una plantilla real nunca supera ~300 ejercicios
   distintos).
+- **Gotcha de escala #2 (confirmar): el costo en queries tiene que depender
+  del catálogo, no de la cantidad de filas.** `confirmar_importacion_biblioteca`
+  hacía dos queries por fila (el `SELECT` de la categoría + el `INSERT` del
+  ejercicio) y el Excel real de un cliente (748 ejercicios) se comía los 30 s
+  de timeout de gunicorn: **502 en producción** (ver `ISSUES.md`
+  `[2026-08-27]`). Hoy `_CatalogoCategorias` lee las categorías del gimnasio
+  una sola vez y `Ejercicio.objects.bulk_create()` inserta todo junto — 7
+  queries para 200 ejercicios, las mismas que para 20, fijado por
+  `ImportacionBibliotecaEscalaTests`. **No vuelvas a meter una query adentro
+  del loop de items** en ninguno de los dos flujos de confirmación.
+- **Los largos de campo se validan en el preview, no se descubren en el
+  `INSERT`.** SQLite no valida el largo de un `varchar` y Postgres sí: dos
+  links de 306 caracteres en el Excel de un cliente eran un `DataError` que
+  abortaba la transacción y se llevaba puestos los otros 746 ejercicios, con
+  un 500 mudo (ver `ISSUES.md` `[2026-08-27]`). `url_video` pasó a
+  `max_length=500` y `_motivo_si_no_entra()` descarta la fila en el preview,
+  con motivo y número de fila, leyendo los límites de `Ejercicio._meta` en vez
+  de copiarlos. Misma familia de trampa que `select_for_update()` siendo
+  no-op en SQLite: **si un campo puede desbordar, el test local no te lo va a
+  decir.**
+- **El preview muestra el video de cada fila, no un "Estado" constante.** La
+  columna `LINK` del Excel se parsea desde siempre pero no se veía en el
+  preview, y la columna que ocupaba su lugar decía "Nuevo" en las 748 filas
+  (ver `ISSUES.md` `[2026-08-27]`). "Ya existe" quedó como badge al lado del
+  nombre: aparece solo cuando de verdad hay algo que decir.
 
 ## UI y white-label (Fase 4)
 

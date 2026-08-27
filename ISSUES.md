@@ -1078,3 +1078,103 @@ los de `resolver_grupo_muscular` (matcheaba contra un catálogo que ya no
 existe). Se descartan por migración las importaciones de biblioteca que
 quedaron en `en_revision` con el `resultado` del formato viejo: su preview
 habría dado 500 tras el deploy, y en producción había al menos dos.
+
+## [2026-08-27] Confirmar la biblioteca de 748 ejercicios daba 502 (worker timeout)
+
+**Estado:** resuelto
+
+**Impacto:** el primer cliente pago subió su Excel real (748 ejercicios), el
+preview cargó bien, y al confirmar la app devolvió un **502 Bad Gateway** de
+Render. En el log de Render:
+
+```
+[CRITICAL] WORKER TIMEOUT (pid:62)
+[ERROR] Worker (pid:62) was sent SIGKILL! Perhaps out of memory?
+```
+
+No era memoria (ese texto de gunicorn es genérico): era el timeout de 30 s por
+request. `confirmar_importacion_biblioteca` hacía **dos queries por fila** —
+el `SELECT` de la categoría dentro de `_categoria_para` y el `INSERT` de
+`Ejercicio.objects.create()` — o sea ~1500 round-trips contra Neon para este
+archivo. Medido con `CaptureQueriesContext`: **404 queries para 200
+ejercicios** (44 para 20 — escala lineal exacta). Contra una base remota, con
+scale-to-zero, eso no entra en 30 s.
+
+Nada quedó a medias: todo corre dentro de `transaction.atomic()`, así que al
+morir el worker Postgres hizo rollback y la `Importacion` siguió
+`EN_REVISION` — alcanza con volver a abrir el preview y confirmar.
+
+**Resolución / próximo paso:** el costo pasó a ser **constante**, no
+proporcional a las filas (7 queries para 200 ejercicios, igual que para 20):
+
+- `_CatalogoCategorias` (`importaciones/services.py`) lee las categorías del
+  gimnasio **una sola vez** por confirmación y resuelve todo en memoria. El
+  `get_or_create` de las categorías nuevas sigue existiendo (protege contra
+  que alguien la haya creado entre el preview y el confirm), pero corre una
+  vez por categoría distinta, no una vez por ejercicio.
+- `Ejercicio.objects.bulk_create()` en vez de un `create()` por fila.
+  `Ejercicio` no tiene `save()` propio ni señales enganchadas, así que
+  saltear el `save()` por instancia no cambia nada.
+
+Test de regresión: `ImportacionBibliotecaEscalaTests` compara el conteo de
+queries de 20 vs 200 ejercicios y exige que no crezca. Compara dos tamaños en
+vez de fijar un `assertNumQueries` literal, mismo criterio que el test de
+`select_related` de `alumnos:accesos`.
+
+**Riesgo que queda abierto:** el timeout de gunicorn sigue en el default de
+30 s (`render.yaml` no lo pisa). Cualquier flujo nuevo que haga N queries por
+fila lo va a volver a chocar. La regla: en un flujo de importación, el costo
+en queries tiene que depender del catálogo, no de la cantidad de filas.
+
+## [2026-08-27] El preview de biblioteca no mostraba los videos y sí una columna inútil
+
+**Estado:** resuelto
+
+**Impacto:** reportado por el mismo cliente en la misma sesión. El Excel real
+trae una columna `LINK` con el video de **los 748 ejercicios**, el parser la
+detecta bien (`ALIAS_BIBLIOTECA["url_video"]` incluye `"link"`) y se guarda en
+el `Ejercicio`, pero el preview no la mostraba en ninguna parte: no había forma
+de detectar un link mal pegado *antes* de confirmar. En su lugar la tabla
+gastaba una columna en "Estado", que en una importación normal dice "Nuevo" en
+las 748 filas — una columna de valor constante no informa nada.
+
+**Resolución / próximo paso:** la tercera columna de
+`templates/importaciones/biblioteca_preview.html` pasó a ser **Video** (link
+"Ver video" o "Sin video", mismo tratamiento que `ejercicios/ejercicio_list.html`).
+Lo único que "Estado" aportaba era la excepción — el ejercicio que YA existe y
+por eso no se va a crear — y eso ahora es un badge al lado del nombre, visible
+justo cuando importa. Test: `test_preview_muestra_el_video_de_cada_ejercicio`.
+
+## [2026-08-27] Un link de 306 caracteres habría volteado la importación entera (encontrado antes de que pasara)
+
+**Estado:** resuelto
+
+**Impacto:** no lo reportó el cliente — apareció auditando su archivo real
+mientras se arreglaba el 502 de arriba. De los 748 ejercicios, **2** tienen en
+la celda del video una URL de búsqueda de Google de **306 caracteres**
+(alguien pegó la página de resultados en vez del link del video).
+`Ejercicio.url_video` era un `URLField` con el default de `max_length=200`, así
+que en Postgres esas dos filas son un `DataError` que aborta la transacción:
+los otros 746 ejercicios tampoco se creaban, y el staff veía un 500 sin
+ninguna pista de cuál fue la fila culpable.
+
+**Por qué ningún test lo agarró:** SQLite no valida el largo de un `varchar`.
+En local entraba sin chistar; solo Postgres lo rechaza. Es el mismo tipo de
+divergencia dev/prod ya anotada para `select_for_update()` (no-op en SQLite).
+
+**Resolución / próximo paso:** dos capas.
+
+1. `Ejercicio.url_video` pasó a `max_length=500` (migración
+   `ejercicios/0004`). Un link con parámetros de tracking pasa los 200
+   caracteres sin ser raro; 200 era el default de Django, no una decisión.
+   En Postgres agrandar un `varchar` no reescribe la tabla.
+2. `_motivo_si_no_entra()` (`importaciones/services.py`) descarta en el
+   **preview** cualquier fila cuyo nombre o link no entre en la columna, con
+   el motivo y el número de fila, como cualquier otra fila inválida. Los
+   límites se leen de `Ejercicio._meta`, no se copian: si el campo cambia de
+   tamaño, el chequeo lo sigue solo. Con el 500 de arriba las dos filas del
+   cliente entran; el guard existe para que UNA celda mal pegada no pueda
+   volver a llevarse puestas las otras 747.
+
+Tests: `ImportacionBibliotecaLargosTests` (chequea el guard directo, no el
+error de la base — en SQLite ese error no existe).

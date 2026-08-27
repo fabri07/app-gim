@@ -7,6 +7,8 @@ import json
 import openpyxl
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
@@ -961,6 +963,26 @@ class ImportacionPlantillasViewsTests(TestCase):
             reverse("importaciones:plantillas_preview", args=[importacion.pk])
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_preview_muestra_el_video_de_cada_ejercicio(self):
+        """El archivo real del cliente trae una columna LINK con el video de
+        cada ejercicio, se parsea bien, pero el preview no la mostraba en
+        ningún lado -- no había forma de detectar un link mal pegado antes de
+        confirmar (reporte del 2026-08-27)."""
+        self.client.login(username="staff_a", password="clave12345")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["NOMBRE", "LINK", "CATEGORÍA"])
+        ws.append(["Press de banca", "https://youtu.be/abc123", "Pecho"])
+        ws.append(["Zancada", "", "Piernas"])
+        self.client.post(reverse("importaciones:biblioteca_subir"), {"archivo": _archivo_xlsx(wb)})
+        importacion = Importacion.objects.get()
+
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "https://youtu.be/abc123")
+        self.assertContains(response, "Sin video")
 
     def test_flujo_completo_subir_preview_confirmar(self):
         self.client.login(username="staff_a", password="clave12345")
@@ -2275,3 +2297,125 @@ class CategoriasACrearCuentaSoloLasRealesTests(TestCase):
 
         # El ejercicio ya existe: no se recrea, y su categoría tampoco.
         self.assertEqual(segunda.resultado["categorias_a_crear"], [])
+
+
+class ImportacionBibliotecaLargosTests(TestCase):
+    """Una celda demasiado larga no puede voltear la importación entera.
+
+    En Postgres un `varchar` desbordado es un `DataError` que aborta la
+    transacción: el Excel real de un cliente traía dos links de 306
+    caracteres y eso habría dejado sin importar los otros 746 ejercicios,
+    con un 500 sin explicación. SQLite no valida largos, así que estos tests
+    chequean el guard directamente, no el error de la base."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user(username="staff", password="clave12345")
+
+    def _preview(self, filas):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Link"])
+        for fila in filas:
+            ws.append(fila)
+        return previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+
+    def test_un_link_largo_pero_valido_entra(self):
+        """306 caracteres es lo que traía el archivo real: tiene que entrar,
+        no descartarse. Por eso `url_video` es `max_length=500`."""
+        link = "https://www.google.com/search?q=" + "a" * 274
+        self.assertEqual(len(link), 306)
+        importacion = self._preview([["Puente supino", link]])
+        self.assertEqual(len(importacion.resultado["items"]), 1)
+        self.assertEqual(importacion.resultado["items"][0]["url_video"], link)
+
+    def test_un_link_imposible_descarta_solo_esa_fila(self):
+        importacion = self._preview([
+            ["Puente supino", "https://x.com/" + "a" * 600],
+            ["Sentadilla", "https://youtu.be/ok"],
+        ])
+        self.assertEqual(len(importacion.resultado["items"]), 1)
+        self.assertEqual(importacion.resultado["items"][0]["nombre_original"], "Sentadilla")
+        self.assertEqual(len(importacion.resultado["filas_invalidas"]), 1)
+        self.assertIn("link del video", importacion.resultado["filas_invalidas"][0]["motivo"])
+
+    def test_un_nombre_imposible_descarta_solo_esa_fila(self):
+        importacion = self._preview([
+            ["N" * 200, ""],
+            ["Sentadilla", ""],
+        ])
+        self.assertEqual(len(importacion.resultado["items"]), 1)
+        self.assertIn("nombre", importacion.resultado["filas_invalidas"][0]["motivo"])
+
+
+class ImportacionBibliotecaEscalaTests(TestCase):
+    """El confirm de biblioteca tiene que costar lo mismo con 20 filas que
+    con 200: es el flujo que un gimnasio real usa una sola vez, con toda su
+    biblioteca (748 ejercicios en el caso que lo rompió)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Empuje"
+        )
+        self.usuario = User.objects.create_user(username="staff", password="clave12345")
+
+    def _importacion(self, cantidad):
+        items = [
+            {
+                "fila_excel": i + 2,
+                "nombre_original": f"Ejercicio {i}",
+                "nombre_normalizado": f"ejercicio {i}",
+                "grupo_muscular_original": "Empuje",
+                "url_video": "",
+                "categoria_resuelta": {
+                    "tipo": "existente",
+                    "categoria_id": self.categoria.pk,
+                    "nombre": self.categoria.nombre,
+                },
+                "match": {"tipo": "nuevo"},
+            }
+            for i in range(cantidad)
+        ]
+        return Importacion.objects.create(
+            gimnasio=self.gimnasio,
+            tipo=Importacion.Tipo.BIBLIOTECA,
+            resultado={"items": items, "filas_invalidas": [], "advertencias_columnas": []},
+            creado_por=self.usuario,
+        )
+
+    def _queries_para(self, cantidad):
+        importacion = self._importacion(cantidad)
+        decisiones = {"items": {
+            f"ejercicio {i}": {
+                "incluir": True, "categoria_id": None, "sin_categoria": False,
+            }
+            for i in range(cantidad)
+        }}
+        with CaptureQueriesContext(connection) as consultas:
+            creados = confirmar_importacion_biblioteca(
+                importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+        self.assertEqual(len(creados), cantidad)
+        return len(consultas)
+
+    def test_el_costo_en_queries_no_crece_con_la_cantidad_de_filas(self):
+        """Regresión del 502 del 2026-08-27. El confirm hacía DOS queries por
+        fila -- el SELECT de la categoría en `_categoria_para` y el INSERT de
+        `Ejercicio.objects.create()` -- o sea ~1500 round-trips contra Neon
+        para un archivo de 748 ejercicios: más de los 30 s de timeout de
+        gunicorn, worker muerto y 502 en la cara del staff.
+
+        Se comparan dos tamaños en vez de fijar un número exacto (mismo
+        criterio que el test de `select_related` de `alumnos:accesos`): un
+        `assertNumQueries` literal se rompe con cualquier cambio interno de
+        Django sin que haya una regresión real."""
+        chico = self._queries_para(20)
+        grande = self._queries_para(200)
+        self.assertLessEqual(
+            grande, chico + 5,
+            f"El confirm escala con la cantidad de filas: {chico} queries con "
+            f"20 ejercicios, {grande} con 200.",
+        )

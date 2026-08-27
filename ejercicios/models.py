@@ -107,7 +107,12 @@ class Ejercicio(TenantOwnedModel):
         max_length=20, choices=GrupoMuscular.choices, blank=True, null=True
     )
     descripcion = models.TextField(blank=True)
-    url_video = models.URLField(blank=True, help_text="Link de YouTube")
+    # 500 y no el default de 200 de `URLField`: el Excel real de un cliente
+    # traía links de 306 caracteres (una URL de búsqueda de Google pegada en
+    # la celda del video). En Postgres eso es un `DataError` que voltea la
+    # importación entera con un 500; en SQLite pasa sin chistar, así que los
+    # tests locales no lo veían. Ver `ISSUES.md` [2026-08-27].
+    url_video = models.URLField(max_length=500, blank=True, help_text="Link de YouTube")
     activo = models.BooleanField(default=True)
 
     class Meta:

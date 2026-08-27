@@ -35,11 +35,22 @@
     {% csrf_token %}
     <div class="tabla-scroll">
       <table class="tabla">
-        <thead><tr><th>Nombre</th><th>Categoría</th><th>Estado</th></tr></thead>
+        {# "Estado" era una columna que en una importación normal decía
+           "Nuevo" en las 748 filas: cero información. Lo único que aporta es
+           la excepción -- el ejercicio que YA existe y por eso no se va a
+           crear -- así que ahora es un badge al lado del nombre, y la
+           columna que queda libre muestra el video, que sí venía en el
+           archivo y no se veía en ningún lado (reporte del 2026-08-27). #}
+        <thead><tr><th>Nombre</th><th>Categoría</th><th>Video</th></tr></thead>
         <tbody>
           {% for item in importacion.resultado.items %}
             <tr>
-              <td>{{ item.nombre_original }}</td>
+              <td>
+                {{ item.nombre_original }}
+                {% if item.match.tipo == "exacto" %}
+                  <span class="badge">Ya existe</span>
+                {% endif %}
+              </td>
               <td>
                 {% if item.categoria_resuelta %}
                   {{ item.categoria_resuelta.nombre }}
@@ -54,7 +65,11 @@
                 {% else %}—{% endif %}
               </td>
               <td>
-                {% if item.match.tipo == "exacto" %}Ya existe{% else %}Nuevo{% endif %}
+                {% if item.url_video %}
+                  <a href="{{ item.url_video }}" target="_blank" rel="noopener">Ver video</a>
+                {% else %}
+                  <span class="texto-suave">Sin video</span>
+                {% endif %}
               </td>
             </tr>
           {% endfor %}
