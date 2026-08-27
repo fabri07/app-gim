@@ -551,3 +551,61 @@ class BackfillCategoriasMigrationTests(TestCase):
         self._backfill()
 
         self.assertEqual(CategoriaEjercicio.objects.count(), 0)
+
+
+class SembrarCategoriasInicialesTests(TestCase):
+    """Un gimnasio nuevo arranca con un catálogo sugerido en vez de un
+    desplegable vacío -- si no, el primer ejercicio que el staff quiera
+    cargar lo obliga a inventar una categoría antes de poder guardar."""
+
+    def test_crear_gimnasio_siembra_las_categorias_iniciales(self):
+        from tenants.services import crear_gimnasio
+
+        gimnasio, _usuario, _password = crear_gimnasio(
+            "Gimnasio Nuevo", "dueno@ejemplo.com"
+        )
+
+        nombres = list(
+            CategoriaEjercicio.objects.for_gimnasio(gimnasio).values_list(
+                "nombre", flat=True
+            )
+        )
+        self.assertEqual(
+            nombres,
+            [
+                "Pecho",
+                "Espalda",
+                "Piernas",
+                "Hombros",
+                "Brazos",
+                "Core",
+                "Cardio",
+                "Cuerpo completo",
+            ],
+        )
+
+    def test_las_categorias_sembradas_son_del_gimnasio_nuevo(self):
+        from tenants.services import crear_gimnasio
+
+        gimnasio_a, _u, _p = crear_gimnasio("Uno", "uno@ejemplo.com")
+        gimnasio_b, _u, _p = crear_gimnasio("Dos", "dos@ejemplo.com")
+
+        self.assertEqual(
+            CategoriaEjercicio.objects.for_gimnasio(gimnasio_a).count(), 8
+        )
+        self.assertEqual(
+            CategoriaEjercicio.objects.for_gimnasio(gimnasio_b).count(), 8
+        )
+        self.assertEqual(CategoriaEjercicio.objects.count(), 16)
+
+    def test_sembrar_es_idempotente(self):
+        from ejercicios.services import sembrar_categorias_iniciales
+        from tenants.services import crear_gimnasio
+
+        gimnasio, _u, _p = crear_gimnasio("Uno", "uno@ejemplo.com")
+
+        sembrar_categorias_iniciales(gimnasio)
+
+        self.assertEqual(
+            CategoriaEjercicio.objects.for_gimnasio(gimnasio).count(), 8
+        )
