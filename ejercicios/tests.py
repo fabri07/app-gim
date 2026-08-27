@@ -713,3 +713,153 @@ class EjercicioFormCategoriaTests(TestCase):
         form = EjercicioForm(instance=ejercicio, gimnasio=self.gimnasio)
 
         self.assertIn(vieja, form.fields["categoria"].queryset)
+
+
+class CategoriaCRUDTests(TestCase):
+    """CRUD del catálogo, molde de `pagos.MedioCobro`. Sin `DeleteView`:
+    "eliminar" es destildar `activo`."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.otro = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = User.objects.create_user("alumno-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.empuje = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="EMPUJE"
+        )
+
+    def test_anonimo_es_redirigido_al_login(self):
+        url = reverse("ejercicios:categorias_listado")
+        self.assertRedirects(
+            self.client.get(url), f"{reverse('login')}?next={url}"
+        )
+
+    def test_alumno_recibe_403(self):
+        self.client.login(username="alumno-a", password="clave-123456")
+        response = self.client.get(reverse("ejercicios:categorias_listado"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_ve_sus_categorias_y_no_las_de_otro_gimnasio(self):
+        CategoriaEjercicio.objects.create(gimnasio=self.otro, nombre="AJENA")
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(reverse("ejercicios:categorias_listado"))
+
+        self.assertContains(response, "EMPUJE")
+        self.assertNotContains(response, "AJENA")
+
+    def test_lista_tambien_las_inactivas_para_poder_reactivarlas(self):
+        CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="VIEJA", activo=False
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(reverse("ejercicios:categorias_listado"))
+
+        self.assertContains(response, "VIEJA")
+
+    def test_muestra_cuantos_ejercicios_tiene_cada_categoria(self):
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Push up", categoria=self.empuje
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(reverse("ejercicios:categorias_listado"))
+
+        self.assertEqual(
+            response.context["categorias"].get(pk=self.empuje.pk).total_ejercicios, 1
+        )
+
+    def test_staff_puede_crear_una_categoria(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.post(
+            reverse("ejercicios:categorias_crear"),
+            {"nombre": "TRACCIÓN", "orden": 1, "activo": "on"},
+        )
+
+        self.assertRedirects(response, reverse("ejercicios:categorias_listado"))
+        categoria = CategoriaEjercicio.objects.get(nombre="TRACCIÓN")
+        self.assertEqual(categoria.gimnasio, self.gimnasio)
+
+    def test_renombrar_no_toca_los_ejercicios_asignados(self):
+        ejercicio = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Push up", categoria=self.empuje
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        self.client.post(
+            reverse("ejercicios:categorias_editar", args=[self.empuje.pk]),
+            {"nombre": "EMPUJE HORIZONTAL", "orden": 0, "activo": "on"},
+        )
+
+        ejercicio.refresh_from_db()
+        self.assertEqual(ejercicio.categoria.nombre, "EMPUJE HORIZONTAL")
+
+    def test_no_deja_crear_una_categoria_que_ya_existe_escrita_distinto(self):
+        """Sin este guard la `UniqueConstraint` explota como IntegrityError
+        (un 500) en vez de mostrar un error de campo."""
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.post(
+            reverse("ejercicios:categorias_crear"),
+            {"nombre": "empuje", "orden": 0, "activo": "on"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ya tenés una categoría")
+        self.assertEqual(
+            CategoriaEjercicio.objects.for_gimnasio(self.gimnasio).count(), 1
+        )
+
+    def test_editar_una_categoria_sin_cambiarle_el_nombre_no_choca_consigo_misma(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.post(
+            reverse("ejercicios:categorias_editar", args=[self.empuje.pk]),
+            {"nombre": "EMPUJE", "orden": 5, "activo": "on"},
+        )
+
+        self.assertRedirects(response, reverse("ejercicios:categorias_listado"))
+        self.empuje.refresh_from_db()
+        self.assertEqual(self.empuje.orden, 5)
+
+    def test_editar_una_categoria_de_otro_gimnasio_da_404(self):
+        ajena = CategoriaEjercicio.objects.create(
+            gimnasio=self.otro, nombre="AJENA"
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(
+            reverse("ejercicios:categorias_editar", args=[ajena.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_desactivar_una_categoria_no_borra_sus_ejercicios(self):
+        ejercicio = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Push up", categoria=self.empuje
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        self.client.post(
+            reverse("ejercicios:categorias_editar", args=[self.empuje.pk]),
+            {"nombre": "EMPUJE", "orden": 0, "activo": ""},
+        )
+
+        ejercicio.refresh_from_db()
+        self.assertEqual(ejercicio.categoria, self.empuje)
+        self.assertFalse(ejercicio.categoria.activo)
+
+    def test_el_listado_de_ejercicios_enlaza_al_crud(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(reverse("ejercicios:listado"))
+
+        self.assertContains(response, reverse("ejercicios:categorias_listado"))

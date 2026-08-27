@@ -72,3 +72,35 @@ class EjercicioForm(TenantScopedModelForm):
             )
             self.instance.categoria = categoria
         return super().save(commit)
+
+
+class CategoriaEjercicioForm(TenantScopedModelForm):
+    """Alta/edición de una categoría. Incluye `activo` a propósito: no hay
+    `DeleteView` -- "eliminar" una categoría es destildar `activo`, mismo
+    patrón que `MedioCobro` y `Novedad`. Además `Ejercicio.categoria` es
+    `on_delete=PROTECT`, así que borrar una categoría en uso no es siquiera
+    posible sin reasignar antes cada ejercicio.
+    """
+
+    class Meta:
+        model = CategoriaEjercicio
+        fields = ["nombre", "orden", "activo"]
+
+    def clean_nombre(self):
+        """La `UniqueConstraint` es sobre `nombre_normalizado`, que el form no
+        expone: sin este chequeo, renombrar una categoría a una que ya existe
+        escrita distinto explota con un `IntegrityError` (un 500) en vez de
+        un error de campo.
+        """
+        nombre = self.cleaned_data["nombre"]
+        chocan = CategoriaEjercicio.objects.for_gimnasio(self.gimnasio).filter(
+            nombre_normalizado=normalizar_texto(nombre)
+        )
+        if self.instance.pk:
+            chocan = chocan.exclude(pk=self.instance.pk)
+        if chocan.exists():
+            raise forms.ValidationError(
+                f"Ya tenés una categoría llamada «{chocan.first().nombre}». "
+                "Las mayúsculas y los acentos no la hacen distinta."
+            )
+        return nombre
