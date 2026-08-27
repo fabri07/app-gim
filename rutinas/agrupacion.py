@@ -6,21 +6,23 @@ todos los días) -- así el portal y el PDF muestran exactamente la misma
 lista sin duplicar la lógica.
 
 Hasta 2026-08-24 esta función subdividía el resultado en secciones por
-grupo muscular; se sacó esa subdivisión a pedido de un cliente real (la
-encontró confusa) y ahora devuelve una lista plana -- el grupo muscular de
-cada ejercicio se sigue calculando y devolviendo (`grupo_muscular_display`),
-solo que ya no se usa para dividir en secciones.
+categoría; se sacó esa subdivisión a pedido de un cliente real (la encontró
+confusa) y ahora devuelve una lista plana -- la categoría de cada ejercicio
+se sigue devolviendo (`categoria_display`), solo que ya no se usa para
+dividir en secciones.
 
 Django-free a propósito (no hace queries, solo itera lo que le pasan) --
 se testea con instancias armadas a mano, mismo criterio que
-`tenants/paisaje_matching.py`.
+`tenants/paisaje_matching.py`. Hasta 2026-08-26 el docstring decía eso pero
+mentía: importaba `ejercicios.models.Ejercicio` para armar un dict
+valor->etiqueta en tiempo de import. Con las categorías por gimnasio ese dict
+global dejó de ser correcto, y la salida fue guardar el nombre ya renderizado
+en el snapshot. Sin lookup no hace falta el import, y ahora sí es Django-free.
 """
 
-from ejercicios.models import Ejercicio
 from rutinas.models import SEMANAS_POR_CICLO
 
-_SIN_GRUPO_DISPLAY = "Sin grupo muscular"
-_DISPLAY_POR_VALOR = dict(Ejercicio.GrupoMuscular.choices)
+_SIN_CATEGORIA_DISPLAY = "Sin categoría"
 
 
 def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
@@ -51,13 +53,13 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
     del día"), así que una lista plana ordenada por él respeta el orden
     que el staff cargó.
 
-    Cada ejercicio del resultado trae su propio `grupo_muscular_display`,
+    Cada ejercicio del resultado trae su propio `categoria_display`,
     tomado del mismo item de la semana más baja disponible que ya define
-    `orden` -- no del primer item iterado. Un ejercicio reasignado a otro
-    grupo muscular en la biblioteca entre semanas de una misma rutina
-    (caso raro) queda así determinado por la semana más baja, igual que
-    `orden`, y no por el orden en que el caller haya iterado `items` (que
-    esta función, según el docstring de arriba, no puede asumir).
+    `orden` -- no del primer item iterado. Un ejercicio reasignado a otra
+    categoría en la biblioteca entre semanas de una misma rutina (caso raro)
+    queda así determinado por la semana más baja, igual que `orden`, y no por
+    el orden en que el caller haya iterado `items` (que esta función, según
+    el docstring de arriba, no puede asumir).
     """
     if semanas is None:
         semanas = list(range(1, SEMANAS_POR_CICLO + 1))
@@ -83,8 +85,9 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
         resultado.append(
             {
                 "nombre": entrada["nombre"],
-                "grupo_muscular_display": _DISPLAY_POR_VALOR.get(
-                    item_semana_mas_baja.grupo_muscular_snapshot, _SIN_GRUPO_DISPLAY
+                "categoria_display": (
+                    item_semana_mas_baja.categoria_snapshot
+                    or _SIN_CATEGORIA_DISPLAY
                 ),
                 "video": entrada["video"],
                 "orden": item_semana_mas_baja.orden,
