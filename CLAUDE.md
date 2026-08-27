@@ -99,7 +99,9 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   siendo `fecha_nacimiento` (ya existía) — no se agregó un campo `edad`
   aparte para no duplicar el dato y arriesgar que se desincronice.
 - **`ejercicios`** — `Ejercicio(TenantOwnedModel)`, biblioteca por gimnasio
-  (no global; ver docstring del módulo).
+  (no global; ver docstring del módulo), y `CategoriaEjercicio(TenantOwnedModel)`,
+  el catálogo con el que cada gimnasio agrupa esos ejercicios. Ver
+  "Categorías de ejercicio por gimnasio" más abajo.
 - **`rutinas`** — `RutinaPlantilla`/`RutinaPlantillaItem` (editable) y
   `RutinaAsignada`/`RutinaAsignadaItem` (snapshot congelado). La copia se
   hace con `RutinaAsignada.crear_desde_plantilla(...)` y
@@ -392,6 +394,82 @@ para la migración de reservas desencajadas y Google Calendar).
     cross-origin, así que el click queda tragado sin error visible. Mismo
     criterio que los forms de upload de archivo (ver "UI y white-label"
     abajo).
+
+## Categorías de ejercicio por gimnasio (más allá del ROADMAP original)
+
+Agregado el 2026-08-26 tras un defecto reportado por el primer cliente pago:
+subió un Excel de 748 ejercicios con tres columnas (`NOMBRE`, `LINK`,
+`CATEGORÍA`) y el importador se lo dejó entero sin clasificar, pidiéndole
+elegir el grupo muscular de cada uno a mano.
+
+Eran **dos defectos distintos**, y el segundo no se arreglaba con un parche:
+
+1. `ALIAS_BIBLIOTECA["grupo_muscular"]` no incluía `"categoria"`, así que la
+   columna no se detectaba.
+2. Aunque se detectara, 11 de sus 13 categorías no mapeaban a nada.
+   `Ejercicio.GrupoMuscular` era un `TextChoices` **anatómico, global y
+   cerrado** (pecho/espalda/piernas/...) y este gimnasio clasifica por
+   **patrón de movimiento** (EMPUJE, TRACCIÓN, RODILLA, CADERA) más bloques
+   (INTERMITENTE, DEPORTIVOS, MOVILIDAD, ACCESORIOS) y skills (MUSCLE UP,
+   HANDSTAND, SKILLS ANILLAS). Solo CORE coincidía, por casualidad.
+
+- **`CategoriaEjercicio(TenantOwnedModel)`** reemplaza al `TextChoices`.
+  `nombre_normalizado` (calculado en `save()`, no editable) existe solo para
+  sostener `UniqueConstraint(gimnasio, nombre_normalizado)`: sin esa clave,
+  "CORE", "Core" y "core" serían tres filas distintas, que es exactamente lo
+  que haría el importador con un Excel donde la misma categoría viene escrita
+  de varias formas. **La etiqueta visible en toda la UI es "Categoría"**, no
+  "Grupo muscular" — MOVILIDAD o MUSCLE UP no son grupos musculares.
+- **`Ejercicio.categoria` es nullable a propósito**: el Excel real trae una
+  fila con la celda vacía y el importador no debe trabarse por eso. En el
+  formulario de alta manual **sí es obligatoria** (`EjercicioForm.clean`), o
+  se acumulan ejercicios que no salen en ningún filtro.
+- **El form de ejercicio deja crear una categoría sin cambiar de pantalla**
+  (`categoria_nueva`, un `CharField` que no es del modelo). Va por
+  `get_or_create` sobre `nombre_normalizado`, así que escribir "core" con
+  "CORE" ya cargada reusa la que hay.
+- **Siembra asimétrica, a propósito.** A un gimnasio NUEVO
+  (`crear_gimnasio` → `ejercicios/services.py::sembrar_categorias_iniciales`)
+  se le crean las 8 de siempre como punto de partida editable. A los
+  gimnasios YA existentes, la migración `ejercicios/0003` les crea **solo las
+  que de verdad usan**: ahí hay datos reales de los cuales deducir el
+  catálogo, y un gimnasio funcional no tiene por qué arrancar con seis
+  categorías anatómicas vacías.
+- **El snapshot de rutinas guarda el NOMBRE VISIBLE, no un slug.** Es el
+  punto más frágil de todo el cambio: `rutinas/agrupacion.py` traducía
+  `"cuerpo_completo"` → `"Cuerpo completo"` con un dict module-level armado
+  desde las choices globales. Con catálogo por tenant ese dict deja de ser
+  correcto. Guardando el nombre ya renderizado, `agrupacion.py` queda en
+  `item.categoria_snapshot or "Sin categoría"` — sin lookup, sin importar
+  `ejercicios`, y por fin Django-free de verdad (su docstring ya lo decía).
+  **Si tocás el snapshot, no vuelvas a meter un lookup contra un catálogo
+  global.**
+- **Dedupe difuso al importar** (`importaciones/matching.py::resolver_categorias`,
+  función pura, mismo patrón que `resolver_nombre`). Tres intentos: exacto
+  contra el catálogo, `fuzz.ratio` ≥ `UMBRAL_CATEGORIA` (85) contra el
+  catálogo, y ≥85 contra las ya encoladas en ESA importación (lo que evita
+  que "TRACCIÓN" y "TRACION" del mismo archivo queden como dos categorías).
+  **El 85 está medido, no elegido a ojo**: sobre las 12 categorías reales del
+  cliente más las 8 sembradas, el par DISTINTO más parecido puntúa 61.5
+  (`Hombros`/`Brazos`) y el typo más flojo de los que deben fusionarse da
+  88.9 (`MOVILIDAD`/`MOBILIDAD`). Hay tests fijando los dos bordes: si
+  cambiás el umbral, fallan. Se usa `fuzz.ratio` y **no `WRatio`** (el de los
+  nombres de ejercicio): los nombres de categoría son palabras cortas donde
+  las heurísticas de WRatio inflan el puntaje y fusionarían categorías
+  legítimamente distintas.
+- **El preview sigue sin escribir en la base**: guarda
+  `categoria_resuelta = {"tipo": "nueva", "nombre": ...}` en el JSON y las
+  crea `confirmar_importacion_biblioteca` con `get_or_create` dentro de la
+  transacción que ya existía.
+- **CRUD** en `ejercicios:categorias_*`, molde de `pagos.MedioCobro`, sin
+  `DeleteView` (desactivar es destildar `activo`, y `on_delete=PROTECT` lo
+  respalda). Entra desde el listado de Ejercicios, **no desde el nav** (ya
+  tiene 8 ítems). `CategoriaEjercicioForm.clean_nombre` traduce el choque
+  contra la `UniqueConstraint` en un error de campo: sin eso, renombrar a una
+  categoría existente escrita distinto daba un 500.
+- **`Ejercicio.grupo_muscular` sigue en la base, sin uso** (expand/contract):
+  se dejó un release para que la vuelta atrás sea revertir el código. **Borrarla
+  es un commit pendiente**, una vez confirmado que producción está sana.
 
 ## Importador de Excel (Proyecto 2)
 

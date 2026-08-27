@@ -8,12 +8,13 @@ referencian con `on_delete=PROTECT` (ver docstring de `Ejercicio`).
 
 from django.contrib import messages
 from django.urls import reverse_lazy
+from django.db.models import Count
 from django.views.generic import CreateView, ListView, UpdateView
 
 from core.mixins import TenantScopedMixin
 from tenants.mixins import StaffRequiredMixin
-from ejercicios.forms import EjercicioForm
-from ejercicios.models import Ejercicio
+from ejercicios.forms import CategoriaEjercicioForm, EjercicioForm
+from ejercicios.models import CategoriaEjercicio, Ejercicio
 
 
 class EjercicioListView(StaffRequiredMixin, TenantScopedMixin, ListView):
@@ -22,10 +23,19 @@ class EjercicioListView(StaffRequiredMixin, TenantScopedMixin, ListView):
     context_object_name = "ejercicios"
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        self.grupo_muscular = self.request.GET.get("grupo_muscular", "")
-        if self.grupo_muscular:
-            queryset = queryset.filter(grupo_muscular=self.grupo_muscular)
+        queryset = super().get_queryset().select_related("categoria")
+        # El filtro viaja por id, no por texto: las categorías son por
+        # gimnasio, así que un slug global ya no identifica nada.
+        self.categoria_actual = None
+        categoria_id = self.request.GET.get("categoria", "").strip()
+        if categoria_id.isdigit():
+            self.categoria_actual = (
+                CategoriaEjercicio.objects.for_gimnasio(self.gimnasio)
+                .filter(pk=categoria_id)
+                .first()
+            )
+            if self.categoria_actual is not None:
+                queryset = queryset.filter(categoria=self.categoria_actual)
         self.q = self.request.GET.get("q", "").strip()
         if self.q:
             queryset = queryset.filter(nombre__icontains=self.q)
@@ -33,8 +43,13 @@ class EjercicioListView(StaffRequiredMixin, TenantScopedMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["grupos_musculares"] = Ejercicio.GrupoMuscular.choices
-        context["grupo_muscular_actual"] = self.grupo_muscular
+        # Todas, no solo las activas: el staff tiene que poder filtrar por una
+        # categoría que desactivó para encontrar los ejercicios que quedaron
+        # colgados de ella (mismo criterio que `MedioCobroListView`).
+        context["categorias"] = CategoriaEjercicio.objects.for_gimnasio(
+            self.gimnasio
+        )
+        context["categoria_actual"] = self.categoria_actual
         context["q_actual"] = self.q
         return context
 
@@ -60,4 +75,45 @@ class EjercicioUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
     def form_valid(self, form):
         response = super().form_valid(form)
         messages.success(self.request, "Ejercicio actualizado correctamente.")
+        return response
+
+
+class CategoriaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
+    """Lista TODAS las categorías, activas e inactivas: el staff necesita ver
+    las inactivas para poder reactivarlas (mismo criterio que
+    `MedioCobroListView`)."""
+
+    model = CategoriaEjercicio
+    template_name = "ejercicios/categoria_list.html"
+    context_object_name = "categorias"
+
+    def get_queryset(self):
+        return super().get_queryset().annotate(total_ejercicios=Count("ejercicios"))
+
+
+class CategoriaCreateView(StaffRequiredMixin, TenantScopedMixin, CreateView):
+    model = CategoriaEjercicio
+    form_class = CategoriaEjercicioForm
+    template_name = "ejercicios/categoria_form.html"
+    success_url = reverse_lazy("ejercicios:categorias_listado")
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, "Categoría creada correctamente.")
+        return response
+
+
+class CategoriaUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
+    """No hay `CategoriaDeleteView`: "eliminar" una categoría es editarla acá
+    y destildar `activo`. Los ejercicios que ya la tienen la conservan; lo que
+    cambia es que deja de ofrecerse para asignar."""
+
+    model = CategoriaEjercicio
+    form_class = CategoriaEjercicioForm
+    template_name = "ejercicios/categoria_form.html"
+    success_url = reverse_lazy("ejercicios:categorias_listado")
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, "Categoría actualizada correctamente.")
         return response

@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block title %}Categorías · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Categorías</h1>
+    <a class="boton" href="{% url 'ejercicios:categorias_crear' %}">Nueva categoría</a>
+    <a class="boton-secundario" href="{% url 'ejercicios:listado' %}">Volver a Ejercicios</a>
+  </div>
+
+  <p class="texto-suave">
+    Así agrupás tus ejercicios. Cada gimnasio tiene las suyas: podés usar
+    grupos musculares, patrones de movimiento o bloques de entrenamiento, lo
+    que se ajuste a cómo trabajás.
+  </p>
+
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
+        <tr><th>Nombre</th><th>Orden</th><th>Ejercicios</th><th>Estado</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for c in categorias %}
+          <tr>
+            <td>{{ c.nombre }}</td>
+            <td>{{ c.orden }}</td>
+            <td>
+              {% if c.total_ejercicios %}
+                <a href="{% url 'ejercicios:listado' %}?categoria={{ c.pk }}">{{ c.total_ejercicios }}</a>
+              {% else %}
+                <span class="texto-suave">0</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if c.activo %}
+                <span class="badge badge--ok">Activa</span>
+              {% else %}
+                <span class="badge badge--riesgo">Inactiva</span>
+              {% endif %}
+            </td>
+            <td><a href="{% url 'ejercicios:categorias_editar' c.pk %}">Editar</a></td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5" class="texto-suave">No hay categorías todavía.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <p class="texto-suave">
+    Para dejar de usar una categoría, editala y destildá "activo": deja de
+    ofrecerse al clasificar, pero los ejercicios que ya la tienen la conservan.
+  </p>
+</div>
+{% endblock %}

@@ -72,9 +72,9 @@ def _celda_semana(item):
 
 def _fila_ejercicio(ejercicio):
     nombre = ejercicio["nombre"]
-    grupo_muscular_display = ejercicio["grupo_muscular_display"]
-    if grupo_muscular_display:
-        nombre += f"\n{grupo_muscular_display}"
+    categoria_display = ejercicio["categoria_display"]
+    if categoria_display:
+        nombre += f"\n{categoria_display}"
     return [
         nombre,
         ejercicio["video"] or "—",

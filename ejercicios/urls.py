@@ -7,6 +7,9 @@ todas las apps de dominio en una sola pasada.
 from django.urls import path
 
 from ejercicios.views import (
+    CategoriaCreateView,
+    CategoriaListView,
+    CategoriaUpdateView,
     EjercicioCreateView,
     EjercicioListView,
     EjercicioUpdateView,
@@ -18,4 +21,11 @@ urlpatterns = [
     path("", EjercicioListView.as_view(), name="listado"),
     path("nuevo/", EjercicioCreateView.as_view(), name="crear"),
     path("<int:pk>/editar/", EjercicioUpdateView.as_view(), name="editar"),
+    path("categorias/", CategoriaListView.as_view(), name="categorias_listado"),
+    path("categorias/nueva/", CategoriaCreateView.as_view(), name="categorias_crear"),
+    path(
+        "categorias/<int:pk>/editar/",
+        CategoriaUpdateView.as_view(),
+        name="categorias_editar",
+    ),
 ]

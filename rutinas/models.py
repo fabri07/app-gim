@@ -28,7 +28,6 @@ from django.db import models, transaction
 from django.utils import timezone
 
 from core.models import TenantOwnedModel, TimeStampedModel
-from ejercicios.models import Ejercicio
 
 SEMANAS_POR_CICLO = 4
 
@@ -38,7 +37,7 @@ class RutinaPlantilla(TenantOwnedModel):
 
     `objetivo` es texto libre (no un `TextChoices`): el ROADMAP lo describe
     con ejemplos ("Hipertrofia", "Fuerza"), no como un catálogo cerrado, y
-    a diferencia de `Ejercicio.grupo_muscular` no hay ningún filtro de Fase 2
+    a diferencia de `Ejercicio.categoria` no hay ningún filtro de Fase 2
     que dependa de un set fijo de valores.
     """
 
@@ -216,7 +215,11 @@ class RutinaAsignada(TenantOwnedModel):
                         rutina_asignada=asignada,
                         ejercicio_nombre_snapshot=item.ejercicio.nombre,
                         ejercicio_video_snapshot=item.ejercicio.url_video,
-                        grupo_muscular_snapshot=item.ejercicio.grupo_muscular,
+                        categoria_snapshot=(
+                            item.ejercicio.categoria.nombre
+                            if item.ejercicio.categoria_id
+                            else ""
+                        ),
                         semana=item.semana,
                         dia=item.dia,
                         orden=item.orden,
@@ -226,7 +229,9 @@ class RutinaAsignada(TenantOwnedModel):
                         descanso=item.descanso,
                         notas=item.notas,
                     )
-                    for item in plantilla.items.all()
+                    for item in plantilla.items.select_related(
+                        "ejercicio__categoria"
+                    )
                 ]
             )
         return asignada
@@ -265,16 +270,17 @@ class RutinaAsignadaItem(TimeStampedModel):
     )
     ejercicio_nombre_snapshot = models.CharField(max_length=120)
     ejercicio_video_snapshot = models.URLField(blank=True)
-    grupo_muscular_snapshot = models.CharField(
-        max_length=20,
-        choices=Ejercicio.GrupoMuscular.choices,
+    categoria_snapshot = models.CharField(
+        max_length=60,
         blank=True,
-        help_text="Copiado de Ejercicio.grupo_muscular al momento de "
-        "asignar la rutina, para poder agrupar la vista del alumno y el "
-        "PDF sin depender de una FK viva. Vacío en asignaciones creadas "
-        "antes de este campo (no se puede reconstruir retroactivo con "
-        "confianza) -- ver rutinas/agrupacion.py, que bucketea esos casos "
-        "bajo 'Sin grupo muscular' en vez de romper.",
+        help_text="NOMBRE VISIBLE de la categoría del ejercicio al momento "
+        "de asignar la rutina (no un slug ni una FK): las categorías son "
+        "por gimnasio desde 2026-08-26, así que no hay ningún catálogo "
+        "global contra el cual traducir un código. Guardarlo ya renderizado "
+        "es lo que deja a rutinas/agrupacion.py sin lookups. Vacío si el "
+        "ejercicio no tenía categoría, o en asignaciones anteriores al "
+        "campo -- agrupacion.py bucketea esos casos bajo 'Sin categoría' "
+        "en vez de romper.",
     )
     rpe = models.CharField(
         max_length=20,

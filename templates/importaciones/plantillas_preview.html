@@ -63,15 +63,13 @@
           Para los ejercicios nuevos: arrastrá cada chip a su grupo
           muscular, o elegilo directamente en el desplegable de la fila
           (funciona igual con teclado, lector de pantalla o celular). Para
-          los que ya coinciden con uno existente, el grupo muscular lo
+          los que ya coinciden con uno existente, la categoría la
           conserva el ejercicio de la biblioteca -- el desplegable no se
           usa.
         </p>
         <div class="rutina-zonas" aria-hidden="true">
-          {% for valor, etiqueta in ejercicio_formset.forms.0.grupo_muscular.field.choices %}
-            {% if valor %}
-              <div class="rutina-drop-zona" data-grupo-muscular="{{ valor }}">{{ etiqueta }}</div>
-            {% endif %}
+          {% for c in categorias %}
+            <div class="rutina-drop-zona" data-categoria="{{ c.pk }}">{{ c.nombre }}</div>
           {% endfor %}
         </div>
         {% for info, f in ejercicios_con_form %}
@@ -85,18 +83,18 @@
             {{ f.nombre_normalizado }}
             {{ f.accion }}
             <div class="rutina-fila-grupo">
-              {{ f.grupo_muscular }}
+              {{ f.categoria }}
               {% if info.tipo != "ambiguo" %}
                 <span
-                  id="chip-{{ f.grupo_muscular.id_for_label }}"
+                  id="chip-{{ f.categoria.id_for_label }}"
                   class="rutina-chip"
                   draggable="true"
-                  data-select="{{ f.grupo_muscular.id_for_label }}"
+                  data-select="{{ f.categoria.id_for_label }}"
                   aria-hidden="true"
                 >{{ info.nombre_original }}</span>
               {% endif %}
             </div>
-            {% for error in f.grupo_muscular.errors %}
+            {% for error in f.categoria.errors %}
               <p class="texto-error">{{ error }}</p>
             {% endfor %}
             {{ f.ejercicio_existente_id.as_hidden }}
@@ -106,13 +104,13 @@
           (function () {
             var form = document.currentScript.closest("form");
             var zonas = form.querySelectorAll(".rutina-drop-zona");
-            var selects = form.querySelectorAll('select[name$="-grupo_muscular"]');
+            var selects = form.querySelectorAll('select[name$="-categoria"]');
 
             function asignar(chip, zona) {
               zona.appendChild(chip);
               var select = document.getElementById(chip.dataset.select);
-              if (select && select.value !== zona.dataset.grupoMuscular) {
-                select.value = zona.dataset.grupoMuscular;
+              if (select && select.value !== zona.dataset.categoria) {
+                select.value = zona.dataset.categoria;
                 select.dispatchEvent(new Event("change", { bubbles: true }));
               }
             }

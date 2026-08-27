@@ -125,8 +125,14 @@ vínculo `Alumno` ↔ `Perfil`/`User` (ver Fase 3), no un mecanismo de tokens/li
 por primera vez — sirve para la métrica de adopción).
 
 ### Ejercicio
-`gimnasio`, `nombre`, `grupo_muscular`, `descripción`, `url_video`, `activo`.
+`gimnasio`, `nombre`, `categoria` (FK), `descripción`, `url_video`, `activo`.
 (Por gimnasio al inicio; biblioteca global es una feature posterior.)
+
+### CategoriaEjercicio
+`gimnasio`, `nombre`, `nombre_normalizado`, `orden`, `activo`. Reemplaza al
+`grupo_muscular` de lista fija desde 2026-08-26: cada gimnasio agrupa sus
+ejercicios como quiera (grupos musculares, patrones de movimiento, bloques).
+Ver CLAUDE.md § "Categorías de ejercicio por gimnasio".
 
 ### RutinaPlantilla
 `gimnasio`, `nombre`, `objetivo`, `nivel`, `días_por_semana`, `activa`.

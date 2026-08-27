@@ -27,7 +27,19 @@ ALIAS_PLANTILLA = {
 
 ALIAS_BIBLIOTECA = {
     "nombre": ["nombre", "ejercicio", "ejercicios", "exercise"],
-    "grupo_muscular": ["grupo muscular", "grupo_muscular", "musculo", "músculo", "zona"],
+    # "categoria" es el encabezado que usan los gimnasios reales; faltaba, y
+    # por eso un Excel de 748 ejercicios entraba entero sin clasificar.
+    # "músculo" NO va: `normalizar_texto` saca las tildes antes de comparar,
+    # así que ese alias era código muerto -- "musculo" ya lo cubre.
+    "grupo_muscular": [
+        "grupo muscular",
+        "grupo_muscular",
+        "categoria",
+        "categorias",
+        "grupo",
+        "musculo",
+        "zona",
+    ],
     "url_video": ["video", "url_video", "link", "youtube"],
 }
 
@@ -43,17 +55,62 @@ def normalizar_texto(texto):
     return " ".join(sin_tildes.lower().split())
 
 
+class ColumnaRequeridaFaltante(Exception):
+    """El archivo no tiene una columna sin la cual no se puede importar nada.
+
+    Lleva los encabezados que SÍ se leyeron: es lo que le permite al staff
+    entender que la app miró la fila equivocada (un título arriba de la
+    tabla) en vez de quedarse adivinando. Antes de 2026-08-26 este caso
+    devolvía una lista vacía y la app mostraba un preview de cero filas con
+    el botón de confirmar habilitado, sin ningún mensaje.
+    """
+
+    def __init__(self, campo, encabezados):
+        self.campo = campo
+        self.encabezados = [str(e) for e in encabezados if e is not None]
+        super().__init__(f"Falta la columna '{campo}'")
+
+
+def _prefijo_de_palabra(alias, encabezado):
+    """`alias` abre `encabezado` y termina donde termina una palabra.
+
+    "nombre" prefija "nombre del ejercicio" pero no "nombres": el corte tiene
+    que caer en un borde, o "core" matchearía "coreografia".
+    """
+    if not encabezado.startswith(alias):
+        return False
+    resto = encabezado[len(alias):]
+    return resto == "" or not resto[0].isalnum()
+
+
 def detectar_columnas(encabezados, alias_por_campo):
     """Devuelve (campo_canonico -> índice de columna, advertencias).
 
-    Para cada campo canónico, busca la PRIMERA columna (izquierda a
-    derecha) cuyo encabezado normalizado esté en su lista de alias. Un
-    campo sin ninguna columna que matchee simplemente no aparece en el
+    Dos pasadas. Primero coincidencia EXACTA del encabezado normalizado
+    contra la lista de alias; después, solo para los campos que quedaron sin
+    columna, coincidencia por PREFIJO en borde de palabra ("nombre" al
+    principio de "nombre del ejercicio").
+
+    Es prefijo y no "contiene" a propósito. Con "contiene", una fila de
+    título como "Biblioteca de ejercicios 2026" -- el caso real que dejaba
+    un preview vacío -- matchea el alias "ejercicios" y se hace pasar por la
+    columna de nombre, que es peor que no detectar nada. Como prefijo, esa
+    fila no matchea ("biblioteca" no es alias de nada) y el archivo se
+    rechaza con un error que se entiende.
+
+    El orden importa: la parcial es útil pero ambigua -- "Grupo muscular del
+    ejercicio" empieza con "grupo muscular" y también contiene "ejercicio".
+    Resolver primero todo lo exacto y no reasignar columnas ya tomadas evita
+    que un campo se robe la columna de otro. Entre varios alias que prefijan
+    el mismo encabezado gana el más largo, por la misma razón.
+
+    Un campo sin ninguna columna que matchee simplemente no aparece en el
     dict de salida -- el caller decide si es requerido u opcional.
     """
     normalizados = [normalizar_texto(e) for e in encabezados]
     campos = {}
     advertencias = []
+
     for campo, alias in alias_por_campo.items():
         indices = [i for i, valor in enumerate(normalizados) if valor in alias]
         if not indices:
@@ -64,6 +121,29 @@ def detectar_columnas(encabezados, alias_por_campo):
                 f"Se encontraron {len(indices)} columnas parecidas a "
                 f"'{campo}'; se usó la columna {indices[0] + 1}."
             )
+
+    tomadas = set(campos.values())
+    for campo, alias in alias_por_campo.items():
+        if campo in campos:
+            continue
+        mejor = None  # (largo del alias, -indice de columna, indice)
+        for i, valor in enumerate(normalizados):
+            if i in tomadas or not valor:
+                continue
+            contenidos = [a for a in alias if _prefijo_de_palabra(a, valor)]
+            if not contenidos:
+                continue
+            candidato = (len(max(contenidos, key=len)), -i, i)
+            if mejor is None or candidato > mejor:
+                mejor = candidato
+        if mejor is not None:
+            campos[campo] = mejor[2]
+            tomadas.add(mejor[2])
+            advertencias.append(
+                f"No hay una columna llamada exactamente '{campo}'; se usó "
+                f"'{encabezados[mejor[2]]}' (columna {mejor[2] + 1})."
+            )
+
     return campos, advertencias
 
 
@@ -222,7 +302,11 @@ def leer_hoja_biblioteca(ws):
     campos, advertencias = detectar_columnas(encabezados, ALIAS_BIBLIOTECA)
 
     if "nombre" not in campos:
-        return [], [], advertencias
+        # Antes esto devolvía `[], [], advertencias` y la app mostraba un
+        # preview vacío con el botón de confirmar habilitado. Sin el nombre
+        # del ejercicio no hay nada que importar: es un error, no un archivo
+        # de cero filas.
+        raise ColumnaRequeridaFaltante("nombre", encabezados)
 
     mapa_merges = _mapa_merges(ws)
     ncols = len(encabezados)

@@ -18,12 +18,14 @@ from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from alumnos.models import Alumno
-from ejercicios.models import Ejercicio
+from ejercicios.models import CategoriaEjercicio, Ejercicio
 from rutinas.models import (
     RutinaAsignada,
     RutinaAsignadaDiaCompletado,
@@ -509,13 +511,13 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
 
     def test_devuelve_lista_plana_sin_subdivision_por_grupo(self):
         """No hay más nivel de agrupación por grupo muscular -- cada
-        ejercicio del resultado conserva su propio `grupo_muscular_display`,
+        ejercicio del resultado conserva su propio `categoria_display`,
         pero el resultado es una única lista, no una lista de grupos."""
         asignada = self.crear_asignada_vacia()
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=1,
             dia=1,
             orden=1,
@@ -525,7 +527,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Press de banca",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PECHO,
+            categoria_snapshot="Pecho",
             semana=1,
             dia=1,
             orden=2,
@@ -538,13 +540,13 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         self.assertEqual(
             [e["nombre"] for e in ejercicios], ["Sentadilla", "Press de banca"]
         )
-        self.assertEqual(ejercicios[0]["grupo_muscular_display"], "Piernas")
-        self.assertEqual(ejercicios[1]["grupo_muscular_display"], "Pecho")
+        self.assertEqual(ejercicios[0]["categoria_display"], "Piernas")
+        self.assertEqual(ejercicios[1]["categoria_display"], "Pecho")
 
     def test_item_sin_grupo_muscular_muestra_display_sin_grupo(self):
         """Simula una `RutinaAsignadaItem` creada antes de que existiera
-        `grupo_muscular_snapshot` (queda "" por default) -- no se
-        descarta, se muestra con el display "Sin grupo muscular"."""
+        `categoria_snapshot` (queda "" por default) -- no se
+        descarta, se muestra con el display "Sin categoría"."""
         asignada = self.crear_asignada_vacia()
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
@@ -559,12 +561,12 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         ejercicios = listar_ejercicios_del_dia(asignada.items.filter(dia=1))
 
         self.assertEqual(ejercicios[0]["nombre"], "Ejercicio viejo")
-        self.assertEqual(ejercicios[0]["grupo_muscular_display"], "Sin grupo muscular")
+        self.assertEqual(ejercicios[0]["categoria_display"], "Sin categoría")
 
-    def test_grupo_muscular_display_usa_la_semana_mas_baja_no_el_orden_de_iteracion(self):
+    def test_categoria_display_usa_la_semana_mas_baja_no_el_orden_de_iteracion(self):
         """Si el mismo ejercicio quedó snapshoteado con un grupo muscular
         distinto entre semanas (p. ej. se recategorizó en la biblioteca a
-        mitad de una rutina de 4 semanas), `grupo_muscular_display` tiene
+        mitad de una rutina de 4 semanas), `categoria_display` tiene
         que venir del item de la semana MÁS BAJA -- igual criterio que ya
         usa `orden` -- y no de cuál item llegó primero en `items` (la
         función documenta que acepta "cualquier orden")."""
@@ -572,7 +574,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         item_semana_2 = RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.CORE,
+            categoria_snapshot="Core",
             semana=2,
             dia=1,
             orden=1,
@@ -582,7 +584,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         item_semana_1 = RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=1,
             dia=1,
             orden=1,
@@ -591,18 +593,18 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         )
 
         # Iterable armado a mano, semana 2 ANTES que semana 1 -- si la
-        # función leyera `grupo_muscular_display` del primer item iterado
+        # función leyera `categoria_display` del primer item iterado
         # (bug real, no solo hipotético) este test lo detecta.
         ejercicios = listar_ejercicios_del_dia([item_semana_2, item_semana_1])
 
-        self.assertEqual(ejercicios[0]["grupo_muscular_display"], "Piernas")
+        self.assertEqual(ejercicios[0]["categoria_display"], "Piernas")
 
     def test_mismo_ejercicio_a_traves_de_semanas_se_identifica_por_nombre(self):
         asignada = self.crear_asignada_vacia()
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=1,
             dia=1,
             orden=1,
@@ -612,7 +614,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=2,
             dia=1,
             orden=1,
@@ -623,7 +625,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=4,
             dia=1,
             orden=1,
@@ -647,7 +649,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
             ejercicio_video_snapshot="",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=1,
             dia=1,
             orden=1,
@@ -658,7 +660,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
             ejercicio_video_snapshot="https://youtube.com/watch?v=sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=2,
             dia=1,
             orden=1,
@@ -683,7 +685,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=2,
             dia=1,
             orden=5,
@@ -693,7 +695,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=4,
             dia=1,
             orden=1,
@@ -715,7 +717,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=1,
             dia=1,
             orden=1,
@@ -738,7 +740,7 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         RutinaAsignadaItem.objects.create(
             rutina_asignada=asignada,
             ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria_snapshot="Piernas",
             semana=1,
             dia=1,
             orden=1,
@@ -1519,19 +1521,19 @@ class RutinaMiDiaDetailViewTests(TestCase):
         response = self.client.get(self._url(1))
         self.assertContains(response, "—")
 
-    def test_items_sin_grupo_muscular_snapshoteado_muestran_display_sin_grupo(self):
-        """Los items de este fixture no tienen `grupo_muscular_snapshot`
+    def test_items_sin_categoria_snapshoteado_muestran_display_sin_grupo(self):
+        """Los items de este fixture no tienen `categoria_snapshot`
         (creados sin ese valor, como una rutina asignada antes de que el
-        campo existiera) -- deben mostrar "Sin grupo muscular" como
+        campo existiera) -- deben mostrar "Sin categoría" como
         subtítulo en vez de romper la vista."""
         self.client.login(username="usuario_alumno", password="clave-123456")
         response = self.client.get(self._url(1))
-        self.assertContains(response, "Sin grupo muscular")
+        self.assertContains(response, "Sin categoría")
 
     def test_muestra_el_grupo_muscular_como_subtitulo_del_ejercicio(self):
         """El grupo muscular ya no agrupa en secciones -- se muestra como
         subtítulo chico debajo de cada nombre de ejercicio."""
-        self.item_dia1_semana1.grupo_muscular_snapshot = "piernas"
+        self.item_dia1_semana1.categoria_snapshot = "Piernas"
         self.item_dia1_semana1.save()
         self.client.login(username="usuario_alumno", password="clave-123456")
 
@@ -1545,9 +1547,9 @@ class RutinaMiDiaDetailViewTests(TestCase):
         confuso y se sacó la subdivisión. "Sentadilla" (piernas) y
         "Sentadilla con salto" (pecho, a propósito para este test) deben
         aparecer juntos en una única tabla, no en dos tarjetas separadas."""
-        self.item_dia1_semana1.grupo_muscular_snapshot = "piernas"
+        self.item_dia1_semana1.categoria_snapshot = "Piernas"
         self.item_dia1_semana1.save()
-        self.item_dia1_semana2.grupo_muscular_snapshot = "pecho"
+        self.item_dia1_semana2.categoria_snapshot = "Pecho"
         self.item_dia1_semana2.save()
         self.client.login(username="usuario_alumno", password="clave-123456")
 
@@ -1706,18 +1708,154 @@ class RutinaAsignadaDiaCompletadoToggleViewTests(TestCase):
         )
 
 
-class BackfillGrupoMuscularSnapshotTests(TestCase):
-    """`0006_backfill_grupo_muscular_snapshot.py`: reconstruye
-    `grupo_muscular_snapshot` para items snapshoteados antes de que el campo
-    existiera, buscando un `Ejercicio` de biblioteca con el mismo nombre en
-    el mismo gimnasio. Se ejercita llamando la función de la migración
-    directamente contra los modelos reales (usa `apps.get_model` puro, sin
-    tocar nada específico de `django.db.migrations.state`, así que es
-    equivalente a como corre de verdad con `RunPython`)."""
+# Los tests de `0006_backfill_grupo_muscular_snapshot` se retiraron el
+# 2026-08-26, al renombrar el campo a `categoria_snapshot` en
+# `0007_categoria_snapshot`.
+#
+# Ejercitaban la migración llamando a su función con el registro de modelos
+# VIVO (`django.apps.apps`), no con el estado histórico. Ese atajo funciona
+# mientras el esquema no se mueva: en cuanto el campo se renombra, la función
+# sigue siendo correcta cuando corre de verdad (Django le pasa el estado de su
+# propio punto en la historia, donde el campo todavía se llama
+# `grupo_muscular_snapshot`) pero el test deja de poder invocarla.
+#
+# Reescribirlos contra `MigrationExecutor` era la alternativa; se descartó
+# porque `0006` es historia congelada: ya corrió en producción y en una base
+# nueva no encuentra nada que backfillear. Lo que sí se conserva es la
+# cobertura de lo que hoy escribe el snapshot, en `CategoriaSnapshotTests`.
+
+
+class CategoriaSnapshotTests(TestCase):
+    """El snapshot pasa a guardar el NOMBRE VISIBLE de la categoría, no un
+    slug.
+
+    Antes guardaba `"cuerpo_completo"` y `agrupacion.py` lo traducía con un
+    dict module-level armado desde `Ejercicio.GrupoMuscular.choices`. Con un
+    catálogo por gimnasio ese dict global deja de ser correcto: dos gimnasios
+    pueden tener categorías distintas con el mismo nombre, o nombres que no
+    están en ninguna lista fija. Guardando el nombre ya renderizado no hace
+    falta ningún lookup, y `agrupacion.py` vuelve a ser Django-free de verdad.
+    """
 
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
-        self.otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Pérez"
+        )
+        self.categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="EMPUJE"
+        )
+        self.ejercicio = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Push up", categoria=self.categoria
+        )
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Full Body",
+            objetivo="General",
+            dias_por_semana=1,
+        )
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla,
+            ejercicio=self.ejercicio,
+            semana=1,
+            dia=1,
+            orden=1,
+            series=3,
+            repeticiones="10",
+        )
+
+    def _asignar(self):
+        return RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio,
+            plantilla=self.plantilla,
+            alumno=self.alumno,
+            fecha_inicio=timezone.localdate(),
+        )
+
+    def test_congela_el_nombre_de_la_categoria(self):
+        asignada = self._asignar()
+
+        item = asignada.items.get()
+        self.assertEqual(item.categoria_snapshot, "EMPUJE")
+
+    def test_renombrar_la_categoria_no_toca_rutinas_ya_asignadas(self):
+        """Es el punto de ser un snapshot: la rutina que el alumno está
+        haciendo no cambia porque el staff reordene su biblioteca."""
+        asignada = self._asignar()
+
+        self.categoria.nombre = "EMPUJE HORIZONTAL"
+        self.categoria.save()
+
+        item = asignada.items.get()
+        self.assertEqual(item.categoria_snapshot, "EMPUJE")
+
+    def test_ejercicio_sin_categoria_deja_el_snapshot_vacio(self):
+        self.ejercicio.categoria = None
+        self.ejercicio.save()
+
+        asignada = self._asignar()
+
+        self.assertEqual(asignada.items.get().categoria_snapshot, "")
+
+    def test_admite_nombres_largos_de_categoria(self):
+        """El campo viejo era `max_length=20` porque solo guardaba slugs de
+        un catálogo cerrado. Una categoría propia puede ser mucho más larga."""
+        self.categoria.nombre = "Movilidad y trabajo de cadera profunda"
+        self.categoria.save()
+
+        asignada = self._asignar()
+
+        self.assertEqual(
+            asignada.items.get().categoria_snapshot,
+            "Movilidad y trabajo de cadera profunda",
+        )
+
+    def test_asignar_no_dispara_una_query_por_ejercicio(self):
+        """`crear_desde_plantilla` leía `item.ejercicio` dentro del
+        `bulk_create` sin `select_related`: un N+1 que ya existía antes de
+        esta feature y que leer además `categoria` habría duplicado.
+
+        Se compara el costo de dos tamaños de plantilla en vez de fijar un
+        `assertNumQueries` absoluto -- ese número depende de detalles internos
+        de Django y se rompe sin que haya ninguna regresión real (mismo
+        criterio que el test de `select_related` del panel de accesos).
+        """
+        with CaptureQueriesContext(connection) as con_un_item:
+            self._asignar()
+
+        for i in range(2, 12):
+            RutinaPlantillaItem.objects.create(
+                rutina=self.plantilla,
+                ejercicio=self.ejercicio,
+                semana=1,
+                dia=1,
+                orden=i,
+                series=3,
+                repeticiones="10",
+            )
+
+        with CaptureQueriesContext(connection) as con_once_items:
+            self._asignar()
+
+        self.assertEqual(len(con_once_items), len(con_un_item))
+
+
+class ConversionSnapshotSlugANombreTests(TestCase):
+    """`0007_categoria_snapshot`: los snapshots ya guardados traen el valor
+    del catálogo viejo (`"cuerpo_completo"`) y tienen que pasar al nombre
+    visible (`"Cuerpo completo"`).
+
+    Es la parte de la migración con datos reales de por medio: si falla, las
+    rutinas que los alumnos están haciendo hoy pierden el subtítulo de
+    categoría en el portal y en el PDF.
+
+    A diferencia de los tests retirados de `0006`, estos SÍ pueden llamar la
+    función con el registro vivo: opera sobre `categoria_snapshot`, que es el
+    nombre que el campo tiene después de esta misma migración.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
         self.alumno = Alumno.objects.create(
             gimnasio=self.gimnasio, nombre="Ana", apellido="Pérez"
         )
@@ -1727,142 +1865,91 @@ class BackfillGrupoMuscularSnapshotTests(TestCase):
             nombre_snapshot="Full Body",
             objetivo_snapshot="General",
             fecha_inicio=timezone.localdate(),
-            activa=True,
         )
+        self.migracion = self._modulo()
 
-    def _backfill(self):
+    @staticmethod
+    def _modulo():
         import importlib
 
+        return importlib.import_module("rutinas.migrations.0007_categoria_snapshot")
+
+    def _item(self, snapshot, orden=1):
+        return RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada,
+            ejercicio_nombre_snapshot=f"Ejercicio {orden}",
+            categoria_snapshot=snapshot,
+            semana=1,
+            dia=1,
+            orden=orden,
+            series=3,
+        )
+
+    def test_convierte_los_ocho_valores_del_catalogo_viejo(self):
         from django.apps import apps
 
-        # El módulo empieza con un dígito (nombre de migración de Django) --
-        # no es un identificador Python válido para un `import` normal.
-        migracion = importlib.import_module(
-            "rutinas.migrations.0006_backfill_grupo_muscular_snapshot"
-        )
-        migracion.backfill_grupo_muscular(apps, None)
+        esperado = {
+            "pecho": "Pecho",
+            "espalda": "Espalda",
+            "piernas": "Piernas",
+            "hombros": "Hombros",
+            "brazos": "Brazos",
+            "core": "Core",
+            "cardio": "Cardio",
+            "cuerpo_completo": "Cuerpo completo",
+        }
+        items = {
+            slug: self._item(slug, orden=i)
+            for i, slug in enumerate(esperado, start=1)
+        }
 
-    def test_matchea_por_nombre_case_insensitive_dentro_del_gimnasio(self):
-        Ejercicio.objects.create(
-            gimnasio=self.gimnasio, nombre="Sentadilla", grupo_muscular="piernas"
-        )
-        item = RutinaAsignadaItem.objects.create(
-            rutina_asignada=self.asignada,
-            ejercicio_nombre_snapshot="sentadilla",
-            semana=1,
-            dia=1,
-            orden=1,
-            series=3,
-            repeticiones="10",
-        )
+        self.migracion.slug_a_nombre(apps, None)
 
-        self._backfill()
+        for slug, item in items.items():
+            item.refresh_from_db()
+            self.assertEqual(item.categoria_snapshot, esperado[slug])
 
-        item.refresh_from_db()
-        self.assertEqual(item.grupo_muscular_snapshot, "piernas")
+    def test_deja_en_paz_el_snapshot_vacio(self):
+        from django.apps import apps
 
-    def test_matchea_ignorando_tildes(self):
-        """Regresión: `.lower()` a secas no matchea 'Sentadilla búlgara'
-        (biblioteca) contra 'Sentadilla bulgara' (snapshot sin tilde) --
-        la migración usa `normalizar_texto` (el mismo normalizador de
-        `importaciones/matching.py`), que sí los iguala."""
-        Ejercicio.objects.create(
-            gimnasio=self.gimnasio,
-            nombre="Sentadilla búlgara",
-            grupo_muscular="piernas",
-        )
-        item = RutinaAsignadaItem.objects.create(
-            rutina_asignada=self.asignada,
-            ejercicio_nombre_snapshot="sentadilla bulgara",
-            semana=1,
-            dia=1,
-            orden=1,
-            series=3,
-            repeticiones="10",
-        )
+        item = self._item("")
 
-        self._backfill()
+        self.migracion.slug_a_nombre(apps, None)
 
         item.refresh_from_db()
-        self.assertEqual(item.grupo_muscular_snapshot, "piernas")
+        self.assertEqual(item.categoria_snapshot, "")
 
-    def test_no_matchea_ejercicio_de_otro_gimnasio(self):
-        Ejercicio.objects.create(
-            gimnasio=self.otro_gimnasio, nombre="Sentadilla", grupo_muscular="piernas"
-        )
-        item = RutinaAsignadaItem.objects.create(
-            rutina_asignada=self.asignada,
-            ejercicio_nombre_snapshot="Sentadilla",
-            semana=1,
-            dia=1,
-            orden=1,
-            series=3,
-            repeticiones="10",
-        )
+    def test_la_vuelta_atras_reconstruye_los_slugs(self):
+        from django.apps import apps
 
-        self._backfill()
+        item = self._item("cuerpo_completo")
+        self.migracion.slug_a_nombre(apps, None)
+
+        self.migracion.nombre_a_slug(apps, None)
 
         item.refresh_from_db()
-        self.assertEqual(item.grupo_muscular_snapshot, "")
+        self.assertEqual(item.categoria_snapshot, "cuerpo_completo")
 
-    def test_no_pisa_un_snapshot_ya_cargado(self):
-        Ejercicio.objects.create(
-            gimnasio=self.gimnasio, nombre="Sentadilla", grupo_muscular="piernas"
-        )
-        item = RutinaAsignadaItem.objects.create(
-            rutina_asignada=self.asignada,
-            ejercicio_nombre_snapshot="Sentadilla",
-            grupo_muscular_snapshot="core",
-            semana=1,
-            dia=1,
-            orden=1,
-            series=3,
-            repeticiones="10",
-        )
+    def test_la_vuelta_atras_vacia_las_categorias_propias(self):
+        """"EMPUJE" no existe en el catálogo viejo: no hay slug al cual
+        mapearla. Se deja en blanco, que es un valor que `agrupacion.py` ya
+        sabe bucketear, en vez de dejar basura que no valida."""
+        from django.apps import apps
 
-        self._backfill()
+        item = self._item("EMPUJE")
+
+        self.migracion.nombre_a_slug(apps, None)
 
         item.refresh_from_db()
-        self.assertEqual(item.grupo_muscular_snapshot, "core")
+        self.assertEqual(item.categoria_snapshot, "")
 
-    def test_sin_match_queda_vacio_sin_romper(self):
-        item = RutinaAsignadaItem.objects.create(
-            rutina_asignada=self.asignada,
-            ejercicio_nombre_snapshot="Ejercicio que ya no existe",
-            semana=1,
-            dia=1,
-            orden=1,
-            series=3,
-            repeticiones="10",
-        )
+    def test_es_idempotente(self):
+        from django.apps import apps
 
-        self._backfill()
+        item = self._item("piernas")
+
+        self.migracion.slug_a_nombre(apps, None)
+        self.migracion.slug_a_nombre(apps, None)
 
         item.refresh_from_db()
-        self.assertEqual(item.grupo_muscular_snapshot, "")
-
-    def test_duplicados_de_nombre_desempatan_por_id_mas_chico(self):
-        """Regression: dos `Ejercicio` con el mismo nombre (case-insensitive)
-        y distinto grupo muscular en el mismo gimnasio no deben depender del
-        orden de la base -- gana siempre el de `id` más chico."""
-        mas_viejo = Ejercicio.objects.create(
-            gimnasio=self.gimnasio, nombre="Sentadilla", grupo_muscular="piernas"
-        )
-        Ejercicio.objects.create(
-            gimnasio=self.gimnasio, nombre="sentadilla", grupo_muscular="core"
-        )
-        self.assertLess(mas_viejo.id, Ejercicio.objects.exclude(pk=mas_viejo.pk).get().id)
-        item = RutinaAsignadaItem.objects.create(
-            rutina_asignada=self.asignada,
-            ejercicio_nombre_snapshot="Sentadilla",
-            semana=1,
-            dia=1,
-            orden=1,
-            series=3,
-            repeticiones="10",
-        )
-
-        self._backfill()
-
-        item.refresh_from_db()
-        self.assertEqual(item.grupo_muscular_snapshot, "piernas")
+        self.assertEqual(item.categoria_snapshot, "Piernas")

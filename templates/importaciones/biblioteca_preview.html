@@ -12,16 +12,47 @@
       {% endfor %}
     </div>
   {% endif %}
+  {% if importacion.resultado.categorias_a_crear %}
+    <div class="tarjeta">
+      <h2>Categorías nuevas</h2>
+      <p class="texto-suave">
+        Se van a crear {{ importacion.resultado.categorias_a_crear|length }}
+        categoría(s) que tu gimnasio todavía no tenía:
+      </p>
+      <p>
+        {% for nombre in importacion.resultado.categorias_a_crear %}
+          <span class="badge">{{ nombre }}</span>
+        {% endfor %}
+      </p>
+      <p class="texto-suave">
+        Los nombres escritos de formas parecidas se agrupan en una sola
+        categoría. Si algo quedó mal, podés renombrarlo después desde
+        Ejercicios &rsaquo; Categorías.
+      </p>
+    </div>
+  {% endif %}
   <form method="post" hx-boost="false">
     {% csrf_token %}
     <div class="tabla-scroll">
       <table class="tabla">
-        <thead><tr><th>Nombre</th><th>Grupo muscular</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Categoría</th><th>Estado</th></tr></thead>
         <tbody>
           {% for item in importacion.resultado.items %}
             <tr>
               <td>{{ item.nombre_original }}</td>
-              <td>{{ item.grupo_muscular_resuelto|default:"—" }}</td>
+              <td>
+                {% if item.categoria_resuelta %}
+                  {{ item.categoria_resuelta.nombre }}
+                  {% if item.categoria_resuelta.tipo == "nueva" %}
+                    <span class="badge">nueva</span>
+                  {% elif item.categoria_resuelta.nombre != item.grupo_muscular_original %}
+                    {# El archivo decía otra cosa: hubo fusión difusa. Se
+                       muestra el original para que una fusión indebida se
+                       pueda detectar ANTES de confirmar. #}
+                    <span class="texto-suave">(el archivo decía «{{ item.grupo_muscular_original }}»)</span>
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
               <td>
                 {% if item.match.tipo == "exacto" %}Ya existe{% else %}Nuevo{% endif %}
               </td>
@@ -46,11 +77,62 @@
       </div>
     {% endif %}
     {% if pendientes %}
-      <div class="tarjeta">
+      <div class="tarjeta" id="pendientes">
         <h2>Ejercicios a resolver</h2>
+        <p class="texto-suave">
+          Estos son los que el importador no pudo clasificar solo. Elegí la
+          categoría en el desplegable de cada fila, arrastrá su chip a una de
+          las zonas de abajo, o tildá varios y asignalos todos juntos. El
+          desplegable funciona igual con teclado, lector de pantalla o celular.
+        </p>
+        {% if importacion.resultado.categorias_a_crear %}
+          <p class="texto-suave">
+            Acá aparecen solo las categorías que tu gimnasio <em>ya</em> tiene:
+            las {{ importacion.resultado.categorias_a_crear|length }} nuevas
+            todavía no existen hasta que confirmes. Si alguno de estos va en
+            una de esas, elegí «Sin categoría» y asignásela después desde
+            Ejercicios (el formulario te deja escribir una categoría nueva ahí
+            mismo).
+          </p>
+        {% endif %}
+
+        <div class="lote-acciones">
+          <label for="lote-categoria">Asignar a los tildados:</label>
+          <select id="lote-categoria">
+            <option value="">---------</option>
+            {% for c in categorias %}
+              <option value="{{ c.pk }}">{{ c.nombre }}</option>
+            {% endfor %}
+            <option value="sin_categoria">Sin categoría — la asigno después</option>
+          </select>
+          <button type="button" class="boton-secundario" id="lote-aplicar">
+            Asignar
+          </button>
+          <button type="button" class="boton-secundario" id="lote-todos">
+            Tildar todos
+          </button>
+          <span class="texto-suave" id="lote-conteo" aria-live="polite"></span>
+        </div>
+
+        <div class="rutina-zonas" aria-hidden="true">
+          {% for c in categorias %}
+            <div class="rutina-drop-zona" data-categoria="{{ c.pk }}">{{ c.nombre }}</div>
+          {% endfor %}
+        </div>
+
         {% for item in pendientes %}
-          <div>
-            <p>{{ item.nombre_original }}</p>
+          <div class="pendiente-fila">
+            <p>
+              {% if item.needs_categoria %}
+                <input type="checkbox" class="js-lote"
+                       data-valor-original="{{ item.nombre_normalizado }}"
+                       aria-label="Seleccionar {{ item.nombre_original }}">
+              {% endif %}
+              <strong>{{ item.nombre_original }}</strong>
+              {% if item.grupo_muscular_original %}
+                <span class="texto-suave">— el archivo decía «{{ item.grupo_muscular_original }}»</span>
+              {% endif %}
+            </p>
             {% if item.needs_accion %}
               <select class="js-accion" data-valor-original="{{ item.nombre_normalizado }}">
                 <option value="">---------</option>
@@ -60,13 +142,25 @@
                 <option value="crear_nuevo">Crear como nuevo ejercicio</option>
               </select>
             {% endif %}
-            {% if item.needs_grupo %}
-              <select class="js-grupo-muscular" data-valor-original="{{ item.nombre_normalizado }}">
-                <option value="">---------</option>
-                {% for valor, etiqueta in grupo_muscular_choices %}
-                  <option value="{{ valor }}">{{ etiqueta }}</option>
-                {% endfor %}
-              </select>
+            {% if item.needs_categoria %}
+              <div class="rutina-fila-grupo">
+                <select class="js-categoria"
+                        id="cat-{{ forloop.counter }}"
+                        data-valor-original="{{ item.nombre_normalizado }}">
+                  <option value="">---------</option>
+                  {% for c in categorias %}
+                    <option value="{{ c.pk }}">{{ c.nombre }}</option>
+                  {% endfor %}
+                  {# Opción explícita, no un default silencioso: sin esto no
+                     hay forma de confirmar un ejercicio cuya categoría todavía
+                     no existe, ni de importar a un gimnasio con el catálogo
+                     vacío. #}
+                  <option value="sin_categoria">Sin categoría — la asigno después</option>
+                </select>
+                <span id="chip-cat-{{ forloop.counter }}" class="rutina-chip"
+                      draggable="true" data-select="cat-{{ forloop.counter }}"
+                      aria-hidden="true">{{ item.nombre_original }}</span>
+              </div>
             {% endif %}
           </div>
         {% endfor %}
@@ -76,14 +170,134 @@
     {% for error in form.non_field_errors %}<p class="texto-error">{{ error }}</p>{% endfor %}
     <button type="submit" class="boton">Confirmar importación</button>
     <script>
+      // Drag-and-drop + asignación en lote. Progressive enhancement puro,
+      // mismo patrón que `plantillas_preview.html`: el <select> de cada fila
+      // sigue siendo el ÚNICO control autoritativo -- ni el chip ni el botón
+      // de lote guardan estado propio, solo escriben `select.value`. Si el JS
+      // no corre, los desplegables siguen funcionando solos.
+      //
+      // Toda la capa de drag va con `aria-hidden`: HTML5 drag-and-drop nativo
+      // no anda en touch sin polyfills, y no hay ARIA de arrastre acá. Por eso
+      // la asignación en lote es checkbox + botón y no otra zona de arrastre:
+      // es la única de las tres vías que funciona con teclado Y en celular, y
+      // con cientos de pendientes es además la más rápida.
+      (function () {
+        var form = document.currentScript.closest("form");
+        var zonas = form.querySelectorAll(".rutina-drop-zona");
+        var chips = form.querySelectorAll(".rutina-chip");
+        if (!zonas.length) { return; }
+
+        function asignar(chip, zona) {
+          zona.appendChild(chip);
+          var select = document.getElementById(chip.dataset.select);
+          if (select && select.value !== zona.dataset.categoria) {
+            select.value = zona.dataset.categoria;
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        }
+
+        chips.forEach(function (chip) {
+          chip._filaOrigen = chip.parentNode;
+          chip.addEventListener("dragstart", function (event) {
+            event.dataTransfer.setData("text/plain", chip.id);
+            event.dataTransfer.effectAllowed = "move";
+          });
+        });
+
+        zonas.forEach(function (zona) {
+          zona.addEventListener("dragover", function (event) {
+            event.preventDefault();
+            zona.classList.add("rutina-drop-zona--activo");
+          });
+          zona.addEventListener("dragleave", function () {
+            zona.classList.remove("rutina-drop-zona--activo");
+          });
+          zona.addEventListener("drop", function (event) {
+            event.preventDefault();
+            zona.classList.remove("rutina-drop-zona--activo");
+            var chip = document.getElementById(
+              event.dataTransfer.getData("text/plain")
+            );
+            if (chip) { asignar(chip, zona); }
+          });
+        });
+
+        // Sincronización inversa: si el staff usa el desplegable (o el botón
+        // de lote), el chip se mueve solo a la zona que corresponde.
+        form.querySelectorAll(".js-categoria").forEach(function (select) {
+          select.addEventListener("change", function () {
+            var chip = document.getElementById("chip-" + select.id);
+            if (!chip) { return; }
+            if (!select.value) {
+              chip._filaOrigen.appendChild(chip);
+              return;
+            }
+            form.querySelectorAll(".rutina-drop-zona").forEach(function (zona) {
+              if (zona.dataset.categoria === select.value) {
+                zona.appendChild(chip);
+              }
+            });
+          });
+        });
+
+        var conteo = form.querySelector("#lote-conteo");
+        var checks = form.querySelectorAll(".js-lote");
+
+        function actualizarConteo() {
+          var n = form.querySelectorAll(".js-lote:checked").length;
+          conteo.textContent = n ? n + " seleccionado(s)" : "";
+        }
+        checks.forEach(function (check) {
+          check.addEventListener("change", actualizarConteo);
+        });
+
+        form.querySelector("#lote-todos").addEventListener("click", function () {
+          // Alterna: el mismo botón tilda todos y destilda todos, para no
+          // sumar un control más a una pantalla que ya tiene tres vías.
+          var faltan = form.querySelectorAll(".js-lote:not(:checked)").length > 0;
+          checks.forEach(function (check) { check.checked = faltan; });
+          actualizarConteo();
+        });
+
+        form.querySelector("#lote-aplicar").addEventListener("click", function () {
+          var valor = form.querySelector("#lote-categoria").value;
+          if (!valor) { return; }
+          // Se recorre y compara en vez de armar un selector de atributo con
+          // el nombre adentro: `nombre_normalizado` sale de la planilla y
+          // `normalizar_texto` no saca comillas, así que un ejercicio llamado
+          // Press "militar" rompía `querySelector` con un SyntaxError y
+          // abortaba el lote a la mitad, dejando unos asignados y otros no.
+          var seleccionados = {};
+          form.querySelectorAll(".js-lote:checked").forEach(function (check) {
+            seleccionados[check.dataset.valorOriginal] = true;
+            check.checked = false;
+          });
+          form.querySelectorAll(".js-categoria").forEach(function (select) {
+            if (!seleccionados[select.dataset.valorOriginal]) { return; }
+            select.value = valor;
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+          });
+          actualizarConteo();
+        });
+      })();
+    </script>
+    <script>
       document.currentScript.closest("form").addEventListener("submit", function () {
         var resoluciones = {};
         function entrada(nombre) {
           if (!resoluciones[nombre]) { resoluciones[nombre] = {}; }
           return resoluciones[nombre];
         }
-        document.querySelectorAll(".js-grupo-muscular").forEach(function (select) {
-          if (select.value) { entrada(select.dataset.valorOriginal).grupo_muscular = select.value; }
+        document.querySelectorAll(".js-categoria").forEach(function (select) {
+          // parseInt: el form valida que `categoria_id` sea un entero, y
+          // el value de un <option> siempre llega como string.
+          if (select.value === "sin_categoria") {
+            entrada(select.dataset.valorOriginal).sin_categoria = true;
+          } else if (select.value) {
+            // parseInt: el form valida que `categoria_id` sea un entero, y
+            // el value de un <option> siempre llega como string.
+            entrada(select.dataset.valorOriginal).categoria_id = parseInt(select.value, 10);
+          }
         });
         document.querySelectorAll(".js-accion").forEach(function (select) {
           if (select.value) { entrada(select.dataset.valorOriginal).accion = select.value; }

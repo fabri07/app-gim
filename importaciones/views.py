@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import FormView, View
 
 from core.mixins import TenantScopedMixin
-from ejercicios.models import Ejercicio
+from ejercicios.models import CategoriaEjercicio
 from importaciones.forms import (
     HojaMetadataFormSet,
     ResolucionEjercicioFormSet,
@@ -79,7 +79,15 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
             if info["tipo"] != "exacto"  # los exactos no requieren decisión del staff
         ]
         hoja_formset = HojaMetadataFormSet(initial=hojas_initial, prefix="form")
-        ejercicio_formset = ResolucionEjercicioFormSet(initial=ejercicios_initial, prefix="ejercicios")
+        # `form_kwargs` es lo que hace llegar el gimnasio a cada form del
+        # formset: sin eso el `ModelChoiceField` de categoría ofrecería las
+        # categorías de todos los gimnasios (su queryset default es none(),
+        # así que el síntoma sería un desplegable vacío, no una fuga).
+        ejercicio_formset = ResolucionEjercicioFormSet(
+            initial=ejercicios_initial,
+            prefix="ejercicios",
+            form_kwargs={"gimnasio": self.gimnasio},
+        )
         return hoja_formset, ejercicio_formset
 
     def get(self, request, *args, **kwargs):
@@ -134,13 +142,23 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
             "hojas_con_form": list(zip(importacion.resultado["hojas"], hoja_formset.forms)),
             "hoja_formset": hoja_formset,
             "ejercicio_formset": ejercicio_formset,
+            # Las zonas del drag-and-drop: antes iteraban las choices del
+            # primer form del formset, que era un catálogo global. Ahora son
+            # las categorías del gimnasio.
+            "categorias": CategoriaEjercicio.objects.for_gimnasio(
+                self.gimnasio
+            ).filter(activo=True),
             "ejercicios_con_form": self._ejercicios_con_form(importacion, ejercicio_formset),
         })
 
     def post(self, request, *args, **kwargs):
         importacion = self.get_importacion()
         hoja_formset = HojaMetadataFormSet(request.POST, prefix="form")
-        ejercicio_formset = ResolucionEjercicioFormSet(request.POST, prefix="ejercicios")
+        ejercicio_formset = ResolucionEjercicioFormSet(
+            request.POST,
+            prefix="ejercicios",
+            form_kwargs={"gimnasio": self.gimnasio},
+        )
 
         if not (hoja_formset.is_valid() and ejercicio_formset.is_valid()):
             return self.render(request, importacion, hoja_formset, ejercicio_formset)
@@ -160,7 +178,7 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
                     f["nombre_normalizado"]: {
                         "accion": f["accion"],
                         "ejercicio_id": f["ejercicio_existente_id"],
-                        "grupo_muscular": f["grupo_muscular"],
+                        "categoria_id": f["categoria"].pk if f["categoria"] else None,
                     }
                     for f in ejercicio_formset.cleaned_data
                 },
@@ -210,17 +228,26 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
     def _pendientes(self, importacion):
         # Un item pendiente puede necesitar UNA de las dos decisiones, o
         # ambas: `needs_accion` (match ambiguo -- usar existente o crear
-        # nuevo) y/o `needs_grupo` (grupo_muscular sin auto-resolver). Se
-        # devuelven juntas en una sola lista para que el template arme UNA
-        # fila por ejercicio pendiente, no dos secciones separadas que
-        # dupliquen filas para el caso ambiguo+sin-grupo.
+        # nuevo) y/o `needs_categoria` (el archivo no traía categoría, o la
+        # que traía no se pudo resolver). Se devuelven juntas en una sola
+        # lista para que el template arme UNA fila por ejercicio pendiente,
+        # no dos secciones separadas que dupliquen filas.
+        #
+        # `.get("categoria_resuelta")` y no `[...]`: las importaciones que
+        # quedaron en revisión antes de esta feature tienen el `resultado`
+        # con la forma vieja. La migración las descarta, pero el acceso
+        # tolerante evita un 500 si alguna se escapa.
         pendientes = []
         for item in importacion.resultado["items"]:
             tipo = item["match"]["tipo"]
             needs_accion = tipo == "ambiguo"
-            needs_grupo = tipo != "exacto" and not item["grupo_muscular_resuelto"]
-            if needs_accion or needs_grupo:
-                pendientes.append({**item, "needs_accion": needs_accion, "needs_grupo": needs_grupo})
+            needs_categoria = tipo != "exacto" and not item.get("categoria_resuelta")
+            if needs_accion or needs_categoria:
+                pendientes.append({
+                    **item,
+                    "needs_accion": needs_accion,
+                    "needs_categoria": needs_categoria,
+                })
         return pendientes
 
     def get(self, request, *args, **kwargs):
@@ -231,7 +258,9 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
         return render(request, self.template_name, {
             "importacion": importacion,
             "pendientes": self._pendientes(importacion),
-            "grupo_muscular_choices": Ejercicio.GrupoMuscular.choices,
+            "categorias": CategoriaEjercicio.objects.for_gimnasio(
+                self.gimnasio
+            ).filter(activo=True),
             "form": form,
         })
 
@@ -254,8 +283,18 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
                     faltantes.append(item["nombre_original"])
                     continue
                 if accion == "usar_existente":
-                    continue  # no crea nada -> no necesita grupo_muscular
-            if not item["grupo_muscular_resuelto"] and not entrada.get("grupo_muscular"):
+                    continue  # no crea nada -> no necesita categoría
+            # `sin_categoria` es una elección EXPLÍCITA del staff, no un
+            # default silencioso: sin ella no habría forma de confirmar un
+            # ejercicio cuya categoría todavía no existe (las que va a crear
+            # esta misma importación), ni de importar a un gimnasio cuyo
+            # catálogo está vacío -- ahí el desplegable no tiene ninguna
+            # opción y la confirmación quedaba trabada para siempre.
+            if (
+                not item.get("categoria_resuelta")
+                and not entrada.get("categoria_id")
+                and not entrada.get("sin_categoria")
+            ):
                 faltantes.append(item["nombre_original"])
         if faltantes:
             form.add_error(None, f"Falta resolver: {', '.join(faltantes)}.")
@@ -270,10 +309,16 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
                         and resoluciones.get(item["nombre_normalizado"], {}).get("accion") == "usar_existente"
                     )
                 ),
-                "grupo_muscular": (
-                    item["grupo_muscular_resuelto"]
-                    or resoluciones.get(item["nombre_normalizado"], {}).get("grupo_muscular")
-                ),
+                # Solo lo que el staff eligió a mano: lo que resolvió el
+                # importador ya viaja en `item["categoria_resuelta"]` y lo
+                # lee el servicio. Mandar las dos cosas por acá obligaría a
+                # decidir la precedencia en dos lugares distintos.
+                "categoria_id": resoluciones.get(
+                    item["nombre_normalizado"], {}
+                ).get("categoria_id"),
+                "sin_categoria": resoluciones.get(
+                    item["nombre_normalizado"], {}
+                ).get("sin_categoria", False),
             }
             for item in importacion.resultado["items"]
         }}

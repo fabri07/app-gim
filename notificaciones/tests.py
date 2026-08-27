@@ -299,13 +299,19 @@ class EnviarRecordatoriosCommandTests(TestCase):
 
     @patch("notificaciones.services._enviar")
     def test_pago_por_vencer_solo_del_gimnasio_correcto(self, mock_enviar):
-        hoy = timezone.localdate()
-        # gimnasio A vence en `dia_vencimiento_pago=10`: si hoy está a <=3
-        # días del vencimiento, notifica. Fijamos el escenario armando el
-        # pago para el mes actual y forzando que el gimnasio venza pronto.
-        self.gimnasio_a.dia_vencimiento_pago = min(hoy.day + 2, 28)
+        # La fecha se FIJA en vez de derivarse de `timezone.localdate()`:
+        # el aviso sale cuando `dia_vencimiento_pago - hoy.day` está entre 0 y
+        # 3, una resta sin vuelta de mes, así que cualquier fixture relativa a
+        # "hoy" es irrepresentable cerca de fin de mes. La versión anterior
+        # recortaba los dos días con `min(..., 28)` y del 26 en adelante los
+        # dos gimnasios caían en 28: B entraba también en la ventana y el test
+        # fallaba los últimos días de cada mes por choque de fixtures, no por
+        # un bug del código. Mismo patrón de patch que
+        # `test_turno_proximo_*` más abajo.
+        hoy = date(2026, 3, 10)
+        self.gimnasio_a.dia_vencimiento_pago = 12  # a 2 días: notifica
         self.gimnasio_a.save(update_fields=["dia_vencimiento_pago"])
-        self.gimnasio_b.dia_vencimiento_pago = min(hoy.day + 20, 28) if hoy.day + 20 <= 28 else 28
+        self.gimnasio_b.dia_vencimiento_pago = 25  # a 15 días: no notifica
         self.gimnasio_b.save(update_fields=["dia_vencimiento_pago"])
 
         PagoMensual.objects.create(
@@ -325,7 +331,8 @@ class EnviarRecordatoriosCommandTests(TestCase):
 
         from django.core.management import call_command
 
-        call_command("enviar_recordatorios")
+        with patch("django.utils.timezone.localdate", return_value=hoy):
+            call_command("enviar_recordatorios")
 
         mock_enviar.assert_called_once()
         (suscripcion_llamada, _payload), _ = mock_enviar.call_args

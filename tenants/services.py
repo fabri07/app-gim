@@ -103,4 +103,12 @@ def crear_gimnasio(nombre, email, slug=None, password=None, sin_password=False):
     usuario.save()
     Perfil.objects.create(usuario=usuario, gimnasio=gimnasio, rol=Perfil.Rol.STAFF)
 
+    # Import tardío: `tenants` no tiene por qué conocer el modelo de
+    # categorías, y así se evita el ciclo con `ejercicios` (que sí importa
+    # `tenants.Gimnasio` vía `TenantOwnedModel`). Mismo criterio que
+    # `HomeView._metricas_dashboard`.
+    from ejercicios.services import sembrar_categorias_iniciales
+
+    sembrar_categorias_iniciales(gimnasio)
+
     return gimnasio, usuario, password
