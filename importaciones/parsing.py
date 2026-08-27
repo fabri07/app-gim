@@ -27,7 +27,19 @@ ALIAS_PLANTILLA = {
 
 ALIAS_BIBLIOTECA = {
     "nombre": ["nombre", "ejercicio", "ejercicios", "exercise"],
-    "grupo_muscular": ["grupo muscular", "grupo_muscular", "musculo", "músculo", "zona"],
+    # "categoria" es el encabezado que usan los gimnasios reales; faltaba, y
+    # por eso un Excel de 748 ejercicios entraba entero sin clasificar.
+    # "músculo" NO va: `normalizar_texto` saca las tildes antes de comparar,
+    # así que ese alias era código muerto -- "musculo" ya lo cubre.
+    "grupo_muscular": [
+        "grupo muscular",
+        "grupo_muscular",
+        "categoria",
+        "categorias",
+        "grupo",
+        "musculo",
+        "zona",
+    ],
     "url_video": ["video", "url_video", "link", "youtube"],
 }
 

@@ -146,6 +146,23 @@ class DetectarColumnasTests(SimpleTestCase):
         campos, _ = detectar_columnas(encabezados, ALIAS_BIBLIOTECA)
         self.assertEqual(campos, {"nombre": 0, "grupo_muscular": 1, "url_video": 2})
 
+    def test_alias_biblioteca_acepta_categoria(self):
+        """Encabezado real del primer cliente: su Excel de 748 ejercicios
+        decía CATEGORÍA, que no estaba en la lista de alias, así que la
+        columna no se detectaba y los 748 salían sin clasificar. Es el
+        defecto que originó toda la feature de categorías por gimnasio."""
+        encabezados = ["NOMBRE", "LINK", "CATEGORÍA"]
+        campos, _ = detectar_columnas(encabezados, ALIAS_BIBLIOTECA)
+        self.assertEqual(campos, {"nombre": 0, "url_video": 1, "grupo_muscular": 2})
+
+    def test_alias_biblioteca_acepta_variantes_de_categoria(self):
+        for encabezado in ["Categoria", "categorías", "CATEGORIAS", "Grupo"]:
+            with self.subTest(encabezado=encabezado):
+                campos, _ = detectar_columnas(
+                    ["Nombre", encabezado], ALIAS_BIBLIOTECA
+                )
+                self.assertEqual(campos.get("grupo_muscular"), 1)
+
 
 def _hoja_plantilla_basica():
     """Workbook en memoria con encabezados + 2 filas válidas, sin celdas
