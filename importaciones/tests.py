@@ -1970,3 +1970,80 @@ class ResolverCategoriasTests(SimpleTestCase):
         self.assertEqual(len(existentes), 1)
         self.assertEqual(existentes[0].categoria_id, 6)
         self.assertEqual(len(nuevas), 11)
+
+
+class DescartarImportacionesViejasTests(TestCase):
+    """`0002_descartar_importaciones_con_formato_viejo`: una importación de
+    biblioteca a medio revisar, guardada con el `resultado` de antes de las
+    categorías, tiraba 500 al abrir su preview."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def _migrar(self):
+        import importlib
+
+        from django.apps import apps
+
+        modulo = importlib.import_module(
+            "importaciones.migrations.0002_descartar_importaciones_con_formato_viejo"
+        )
+        modulo.descartar_en_revision(apps, None)
+
+    def _importacion(self, tipo, estado):
+        return Importacion.objects.create(
+            gimnasio=self.gimnasio,
+            tipo=tipo,
+            estado=estado,
+            archivo="importaciones/x.xlsx",
+            resultado={"items": [], "filas_invalidas": []},
+            creado_por=self.usuario,
+        )
+
+    def test_descarta_las_de_biblioteca_en_revision(self):
+        importacion = self._importacion(
+            Importacion.Tipo.BIBLIOTECA, Importacion.Estado.EN_REVISION
+        )
+
+        self._migrar()
+
+        importacion.refresh_from_db()
+        self.assertEqual(importacion.estado, Importacion.Estado.DESCARTADA)
+
+    def test_no_toca_las_ya_confirmadas(self):
+        importacion = self._importacion(
+            Importacion.Tipo.BIBLIOTECA, Importacion.Estado.CONFIRMADA
+        )
+
+        self._migrar()
+
+        importacion.refresh_from_db()
+        self.assertEqual(importacion.estado, Importacion.Estado.CONFIRMADA)
+
+    def test_no_toca_las_de_plantillas(self):
+        """El `resultado` de plantillas no cambió de forma."""
+        importacion = self._importacion(
+            Importacion.Tipo.PLANTILLAS, Importacion.Estado.EN_REVISION
+        )
+
+        self._migrar()
+
+        importacion.refresh_from_db()
+        self.assertEqual(importacion.estado, Importacion.Estado.EN_REVISION)
+
+    def test_el_preview_de_una_descartada_da_404_no_500(self):
+        importacion = self._importacion(
+            Importacion.Tipo.BIBLIOTECA, Importacion.Estado.EN_REVISION
+        )
+        self._migrar()
+        self.client.login(username="staff", password="clave-123456")
+
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
