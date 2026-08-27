@@ -78,6 +78,16 @@
           las zonas de abajo, o tildá varios y asignalos todos juntos. El
           desplegable funciona igual con teclado, lector de pantalla o celular.
         </p>
+        {% if importacion.resultado.categorias_a_crear %}
+          <p class="texto-suave">
+            Acá aparecen solo las categorías que tu gimnasio <em>ya</em> tiene:
+            las {{ importacion.resultado.categorias_a_crear|length }} nuevas
+            todavía no existen hasta que confirmes. Si alguno de estos va en
+            una de esas, dejalo sin categoría y asignásela después desde
+            Ejercicios (el formulario te deja escribir una categoría nueva ahí
+            mismo).
+          </p>
+        {% endif %}
 
         <div class="lote-acciones">
           <label for="lote-categoria">Asignar a los tildados:</label>
