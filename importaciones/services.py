@@ -18,6 +18,7 @@ from importaciones.matching import (
 )
 from importaciones.models import Importacion
 from importaciones.parsing import (
+    ColumnaRequeridaFaltante,
     normalizar_texto,
     parsear_archivo_biblioteca,
     parsear_archivo_plantillas,
@@ -251,6 +252,19 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
     except ERRORES_ARCHIVO_INVALIDO:
         raise ImportacionInvalida(
             "No se pudo leer el archivo. Verificá que sea un .xlsx válido."
+        )
+    except ColumnaRequeridaFaltante as error:
+        # Listar lo que SÍ se leyó es lo que hace accionable el mensaje: el
+        # caso típico es una fila de título arriba de la tabla, y viendo el
+        # eco de esa fila el staff entiende al toque que la app miró la fila
+        # equivocada.
+        leidos = ", ".join(f"«{e}»" for e in error.encabezados) or "ninguno"
+        raise ImportacionInvalida(
+            f"No encontré la columna «{error.campo}» en el archivo. "
+            f"En la primera fila leí estos encabezados: {leidos}. "
+            "La primera fila de la hoja tiene que ser la de los títulos de "
+            "las columnas (por ejemplo NOMBRE, LINK, CATEGORÍA): si arriba "
+            "hay un título o una fila en blanco, borrala y volvé a subirlo."
         )
 
     indice = construir_indice_ejercicios(gimnasio)

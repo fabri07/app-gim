@@ -19,6 +19,7 @@ from importaciones.matching import (
 )
 from importaciones.models import Importacion
 from importaciones.parsing import (
+    ColumnaRequeridaFaltante,
     ALIAS_BIBLIOTECA,
     ALIAS_PLANTILLA,
     FilaInvalida,
@@ -1685,3 +1686,140 @@ class EjercicioResolucionMuestraContextoTests(TestCase):
         # -- si el catálogo cambia de tamaño sin tocar el template, este test
         # lo detecta (Fix post-review, drag-and-drop del importador).
         self.assertContains(response, 'class="rutina-drop-zona"', count=8)
+
+
+class DeteccionTolerantePorContenidoTests(SimpleTestCase):
+    """La detección era de coincidencia EXACTA contra la lista de alias, así
+    que un encabezado razonable como "NOMBRE DEL EJERCICIO" no matcheaba y el
+    archivo entero se descartaba sin explicación."""
+
+    def test_detecta_alias_contenido_en_el_encabezado(self):
+        campos, _ = detectar_columnas(
+            ["NOMBRE DEL EJERCICIO", "LINK DE YOUTUBE", "CATEGORÍA (grupo)"],
+            ALIAS_BIBLIOTECA,
+        )
+        self.assertEqual(
+            campos, {"nombre": 0, "url_video": 1, "grupo_muscular": 2}
+        )
+
+    def test_la_coincidencia_exacta_gana_sobre_la_parcial(self):
+        """Con 'Ejercicio' (exacto para `nombre`) y 'Nombre del ejercicio'
+        (parcial), gana la exacta y la otra no se roba la columna."""
+        campos, _ = detectar_columnas(
+            ["Nombre del ejercicio", "Ejercicio"], ALIAS_BIBLIOTECA
+        )
+        self.assertEqual(campos["nombre"], 1)
+
+    def test_una_columna_no_se_asigna_a_dos_campos(self):
+        """'Grupo muscular del ejercicio' contiene tanto 'grupo muscular'
+        como 'ejercicio'; no puede terminar siendo también la de nombre."""
+        campos, _ = detectar_columnas(
+            ["Nombre", "Grupo muscular del ejercicio"], ALIAS_BIBLIOTECA
+        )
+        self.assertEqual(campos["nombre"], 0)
+        self.assertEqual(campos["grupo_muscular"], 1)
+
+    def test_gana_el_alias_mas_largo(self):
+        campos, _ = detectar_columnas(
+            ["Nombre", "Grupo muscular principal"], ALIAS_BIBLIOTECA
+        )
+        self.assertEqual(campos["grupo_muscular"], 1)
+
+    def test_no_inventa_columnas_que_no_estan(self):
+        campos, _ = detectar_columnas(["Nombre", "Observaciones"], ALIAS_BIBLIOTECA)
+        self.assertNotIn("grupo_muscular", campos)
+        self.assertNotIn("url_video", campos)
+
+
+class BibliotecaSinColumnaNombreTests(SimpleTestCase):
+    """Reproduce la importación #7 del primer cliente: el MISMO archivo que
+    la #8, pero con una fila de título arriba. `leer_hoja_biblioteca`
+    devolvía `[], [], []` y la app armaba un preview con cero filas y el
+    botón "Confirmar importación" habilitado, sin decir nada."""
+
+    def _hoja(self, filas):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for fila in filas:
+            ws.append(fila)
+        return ws
+
+    def test_falta_la_columna_nombre_levanta_error(self):
+        hoja = self._hoja([
+            ["Biblioteca de ejercicios 2026", None, None],
+            ["NOMBRE", "LINK", "CATEGORÍA"],
+            ["Sentadilla", "https://y.com/1", "RODILLA"],
+        ])
+
+        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
+            leer_hoja_biblioteca(hoja)
+
+        self.assertEqual(ctx.exception.campo, "nombre")
+
+    def test_el_error_lista_los_encabezados_que_si_encontro(self):
+        """Sin esto el staff no tiene forma de saber qué leyó la app: es la
+        diferencia entre "arreglá la fila 1" y adivinar."""
+        hoja = self._hoja([
+            ["Biblioteca 2026", "col b", None],
+            ["NOMBRE", "LINK", "CATEGORÍA"],
+        ])
+
+        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
+            leer_hoja_biblioteca(hoja)
+
+        self.assertIn("Biblioteca 2026", ctx.exception.encabezados)
+        self.assertIn("col b", ctx.exception.encabezados)
+
+    def test_el_archivo_bien_armado_sigue_funcionando(self):
+        hoja = self._hoja([
+            ["NOMBRE", "LINK", "CATEGORÍA"],
+            ["Sentadilla", "https://y.com/1", "RODILLA"],
+        ])
+
+        items, invalidas, _ = leer_hoja_biblioteca(hoja)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(invalidas, [])
+
+
+class PreviewBibliotecaSinColumnaNombreTests(TestCase):
+    """El error de columna faltante tiene que llegar al staff como mensaje,
+    no como un preview vacío ni como un 500."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def _archivo_con_titulo_arriba(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Biblioteca de ejercicios 2026", None, None])
+        ws.append(["NOMBRE", "LINK", "CATEGORÍA"])
+        ws.append(["Sentadilla", "https://y.com/1", "RODILLA"])
+        return _archivo_xlsx(wb)
+
+    def test_no_crea_una_importacion_vacia(self):
+        with self.assertRaises(ImportacionInvalida):
+            previsualizar_importacion_biblioteca(
+                gimnasio=self.gimnasio,
+                archivo=self._archivo_con_titulo_arriba(),
+                usuario=self.usuario,
+            )
+
+        self.assertEqual(Importacion.objects.count(), 0)
+
+    def test_el_mensaje_dice_que_columna_falta_y_que_leyo(self):
+        with self.assertRaises(ImportacionInvalida) as ctx:
+            previsualizar_importacion_biblioteca(
+                gimnasio=self.gimnasio,
+                archivo=self._archivo_con_titulo_arriba(),
+                usuario=self.usuario,
+            )
+
+        mensaje = str(ctx.exception)
+        self.assertIn("nombre", mensaje)
+        self.assertIn("Biblioteca de ejercicios 2026", mensaje)
+        self.assertIn("primera fila", mensaje)
