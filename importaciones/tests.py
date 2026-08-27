@@ -2047,3 +2047,101 @@ class DescartarImportacionesViejasTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+
+class BibliotecaPreviewDragYLoteTests(TestCase):
+    """El drag-and-drop existía solo en el preview de PLANTILLAS (commit
+    5789220). El de biblioteca —el que usa el flujo de "Importar
+    ejercicios"— seguía con desplegables sueltos."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.empuje = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="EMPUJE"
+        )
+        self.traccion = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="TRACCIÓN"
+        )
+        self.client.login(username="staff", password="clave-123456")
+
+    def _preview_con_pendientes(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Video"])  # sin columna de categoría a propósito
+        ws.append(["Dominadas", "https://y.com/1"])
+        ws.append(["Fondos", "https://y.com/2"])
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+        return importacion, self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+
+    def test_hay_una_zona_de_drop_por_categoria_activa(self):
+        CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="INACTIVA", activo=False
+        )
+        _, response = self._preview_con_pendientes()
+
+        self.assertContains(response, 'class="rutina-drop-zona"', count=2)
+
+    def test_cada_pendiente_tiene_su_chip_arrastrable(self):
+        _, response = self._preview_con_pendientes()
+
+        self.assertContains(response, 'class="rutina-chip"', count=2)
+        self.assertContains(response, 'draggable="true"', count=2)
+
+    def test_la_capa_de_arrastre_esta_oculta_para_lectores_de_pantalla(self):
+        """El arrastre nativo no tiene ARIA ni anda en touch: el desplegable
+        es el camino accesible y el chip es decoración."""
+        _, response = self._preview_con_pendientes()
+
+        self.assertContains(response, 'aria-hidden="true"')
+
+    def test_el_desplegable_sigue_siendo_el_control_autoritativo(self):
+        """Si el JS no corre, la pantalla tiene que seguir funcionando."""
+        _, response = self._preview_con_pendientes()
+
+        self.assertContains(response, 'class="js-categoria"', count=2)
+
+    def test_hay_controles_de_asignacion_en_lote(self):
+        _, response = self._preview_con_pendientes()
+
+        self.assertContains(response, 'id="lote-aplicar"')
+        self.assertContains(response, 'id="lote-todos"')
+        self.assertContains(response, 'class="js-lote"', count=2)
+
+    def test_las_zonas_llevan_el_id_de_la_categoria_no_su_nombre(self):
+        _, response = self._preview_con_pendientes()
+
+        self.assertContains(response, f'data-categoria="{self.empuje.pk}"')
+
+    def test_no_ofrece_categorias_de_otro_gimnasio(self):
+        otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        CategoriaEjercicio.objects.create(gimnasio=otro, nombre="AJENA")
+
+        _, response = self._preview_con_pendientes()
+
+        self.assertNotContains(response, "AJENA")
+
+    def test_muestra_lo_que_decia_el_archivo_para_los_no_resueltos(self):
+        """Contexto para decidir: si el Excel decía algo y no se pudo
+        resolver, el staff tiene que poder verlo sin abrir el Excel."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Categoría"])
+        ws.append(["Dominadas", "ZZZ"])
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+        # "ZZZ" no matchea ninguna existente, así que se crea: no queda
+        # pendiente. Este test fija que el importador NO deja pendientes
+        # cuando el archivo trae categoría.
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+        self.assertNotContains(response, 'class="js-lote"')

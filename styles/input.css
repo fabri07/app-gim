@@ -937,6 +937,26 @@
       select-none;
   }
 
+  /* Asignación en lote del preview de biblioteca. Es la única de las tres
+     vías de clasificar (desplegable, arrastre, lote) que sirve con cientos
+     de pendientes y además funciona con teclado y en celular -- el arrastre
+     nativo no anda en touch. */
+  .lote-acciones {
+    @apply flex flex-wrap items-center gap-2 mb-4;
+  }
+
+  .lote-acciones select {
+    @apply w-auto mb-0;
+  }
+
+  .pendiente-fila {
+    @apply border-t border-gray-200 py-3;
+  }
+
+  .pendiente-fila:first-of-type {
+    @apply border-t-0;
+  }
+
   /* Tour de bienvenida para staff nuevo (static/js/tour_onboarding.js):
      modificador de posicionamiento sobre `.tarjeta` (reusa su fondo, borde,
      sombra y padding -- no los duplica) para una tarjeta flotante fija,
