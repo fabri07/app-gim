@@ -988,3 +988,74 @@ simplificaciones de MVP:
 feature. (1) no tiene arreglo sin reimplementar con Pointer Events (fuera de
 alcance mientras el `<select>` siga cubriendo el caso mobile); (2) solo vale
 la pena tocarlo si algún staff lo reporta como confuso en la práctica.
+
+---
+
+## [2026-08-26] El importador dejaba 748 ejercicios sin clasificar (y un preview vacío sin avisar)
+
+**Estado:** resuelto
+
+**Impacto:** el primer cliente pago subió un Excel de 748 ejercicios con tres
+columnas —`NOMBRE`, `LINK`, `CATEGORÍA`— y el importador se lo dejó entero sin
+clasificar, pidiéndole elegir el grupo muscular de cada uno desde un
+`<select>`. Un intento anterior había mostrado, con el MISMO archivo, una
+tabla completamente vacía. Eran **tres defectos distintos**, no uno.
+
+**1. La columna no se detectaba.** `parsing.py:30` aceptaba "grupo muscular",
+"musculo" y "zona", pero no "categoria" —el encabezado que usan los gimnasios
+de verdad—. Corriendo el parser real contra el archivo,
+`detectar_columnas(['NOMBRE','LINK','CATEGORÍA'])` devolvía
+`{'nombre': 0, 'url_video': 1}` y los 748 salían con `grupo_muscular_original`
+en `None`. De paso, el alias `"músculo"` era código muerto: `normalizar_texto`
+saca las tildes antes de comparar, así que nunca podía matchear.
+
+**2. El catálogo era global y anatómico.** Aunque se detectara la columna, 11
+de las 13 categorías del cliente no mapeaban a nada: clasifica por patrón de
+movimiento (EMPUJE, TRACCIÓN, RODILLA, CADERA) más bloques (INTERMITENTE,
+DEPORTIVOS, MOVILIDAD, ACCESORIOS) y skills (MUSCLE UP, HANDSTAND, SKILLS
+ANILLAS). Solo CORE coincidía, por casualidad. Esto **no se arreglaba con más
+alias** —ningún diccionario podía anticipar cómo agrupa cada gimnasio— así que
+`grupo_muscular` pasó de `TextChoices` global a FK a
+`CategoriaEjercicio(TenantOwnedModel)`. Ver CLAUDE.md § "Categorías de
+ejercicio por gimnasio".
+
+**3. Sin la columna obligatoria devolvía vacío en silencio.**
+`leer_hoja_biblioteca` hacía `if "nombre" not in campos: return [], [],
+advertencias`, y la app armaba un preview de cero filas con el botón
+"Confirmar importación" habilitado, sin ningún mensaje. Se reproduce con el
+archivo real moviendo el encabezado una fila hacia abajo. La detección además
+era de coincidencia EXACTA, así que "NOMBRE DEL EJERCICIO" tampoco matcheaba.
+
+**Resolución:** contra el archivo real, sobre un gimnasio recién creado: 743
+ejercicios creados (5 filas se descartan por estar repetidas en el propio
+Excel), 11 categorías nuevas, CORE fusionada con la Core sembrada, y **un solo
+pendiente** —la única fila con la celda de categoría vacía—. Antes eran 748
+selects vacíos.
+
+**Riesgos aceptados a propósito:**
+
+- **`Ejercicio.grupo_muscular` queda en la base sin uso.** Expand/contract: se
+  agregó `categoria` y se backfilleó, pero la columna vieja sobrevive un
+  release con los datos intactos, para que la vuelta atrás en producción sea
+  revertir el código y nada más. **Borrarla es un commit pendiente**, después
+  de confirmar que producción está sana.
+- **El dedupe difuso puede fusionar de más.** `UMBRAL_CATEGORIA = 85` está
+  medido contra los datos reales (par distinto más parecido: 61.5,
+  `Hombros`/`Brazos`; typo más flojo que debe fusionarse: 88.9,
+  `MOVILIDAD`/`MOBILIDAD`), con tests fijando los dos bordes. Un gimnasio con
+  categorías legítimamente muy parecidas podría ver dos fusionadas en una; se
+  arregla renombrando desde el CRUD, y el preview lista qué se va a crear
+  antes de confirmar.
+- **La pantalla de pendientes no tiene paginación** y renderiza todos los
+  items de una. Con el fix de detección y el dedupe los pendientes tienden a
+  cero, así que es red de contención y no camino principal. Si algún archivo
+  la hace arrastrarse, la respuesta correcta es paginar los pendientes, no
+  optimizar el JS.
+
+**Efectos colaterales:** se retiraron los tests de
+`rutinas/0006_backfill_grupo_muscular_snapshot` (invocaban la migración con el
+registro de modelos vivo, atajo que deja de funcionar al renombrar el campo) y
+los de `resolver_grupo_muscular` (matcheaba contra un catálogo que ya no
+existe). Se descartan por migración las importaciones de biblioteca que
+quedaron en `en_revision` con el `resultado` del formato viejo: su preview
+habría dado 500 tras el deploy, y en producción había al menos dos.
