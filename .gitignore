@@ -42,6 +42,12 @@ node_modules/
 # Worktrees de desarrollo aislado (Claude Code)
 .worktrees/
 .superpowers/
+.claude/worktrees/
+
+# Permisos de Claude Code propios de esta máquina (no del proyecto): qué
+# comandos puede correr sin preguntar. No se versiona -- si algún día hay más
+# de un desarrollador, cada uno decide los suyos.
+.claude/settings.local.json
 
 # Cache local de sesión de la skill impeccable (paths absolutos de máquina,
 # session ids) -- .impeccable/config.json (las reglas ignoradas del equipo)
