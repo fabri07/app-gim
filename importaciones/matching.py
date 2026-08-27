@@ -79,6 +79,13 @@ class CategoriaResuelta:
     catálogo del gimnasio. `nueva` trae el nombre canónico elegido para
     crearla -- todavía NO existe: el preview no escribe en la base, la crea
     `confirmar_importacion_biblioteca`.
+
+    `nombre` se llena en LOS DOS casos, no solo en `nueva`: es lo que deja
+    auditar el dedupe difuso en el preview. Si el archivo dice "MOBILIDAD" y
+    eso se fusionó con la "Movilidad" que ya existía (ratio 88.9), el staff
+    tiene que poder VER que quedó en "Movilidad" -- si la pantalla muestra el
+    texto crudo del Excel, una fusión se lee igual que un match exacto y no
+    hay forma de detectar una fusión indebida antes de confirmar.
     """
 
     tipo: Literal["existente", "nueva"]
@@ -87,10 +94,18 @@ class CategoriaResuelta:
 
 
 def construir_indice_categorias(gimnasio):
-    """`{nombre_normalizado: id}` del catálogo del gimnasio. Única función de
-    categorías que toca DB, para que `resolver_categorias` quede pura."""
+    """`{nombre_normalizado: (id, nombre)}` del catálogo del gimnasio. Única
+    función de categorías que toca DB, para que `resolver_categorias` quede
+    pura.
+
+    Sin filtrar por `activo`: una categoría desactivada sigue ocupando su
+    `nombre_normalizado` por la UniqueConstraint, así que ignorarla haría que
+    el importador intentara crear una duplicada y terminara reusando la misma
+    fila igual, pero anunciándola como "nueva" en el preview. Reusarla y
+    decirlo es más honesto. Ver ISSUES.md [2026-08-26].
+    """
     return {
-        c.nombre_normalizado: c.pk
+        c.nombre_normalizado: (c.pk, c.nombre)
         for c in CategoriaEjercicio.objects.for_gimnasio(gimnasio)
     }
 
@@ -126,15 +141,17 @@ def resolver_categorias(textos, indice):
             continue
 
         if normalizado in indice:
+            pk, nombre = indice[normalizado]
             resultado[texto] = CategoriaResuelta(
-                tipo="existente", categoria_id=indice[normalizado]
+                tipo="existente", categoria_id=pk, nombre=nombre
             )
             continue
 
         parecida = _mas_parecida(normalizado, indice)
         if parecida is not None:
+            pk, nombre = indice[parecida]
             resultado[texto] = CategoriaResuelta(
-                tipo="existente", categoria_id=indice[parecida]
+                tipo="existente", categoria_id=pk, nombre=nombre
             )
             continue
 

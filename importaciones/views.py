@@ -284,7 +284,17 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
                     continue
                 if accion == "usar_existente":
                     continue  # no crea nada -> no necesita categoría
-            if not item.get("categoria_resuelta") and not entrada.get("categoria_id"):
+            # `sin_categoria` es una elección EXPLÍCITA del staff, no un
+            # default silencioso: sin ella no habría forma de confirmar un
+            # ejercicio cuya categoría todavía no existe (las que va a crear
+            # esta misma importación), ni de importar a un gimnasio cuyo
+            # catálogo está vacío -- ahí el desplegable no tiene ninguna
+            # opción y la confirmación quedaba trabada para siempre.
+            if (
+                not item.get("categoria_resuelta")
+                and not entrada.get("categoria_id")
+                and not entrada.get("sin_categoria")
+            ):
                 faltantes.append(item["nombre_original"])
         if faltantes:
             form.add_error(None, f"Falta resolver: {', '.join(faltantes)}.")
@@ -306,6 +316,9 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
                 "categoria_id": resoluciones.get(
                     item["nombre_normalizado"], {}
                 ).get("categoria_id"),
+                "sin_categoria": resoluciones.get(
+                    item["nombre_normalizado"], {}
+                ).get("sin_categoria", False),
             }
             for item in importacion.resultado["items"]
         }}

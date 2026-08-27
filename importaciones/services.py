@@ -333,11 +333,19 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
         # Para el resumen "se van a crear N categorías" del preview. Se
         # calcula acá y no en el template para no recorrer 748 items en
         # cada render.
+        #
+        # Se recorre `items` (los que van a llegar al confirm) y no
+        # `categorias_resueltas` (todas las filas parseadas): las filas
+        # descartadas por duplicadas y las de ejercicios que ya existen
+        # nunca crean nada. Sin esto, volver a subir el mismo archivo
+        # anunciaba "se van a crear 11 categorías" y no creaba ninguna.
         "categorias_a_crear": sorted(
             {
-                r.nombre
-                for r in categorias_resueltas.values()
-                if r.tipo == "nueva"
+                i["categoria_resuelta"]["nombre"]
+                for i in items
+                if i["categoria_resuelta"]
+                and i["categoria_resuelta"]["tipo"] == "nueva"
+                and i["match"]["tipo"] != "exacto"
             }
         ),
     }
@@ -363,6 +371,11 @@ def _categoria_para(*, item, decision, gimnasio, cache):
     """
     from ejercicios.models import CategoriaEjercicio
 
+    if decision.get("sin_categoria"):
+        # El staff eligió explícitamente dejarlo sin clasificar; no se cae
+        # al automático, que es justo lo que quiso descartar.
+        return None
+
     elegida = decision.get("categoria_id")
     if elegida:
         categoria = (
@@ -382,11 +395,21 @@ def _categoria_para(*, item, decision, gimnasio, cache):
         return None
 
     if resuelta["tipo"] == "existente":
-        return (
+        categoria = (
             CategoriaEjercicio.objects.for_gimnasio(gimnasio)
             .filter(pk=resuelta["categoria_id"])
             .first()
         )
+        if categoria is None:
+            # Alguien la borró entre el preview y la confirmación. Falla
+            # ruidoso, igual que la rama de elección manual: crear cientos de
+            # ejercicios sin clasificar en silencio es peor que pedir que se
+            # vuelva a previsualizar.
+            raise ImportacionInvalida(
+                f"La categoría resuelta para «{item['nombre_original']}» ya "
+                "no existe. Volvé a subir el archivo."
+            )
+        return categoria
 
     nombre = resuelta["nombre"]
     clave = normalizar_texto(nombre)

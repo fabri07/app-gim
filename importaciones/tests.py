@@ -1924,7 +1924,7 @@ class ResolverCategoriasTests(SimpleTestCase):
         self.assertEqual(resueltas["DEPORTIVO"].nombre, "DEPORTIVOS")
 
     def test_reusa_una_categoria_existente_por_nombre_normalizado(self):
-        indice = {"core": 7}
+        indice = {"core": (7, "Core")}
 
         resueltas = resolver_categorias(["CORE"], indice)
 
@@ -1934,7 +1934,7 @@ class ResolverCategoriasTests(SimpleTestCase):
     def test_reusa_una_categoria_existente_por_similitud(self):
         """El caso concreto del cliente: su 'CORE' se fusiona con la 'Core'
         que la app siembra por default, en vez de duplicarla."""
-        indice = {"core": 7}
+        indice = {"core": (7, "Core")}
 
         resueltas = resolver_categorias(["Coree"], indice)
 
@@ -1942,12 +1942,22 @@ class ResolverCategoriasTests(SimpleTestCase):
         self.assertEqual(resueltas["Coree"].categoria_id, 7)
 
     def test_el_catalogo_existente_gana_sobre_crear_una_nueva(self):
-        indice = {"empuje": 3}
+        indice = {"empuje": (3, "EMPUJE")}
 
         resueltas = resolver_categorias(["EMPUJES", "EMPUJE"], indice)
 
         self.assertEqual(resueltas["EMPUJES"].tipo, "existente")
         self.assertEqual(resueltas["EMPUJE"].tipo, "existente")
+
+    def test_una_existente_trae_su_nombre_real_no_el_del_archivo(self):
+        """Sin esto el preview muestra el texto crudo del Excel y una fusión
+        difusa se lee igual que un match exacto: el staff no tiene cómo
+        detectar que "Coree" terminó en "Core" antes de confirmar."""
+        indice = {"core": (7, "Core")}
+
+        resueltas = resolver_categorias(["Coree"], indice)
+
+        self.assertEqual(resueltas["Coree"].nombre, "Core")
 
     def test_ignora_textos_vacios(self):
         resueltas = resolver_categorias(["", None, "   "], {})
@@ -1959,8 +1969,10 @@ class ResolverCategoriasTests(SimpleTestCase):
         creado. Solo CORE debe fusionarse con la sembrada; las otras 11 se
         crean, sin que ninguna se coma a otra."""
         indice = {
-            "pecho": 1, "espalda": 2, "piernas": 3, "hombros": 4,
-            "brazos": 5, "core": 6, "cardio": 7, "cuerpo completo": 8,
+            "pecho": (1, "Pecho"), "espalda": (2, "Espalda"),
+            "piernas": (3, "Piernas"), "hombros": (4, "Hombros"),
+            "brazos": (5, "Brazos"), "core": (6, "Core"),
+            "cardio": (7, "Cardio"), "cuerpo completo": (8, "Cuerpo completo"),
         }
 
         resueltas = resolver_categorias(self.CLIENTE, indice)
@@ -2145,3 +2157,121 @@ class BibliotecaPreviewDragYLoteTests(TestCase):
             reverse("importaciones:biblioteca_preview", args=[importacion.pk])
         )
         self.assertNotContains(response, 'class="js-lote"')
+
+
+class SinCategoriaExplicitaTests(TestCase):
+    """Elegir "Sin categoría" es una decisión explícita del staff, no un
+    default silencioso. Sin esta opción no había forma de confirmar un
+    ejercicio cuya categoría todavía no existe (las que va a crear la propia
+    importación), ni de importar a un gimnasio con el catálogo vacío."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff", password="clave-123456")
+
+    def _importacion_con_pendiente(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre"])  # sin columna de categoría
+        ws.append(["Dominadas"])
+        return previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+
+    def test_sin_categoria_confirma_y_crea_el_ejercicio(self):
+        importacion = self._importacion_con_pendiente()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps({"dominadas": {"sin_categoria": True}})},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ejercicio = Ejercicio.objects.get(nombre="Dominadas")
+        self.assertIsNone(ejercicio.categoria)
+
+    def test_no_elegir_nada_sigue_bloqueando_la_confirmacion(self):
+        """La opción explícita no debe convertirse en un default: dejar el
+        desplegable sin tocar tiene que seguir frenando el confirm."""
+        importacion = self._importacion_con_pendiente()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps({})},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Falta resolver")
+        self.assertEqual(Ejercicio.objects.count(), 0)
+
+    def test_un_gimnasio_con_el_catalogo_vacio_puede_importar(self):
+        """La migración no siembra categorías a un gimnasio sin ejercicios:
+        antes de la opción explícita, su desplegable quedaba vacío y la
+        importación no se podía confirmar nunca."""
+        self.assertEqual(
+            CategoriaEjercicio.objects.for_gimnasio(self.gimnasio).count(), 0
+        )
+        importacion = self._importacion_con_pendiente()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps({"dominadas": {"sin_categoria": True}})},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Ejercicio.objects.count(), 1)
+
+    def test_categoria_id_booleano_no_pasa_como_pk(self):
+        """`isinstance(True, int)` es True en Python: sin el guard de bool,
+        `categoria_id: true` se colaba como si fuera el pk 1."""
+        importacion = self._importacion_con_pendiente()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps({"dominadas": {"categoria_id": True}})},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Categoría inválida")
+
+
+class CategoriasACrearCuentaSoloLasRealesTests(TestCase):
+    """El resumen del preview contaba TODAS las filas parseadas, incluidas
+    las descartadas por duplicadas y las de ejercicios que ya existen --
+    ninguna de las dos llega a crear una categoría."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def _archivo(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Categoría"])
+        ws.append(["Dominadas", "TRACCIÓN"])
+        return _archivo_xlsx(wb)
+
+    def test_subir_el_mismo_archivo_dos_veces_no_anuncia_categorias_de_mas(self):
+        primera = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
+        )
+        self.assertEqual(primera.resultado["categorias_a_crear"], ["TRACCIÓN"])
+        confirmar_importacion_biblioteca(
+            importacion=primera,
+            gimnasio=self.gimnasio,
+            decisiones={"items": {"dominadas": {"incluir": True}}},
+        )
+
+        segunda = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
+        )
+
+        # El ejercicio ya existe: no se recrea, y su categoría tampoco.
+        self.assertEqual(segunda.resultado["categorias_a_crear"], [])

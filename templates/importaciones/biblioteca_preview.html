@@ -42,8 +42,15 @@
               <td>{{ item.nombre_original }}</td>
               <td>
                 {% if item.categoria_resuelta %}
-                  {{ item.categoria_resuelta.nombre|default:item.grupo_muscular_original }}
-                  {% if item.categoria_resuelta.tipo == "nueva" %}<span class="badge">nueva</span>{% endif %}
+                  {{ item.categoria_resuelta.nombre }}
+                  {% if item.categoria_resuelta.tipo == "nueva" %}
+                    <span class="badge">nueva</span>
+                  {% elif item.categoria_resuelta.nombre != item.grupo_muscular_original %}
+                    {# El archivo decía otra cosa: hubo fusión difusa. Se
+                       muestra el original para que una fusión indebida se
+                       pueda detectar ANTES de confirmar. #}
+                    <span class="texto-suave">(el archivo decía «{{ item.grupo_muscular_original }}»)</span>
+                  {% endif %}
                 {% else %}—{% endif %}
               </td>
               <td>
@@ -83,7 +90,7 @@
             Acá aparecen solo las categorías que tu gimnasio <em>ya</em> tiene:
             las {{ importacion.resultado.categorias_a_crear|length }} nuevas
             todavía no existen hasta que confirmes. Si alguno de estos va en
-            una de esas, dejalo sin categoría y asignásela después desde
+            una de esas, elegí «Sin categoría» y asignásela después desde
             Ejercicios (el formulario te deja escribir una categoría nueva ahí
             mismo).
           </p>
@@ -96,6 +103,7 @@
             {% for c in categorias %}
               <option value="{{ c.pk }}">{{ c.nombre }}</option>
             {% endfor %}
+            <option value="sin_categoria">Sin categoría — la asigno después</option>
           </select>
           <button type="button" class="boton-secundario" id="lote-aplicar">
             Asignar
@@ -143,6 +151,11 @@
                   {% for c in categorias %}
                     <option value="{{ c.pk }}">{{ c.nombre }}</option>
                   {% endfor %}
+                  {# Opción explícita, no un default silencioso: sin esto no
+                     hay forma de confirmar un ejercicio cuya categoría todavía
+                     no existe, ni de importar a un gimnasio con el catálogo
+                     vacío. #}
+                  <option value="sin_categoria">Sin categoría — la asigno después</option>
                 </select>
                 <span id="chip-cat-{{ forloop.counter }}" class="rutina-chip"
                       draggable="true" data-select="cat-{{ forloop.counter }}"
@@ -249,15 +262,20 @@
         form.querySelector("#lote-aplicar").addEventListener("click", function () {
           var valor = form.querySelector("#lote-categoria").value;
           if (!valor) { return; }
+          // Se recorre y compara en vez de armar un selector de atributo con
+          // el nombre adentro: `nombre_normalizado` sale de la planilla y
+          // `normalizar_texto` no saca comillas, así que un ejercicio llamado
+          // Press "militar" rompía `querySelector` con un SyntaxError y
+          // abortaba el lote a la mitad, dejando unos asignados y otros no.
+          var seleccionados = {};
           form.querySelectorAll(".js-lote:checked").forEach(function (check) {
-            var select = form.querySelector(
-              '.js-categoria[data-valor-original="' + check.dataset.valorOriginal + '"]'
-            );
-            if (select) {
-              select.value = valor;
-              select.dispatchEvent(new Event("change", { bubbles: true }));
-            }
+            seleccionados[check.dataset.valorOriginal] = true;
             check.checked = false;
+          });
+          form.querySelectorAll(".js-categoria").forEach(function (select) {
+            if (!seleccionados[select.dataset.valorOriginal]) { return; }
+            select.value = valor;
+            select.dispatchEvent(new Event("change", { bubbles: true }));
           });
           actualizarConteo();
         });
@@ -273,7 +291,11 @@
         document.querySelectorAll(".js-categoria").forEach(function (select) {
           // parseInt: el form valida que `categoria_id` sea un entero, y
           // el value de un <option> siempre llega como string.
-          if (select.value) {
+          if (select.value === "sin_categoria") {
+            entrada(select.dataset.valorOriginal).sin_categoria = true;
+          } else if (select.value) {
+            // parseInt: el form valida que `categoria_id` sea un entero, y
+            // el value de un <option> siempre llega como string.
             entrada(select.dataset.valorOriginal).categoria_id = parseInt(select.value, 10);
           }
         });

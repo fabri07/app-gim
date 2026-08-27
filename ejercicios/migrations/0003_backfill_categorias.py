@@ -49,10 +49,17 @@ def backfill_categorias(apps, schema_editor):
     CategoriaEjercicio = apps.get_model("ejercicios", "CategoriaEjercicio")
     Ejercicio = apps.get_model("ejercicios", "Ejercicio")
 
+    # Se filtra a los 8 valores conocidos en vez de tomar cualquier texto no
+    # vacío: `grupo_muscular` nunca tuvo la restricción a nivel de base
+    # (`choices` es de Django) y `.create()` no llama a `full_clean()`, así
+    # que una fila con un valor fuera del catálogo es posible. Indexando el
+    # mapa a ciegas, esa sola fila abortaba el `migrate` a mitad de un deploy
+    # en Render y el `bulk_update` no llegaba a correr.
+    conocidos = [valor for valor, _ in _ETIQUETAS_EN_ORDEN]
     pendientes = list(
-        Ejercicio.objects.filter(categoria__isnull=True)
-        .exclude(grupo_muscular__isnull=True)
-        .exclude(grupo_muscular="")
+        Ejercicio.objects.filter(
+            categoria__isnull=True, grupo_muscular__in=conocidos
+        )
     )
     if not pendientes:
         return

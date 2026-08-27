@@ -256,38 +256,42 @@ class EjercicioViewsTests(TestCase):
         self.assertEqual(nombres, {"Sentadilla"})
         self.assertNotContains(response, "Press de banca")
 
-    def test_filtro_combinado_grupo_muscular_y_texto_libre(self):
-        Ejercicio.objects.create(
-            gimnasio=self.gimnasio,
-            nombre="Sentadilla",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+    def test_filtro_combinado_categoria_y_texto_libre(self):
+        pecho = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Pecho"
         )
         Ejercicio.objects.create(
-            gimnasio=self.gimnasio,
-            nombre="Press de banca",
-            grupo_muscular=Ejercicio.GrupoMuscular.PECHO,
+            gimnasio=self.gimnasio, nombre="Sentadilla", categoria=self.piernas
+        )
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Press de banca", categoria=pecho
         )
         Ejercicio.objects.create(
             gimnasio=self.gimnasio,
             nombre="Sentadilla búlgara",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
+            categoria=self.piernas,
         )
         Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Press inclinado", categoria=pecho
+        )
+        # Comparte el texto "Press" con uno de Pecho: sin el filtro de
+        # categoría también entraría, así que este ejercicio es el que hace
+        # que el test pruebe de verdad la COMBINACIÓN y no solo el `q`.
+        Ejercicio.objects.create(
             gimnasio=self.gimnasio,
-            nombre="Press inclinado",
-            grupo_muscular=Ejercicio.GrupoMuscular.PECHO,
+            nombre="Press de piernas",
+            categoria=self.piernas,
         )
         self.client.login(username="staff-a", password="clave-123456")
 
         response = self.client.get(
             reverse("ejercicios:listado"),
-            {"grupo_muscular": Ejercicio.GrupoMuscular.PECHO, "q": "Press"},
+            {"categoria": pecho.pk, "q": "Press"},
         )
 
         self.assertEqual(response.status_code, 200)
         nombres = {e.nombre for e in response.context["ejercicios"]}
         self.assertEqual(nombres, {"Press de banca", "Press inclinado"})
-        self.assertNotContains(response, "Sentadilla")
 
 
 class CategoriaEjercicioModelTests(TestCase):

@@ -1046,13 +1046,23 @@ selects vacíos.
   categorías legítimamente muy parecidas podría ver dos fusionadas en una; se
   arregla renombrando desde el CRUD, y el preview lista qué se va a crear
   antes de confirmar.
+- **El importador reusa una categoría desactivada en vez de saltearla.**
+  `construir_indice_categorias` no filtra por `activo`, así que un gimnasio
+  que retiró "Cardio" e importa filas que dicen CARDIO las archiva ahí, en
+  una categoría que no aparece en los desplegables. Se evaluó filtrar y se
+  descartó: la `UniqueConstraint` es sobre `nombre_normalizado` sin mirar
+  `activo`, así que ignorarla llevaría a intentar crear una duplicada y
+  terminar reusando la misma fila igual, pero anunciándola como "nueva" en
+  el preview. Reusarla y decirlo es más honesto que reusarla y mentir. Los
+  ejercicios quedan visibles filtrando por esa categoría en el listado (que
+  lista también las inactivas) y en el conteo del CRUD.
 - **Las zonas de arrastre del preview solo ofrecen categorías que YA
   existen.** Las que la propia importación va a crear no están todavía en la
   base (el preview no escribe), así que un pendiente no se puede asignar a
   una de ellas sin confirmar primero. Se resolvió con copy explicando el
-  camino de salida —confirmar y asignársela después desde el formulario de
-  ejercicio, que deja escribir una categoría nueva ahí mismo— en vez de
-  agregar un segundo camino en el JSON de resoluciones
+  camino de salida —elegir "Sin categoría" y asignársela después desde el
+  formulario de ejercicio, que deja escribir una categoría nueva ahí mismo—
+  en vez de agregar un segundo camino en el JSON de resoluciones
   (`categoria_nombre` además de `categoria_id`) para un caso que en el
   archivo real fue UNA fila de 748.
 - **La pantalla de pendientes no tiene paginación** y renderiza todos los

@@ -99,7 +99,8 @@ class ResolucionesJSONForm(forms.Form):
     JSON -- así el conteo de campos del POST de confirmación de biblioteca
     no escala con la cantidad de ejercicios sin match (una biblioteca real
     puede traer miles; ver ISSUES.md [2026-07-28] y su seguimiento). El
-    payload es {nombre: {"categoria_id": int|None, "accion": str|None}}
+    payload es
+    {nombre: {"categoria_id": int|None, "sin_categoria": bool|None, "accion": str|None}}
     -- "accion" (usar_existente/crear_nuevo) resuelve un match ambiguo,
     "categoria_id" resuelve un ejercicio cuya categoría el importador no
     pudo deducir del archivo; un mismo ejercicio pendiente puede necesitar
@@ -134,7 +135,15 @@ class ResolucionesJSONForm(forms.Form):
                 self.add_error(None, "Formato de resoluciones inválido.")
                 return cleaned
             categoria_id = valor.get("categoria_id")
-            if categoria_id is not None and not isinstance(categoria_id, int):
+            # `isinstance(True, int)` es True en Python: sin el guard de bool,
+            # un `categoria_id: true` pasaría como si fuera el pk 1.
+            if categoria_id is not None and (
+                isinstance(categoria_id, bool) or not isinstance(categoria_id, int)
+            ):
+                self.add_error(None, "Categoría inválida.")
+                return cleaned
+            sin_categoria = valor.get("sin_categoria")
+            if sin_categoria is not None and not isinstance(sin_categoria, bool):
                 self.add_error(None, "Categoría inválida.")
                 return cleaned
             accion = valor.get("accion")
