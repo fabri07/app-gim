@@ -12,8 +12,9 @@ from openpyxl.utils.exceptions import InvalidFileException
 
 from ejercicios.models import Ejercicio
 from importaciones.matching import (
+    construir_indice_categorias,
     construir_indice_ejercicios,
-    resolver_grupo_muscular,
+    resolver_categorias,
     resolver_nombre,
 )
 from importaciones.models import Importacion
@@ -165,15 +166,20 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
                         "El ejercicio elegido para reusar no existe en este gimnasio."
                     )
             else:
-                grupo_muscular = decision["grupo_muscular"]
-                if grupo_muscular not in Ejercicio.GrupoMuscular.values:
-                    # `.create()` no llama a `full_clean()` y Django no
-                    # aplica `choices` a nivel de base de datos -- sin este
-                    # chequeo un valor inválido quedaría persistido y ese
-                    # ejercicio se volvería invisible para el filtro por
-                    # grupo muscular de la app `ejercicios`.
+                from ejercicios.models import CategoriaEjercicio
+
+                # Se re-lee contra un queryset scopeado por gimnasio y no se
+                # confía en el id que vino en `decisiones`: es la barrera que
+                # impide que un POST manipulado enganche un ejercicio nuevo a
+                # la categoría de otro tenant.
+                categoria = (
+                    CategoriaEjercicio.objects.for_gimnasio(gimnasio)
+                    .filter(pk=decision.get("categoria_id"))
+                    .first()
+                )
+                if categoria is None:
                     raise ImportacionInvalida(
-                        f"Grupo muscular inválido: «{grupo_muscular}»."
+                        "La categoría elegida no existe en este gimnasio."
                     )
                 try:
                     nombre_original = next(
@@ -189,7 +195,7 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
                 ejercicio = Ejercicio.objects.create(
                     gimnasio=gimnasio,
                     nombre=nombre_original,
-                    grupo_muscular=grupo_muscular,
+                    categoria=categoria,
                 )
             ejercicios_por_nombre[nombre_normalizado] = ejercicio
             return ejercicio
@@ -268,6 +274,14 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
         )
 
     indice = construir_indice_ejercicios(gimnasio)
+    # Las categorías se resuelven de una sola vez sobre el conjunto de textos
+    # distintos del archivo, no fila por fila: el dedupe difuso necesita ver
+    # todas juntas para poder fusionar "TRACCIÓN" con "TRACION" cuando las dos
+    # aparecen en el mismo Excel.
+    categorias_resueltas = resolver_categorias(
+        [i["grupo_muscular_original"] for i in items_parseados],
+        construir_indice_categorias(gimnasio),
+    )
     filas_invalidas_json = [asdict(f) for f in filas_invalidas]
     items = []
     primera_fila_por_nombre = {}  # nombre_normalizado -> fila_excel de la 1ra aparición
@@ -304,15 +318,11 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
             if match.tipo == "ambiguo"
             else {"tipo": "nuevo"}
         )
-        grupo_resuelto = (
-            resolver_grupo_muscular(item["grupo_muscular_original"])
-            if item["grupo_muscular_original"]
-            else None
-        )
+        resuelta = categorias_resueltas.get(item["grupo_muscular_original"])
         items.append({
             **item,
             "nombre_normalizado": nombre_normalizado,
-            "grupo_muscular_resuelto": grupo_resuelto,
+            "categoria_resuelta": asdict(resuelta) if resuelta else None,
             "match": match_json,
         })
 
@@ -320,6 +330,16 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
         "items": items,
         "filas_invalidas": filas_invalidas_json,
         "advertencias_columnas": advertencias_columnas,
+        # Para el resumen "se van a crear N categorías" del preview. Se
+        # calcula acá y no en el template para no recorrer 748 items en
+        # cada render.
+        "categorias_a_crear": sorted(
+            {
+                r.nombre
+                for r in categorias_resueltas.values()
+                if r.tipo == "nueva"
+            }
+        ),
     }
 
     return Importacion.objects.create(
@@ -331,16 +351,68 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
     )
 
 
+def _categoria_para(*, item, decision, gimnasio, cache):
+    """Resuelve la `CategoriaEjercicio` de un ejercicio a crear.
+
+    Prioridad: lo que el staff eligió a mano en el preview gana sobre lo que
+    resolvió el importador -- si tocó el desplegable, fue porque el
+    automático no le servía.
+
+    `cache` evita repetir el `get_or_create` de la misma categoría nueva por
+    cada uno de los cientos de ejercicios que la comparten.
+    """
+    from ejercicios.models import CategoriaEjercicio
+
+    elegida = decision.get("categoria_id")
+    if elegida:
+        categoria = (
+            CategoriaEjercicio.objects.for_gimnasio(gimnasio)
+            .filter(pk=elegida)
+            .first()
+        )
+        if categoria is None:
+            raise ImportacionInvalida(
+                f"La categoría elegida para «{item['nombre_original']}» no "
+                "existe en tu gimnasio."
+            )
+        return categoria
+
+    resuelta = item.get("categoria_resuelta")
+    if not resuelta:
+        return None
+
+    if resuelta["tipo"] == "existente":
+        return (
+            CategoriaEjercicio.objects.for_gimnasio(gimnasio)
+            .filter(pk=resuelta["categoria_id"])
+            .first()
+        )
+
+    nombre = resuelta["nombre"]
+    clave = normalizar_texto(nombre)
+    if clave not in cache:
+        cache[clave], _ = CategoriaEjercicio.objects.get_or_create(
+            gimnasio=gimnasio,
+            nombre_normalizado=clave,
+            defaults={"nombre": nombre},
+        )
+    return cache[clave]
+
+
 def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
     """Mismo patrón anti-TOCTOU que `confirmar_importacion_plantillas` (Task 7,
     fix post-review): el guard de tenant/estado corre DENTRO de la
     transacción, contra una fila re-leída con `select_for_update()` -- dos
     confirmaciones concurrentes de la misma Importacion no deben poder crear
-    ejercicios duplicados. `grupo_muscular` se valida contra las choices
-    reales antes de crear (Ejercicio.objects.create() no llama a
-    full_clean(), así que un valor fuera de las 8 choices cerradas se
-    guardaría en silencio sin esta validación)."""
+    ejercicios duplicados.
+
+    Acá es donde las categorías marcadas "nueva" en el preview se crean de
+    verdad: el preview no escribe en la base. Van por `get_or_create` sobre
+    `nombre_normalizado`, así que si alguien creó esa misma categoría desde
+    el panel entre el preview y esta confirmación, se reusa en vez de chocar
+    contra la `UniqueConstraint`."""
     creados = []
+    categorias_creadas = {}
     with transaction.atomic():
         importacion = Importacion.objects.select_for_update().get(pk=importacion.pk)
         if importacion.gimnasio_id != gimnasio.id:
@@ -358,15 +430,16 @@ def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
             if not decision["incluir"] or item["match"]["tipo"] == "exacto":
                 # "exacto" ya existe en la biblioteca: no se recrea.
                 continue
-            grupo_muscular = decision["grupo_muscular"]
-            if grupo_muscular not in Ejercicio.GrupoMuscular.values:
-                raise ImportacionInvalida(
-                    f"Grupo muscular inválido para '{item['nombre_original']}'."
-                )
+            categoria = _categoria_para(
+                item=item,
+                decision=decision,
+                gimnasio=gimnasio,
+                cache=categorias_creadas,
+            )
             ejercicio = Ejercicio.objects.create(
                 gimnasio=gimnasio,
                 nombre=item["nombre_original"],
-                grupo_muscular=grupo_muscular,
+                categoria=categoria,
                 url_video=item["url_video"],
             )
             creados.append(ejercicio)

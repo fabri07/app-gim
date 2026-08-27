@@ -11,7 +11,7 @@ from django import forms
 from django.core.validators import FileExtensionValidator
 from django.db.models import BLANK_CHOICE_DASH
 
-from ejercicios.models import Ejercicio
+from ejercicios.models import CategoriaEjercicio
 from rutinas.models import RutinaPlantilla
 
 
@@ -41,7 +41,7 @@ class HojaMetadataForm(forms.Form):
     # la primera choice real ("principiante") cuando el staff no toca el
     # <select> -- sin esto el HTML no tiene ninguna opción "sin elegir" y
     # el browser simplemente muestra/envía la primera de la lista (mismo
-    # bug que `grupo_muscular` en `ResolucionEjercicioForm`, ver ahí).
+    # bug que `categoria` en `ResolucionEjercicioForm`, ver ahí).
     nivel = forms.ChoiceField(choices=BLANK_CHOICE_DASH + RutinaPlantilla.Nivel.choices)
 
 
@@ -56,22 +56,36 @@ class ResolucionEjercicioForm(forms.Form):
     ])
     ejercicio_existente_id = forms.IntegerField(required=False)
     # Constraint no negociable: "todo ejercicio nuevo requiere que el staff
-    # lo elija en el preview, nunca un default silencioso". Sin
-    # `BLANK_CHOICE_DASH` al frente, el <select> no tiene ninguna opción
-    # vacía, así que el navegador pre-selecciona (y manda) la primera
-    # choice real ("pecho") aunque el staff nunca haya tocado el campo --
-    # el guard de `clean()` de abajo nunca llegaba a dispararse desde un
-    # POST real de navegador, solo desde un POST armado a mano sin el
-    # campo (fix post-review, hallazgo 1).
-    grupo_muscular = forms.ChoiceField(
-        choices=BLANK_CHOICE_DASH + Ejercicio.GrupoMuscular.choices, required=False,
+    # lo elija en el preview, nunca un default silencioso". `empty_label`
+    # (el equivalente de `BLANK_CHOICE_DASH` en un ModelChoiceField) evita
+    # que el navegador pre-seleccione y mande la primera categoría real
+    # aunque el staff nunca haya tocado el campo -- sin eso el guard de
+    # `clean()` no llegaba a dispararse desde un POST real de navegador
+    # (fix post-review, hallazgo 1).
+    #
+    # Es `ModelChoiceField` desde 2026-08-26: las categorías son por
+    # gimnasio, así que el queryset se inyecta por `form_kwargs` del
+    # formset. `queryset=none()` como default para que un form armado sin
+    # `gimnasio` no ofrezca las categorías de todos los gimnasios.
+    categoria = forms.ModelChoiceField(
+        queryset=CategoriaEjercicio.objects.none(),
+        required=False,
+        empty_label="---------",
+        label="Categoría",
     )
+
+    def __init__(self, *args, gimnasio=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if gimnasio is not None:
+            self.fields["categoria"].queryset = CategoriaEjercicio.objects.for_gimnasio(
+                gimnasio
+            ).filter(activo=True)
 
     def clean(self):
         cleaned = super().clean()
-        if cleaned.get("accion") == "crear_nuevo" and not cleaned.get("grupo_muscular"):
+        if cleaned.get("accion") == "crear_nuevo" and not cleaned.get("categoria"):
             self.add_error(
-                "grupo_muscular", "Elegí un grupo muscular para el ejercicio nuevo."
+                "categoria", "Elegí una categoría para el ejercicio nuevo."
             )
         return cleaned
 
@@ -85,11 +99,17 @@ class ResolucionesJSONForm(forms.Form):
     JSON -- así el conteo de campos del POST de confirmación de biblioteca
     no escala con la cantidad de ejercicios sin match (una biblioteca real
     puede traer miles; ver ISSUES.md [2026-07-28] y su seguimiento). El
-    payload es {nombre: {"grupo_muscular": str|None, "accion": str|None}}
+    payload es {nombre: {"categoria_id": int|None, "accion": str|None}}
     -- "accion" (usar_existente/crear_nuevo) resuelve un match ambiguo,
-    "grupo_muscular" resuelve un ejercicio sin grupo muscular en el
-    archivo; un mismo ejercicio pendiente puede necesitar una, la otra, o
-    ambas claves a la vez (Tarea 14)."""
+    "categoria_id" resuelve un ejercicio cuya categoría el importador no
+    pudo deducir del archivo; un mismo ejercicio pendiente puede necesitar
+    una, la otra, o ambas claves a la vez (Tarea 14).
+
+    `categoria_id` se valida acá solo como forma (que sea un entero): que
+    pertenezca al gimnasio lo chequea `confirmar_importacion_biblioteca`
+    contra la base, que es donde hay que hacerlo -- un id de otro tenant
+    tiene que morir contra un queryset scopeado, no contra una lista que
+    este form haya cacheado."""
     resoluciones = forms.CharField(widget=forms.HiddenInput, required=False)
 
     def clean(self):
@@ -113,9 +133,9 @@ class ResolucionesJSONForm(forms.Form):
             if not isinstance(clave, str) or not isinstance(valor, dict):
                 self.add_error(None, "Formato de resoluciones inválido.")
                 return cleaned
-            grupo_muscular = valor.get("grupo_muscular")
-            if grupo_muscular is not None and grupo_muscular not in Ejercicio.GrupoMuscular.values:
-                self.add_error(None, "Grupo muscular inválido.")
+            categoria_id = valor.get("categoria_id")
+            if categoria_id is not None and not isinstance(categoria_id, int):
+                self.add_error(None, "Categoría inválida.")
                 return cleaned
             accion = valor.get("accion")
             if accion is not None and accion not in ("usar_existente", "crear_nuevo"):

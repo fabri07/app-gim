@@ -10,11 +10,11 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
-from ejercicios.models import Ejercicio
+from ejercicios.models import CategoriaEjercicio, Ejercicio
 from importaciones.matching import (
+    resolver_categorias,
     MatchResultado,
     construir_indice_ejercicios,
-    resolver_grupo_muscular,
     resolver_nombre,
 )
 from importaciones.models import Importacion
@@ -358,15 +358,11 @@ class ResolverNombreTests(SimpleTestCase):
         self.assertEqual(resultado.tipo, "nuevo")
 
 
-class ResolverGrupoMuscularTests(SimpleTestCase):
-    def test_match_exacto_contra_choices(self):
-        self.assertEqual(resolver_grupo_muscular("Pecho"), Ejercicio.GrupoMuscular.PECHO)
-
-    def test_match_por_alias(self):
-        self.assertEqual(resolver_grupo_muscular("Abdomen"), Ejercicio.GrupoMuscular.CORE)
-
-    def test_sin_match_devuelve_none(self):
-        self.assertIsNone(resolver_grupo_muscular("no existe esto"))
+# `ResolverGrupoMuscularTests` se retiró el 2026-08-26 junto con
+# `resolver_grupo_muscular`: matcheaba texto contra un `TextChoices` global de
+# 8 valores más un diccionario de alias fijo. Con el catálogo de categorías
+# por gimnasio no hay lista global contra la cual matchear. Lo reemplaza
+# `ResolverCategoriasTests`, que además cubre el dedupe difuso.
 
 
 class ConstruirIndiceEjerciciosTests(TestCase):
@@ -375,11 +371,9 @@ class ConstruirIndiceEjerciciosTests(TestCase):
         gimnasio_b = Gimnasio.objects.create(nombre="Gym B", slug="gym-b")
         ejercicio_a = Ejercicio.objects.create(
             gimnasio=gimnasio_a, nombre="Press de Banca",
-            grupo_muscular=Ejercicio.GrupoMuscular.PECHO,
         )
         Ejercicio.objects.create(
             gimnasio=gimnasio_b, nombre="Sentadilla",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
         )
         indice = construir_indice_ejercicios(gimnasio_a)
         self.assertEqual(indice, {"press de banca": ejercicio_a})
@@ -391,7 +385,6 @@ class PrevisualizarImportacionPlantillasTests(TestCase):
         self.usuario = User.objects.create_user(username="staff", password="clave12345")
         self.ejercicio_existente = Ejercicio.objects.create(
             gimnasio=self.gimnasio, nombre="Sentadilla",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
         )
 
     def _archivo_dos_hojas(self):
@@ -451,10 +444,15 @@ class PrevisualizarImportacionPlantillasTests(TestCase):
 class ConfirmarImportacionPlantillasTests(TestCase):
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.pecho = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Pecho"
+        )
+        self.piernas = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
         self.usuario = User.objects.create_user(username="staff", password="clave12345")
         self.ejercicio_existente = Ejercicio.objects.create(
             gimnasio=self.gimnasio, nombre="Sentadilla",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
         )
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -470,11 +468,11 @@ class ConfirmarImportacionPlantillasTests(TestCase):
         return {
             "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
             "ejercicios": {
-                "press de banca": {"accion": "crear_nuevo", "grupo_muscular": "pecho"},
+                "press de banca": {"accion": "crear_nuevo", "categoria_id": self.pecho.pk},
                 "sentadila": {
                     "accion": accion_sentadila,
                     "ejercicio_id": self.ejercicio_existente.pk if accion_sentadila == "usar_existente" else None,
-                    "grupo_muscular": "piernas" if accion_sentadila == "crear_nuevo" else None,
+                    "categoria_id": self.piernas.pk if accion_sentadila == "crear_nuevo" else None,
                 },
             },
         }
@@ -561,9 +559,9 @@ class ConfirmarImportacionPlantillasTests(TestCase):
         self.importacion.refresh_from_db()
         self.assertEqual(self.importacion.estado, Importacion.Estado.EN_REVISION)
 
-    def test_grupo_muscular_invalido_falla(self):
+    def test_categoria_de_otro_gimnasio_o_inexistente_falla(self):
         decisiones = self._decisiones_completas()
-        decisiones["ejercicios"]["press de banca"]["grupo_muscular"] = "banana"
+        decisiones["ejercicios"]["press de banca"]["categoria_id"] = 999999
         with self.assertRaises(ImportacionInvalida):
             confirmar_importacion_plantillas(
                 importacion=self.importacion, gimnasio=self.gimnasio, decisiones=decisiones,
@@ -581,7 +579,6 @@ class ConfirmarImportacionPlantillasTests(TestCase):
         otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
         ejercicio_de_otro_gimnasio = Ejercicio.objects.create(
             gimnasio=otro_gimnasio, nombre="Sentadilla",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
         )
         decisiones = self._decisiones_completas(accion_sentadila="usar_existente")
         decisiones["ejercicios"]["sentadila"]["ejercicio_id"] = ejercicio_de_otro_gimnasio.pk
@@ -613,7 +610,7 @@ class ConfirmarImportacionPlantillasTests(TestCase):
                 {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
             ],
             "ejercicios": {
-                "peso muerto": {"accion": "crear_nuevo", "grupo_muscular": "piernas"},
+                "peso muerto": {"accion": "crear_nuevo", "categoria_id": self.piernas.pk},
             },
         }
         plantillas = confirmar_importacion_plantillas(
@@ -650,8 +647,8 @@ class ConfirmarImportacionPlantillasTests(TestCase):
                 {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
             ],
             "ejercicios": {
-                "press de banca": {"accion": "crear_nuevo", "grupo_muscular": "pecho"},
-                "peso muerto": {"accion": "crear_nuevo", "grupo_muscular": "banana"},
+                "press de banca": {"accion": "crear_nuevo", "categoria_id": self.pecho.pk},
+                "peso muerto": {"accion": "crear_nuevo", "categoria_id": 999999},
             },
         }
         with self.assertRaises(ImportacionInvalida):
@@ -671,6 +668,12 @@ class ConfirmarImportacionPlantillasConCargaTests(TestCase):
 
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.pecho = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Pecho"
+        )
+        self.piernas = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
         self.usuario = User.objects.create_user(username="staff", password="clave12345")
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -688,7 +691,7 @@ class ConfirmarImportacionPlantillasConCargaTests(TestCase):
             decisiones={
                 "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
                 "ejercicios": {
-                    "sentadilla": {"accion": "crear_nuevo", "grupo_muscular": "piernas"},
+                    "sentadilla": {"accion": "crear_nuevo", "categoria_id": self.piernas.pk},
                 },
             },
         )
@@ -699,10 +702,15 @@ class ConfirmarImportacionPlantillasConCargaTests(TestCase):
 class ImportacionBibliotecaTests(TestCase):
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.pecho = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Pecho"
+        )
+        self.piernas = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
         self.usuario = User.objects.create_user(username="staff", password="clave12345")
         self.ejercicio_existente = Ejercicio.objects.create(
             gimnasio=self.gimnasio, nombre="Sentadilla",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
         )
 
     def _archivo(self):
@@ -720,12 +728,15 @@ class ImportacionBibliotecaTests(TestCase):
         self.assertEqual(importacion.tipo, Importacion.Tipo.BIBLIOTECA)
         self.assertEqual(Ejercicio.objects.count(), 1)  # solo la que ya existía
 
-    def test_previsualizar_resuelve_grupo_muscular_automaticamente(self):
+    def test_previsualizar_resuelve_la_categoria_automaticamente(self):
+        """La columna del archivo dice "Pecho" y el gimnasio ya tiene esa
+        categoría: se reusa, no se crea una segunda."""
         importacion = previsualizar_importacion_biblioteca(
             gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
         )
         item = next(i for i in importacion.resultado["items"] if i["nombre_original"] == "Press de banca")
-        self.assertEqual(item["grupo_muscular_resuelto"], "pecho")
+        self.assertEqual(item["categoria_resuelta"]["tipo"], "existente")
+        self.assertEqual(item["categoria_resuelta"]["categoria_id"], self.pecho.pk)
 
     def test_confirmar_crea_solo_los_ejercicios_nuevos(self):
         importacion = previsualizar_importacion_biblioteca(
@@ -734,8 +745,8 @@ class ImportacionBibliotecaTests(TestCase):
         creados = confirmar_importacion_biblioteca(
             importacion=importacion, gimnasio=self.gimnasio,
             decisiones={"items": {
-                "press de banca": {"incluir": True, "grupo_muscular": "pecho"},
-                "sentadila": {"incluir": False, "grupo_muscular": None},
+                "press de banca": {"incluir": True, "categoria_id": self.pecho.pk},
+                "sentadila": {"incluir": False, "categoria_id": None},
             }},
         )
         self.assertEqual(len(creados), 1)
@@ -746,8 +757,8 @@ class ImportacionBibliotecaTests(TestCase):
             gimnasio=self.gimnasio, archivo=self._archivo(), usuario=self.usuario,
         )
         decisiones = {"items": {
-            "press de banca": {"incluir": True, "grupo_muscular": "pecho"},
-            "sentadila": {"incluir": False, "grupo_muscular": None},
+            "press de banca": {"incluir": True, "categoria_id": self.pecho.pk},
+            "sentadila": {"incluir": False, "categoria_id": None},
         }}
         confirmar_importacion_biblioteca(importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones)
         with self.assertRaises(ImportacionInvalida):
@@ -762,8 +773,8 @@ class ImportacionBibliotecaTests(TestCase):
             confirmar_importacion_biblioteca(
                 importacion=importacion, gimnasio=self.gimnasio,
                 decisiones={"items": {
-                    "press de banca": {"incluir": True, "grupo_muscular": "banana"},
-                    "sentadila": {"incluir": False, "grupo_muscular": None},
+                    "press de banca": {"incluir": True, "categoria_id": 999999},
+                    "sentadila": {"incluir": False, "categoria_id": None},
                 }},
             )
         self.assertEqual(Ejercicio.objects.count(), ejercicios_antes)
@@ -777,8 +788,8 @@ class ImportacionBibliotecaTests(TestCase):
             confirmar_importacion_biblioteca(
                 importacion=importacion, gimnasio=otro_gimnasio,
                 decisiones={"items": {
-                    "press de banca": {"incluir": True, "grupo_muscular": "pecho"},
-                    "sentadila": {"incluir": False, "grupo_muscular": None},
+                    "press de banca": {"incluir": True, "categoria_id": self.pecho.pk},
+                    "sentadila": {"incluir": False, "categoria_id": None},
                 }},
             )
 
@@ -790,7 +801,7 @@ class ImportacionBibliotecaTests(TestCase):
             confirmar_importacion_biblioteca(
                 importacion=importacion, gimnasio=self.gimnasio,
                 decisiones={"items": {
-                    "press de banca": {"incluir": True, "grupo_muscular": "pecho"},
+                    "press de banca": {"incluir": True, "categoria_id": self.pecho.pk},
                     # falta la decisión de "sentadila"
                 }},
             )
@@ -804,8 +815,8 @@ class ImportacionBibliotecaTests(TestCase):
         creados = confirmar_importacion_biblioteca(
             importacion=importacion, gimnasio=self.gimnasio,
             decisiones={"items": {
-                "press de banca": {"incluir": False, "grupo_muscular": None},
-                "sentadila": {"incluir": True, "grupo_muscular": "piernas"},
+                "press de banca": {"incluir": False, "categoria_id": None},
+                "sentadila": {"incluir": True, "categoria_id": self.piernas.pk},
             }},
         )
         self.assertEqual(len(creados), 1)
@@ -887,6 +898,12 @@ class ImportacionPlantillasViewsTests(TestCase):
     def setUp(self):
         self.gimnasio_a = Gimnasio.objects.create(nombre="Gym A", slug="gym-a")
         self.gimnasio_b = Gimnasio.objects.create(nombre="Gym B", slug="gym-b")
+        self.pecho = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio_a, nombre="Pecho"
+        )
+        self.piernas = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio_a, nombre="Piernas"
+        )
 
         self.staff_a = User.objects.create_user(username="staff_a", password="clave12345")
         Perfil.objects.create(usuario=self.staff_a, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF)
@@ -969,7 +986,7 @@ class ImportacionPlantillasViewsTests(TestCase):
             "ejercicios-TOTAL_FORMS": "1", "ejercicios-INITIAL_FORMS": "1",
             "ejercicios-0-nombre_normalizado": "press de banca",
             "ejercicios-0-accion": "crear_nuevo",
-            "ejercicios-0-grupo_muscular": "pecho",
+            "ejercicios-0-categoria": self.pecho.pk,
         }
         response = self.client.post(
             reverse("importaciones:plantillas_preview", args=[importacion.pk]), datos_confirmacion,
@@ -1002,6 +1019,12 @@ class ImportacionBibliotecaViewsTests(TestCase):
     def setUp(self):
         self.gimnasio_a = Gimnasio.objects.create(nombre="Gym A", slug="gym-a")
         self.gimnasio_b = Gimnasio.objects.create(nombre="Gym B", slug="gym-b")
+        self.pecho = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio_a, nombre="Pecho"
+        )
+        self.piernas = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio_a, nombre="Piernas"
+        )
 
         self.staff_a = User.objects.create_user(username="staff_a", password="clave12345")
         Perfil.objects.create(usuario=self.staff_a, gimnasio=self.gimnasio_a, rol=Perfil.Rol.STAFF)
@@ -1093,7 +1116,7 @@ class ImportacionBibliotecaViewsTests(TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
-    def test_flujo_con_resolucion_manual_de_grupo_muscular(self):
+    def test_flujo_con_resolucion_manual_de_categoria(self):
         # "hip thrust" no tiene grupo muscular en el archivo -> requiere
         # entrada en el formset de resolución manual del preview.
         self.client.login(username="staff_a", password="clave12345")
@@ -1112,14 +1135,14 @@ class ImportacionBibliotecaViewsTests(TestCase):
         )
         self.assertContains(response, "hip thrust")
 
-        datos = {"resoluciones": json.dumps({"hip thrust": {"grupo_muscular": "piernas"}})}
+        datos = {"resoluciones": json.dumps({"hip thrust": {"categoria_id": self.piernas.pk}})}
         response = self.client.post(
             reverse("importaciones:biblioteca_preview", args=[importacion.pk]), datos,
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Ejercicio.objects.filter(nombre="Hip thrust").count(), 1)
         self.assertEqual(
-            Ejercicio.objects.get(nombre="Hip thrust").grupo_muscular, "piernas"
+            Ejercicio.objects.get(nombre="Hip thrust").categoria, self.piernas
         )
 
     def test_falta_resolver_un_pendiente_no_confirma(self):
@@ -1168,10 +1191,10 @@ class ImportacionBibliotecaViewsTests(TestCase):
 
         response = self.client.post(
             reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
-            {"resoluciones": json.dumps({"hip thrust": {"grupo_muscular": "no_existe"}})},
+            {"resoluciones": json.dumps({"hip thrust": {"categoria_id": "no_es_un_entero"}})},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Grupo muscular inválido.")
+        self.assertContains(response, "Categoría inválida.")
         self.assertEqual(Ejercicio.objects.count(), 0)
 
     def test_preview_lista_filas_invalidas_con_motivo(self):
@@ -1258,7 +1281,7 @@ class ImportacionBibliotecaViewsTests(TestCase):
         importacion = Importacion.objects.get()
         datos = {
             "resoluciones": json.dumps(
-                {"sentadila": {"accion": "crear_nuevo", "grupo_muscular": "piernas"}}
+                {"sentadila": {"accion": "crear_nuevo", "categoria_id": self.piernas.pk}}
             ),
         }
         response = self.client.post(
@@ -1311,6 +1334,9 @@ class RegresionCamposDelPostTests(TestCase):
 
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.pecho = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Pecho"
+        )
         self.staff = User.objects.create_user(username="staff", password="clave12345")
         Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
 
@@ -1343,7 +1369,7 @@ class RegresionCamposDelPostTests(TestCase):
         for i, nombre in enumerate(importacion.resultado["ejercicios_distintos"]):
             datos[f"ejercicios-{i}-nombre_normalizado"] = nombre
             datos[f"ejercicios-{i}-accion"] = "crear_nuevo"
-            datos[f"ejercicios-{i}-grupo_muscular"] = "cuerpo_completo"
+            datos[f"ejercicios-{i}-categoria"] = self.pecho.pk
 
         response = self.client.post(
             reverse("importaciones:plantillas_preview", args=[importacion.pk]), datos,
@@ -1364,6 +1390,12 @@ class RegresionCamposPostBibliotecaTests(TestCase):
 
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.pecho = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Pecho"
+        )
+        self.piernas = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
         self.staff = User.objects.create_user(username="staff", password="clave12345")
         Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
 
@@ -1382,7 +1414,7 @@ class RegresionCamposPostBibliotecaTests(TestCase):
         self.assertEqual(len(importacion.resultado["items"]), 600)
 
         resoluciones = {
-            f"ejercicio {i}": {"grupo_muscular": "cuerpo_completo"} for i in range(600)
+            f"ejercicio {i}": {"categoria_id": self.pecho.pk} for i in range(600)
         }
         response = self.client.post(
             reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
@@ -1440,13 +1472,13 @@ class SinDefaultSilenciosoDeGrupoMuscularYNivelTests(TestCase):
             "ejercicios-TOTAL_FORMS": "1", "ejercicios-INITIAL_FORMS": "1",
             "ejercicios-0-nombre_normalizado": "press de banca",
             "ejercicios-0-accion": "crear_nuevo",
-            "ejercicios-0-grupo_muscular": "",
+            "ejercicios-0-categoria": "",
         }
         response = self.client.post(
             reverse("importaciones:plantillas_preview", args=[importacion.pk]), datos,
         )
         self.assertEqual(response.status_code, 200)  # re-renderiza con error, no redirige
-        self.assertContains(response, "Elegí un grupo muscular")
+        self.assertContains(response, "Elegí una categoría")
         self.assertEqual(RutinaPlantilla.objects.count(), 0)
         self.assertEqual(Ejercicio.objects.count(), 0)
 
@@ -1651,11 +1683,16 @@ class EjercicioResolucionMuestraContextoTests(TestCase):
 
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.pecho = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Pecho"
+        )
+        self.piernas = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
         self.staff = User.objects.create_user(username="staff", password="clave12345")
         Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
         self.ejercicio_existente = Ejercicio.objects.create(
             gimnasio=self.gimnasio, nombre="Sentadilla",
-            grupo_muscular=Ejercicio.GrupoMuscular.PIERNAS,
         )
         self.client.login(username="staff", password="clave12345")
 
@@ -1682,10 +1719,15 @@ class EjercicioResolucionMuestraContextoTests(TestCase):
         # El pk crudo de `ejercicio_existente_id` ya no puede quedar
         # expuesto como un <input type="number"> editable sin etiqueta.
         self.assertNotContains(response, 'type="number"')
-        # Exactamente una zona de drop por valor de `Ejercicio.GrupoMuscular`
-        # -- si el catálogo cambia de tamaño sin tocar el template, este test
-        # lo detecta (Fix post-review, drag-and-drop del importador).
-        self.assertContains(response, 'class="rutina-drop-zona"', count=8)
+        # Una zona de drop por categoría ACTIVA del gimnasio. Antes era un
+        # 8 fijo (el tamaño del `TextChoices` global); ahora se cuenta contra
+        # el catálogo real, que es distinto en cada gimnasio.
+        esperadas = CategoriaEjercicio.objects.for_gimnasio(
+            self.gimnasio
+        ).filter(activo=True).count()
+        self.assertContains(
+            response, 'class="rutina-drop-zona"', count=esperadas
+        )
 
 
 class DeteccionTolerantePorContenidoTests(SimpleTestCase):
@@ -1823,3 +1865,108 @@ class PreviewBibliotecaSinColumnaNombreTests(TestCase):
         self.assertIn("nombre", mensaje)
         self.assertIn("Biblioteca de ejercicios 2026", mensaje)
         self.assertIn("primera fila", mensaje)
+
+
+class ResolverCategoriasTests(SimpleTestCase):
+    """Dedupe difuso de nombres de categoría (pedido del dueño: "identificar
+    qué palabras, por más que estén mal escritas, quieren decir lo mismo,
+    para no crear muchas categorías cuando en realidad son unas pocas").
+
+    El umbral (85) se eligió midiendo `fuzz.ratio` sobre las 12 categorías
+    reales del primer cliente más las 8 sembradas por default: el par de
+    categorías DISTINTAS más parecido puntúa 61.5 ('Hombros'/'Brazos') y el
+    typo que MENOS puntúa entre los que sí deben fusionarse da 88.9
+    ('MOVILIDAD'/'MOBILIDAD'). 85 cae en ese hueco de 27 puntos. Los tests de
+    abajo fijan los dos bordes.
+    """
+
+    CLIENTE = [
+        "CORE", "EMPUJE", "ACCESORIOS", "TRACCIÓN", "RODILLA", "CADERA",
+        "INTERMITENTE", "DEPORTIVOS", "MUSCLE UP", "MOVILIDAD",
+        "SKILLS ANILLAS", "HANDSTAND",
+    ]
+
+    def test_catalogo_vacio_crea_una_categoria_por_nombre_distinto(self):
+        resueltas = resolver_categorias(self.CLIENTE, {})
+
+        nuevas = {r.nombre for r in resueltas.values() if r.tipo == "nueva"}
+        self.assertEqual(len(nuevas), 12)
+        self.assertEqual(nuevas, set(self.CLIENTE))
+
+    def test_no_fusiona_categorias_realmente_distintas(self):
+        """Regresión del borde de abajo: 'Hombros' y 'Brazos' puntúan 61.5.
+        Si alguien baja el umbral, este test lo frena."""
+        resueltas = resolver_categorias(["Hombros", "Brazos"], {})
+
+        self.assertNotEqual(
+            resueltas["Hombros"].nombre, resueltas["Brazos"].nombre
+        )
+
+    def test_fusiona_un_typo_con_la_forma_ya_vista(self):
+        resueltas = resolver_categorias(["TRACCIÓN", "TRACION"], {})
+
+        self.assertEqual(
+            resueltas["TRACION"].nombre, resueltas["TRACCIÓN"].nombre
+        )
+
+    def test_fusiona_el_typo_de_menor_puntaje_del_borde(self):
+        """'MOVILIDAD'/'MOBILIDAD' = 88.9, el más flojo de los que deben
+        fusionarse. Si alguien sube el umbral, este test lo frena."""
+        resueltas = resolver_categorias(["MOVILIDAD", "MOBILIDAD"], {})
+
+        self.assertEqual(
+            resueltas["MOBILIDAD"].nombre, resueltas["MOVILIDAD"].nombre
+        )
+
+    def test_gana_la_primera_forma_vista_como_nombre_canonico(self):
+        resueltas = resolver_categorias(["DEPORTIVOS", "DEPORTIVO"], {})
+
+        self.assertEqual(resueltas["DEPORTIVO"].nombre, "DEPORTIVOS")
+
+    def test_reusa_una_categoria_existente_por_nombre_normalizado(self):
+        indice = {"core": 7}
+
+        resueltas = resolver_categorias(["CORE"], indice)
+
+        self.assertEqual(resueltas["CORE"].tipo, "existente")
+        self.assertEqual(resueltas["CORE"].categoria_id, 7)
+
+    def test_reusa_una_categoria_existente_por_similitud(self):
+        """El caso concreto del cliente: su 'CORE' se fusiona con la 'Core'
+        que la app siembra por default, en vez de duplicarla."""
+        indice = {"core": 7}
+
+        resueltas = resolver_categorias(["Coree"], indice)
+
+        self.assertEqual(resueltas["Coree"].tipo, "existente")
+        self.assertEqual(resueltas["Coree"].categoria_id, 7)
+
+    def test_el_catalogo_existente_gana_sobre_crear_una_nueva(self):
+        indice = {"empuje": 3}
+
+        resueltas = resolver_categorias(["EMPUJES", "EMPUJE"], indice)
+
+        self.assertEqual(resueltas["EMPUJES"].tipo, "existente")
+        self.assertEqual(resueltas["EMPUJE"].tipo, "existente")
+
+    def test_ignora_textos_vacios(self):
+        resueltas = resolver_categorias(["", None, "   "], {})
+
+        self.assertEqual(resueltas, {})
+
+    def test_las_doce_del_cliente_contra_las_ocho_sembradas(self):
+        """La prueba de fuego: el archivo real contra un gimnasio recién
+        creado. Solo CORE debe fusionarse con la sembrada; las otras 11 se
+        crean, sin que ninguna se coma a otra."""
+        indice = {
+            "pecho": 1, "espalda": 2, "piernas": 3, "hombros": 4,
+            "brazos": 5, "core": 6, "cardio": 7, "cuerpo completo": 8,
+        }
+
+        resueltas = resolver_categorias(self.CLIENTE, indice)
+
+        existentes = [r for r in resueltas.values() if r.tipo == "existente"]
+        nuevas = {r.nombre for r in resueltas.values() if r.tipo == "nueva"}
+        self.assertEqual(len(existentes), 1)
+        self.assertEqual(existentes[0].categoria_id, 6)
+        self.assertEqual(len(nuevas), 11)

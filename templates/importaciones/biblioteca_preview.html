@@ -12,16 +12,40 @@
       {% endfor %}
     </div>
   {% endif %}
+  {% if importacion.resultado.categorias_a_crear %}
+    <div class="tarjeta">
+      <h2>Categorías nuevas</h2>
+      <p class="texto-suave">
+        Se van a crear {{ importacion.resultado.categorias_a_crear|length }}
+        categoría(s) que tu gimnasio todavía no tenía:
+      </p>
+      <p>
+        {% for nombre in importacion.resultado.categorias_a_crear %}
+          <span class="badge">{{ nombre }}</span>
+        {% endfor %}
+      </p>
+      <p class="texto-suave">
+        Los nombres escritos de formas parecidas se agrupan en una sola
+        categoría. Si algo quedó mal, podés renombrarlo después desde
+        Ejercicios &rsaquo; Categorías.
+      </p>
+    </div>
+  {% endif %}
   <form method="post" hx-boost="false">
     {% csrf_token %}
     <div class="tabla-scroll">
       <table class="tabla">
-        <thead><tr><th>Nombre</th><th>Grupo muscular</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Categoría</th><th>Estado</th></tr></thead>
         <tbody>
           {% for item in importacion.resultado.items %}
             <tr>
               <td>{{ item.nombre_original }}</td>
-              <td>{{ item.grupo_muscular_resuelto|default:"—" }}</td>
+              <td>
+                {% if item.categoria_resuelta %}
+                  {{ item.categoria_resuelta.nombre|default:item.grupo_muscular_original }}
+                  {% if item.categoria_resuelta.tipo == "nueva" %}<span class="badge">nueva</span>{% endif %}
+                {% else %}—{% endif %}
+              </td>
               <td>
                 {% if item.match.tipo == "exacto" %}Ya existe{% else %}Nuevo{% endif %}
               </td>
@@ -60,11 +84,11 @@
                 <option value="crear_nuevo">Crear como nuevo ejercicio</option>
               </select>
             {% endif %}
-            {% if item.needs_grupo %}
-              <select class="js-grupo-muscular" data-valor-original="{{ item.nombre_normalizado }}">
+            {% if item.needs_categoria %}
+              <select class="js-categoria" data-valor-original="{{ item.nombre_normalizado }}">
                 <option value="">---------</option>
-                {% for valor, etiqueta in grupo_muscular_choices %}
-                  <option value="{{ valor }}">{{ etiqueta }}</option>
+                {% for c in categorias %}
+                  <option value="{{ c.pk }}">{{ c.nombre }}</option>
                 {% endfor %}
               </select>
             {% endif %}
@@ -82,8 +106,12 @@
           if (!resoluciones[nombre]) { resoluciones[nombre] = {}; }
           return resoluciones[nombre];
         }
-        document.querySelectorAll(".js-grupo-muscular").forEach(function (select) {
-          if (select.value) { entrada(select.dataset.valorOriginal).grupo_muscular = select.value; }
+        document.querySelectorAll(".js-categoria").forEach(function (select) {
+          // parseInt: el form valida que `categoria_id` sea un entero, y
+          // el value de un <option> siempre llega como string.
+          if (select.value) {
+            entrada(select.dataset.valorOriginal).categoria_id = parseInt(select.value, 10);
+          }
         });
         document.querySelectorAll(".js-accion").forEach(function (select) {
           if (select.value) { entrada(select.dataset.valorOriginal).accion = select.value; }
