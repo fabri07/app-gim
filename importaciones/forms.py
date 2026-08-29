@@ -100,11 +100,13 @@ class ResolucionesJSONForm(forms.Form):
     no escala con la cantidad de ejercicios sin match (una biblioteca real
     puede traer miles; ver ISSUES.md [2026-07-28] y su seguimiento). El
     payload es
-    {nombre: {"categoria_id": int|None, "sin_categoria": bool|None, "accion": str|None}}
-    -- "accion" (usar_existente/crear_nuevo) resuelve un match ambiguo,
-    "categoria_id" resuelve un ejercicio cuya categoría el importador no
-    pudo deducir del archivo; un mismo ejercicio pendiente puede necesitar
-    una, la otra, o ambas claves a la vez (Tarea 14).
+    {nombre: {"categoria_id": int|None, "categoria_nueva": str|None,
+              "sin_categoria": bool|None, "accion": str|None}}
+    -- "accion" (usar_existente/crear_nuevo) resuelve un match ambiguo;
+    "categoria_id", "categoria_nueva" y "sin_categoria" resuelven (de forma
+    excluyente entre sí) un ejercicio cuya categoría el importador no pudo
+    deducir del archivo. Un mismo ejercicio pendiente puede necesitar la
+    acción, una categoría, o las dos cosas a la vez (Tarea 14).
 
     `categoria_id` se valida acá solo como forma (que sea un entero): que
     pertenezca al gimnasio lo chequea `confirmar_importacion_biblioteca`
@@ -140,6 +142,17 @@ class ResolucionesJSONForm(forms.Form):
             if categoria_id is not None and (
                 isinstance(categoria_id, bool) or not isinstance(categoria_id, int)
             ):
+                self.add_error(None, "Categoría inválida.")
+                return cleaned
+            # Una categoría que esta misma importación va a crear todavía
+            # no tiene pk, así que se elige por NOMBRE. Acá solo se valida
+            # la forma (que sea texto): que ese nombre sea realmente uno de
+            # los que trae el archivo lo chequea
+            # `confirmar_importacion_biblioteca` contra
+            # `resultado["categorias_a_crear"]` -- mismo criterio que
+            # `categoria_id`, que se valida contra la base y no acá.
+            categoria_nueva = valor.get("categoria_nueva")
+            if categoria_nueva is not None and not isinstance(categoria_nueva, str):
                 self.add_error(None, "Categoría inválida.")
                 return cleaned
             sin_categoria = valor.get("sin_categoria")

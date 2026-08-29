@@ -2419,3 +2419,175 @@ class ImportacionBibliotecaEscalaTests(TestCase):
             f"El confirm escala con la cantidad de filas: {chico} queries con "
             f"20 ejercicios, {grande} con 200.",
         )
+
+
+class CategoriasNuevasSeOfrecenEnElPreviewTests(TestCase):
+    """Reporte real del 2026-08-27 (gimnasio "Vida Plena", capturas): el
+    Excel traía 12 categorías nuevas y una fila con la celda de categoría
+    vacía. Esa fila quedaba pendiente y el desplegable solo ofrecía
+    «Sin categoría» -- las 12 categorías del propio archivo no estaban,
+    porque todavía no existen en la base. Con el catálogo del gimnasio
+    vacío (el caso de un primer import) el staff no tenía NINGUNA categoría
+    donde ubicar el ejercicio."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff", password="clave-123456")
+
+    def _importacion(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Categoría"])
+        # El pendiente va PRIMERO a propósito: si otro ejercicio crea antes
+        # la categoría que el staff elige, `crear_o_reusar` la encuentra ya
+        # cacheada y el nombre que mandó el POST nunca llega a escribirse --
+        # el orden del archivo decide si el agujero se ejercita o no.
+        ws.append(["Press Pallof estático", None])  # la celda vacía del archivo real
+        ws.append(["Sentadilla búlgara", "RODILLA"])
+        ws.append(["Remo con barra", "TRACCIÓN"])
+        ws.append(["Muscle up", "SKILLS ANILLAS"])
+        return previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+
+    def test_el_desplegable_ofrece_las_categorias_que_crea_esta_importacion(self):
+        importacion = self._importacion()
+
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+
+        self.assertContains(response, 'value="nueva:RODILLA"')
+        self.assertContains(response, 'value="nueva:TRACCIÓN"')
+
+    def test_hay_una_zona_de_drop_por_cada_categoria_nueva(self):
+        importacion = self._importacion()
+
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+
+        self.assertContains(response, 'class="rutina-drop-zona"', count=3)
+
+    def test_la_zona_de_drop_marca_las_que_todavia_no_existen(self):
+        """Un gimnasio con "CORE" que importa "CORE FUNCIONAL" ve dos zonas
+        que se leen igual: sin la marca no hay forma de saber cuál existe."""
+        importacion = self._importacion()
+
+        response = self.client.get(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk])
+        )
+
+        self.assertContains(response, "RODILLA (nueva)</div>")
+
+    def test_confirmar_con_una_categoria_nueva_la_reusa_en_vez_de_duplicarla(self):
+        importacion = self._importacion()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps(
+                {"press pallof estatico": {"categoria_nueva": "RODILLA"}}
+            )},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        ejercicio = Ejercicio.objects.get(nombre="Press Pallof estático")
+        self.assertEqual(ejercicio.categoria.nombre, "RODILLA")
+        self.assertEqual(
+            CategoriaEjercicio.objects.for_gimnasio(self.gimnasio)
+            .filter(nombre_normalizado="rodilla").count(),
+            1,
+        )
+
+    def test_una_categoria_que_el_archivo_no_traia_no_se_crea_desde_el_post(self):
+        """El nombre viaja como texto en el POST: tiene que validarse contra
+        lo que ESTA importación anunció, no crearse a ciegas."""
+        importacion = self._importacion()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps(
+                {"press pallof estatico": {"categoria_nueva": "INVENTADA"}}
+            )},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            CategoriaEjercicio.objects.filter(nombre_normalizado="inventada").exists()
+        )
+        self.assertEqual(Ejercicio.objects.count(), 0)
+
+    def test_el_nombre_que_se_guarda_es_el_del_archivo_no_el_del_post(self):
+        """`normalizar_texto` colapsa los espacios internos pero
+        `CategoriaEjercicio.save()` solo hace `.strip()`: un nombre con 100
+        espacios en el medio pasaba el guard (normaliza igual) y se escribía
+        con 113 caracteres en un `varchar(60)`. En Postgres eso es un
+        `DataError` que voltea la transacción entera; SQLite no lo valida, así
+        que el test mira el largo y el nombre, no la excepción."""
+        importacion = self._importacion()
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps({
+                "press pallof estatico": {
+                    "categoria_nueva": "SKILLS" + " " * 100 + "ANILLAS"
+                }
+            })},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        categoria = Ejercicio.objects.get(nombre="Press Pallof estático").categoria
+        self.assertEqual(categoria.nombre, "SKILLS ANILLAS")
+        self.assertLessEqual(
+            len(categoria.nombre),
+            CategoriaEjercicio._meta.get_field("nombre").max_length,
+        )
+
+    def test_elegirla_en_minusculas_no_cambia_como_se_muestra(self):
+        """Variante menor del mismo agujero: el catálogo creado tiene que
+        coincidir con lo que el preview anunció."""
+        importacion = self._importacion()
+
+        self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            {"resoluciones": json.dumps(
+                {"press pallof estatico": {"categoria_nueva": "rodilla"}}
+            )},
+        )
+
+        self.assertEqual(
+            Ejercicio.objects.get(nombre="Press Pallof estático").categoria.nombre,
+            "RODILLA",
+        )
+
+    def test_un_post_rechazado_no_borra_lo_que_el_staff_ya_habia_elegido(self):
+        """Las decisiones viven en el blob JSON, no en el HTML: sin
+        devolverlas, un único pendiente olvidado en un archivo de 748 filas
+        hace que el staff tenga que rehacer TODAS las demás."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Nombre", "Categoría"])
+        ws.append(["Sentadilla búlgara", "RODILLA"])
+        ws.append(["Press Pallof estático", None])
+        ws.append(["Plancha lateral", None])
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+
+        response = self.client.post(
+            reverse("importaciones:biblioteca_preview", args=[importacion.pk]),
+            # Resuelve uno solo: el otro dispara "Falta resolver".
+            {"resoluciones": json.dumps(
+                {"press pallof estatico": {"categoria_nueva": "RODILLA"}}
+            )},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Falta resolver")
+        self.assertContains(response, 'id="resoluciones-previas"')
+        self.assertContains(response, "press pallof estatico")
+        self.assertContains(response, "categoria_nueva")

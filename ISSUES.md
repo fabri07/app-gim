@@ -20,6 +20,68 @@ del log.
 
 ---
 
+## [2026-08-27] El preview del importador no ofrecía las categorías del propio archivo
+
+**Estado:** resuelto
+
+**Impacto:** el Excel de "Vida Plena" (748 ejercicios, 12 categorías) trae una
+fila con la celda de CATEGORÍA vacía ("Press Pallof estático"). Esa fila queda
+pendiente de resolución, y el desplegable de "Ejercicios a resolver" ofrecía
+únicamente las `CategoriaEjercicio` que el gimnasio YA tenía en la base. Como
+era su primer import, el catálogo estaba vacío: la única opción real era «Sin
+categoría — la asigno después», y el propio texto de la pantalla le pedía al
+staff que lo arreglara más tarde desde Ejercicios. Las 12 categorías que ESA
+MISMA importación iba a crear no aparecían por ningún lado — ni en el
+desplegable, ni en el de asignación en lote, ni como zonas de arrastre (con
+cero zonas, además, el JS abortaba en su primer guard y dejaba muertos los
+botones "Tildar todos"/"Asignar", la única vía rápida cuando hay cientos de
+pendientes).
+
+**Resolución / próximo paso:** `PreviewBibliotecaView._opciones_categoria()`
+ahora arma UNA lista con las dos fuentes: las categorías activas del gimnasio
+(por pk) y las de `resultado["categorias_a_crear"]` (por nombre, con el
+prefijo `nueva:`, porque el preview no escribe en la base y todavía no tienen
+pk). El JS de serialización traduce ese prefijo a `categoria_nueva` en el JSON
+de resoluciones, y `confirmar_importacion_biblioteca` la crea con el
+`get_or_create` que ya usaba — así que elegir "CORE" para el pendiente reusa la
+misma fila que crean los otros ejercicios de CORE, no una segunda.
+
+El nombre viaja como texto libre en el POST, así que `_categoria_para()` lo
+valida contra `categorias_a_crear` de ESA importación antes de crear nada: es,
+para el nombre, el equivalente del re-fetch scopeado por gimnasio que ya
+protegía a `categoria_id`. Un nombre inventado a mano da
+`ImportacionInvalida`, no una categoría nueva.
+
+Dos correcciones que salió a buscar la revisión de código, las dos con test de
+regresión verificado (falla sin el fix):
+
+1. **El string del POST se usa solo como clave; lo que se persiste es el
+   nombre canónico del preview** (`nuevas_permitidas` es
+   `{normalizado: nombre}`, no un `set`). `normalizar_texto` colapsa espacios
+   internos y `CategoriaEjercicio.save()` solo hace `.strip()`, así que
+   `"SKILLS" + " "*100 + "ANILLAS"` pasaba el guard —normaliza a
+   `"skills anillas"`— y se escribía con 113 caracteres en un `varchar(60)`:
+   `DataError` en Postgres, transacción abortada, 748 ejercicios perdidos,
+   invisible en SQLite. Misma familia que `_motivo_si_no_entra`. De paso fija
+   el nombre visible: elegir "rodilla" ya no crea la categoría en minúsculas
+   cuando el preview mostraba "RODILLA". **El orden de las filas decide si el
+   agujero se ejercita**: si otro ejercicio crea antes esa categoría,
+   `crear_o_reusar` la encuentra cacheada y el nombre del POST nunca llega a
+   escribirse — por eso el fixture del test pone el pendiente en la primera
+   fila.
+2. **Un POST rechazado ya no borra lo que el staff había elegido.** Las
+   decisiones viven solo en el blob JSON que arma el JS, así que "Falta
+   resolver: X" devolvía TODOS los desplegables a `---------`. Con 748 filas,
+   un pendiente olvidado costaba rehacer decenas de elecciones. `_render`
+   devuelve ahora `resoluciones_previas` (leído de `form.data`, que existe en
+   los dos caminos de rechazo) por `json_script`, y el JS las re-aplica
+   después de enganchar los handlers para que los chips también vuelvan a su
+   zona.
+
+«Sin categoría» sigue existiendo como elección explícita: es la salida cuando
+el archivo no trae columna de categoría en absoluto.
+
+
 ## [2026-07-07] Parte C: `cryptography` no compila con `pip install` a secas (Python 3.14)
 
 **Estado:** resuelto

@@ -441,14 +441,34 @@ class _CatalogoCategorias:
         return self.por_clave[clave]
 
 
-def _categoria_para(*, item, decision, catalogo):
+def _categoria_para(*, item, decision, catalogo, nuevas_permitidas):
     """Resuelve la `CategoriaEjercicio` de un ejercicio a crear.
 
     Prioridad: lo que el staff eligió a mano en el preview gana sobre lo que
     resolvió el importador -- si tocó el desplegable, fue porque el
     automático no le servía.
 
-    No toca la base: todo sale de `catalogo`, que ya la leyó una vez.
+    `nuevas_permitidas` es `{nombre_normalizado: nombre canónico}` de las
+    categorías que ESTA importación anunció que iba a crear
+    (`categorias_a_crear`). El desplegable las ofrece por nombre porque
+    todavía no tienen pk, y ese nombre viaja como texto libre en el POST:
+    sin este cerco, un POST armado a mano podría sembrar categorías
+    arbitrarias en el catálogo del gimnasio. Es el equivalente, para el
+    nombre, del re-fetch scopeado que ya protege a `categoria_id`.
+
+    El string del POST se usa SOLO como clave de búsqueda: lo que se
+    persiste es el nombre canónico del preview. `normalizar_texto` colapsa
+    los espacios internos y `CategoriaEjercicio.save()` solo hace `.strip()`,
+    así que "MUSCLE<100 espacios>UP" pasaba el guard (normaliza a
+    "muscle up") y se escribía con 108 caracteres en un `varchar(60)`: en
+    Postgres eso es un `DataError` que voltea la transacción y se lleva
+    puestos los 748 ejercicios, invisible en SQLite (misma familia que
+    `_motivo_si_no_entra`, ver `ISSUES.md` [2026-08-27]). De paso fija el
+    nombre para mostrar: elegir "rodilla" no crea una categoría en
+    minúsculas cuando el preview mostraba "RODILLA".
+
+    Fuera de `crear_o_reusar` no toca la base: todo sale de `catalogo`, que
+    ya la leyó una vez.
     """
     if decision.get("sin_categoria"):
         # El staff eligió explícitamente dejarlo sin clasificar; no se cae
@@ -464,6 +484,16 @@ def _categoria_para(*, item, decision, catalogo):
                 "existe en tu gimnasio."
             )
         return categoria
+
+    elegida_nueva = decision.get("categoria_nueva")
+    if elegida_nueva:
+        canonico = nuevas_permitidas.get(normalizar_texto(elegida_nueva))
+        if canonico is None:
+            raise ImportacionInvalida(
+                f"La categoría elegida para «{item['nombre_original']}» no es "
+                "ninguna de las que trae este archivo. Volvé a subirlo."
+            )
+        return catalogo.crear_o_reusar(canonico)
 
     resuelta = item.get("categoria_resuelta")
     if not resuelta:
@@ -506,6 +536,13 @@ def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
             raise ImportacionInvalida("Esta importación ya fue procesada.")
 
         catalogo = _CatalogoCategorias(gimnasio)
+        # Las únicas categorías-por-nombre que el staff puede elegir son las
+        # que este mismo preview anunció. `.get(...)` tolerante: una
+        # importación en revisión creada antes de este campo no lo tiene.
+        nuevas_permitidas = {
+            normalizar_texto(nombre): nombre
+            for nombre in importacion.resultado.get("categorias_a_crear", [])
+        }
         for item in importacion.resultado["items"]:
             try:
                 decision = decisiones["items"][item["nombre_normalizado"]]
@@ -520,7 +557,10 @@ def confirmar_importacion_biblioteca(*, importacion, gimnasio, decisiones):
                 gimnasio=gimnasio,
                 nombre=item["nombre_original"],
                 categoria=_categoria_para(
-                    item=item, decision=decision, catalogo=catalogo,
+                    item=item,
+                    decision=decision,
+                    catalogo=catalogo,
+                    nuevas_permitidas=nuevas_permitidas,
                 ),
                 url_video=item["url_video"],
             ))

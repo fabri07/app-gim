@@ -102,12 +102,10 @@
         </p>
         {% if importacion.resultado.categorias_a_crear %}
           <p class="texto-suave">
-            Acá aparecen solo las categorías que tu gimnasio <em>ya</em> tiene:
-            las {{ importacion.resultado.categorias_a_crear|length }} nuevas
-            todavía no existen hasta que confirmes. Si alguno de estos va en
-            una de esas, elegí «Sin categoría» y asignásela después desde
-            Ejercicios (el formulario te deja escribir una categoría nueva ahí
-            mismo).
+            El desplegable ofrece las categorías que tu gimnasio ya tiene y
+            también las {{ importacion.resultado.categorias_a_crear|length }}
+            que trae este archivo (marcadas «nueva»): esas se crean recién
+            cuando confirmes, pero podés elegirlas ahora igual.
           </p>
         {% endif %}
 
@@ -115,8 +113,8 @@
           <label for="lote-categoria">Asignar a los tildados:</label>
           <select id="lote-categoria">
             <option value="">---------</option>
-            {% for c in categorias %}
-              <option value="{{ c.pk }}">{{ c.nombre }}</option>
+            {% for opcion in opciones_categoria %}
+              <option value="{{ opcion.valor }}">{{ opcion.etiqueta }}{% if opcion.es_nueva %} (nueva){% endif %}</option>
             {% endfor %}
             <option value="sin_categoria">Sin categoría — la asigno después</option>
           </select>
@@ -130,8 +128,8 @@
         </div>
 
         <div class="rutina-zonas" aria-hidden="true">
-          {% for c in categorias %}
-            <div class="rutina-drop-zona" data-categoria="{{ c.pk }}">{{ c.nombre }}</div>
+          {% for opcion in opciones_categoria %}
+            <div class="rutina-drop-zona" data-categoria="{{ opcion.valor }}">{{ opcion.etiqueta }}{% if opcion.es_nueva %} (nueva){% endif %}</div>
           {% endfor %}
         </div>
 
@@ -163,8 +161,8 @@
                         id="cat-{{ forloop.counter }}"
                         data-valor-original="{{ item.nombre_normalizado }}">
                   <option value="">---------</option>
-                  {% for c in categorias %}
-                    <option value="{{ c.pk }}">{{ c.nombre }}</option>
+                  {% for opcion in opciones_categoria %}
+                    <option value="{{ opcion.valor }}">{{ opcion.etiqueta }}{% if opcion.es_nueva %} (nueva){% endif %}</option>
                   {% endfor %}
                   {# Opción explícita, no un default silencioso: sin esto no
                      hay forma de confirmar un ejercicio cuya categoría todavía
@@ -181,6 +179,7 @@
         {% endfor %}
       </div>
     {% endif %}
+    {{ resoluciones_previas|json_script:"resoluciones-previas" }}
     {{ form.resoluciones }}
     {% for error in form.non_field_errors %}<p class="texto-error">{{ error }}</p>{% endfor %}
     <button type="submit" class="boton">Confirmar importación</button>
@@ -200,7 +199,12 @@
         var form = document.currentScript.closest("form");
         var zonas = form.querySelectorAll(".rutina-drop-zona");
         var chips = form.querySelectorAll(".rutina-chip");
-        if (!zonas.length) { return; }
+        // Sin pendientes no hay ningún control que enganchar. El guard mira
+        // el botón de lote y NO la cantidad de zonas: con el catálogo vacío
+        // y un archivo sin columna de categoría no hay zonas, pero sí hay
+        // pendientes -- y ahí "Tildar todos"/"Asignar" (la única vía rápida
+        // para cientos de filas) quedaban muertos.
+        if (!form.querySelector("#lote-aplicar")) { return; }
 
         function asignar(chip, zona) {
           zona.appendChild(chip);
@@ -294,6 +298,36 @@
           });
           actualizarConteo();
         });
+
+        // Un POST rechazado vuelve con los desplegables en blanco: las
+        // decisiones viven en el blob JSON, no en el HTML. Se re-aplican acá,
+        // DESPUÉS de enganchar los handlers, para que el `change` reubique
+        // también los chips.
+        var previas = {};
+        var crudoPrevias = document.getElementById("resoluciones-previas");
+        if (crudoPrevias) {
+          try { previas = JSON.parse(crudoPrevias.textContent) || {}; }
+          catch (e) { previas = {}; }
+        }
+        function restaurar(select, valor) {
+          if (!valor) { return; }
+          select.value = valor;
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        form.querySelectorAll(".js-categoria").forEach(function (select) {
+          var elegido = previas[select.dataset.valorOriginal];
+          if (!elegido) { return; }
+          if (elegido.sin_categoria) { restaurar(select, "sin_categoria"); }
+          else if (elegido.categoria_nueva) {
+            restaurar(select, "nueva:" + elegido.categoria_nueva);
+          } else if (elegido.categoria_id) {
+            restaurar(select, String(elegido.categoria_id));
+          }
+        });
+        form.querySelectorAll(".js-accion").forEach(function (select) {
+          var elegido = previas[select.dataset.valorOriginal];
+          if (elegido && elegido.accion) { select.value = elegido.accion; }
+        });
       })();
     </script>
     <script>
@@ -308,6 +342,12 @@
           // el value de un <option> siempre llega como string.
           if (select.value === "sin_categoria") {
             entrada(select.dataset.valorOriginal).sin_categoria = true;
+          } else if (select.value.indexOf("nueva:") === 0) {
+            // Una categoría que trae el archivo y todavía no existe: no hay
+            // pk que mandar, viaja por nombre. `slice` y no `split(":")`:
+            // un nombre de categoría puede contener ":".
+            entrada(select.dataset.valorOriginal).categoria_nueva =
+              select.value.slice("nueva:".length);
           } else if (select.value) {
             // parseInt: el form valida que `categoria_id` sea un entero, y
             // el value de un <option> siempre llega como string.

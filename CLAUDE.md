@@ -551,6 +551,24 @@ plan original).
   de copiarlos. Misma familia de trampa que `select_for_update()` siendo
   no-op en SQLite: **si un campo puede desbordar, el test local no te lo va a
   decir.**
+- **El desplegable de "Ejercicios a resolver" ofrece las categorías que el
+  gimnasio YA tiene Y las que ese mismo archivo va a crear.** Las segundas
+  todavía no tienen pk (el preview no escribe en la base), así que viajan por
+  nombre con el prefijo `nueva:` en el `<option>` y como `categoria_nueva` en
+  el JSON de resoluciones; `_categoria_para()` las valida contra los
+  `nombre_normalizado` de `categorias_a_crear` de ESA importación antes de
+  crear nada — es, para el nombre, el equivalente del re-fetch scopeado que ya
+  protege a `categoria_id`. **El string del POST se usa solo como clave de
+  búsqueda: lo que se persiste es el nombre canónico del preview**
+  (`nuevas_permitidas` es un dict, no un set) — `normalizar_texto` colapsa
+  espacios internos y `save()` solo hace `.strip()`, así que confiar en el
+  string del cliente permitía desbordar el `varchar(60)` y voltear la
+  transacción entera. Sin esto, un gimnasio importando por primera vez
+  (catálogo vacío) no tenía NINGUNA categoría real donde ubicar una fila con la
+  celda de categoría en blanco: la única salida era «Sin categoría» y
+  arreglarlo después a mano (ver `ISSUES.md` `[2026-08-27]`). «Sin categoría»
+  sigue siendo la salida cuando el archivo directamente no trae columna de
+  categoría.
 - **El preview muestra el video de cada fila, no un "Estado" constante.** La
   columna `LINK` del Excel se parsea desde siempre pero no se veía en el
   preview, y la columna que ocupaba su lugar decía "Nuevo" en las 748 filas

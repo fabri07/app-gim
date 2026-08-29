@@ -2,6 +2,8 @@
 `rutinas/views.py`: StaffRequiredMixin + TenantScopedMixin, vistas finas
 que delegan toda la lógica a `services.py`."""
 
+import json
+
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import FormView, View
@@ -254,15 +256,59 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
         importacion = self.get_importacion()
         return self._render(request, importacion, ResolucionesJSONForm())
 
+    def _opciones_categoria(self, importacion):
+        """Todo lo que el staff puede elegir para un pendiente: las
+        categorías que el gimnasio YA tiene, más las que ESTA importación va
+        a crear al confirmar.
+
+        Las nuevas todavía no existen en la base (el preview no escribe), así
+        que no tienen pk y viajan por nombre, con el prefijo `nueva:` para
+        que el POST las pueda distinguir de un id. Sin ellas, un gimnasio que
+        importa por primera vez -- catálogo vacío -- no tenía NINGUNA
+        categoría donde ubicar una fila que el archivo trajo sin clasificar:
+        la única salida era «Sin categoría» y arreglarlo después a mano, uno
+        por uno (reporte del 2026-08-27, gimnasio "Vida Plena").
+        """
+        opciones = [
+            {"valor": str(c.pk), "etiqueta": c.nombre}
+            for c in CategoriaEjercicio.objects.for_gimnasio(
+                self.gimnasio
+            ).filter(activo=True)
+        ]
+        opciones += [
+            {"valor": f"nueva:{nombre}", "etiqueta": nombre, "es_nueva": True}
+            for nombre in importacion.resultado.get("categorias_a_crear", [])
+        ]
+        return opciones
+
     def _render(self, request, importacion, form):
         return render(request, self.template_name, {
             "importacion": importacion,
             "pendientes": self._pendientes(importacion),
-            "categorias": CategoriaEjercicio.objects.for_gimnasio(
-                self.gimnasio
-            ).filter(activo=True),
+            "opciones_categoria": self._opciones_categoria(importacion),
+            # Lo que el staff ya había elegido, para que un POST rechazado no
+            # le borre el trabajo: las decisiones viven solo en el blob JSON
+            # que arma el JS, así que sin devolverlas los desplegables vuelven
+            # todos a "---------". Con un archivo de 748 filas eso significa
+            # rehacer decenas de elecciones por un único pendiente olvidado.
+            "resoluciones_previas": self._resoluciones_previas(form),
             "form": form,
         })
+
+    @staticmethod
+    def _resoluciones_previas(form):
+        """El dict de resoluciones tal como vino en el POST, o `{}` en un GET.
+
+        Se lee de `form.data` y no de `cleaned_data` a propósito: el rechazo
+        puede venir del propio `clean()` (JSON mal formado) o de la
+        validación semántica de la vista, y solo el segundo caso deja algo
+        en `cleaned_data`. El crudo del POST está en los dos.
+        """
+        try:
+            datos = json.loads(form.data.get("resoluciones") or "{}")
+        except (AttributeError, json.JSONDecodeError, TypeError):
+            return {}
+        return datos if isinstance(datos, dict) else {}
 
     def post(self, request, *args, **kwargs):
         importacion = self.get_importacion()
@@ -293,6 +339,7 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
             if (
                 not item.get("categoria_resuelta")
                 and not entrada.get("categoria_id")
+                and not entrada.get("categoria_nueva")
                 and not entrada.get("sin_categoria")
             ):
                 faltantes.append(item["nombre_original"])
@@ -316,6 +363,12 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
                 "categoria_id": resoluciones.get(
                     item["nombre_normalizado"], {}
                 ).get("categoria_id"),
+                # Una categoría que esta misma importación va a crear: no
+                # tiene id todavía, así que se elige por nombre. El servicio
+                # lo valida contra `categorias_a_crear` antes de crear nada.
+                "categoria_nueva": resoluciones.get(
+                    item["nombre_normalizado"], {}
+                ).get("categoria_nueva"),
                 "sin_categoria": resoluciones.get(
                     item["nombre_normalizado"], {}
                 ).get("sin_categoria", False),
