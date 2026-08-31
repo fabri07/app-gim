@@ -27,7 +27,9 @@ from importaciones.parsing import (
     FilaInvalida,
     HojaParseada,
     ItemParseado,
+    buscar_fila_encabezado,
     detectar_columnas,
+    mejor_encabezado_parcial,
     leer_hoja_biblioteca,
     leer_hoja_plantilla,
     normalizar_texto,
@@ -1795,11 +1797,22 @@ class DeteccionTolerantePorContenidoTests(SimpleTestCase):
         self.assertNotIn("url_video", campos)
 
 
-class BibliotecaSinColumnaNombreTests(SimpleTestCase):
-    """Reproduce la importación #7 del primer cliente: el MISMO archivo que
-    la #8, pero con una fila de título arriba. `leer_hoja_biblioteca`
-    devolvía `[], [], []` y la app armaba un preview con cero filas y el
-    botón "Confirmar importación" habilitado, sin decir nada."""
+class BibliotecaConTituloArribaTests(SimpleTestCase):
+    """El caso que ANTES era un error explicado y ahora se importa bien.
+
+    Reproduce la importación #7 del primer cliente pago: el mismo archivo que
+    la #8 pero con una fila de título arriba de la tabla. Hasta el 2026-08-31
+    `leer_hoja_biblioteca` leía rígido la fila 1, no encontraba la columna
+    "nombre" y levantaba `ColumnaRequeridaFaltante` con un mensaje que le
+    pedía al staff borrar la fila de arriba. Con `buscar_fila_encabezado` la
+    app encuentra la tabla sola.
+
+    NO revertir estos tests a esperar la excepción: el mensaje lindo existía
+    porque la app no sabía buscar la tabla, no porque el archivo estuviera
+    mal. La propiedad "la app te dice qué leyó" se conserva y se sigue
+    fijando en `BibliotecaSinColumnaNombreTests`, para el archivo donde
+    realmente no hay tabla en ninguna parte.
+    """
 
     def _hoja(self, filas):
         wb = openpyxl.Workbook()
@@ -1808,31 +1821,47 @@ class BibliotecaSinColumnaNombreTests(SimpleTestCase):
             ws.append(fila)
         return ws
 
-    def test_falta_la_columna_nombre_levanta_error(self):
+    def test_un_titulo_arriba_de_la_tabla_ya_no_rompe_la_importacion(self):
         hoja = self._hoja([
             ["Biblioteca de ejercicios 2026", None, None],
             ["NOMBRE", "LINK", "CATEGORÍA"],
             ["Sentadilla", "https://y.com/1", "RODILLA"],
         ])
 
-        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
-            leer_hoja_biblioteca(hoja)
+        items, invalidas, _ = leer_hoja_biblioteca(hoja)
 
-        self.assertEqual(ctx.exception.campo, "nombre")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["nombre_original"], "Sentadilla")
+        self.assertEqual(items[0]["grupo_muscular_original"], "RODILLA")
+        self.assertEqual(invalidas, [])
 
-    def test_el_error_lista_los_encabezados_que_si_encontro(self):
-        """Sin esto el staff no tiene forma de saber qué leyó la app: es la
-        diferencia entre "arreglá la fila 1" y adivinar."""
+    def test_la_fila_reportada_es_la_real_de_excel(self):
+        """El número que ve el staff tiene que ser el de Excel, no uno
+        relativo al encabezado: con el título arriba, la primera fila de
+        datos es la 3."""
         hoja = self._hoja([
-            ["Biblioteca 2026", "col b", None],
+            ["Biblioteca de ejercicios 2026", None, None],
             ["NOMBRE", "LINK", "CATEGORÍA"],
+            ["Sentadilla", "https://y.com/1", "RODILLA"],
         ])
 
-        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
-            leer_hoja_biblioteca(hoja)
+        items, _, _ = leer_hoja_biblioteca(hoja)
 
-        self.assertIn("Biblioteca 2026", ctx.exception.encabezados)
-        self.assertIn("col b", ctx.exception.encabezados)
+        self.assertEqual(items[0]["fila_excel"], 3)
+
+    def test_tambien_con_filas_en_blanco_entre_el_titulo_y_la_tabla(self):
+        hoja = self._hoja([
+            ["Plan 2026"],
+            [],
+            [],
+            ["NOMBRE", "CATEGORÍA"],
+            ["Sentadilla", "RODILLA"],
+        ])
+
+        items, _, _ = leer_hoja_biblioteca(hoja)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["fila_excel"], 5)
 
     def test_el_archivo_bien_armado_sigue_funcionando(self):
         hoja = self._hoja([
@@ -1846,6 +1875,84 @@ class BibliotecaSinColumnaNombreTests(SimpleTestCase):
         self.assertEqual(invalidas, [])
 
 
+class BibliotecaSinColumnaNombreTests(SimpleTestCase):
+    """Sin columna de nombre en NINGUNA de las filas que se miran, no hay
+    nada que importar: sigue siendo un error, no un archivo de cero filas.
+
+    Esta clase cubría antes el caso "título arriba de la tabla", que desde el
+    2026-08-31 se importa bien (ver `BibliotecaConTituloArribaTests`). Lo que
+    se conserva -- y es lo que de verdad importa -- es que el error le diga al
+    staff QUÉ leyó la app, para que no tenga que adivinar.
+    """
+
+    def _hoja(self, filas):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for fila in filas:
+            ws.append(fila)
+        return ws
+
+    def test_falta_la_columna_nombre_levanta_error(self):
+        hoja = self._hoja([
+            ["Resumen mensual", None, None],
+            ["Total", "Suma", "Observación"],
+            [10, 20, "ok"],
+        ])
+
+        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
+            leer_hoja_biblioteca(hoja)
+
+        self.assertEqual(ctx.exception.campo, "nombre")
+
+    def test_el_error_lista_los_encabezados_que_si_encontro(self):
+        """Sin esto el staff no tiene forma de saber qué leyó la app: es la
+        diferencia entre corregir el archivo y adivinar.
+
+        Se ecoa la fila que MÁS se parece a un encabezado (acá la 2, que al
+        menos tiene CATEGORÍA), no la 1: mostrarle el título decorativo del
+        archivo no le dice nada.
+        """
+        hoja = self._hoja([
+            ["Resumen mensual", "col b", None],
+            ["Total", "CATEGORÍA", "Observación"],
+            [10, "RODILLA", "ok"],
+        ])
+
+        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
+            leer_hoja_biblioteca(hoja)
+
+        self.assertIn("Total", ctx.exception.encabezados)
+        self.assertIn("CATEGORÍA", ctx.exception.encabezados)
+
+    def test_el_error_dice_de_que_fila_salieron_esos_encabezados(self):
+        """Decir "la primera fila" dejó de ser cierto cuando la búsqueda pasó
+        a mirar las primeras 15."""
+        hoja = self._hoja([
+            ["Resumen mensual", None, None],
+            ["Total", "CATEGORÍA", "Observación"],
+            [10, "RODILLA", "ok"],
+        ])
+
+        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
+            leer_hoja_biblioteca(hoja)
+
+        self.assertEqual(ctx.exception.fila, 2)
+
+    def test_si_no_hay_nada_parecido_ecoa_la_primera_fila(self):
+        """El comportamiento de antes de la búsqueda multi-fila, conservado
+        como piso: siempre se muestra algo."""
+        hoja = self._hoja([
+            ["Resumen mensual", "col b"],
+            ["Total", "Suma"],
+        ])
+
+        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
+            leer_hoja_biblioteca(hoja)
+
+        self.assertEqual(ctx.exception.fila, 1)
+        self.assertIn("Resumen mensual", ctx.exception.encabezados)
+
+
 class PreviewBibliotecaSinColumnaNombreTests(TestCase):
     """El error de columna faltante tiene que llegar al staff como mensaje,
     no como un preview vacío ni como un 500."""
@@ -1856,6 +1963,14 @@ class PreviewBibliotecaSinColumnaNombreTests(TestCase):
         Perfil.objects.create(
             usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
         )
+
+    def _archivo_sin_tabla(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Resumen mensual", None, None])
+        ws.append(["Total", "CATEGORÍA", "Observación"])
+        ws.append([10, "RODILLA", "ok"])
+        return _archivo_xlsx(wb)
 
     def _archivo_con_titulo_arriba(self):
         wb = openpyxl.Workbook()
@@ -1869,7 +1984,7 @@ class PreviewBibliotecaSinColumnaNombreTests(TestCase):
         with self.assertRaises(ImportacionInvalida):
             previsualizar_importacion_biblioteca(
                 gimnasio=self.gimnasio,
-                archivo=self._archivo_con_titulo_arriba(),
+                archivo=self._archivo_sin_tabla(),
                 usuario=self.usuario,
             )
 
@@ -1879,14 +1994,24 @@ class PreviewBibliotecaSinColumnaNombreTests(TestCase):
         with self.assertRaises(ImportacionInvalida) as ctx:
             previsualizar_importacion_biblioteca(
                 gimnasio=self.gimnasio,
-                archivo=self._archivo_con_titulo_arriba(),
+                archivo=self._archivo_sin_tabla(),
                 usuario=self.usuario,
             )
 
         mensaje = str(ctx.exception)
         self.assertIn("nombre", mensaje)
-        self.assertIn("Biblioteca de ejercicios 2026", mensaje)
-        self.assertIn("primera fila", mensaje)
+        self.assertIn("Total", mensaje)
+        self.assertIn("15 primeras filas", mensaje)
+
+    def test_el_archivo_con_titulo_arriba_ahora_se_importa(self):
+        """Antes del 2026-08-31 este archivo daba `ImportacionInvalida`."""
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio,
+            archivo=self._archivo_con_titulo_arriba(),
+            usuario=self.usuario,
+        )
+
+        self.assertEqual(len(importacion.resultado["items"]), 1)
 
 
 class ResolverCategoriasTests(SimpleTestCase):
@@ -2591,3 +2716,98 @@ class CategoriasNuevasSeOfrecenEnElPreviewTests(TestCase):
         self.assertContains(response, 'id="resoluciones-previas"')
         self.assertContains(response, "press pallof estatico")
         self.assertContains(response, "categoria_nueva")
+
+
+class BuscarFilaEncabezadoTests(SimpleTestCase):
+    """La fila de títulos no siempre es la 1.
+
+    La planilla real del primer cliente pago la tiene en la fila 12: arriba
+    hay logo, objetivo, fechas de inicio/fin y un "Cumplim: 25%". Hasta acá
+    los tres lectores hacían `next(ws.iter_rows(min_row=1, max_row=1))` y el
+    archivo entero se rechazaba.
+    """
+
+    REQUERIDOS = ("ejercicio", "series", "repeticiones")
+
+    def _hoja(self, filas):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for fila in filas:
+            ws.append(fila)
+        return ws
+
+    def test_encabezado_en_la_primera_fila(self):
+        ws = self._hoja([
+            ["Ejercicio", "Series", "Repeticiones"],
+            ["Sentadilla", 4, "10"],
+        ])
+        encabezado = buscar_fila_encabezado(ws, ALIAS_PLANTILLA, self.REQUERIDOS)
+        self.assertEqual(encabezado.fila, 1)
+        self.assertEqual(encabezado.campos["ejercicio"], 0)
+
+    def test_encabezado_despues_de_un_titulo_y_filas_en_blanco(self):
+        ws = self._hoja([
+            ["Plan de entrenamiento 2026"],
+            [],
+            ["Alumna:", "Eve Colazo"],
+            [],
+            ["Ejercicio", "Series", "Repeticiones"],
+            ["Sentadilla", 4, "10"],
+        ])
+        encabezado = buscar_fila_encabezado(ws, ALIAS_PLANTILLA, self.REQUERIDOS)
+        self.assertEqual(encabezado.fila, 5)
+        self.assertEqual(encabezado.campos["series"], 1)
+
+    def test_sin_ninguna_fila_de_titulos_devuelve_none(self):
+        ws = self._hoja([
+            ["Total", "Suma", "Observación"],
+            [10, 20, "ok"],
+        ])
+        self.assertIsNone(
+            buscar_fila_encabezado(ws, ALIAS_PLANTILLA, self.REQUERIDOS)
+        )
+
+    def test_una_fila_de_datos_no_se_confunde_con_el_encabezado(self):
+        """El guardarraíl de la búsqueda multi-fila: si una fila de datos
+        pudiera hacerse pasar por encabezado, el parser leería columnas
+        corridas y produciría basura plausible en vez de un error."""
+        ws = self._hoja([
+            ["Dia", "Series", "Repeticiones"],
+            [1, 4, "8-12"],
+            [1, 3, "10"],
+        ])
+        # Falta `ejercicio` en TODA la hoja: ninguna fila califica.
+        self.assertIsNone(
+            buscar_fila_encabezado(ws, ALIAS_PLANTILLA, self.REQUERIDOS)
+        )
+
+    def test_no_mira_mas_alla_de_la_ventana(self):
+        filas = [["ruido"]] * 20 + [["Ejercicio", "Series", "Repeticiones"]]
+        ws = self._hoja(filas)
+        self.assertIsNone(
+            buscar_fila_encabezado(ws, ALIAS_PLANTILLA, self.REQUERIDOS, max_filas=15)
+        )
+        self.assertEqual(
+            buscar_fila_encabezado(
+                ws, ALIAS_PLANTILLA, self.REQUERIDOS, max_filas=25
+            ).fila,
+            21,
+        )
+
+    def test_mejor_encabezado_parcial_sirve_para_el_mensaje_de_error(self):
+        """Cuando no se encuentra la tabla, al staff hay que decirle qué SÍ
+        se leyó. Gana la fila con más campos detectados, no la fila 1."""
+        ws = self._hoja([
+            ["Biblioteca de ejercicios 2026"],
+            ["Nombre", "Categoría"],
+            ["Sentadilla", "Piernas"],
+        ])
+        parcial = mejor_encabezado_parcial(ws, ALIAS_BIBLIOTECA)
+        self.assertEqual(parcial.fila, 2)
+        self.assertIn("Nombre", parcial.valores)
+
+    def test_mejor_encabezado_parcial_cae_en_la_fila_1_si_no_hay_nada(self):
+        ws = self._hoja([["Total", "Suma"], [1, 2]])
+        parcial = mejor_encabezado_parcial(ws, ALIAS_BIBLIOTECA)
+        self.assertEqual(parcial.fila, 1)
+        self.assertEqual(parcial.valores, ["Total", "Suma"])

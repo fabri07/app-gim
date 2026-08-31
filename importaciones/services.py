@@ -19,6 +19,7 @@ from importaciones.matching import (
 )
 from importaciones.models import Importacion
 from importaciones.parsing import (
+    FILAS_BUSQUEDA_ENCABEZADO,
     ColumnaRequeridaFaltante,
     normalizar_texto,
     parsear_archivo_biblioteca,
@@ -287,17 +288,20 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
             "No se pudo leer el archivo. Verificá que sea un .xlsx válido."
         )
     except ColumnaRequeridaFaltante as error:
-        # Listar lo que SÍ se leyó es lo que hace accionable el mensaje: el
-        # caso típico es una fila de título arriba de la tabla, y viendo el
-        # eco de esa fila el staff entiende al toque que la app miró la fila
-        # equivocada.
+        # Listar lo que SÍ se leyó es lo que hace accionable el mensaje: sin
+        # el eco de esa fila, el staff no tiene forma de saber qué miró la app.
+        #
+        # Ya NO se le pide que borre el título de arriba: desde el 2026-08-31
+        # `buscar_fila_encabezado` mira las primeras FILAS_BUSQUEDA_ENCABEZADO
+        # y encuentra la tabla sola. Si igual se llega acá, es que no hay
+        # ninguna fila de títulos en esa ventana, que es otro problema.
         leidos = ", ".join(f"«{e}»" for e in error.encabezados) or "ninguno"
         raise ImportacionInvalida(
             f"No encontré la columna «{error.campo}» en el archivo. "
-            f"En la primera fila leí estos encabezados: {leidos}. "
-            "La primera fila de la hoja tiene que ser la de los títulos de "
-            "las columnas (por ejemplo NOMBRE, LINK, CATEGORÍA): si arriba "
-            "hay un título o una fila en blanco, borrala y volvé a subirlo."
+            f"Miré las {FILAS_BUSQUEDA_ENCABEZADO} primeras filas de la hoja "
+            f"y la que más se parecía a los títulos fue la fila {error.fila}, "
+            f"donde leí: {leidos}. La hoja tiene que tener una fila con los "
+            "títulos de las columnas (por ejemplo NOMBRE, LINK, CATEGORÍA)."
         )
 
     indice = construir_indice_ejercicios(gimnasio)

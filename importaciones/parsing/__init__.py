@@ -12,12 +12,15 @@ import openpyxl
 
 from importaciones.parsing.comun import (  # noqa: F401  (re-export)
     ALIAS_BIBLIOTECA,
+    FILAS_BUSQUEDA_ENCABEZADO,
     ALIAS_PLANTILLA,
     ColumnaRequeridaFaltante,
     FilaInvalida,
     HojaParseada,
     ItemParseado,
+    buscar_fila_encabezado,
     detectar_columnas,
+    mejor_encabezado_parcial,
     normalizar_texto,
 )
 from importaciones.parsing.tabular import leer_hoja_biblioteca, leer_hoja_larga

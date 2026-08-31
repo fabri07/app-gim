@@ -17,31 +17,42 @@ from importaciones.parsing.comun import (
     _fila_vacia,
     _mapa_merges,
     _valor_celda,
-    detectar_columnas,
+    buscar_fila_encabezado,
+    mejor_encabezado_parcial,
 )
+
+# Sin estas tres columnas no hay nada que importar en una plantilla. El orden
+# importa: es el que decide qué columna se nombra en el mensaje de error.
+CAMPOS_REQUERIDOS_PLANTILLA = ("ejercicio", "series", "repeticiones")
 
 def leer_hoja_larga(ws):
     """Parsea una hoja de un archivo de PLANTILLAS. `ws` es una worksheet
     de `openpyxl` ya abierta (no toca el filesystem acá)."""
-    encabezados = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
-    campos, advertencias = detectar_columnas(encabezados, ALIAS_PLANTILLA)
+    encabezado = buscar_fila_encabezado(ws, ALIAS_PLANTILLA, CAMPOS_REQUERIDOS_PLANTILLA)
+    if encabezado is None:
+        # Se nombra la primera requerida que no aparece ni en la fila que MÁS
+        # se parecía a un encabezado: es el dato accionable, no "no encontré
+        # la tabla".
+        parcial = mejor_encabezado_parcial(ws, ALIAS_PLANTILLA)
+        faltante = next(
+            c for c in CAMPOS_REQUERIDOS_PLANTILLA if c not in parcial.campos
+        )
+        return HojaParseada(
+            nombre_hoja=ws.title,
+            dias_por_semana=0,
+            motivo_exclusion=f"No se pudo importar: falta la columna '{faltante}'",
+            advertencias_columnas=parcial.advertencias,
+        )
 
-    for campo in ("ejercicio", "series", "repeticiones"):
-        if campo not in campos:
-            return HojaParseada(
-                nombre_hoja=ws.title,
-                dias_por_semana=0,
-                motivo_exclusion=f"No se pudo importar: falta la columna '{campo}'",
-                advertencias_columnas=advertencias,
-            )
-
+    campos = encabezado.campos
+    advertencias = encabezado.advertencias
     mapa_merges = _mapa_merges(ws)
-    ncols = len(encabezados)
+    ncols = len(encabezado.valores)
     items = []
     filas_invalidas = []
     contador_orden = {}  # (semana, dia) -> próximo orden
 
-    for fila_idx in range(2, ws.max_row + 1):
+    for fila_idx in range(encabezado.fila + 1, ws.max_row + 1):
         valores = [_valor_celda(ws, fila_idx, c, mapa_merges) for c in range(1, ncols + 1)]
         if _fila_vacia(valores):
             continue
@@ -110,22 +121,25 @@ def leer_hoja_larga(ws):
 def leer_hoja_biblioteca(ws):
     """Parsea una hoja del import de BIBLIOTECA: solo nombre + grupo
     muscular (opcional) + video (opcional), sin días/semanas/series."""
-    encabezados = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
-    campos, advertencias = detectar_columnas(encabezados, ALIAS_BIBLIOTECA)
+    encabezado = buscar_fila_encabezado(ws, ALIAS_BIBLIOTECA, ("nombre",))
 
-    if "nombre" not in campos:
+    if encabezado is None:
+        encabezado = mejor_encabezado_parcial(ws, ALIAS_BIBLIOTECA)
+        encabezados = encabezado.valores
         # Antes esto devolvía `[], [], advertencias` y la app mostraba un
         # preview vacío con el botón de confirmar habilitado. Sin el nombre
         # del ejercicio no hay nada que importar: es un error, no un archivo
         # de cero filas.
-        raise ColumnaRequeridaFaltante("nombre", encabezados)
+        raise ColumnaRequeridaFaltante("nombre", encabezados, fila=encabezado.fila)
 
+    campos = encabezado.campos
+    advertencias = encabezado.advertencias
     mapa_merges = _mapa_merges(ws)
-    ncols = len(encabezados)
+    ncols = len(encabezado.valores)
     items = []
     filas_invalidas = []
 
-    for fila_idx in range(2, ws.max_row + 1):
+    for fila_idx in range(encabezado.fila + 1, ws.max_row + 1):
         valores = [_valor_celda(ws, fila_idx, c, mapa_merges) for c in range(1, ncols + 1)]
         if _fila_vacia(valores):
             continue

@@ -59,15 +59,21 @@ def normalizar_texto(texto):
 class ColumnaRequeridaFaltante(Exception):
     """El archivo no tiene una columna sin la cual no se puede importar nada.
 
-    Lleva los encabezados que SÍ se leyeron: es lo que le permite al staff
-    entender que la app miró la fila equivocada (un título arriba de la
-    tabla) en vez de quedarse adivinando. Antes de 2026-08-26 este caso
-    devolvía una lista vacía y la app mostraba un preview de cero filas con
-    el botón de confirmar habilitado, sin ningún mensaje.
+    Lleva los encabezados que SÍ se leyeron y de QUÉ FILA salieron: es lo que
+    le permite al staff entender qué miró la app en vez de quedarse
+    adivinando. Antes de 2026-08-26 este caso devolvía una lista vacía y la
+    app mostraba un preview de cero filas con el botón de confirmar
+    habilitado, sin ningún mensaje.
+
+    `fila` se sumó cuando la búsqueda de encabezado dejó de ser siempre la
+    fila 1 (2026-08-31): decir "en la primera fila leí..." pasó a ser
+    directamente falso, porque ahora se miran las primeras
+    `FILAS_BUSQUEDA_ENCABEZADO`.
     """
 
-    def __init__(self, campo, encabezados):
+    def __init__(self, campo, encabezados, *, fila=1):
         self.campo = campo
+        self.fila = fila
         self.encabezados = [str(e) for e in encabezados if e is not None]
         super().__init__(f"Falta la columna '{campo}'")
 
@@ -209,3 +215,84 @@ def _fila_vacia(valores):
     return all(v is None or str(v).strip() == "" for v in valores)
 
 
+
+
+# Cuántas filas se miran, desde arriba, buscando la de los títulos. 15 alcanza
+# de sobra para el caso real que motivó esto (la planilla del primer cliente
+# pago la tiene en la 12, debajo del logo, el objetivo y las fechas) sin
+# arriesgar que una fila de datos de más abajo se haga pasar por encabezado.
+FILAS_BUSQUEDA_ENCABEZADO = 15
+
+
+@dataclass(frozen=True)
+class Encabezado:
+    """Dónde están los títulos de una hoja y qué columna es cada campo.
+
+    `fila` es 1-indexed (la numeración que ve el staff en Excel, la misma que
+    usa `FilaInvalida.fila_excel`); los índices de `campos` son 0-indexed
+    sobre la lista `valores`, que es lo que espera `detectar_columnas`.
+    """
+
+    fila: int
+    valores: list
+    campos: dict
+    advertencias: list = field(default_factory=list)
+
+
+def _valores_de_fila(ws, fila, ncols):
+    return [ws.cell(row=fila, column=c).value for c in range(1, ncols + 1)]
+
+
+def buscar_fila_encabezado(ws, alias_por_campo, requeridos, *,
+                           max_filas=FILAS_BUSQUEDA_ENCABEZADO):
+    """La PRIMERA fila (de las primeras `max_filas`) donde se detectan TODOS
+    los campos de `requeridos`. `None` si ninguna sirve.
+
+    Antes los tres lectores hacían `next(ws.iter_rows(min_row=1, max_row=1))`,
+    así que cualquier título arriba de la tabla -- el caso más común en una
+    planilla hecha a mano -- rechazaba el archivo entero.
+
+    Es "la primera que califica" y no "la que más campos detecta" a propósito:
+    con la segunda regla, en una matriz por semanas la fila de subcampos
+    (Series/Reps/Carga repetidos cuatro veces) ganaría siempre y las columnas
+    quedarían corridas. Exigir el conjunto completo de requeridos y quedarse
+    con la primera es lo que hace que una fila de DATOS no pueda hacerse pasar
+    por encabezado: sus celdas no son alias de nada.
+    """
+    ncols = ws.max_column or 0
+    for fila in range(1, min(ws.max_row or 0, max_filas) + 1):
+        valores = _valores_de_fila(ws, fila, ncols)
+        if _fila_vacia(valores):
+            continue
+        campos, advertencias = detectar_columnas(valores, alias_por_campo)
+        if all(campo in campos for campo in requeridos):
+            return Encabezado(
+                fila=fila, valores=valores, campos=campos, advertencias=advertencias
+            )
+    return None
+
+
+def mejor_encabezado_parcial(ws, alias_por_campo, *,
+                             max_filas=FILAS_BUSQUEDA_ENCABEZADO):
+    """La fila que MÁS se parece a un encabezado, para el mensaje de error.
+
+    No sirve para parsear (por eso está separada de `buscar_fila_encabezado`):
+    sirve para que el staff vea qué leyó la app y entienda por qué no encontró
+    la tabla. Cae en la fila 1 si ninguna detecta nada, que es exactamente lo
+    que se mostraba antes de que existiera la búsqueda multi-fila.
+    """
+    ncols = ws.max_column or 0
+    mejor = None
+    for fila in range(1, min(ws.max_row or 0, max_filas) + 1):
+        valores = _valores_de_fila(ws, fila, ncols)
+        if _fila_vacia(valores):
+            continue
+        campos, advertencias = detectar_columnas(valores, alias_por_campo)
+        candidato = Encabezado(
+            fila=fila, valores=valores, campos=campos, advertencias=advertencias
+        )
+        if mejor is None or len(campos) > len(mejor.campos):
+            mejor = candidato
+    if mejor is None:
+        return Encabezado(fila=1, valores=_valores_de_fila(ws, 1, ncols), campos={})
+    return mejor
