@@ -110,7 +110,7 @@ vuelve a consultar por form en `to_python`.
 
 ## [2026-08-31] Dos tests de notificaciones se ponen rojos del 29 al 31 de cada mes
 
-**Estado:** abierto
+**Estado:** resuelto
 
 **Impacto:** `EnviarRecordatoriosCommandTests.test_correrlo_dos_veces_el_mismo_dia_no_duplica`
 y `test_alumno_sin_perfil_no_queda_bloqueado_para_siempre` fallan en `main`
@@ -124,10 +124,18 @@ vencimiento ya pasó lo cubre "pago vencido", no "pago por vencer"). Es un test
 con fecha frágil. Detectado al tomar la línea de base para el trabajo del
 importador; queda **fuera de esa rama** por ser otra app y otro problema.
 
-**Resolución / próximo paso:** fijar la fecha en el fixture (`freezegun` no está
-en el proyecto; alcanza con elegir un `hoy` fijo con `patch` sobre
-`timezone.localdate`, que el archivo ya usa en otro test) en vez de derivarla
-del día actual.
+**Resolución / próximo paso:** resuelto aplicando a los dos el patrón que ya
+estaba en el MISMO archivo: `test_pago_por_vencer_solo_del_gimnasio_correcto`
+había sufrido exactamente esto y se arregló fijando `hoy = date(2026, 3, 10)`
+con `patch("django.utils.timezone.localdate")`, dejando el porqué en un
+comentario. Ese arreglo no se propagó a los otros dos, que quedaron derivando
+la fecha del día actual. Ahora los tres usan la fecha fija y ninguno depende
+del reloj.
+
+**Para la próxima:** si un test necesita que "hoy" caiga en una ventana de
+días, la fecha va fija. Cualquier fixture relativa a `timezone.localdate()`
+que después haga aritmética de días es irrepresentable cerca de fin de mes,
+porque la resta no da la vuelta de mes.
 
 
 ## [2026-08-27] El preview del importador no ofrecía las categorías del propio archivo

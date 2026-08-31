@@ -340,8 +340,13 @@ class EnviarRecordatoriosCommandTests(TestCase):
 
     @patch("notificaciones.services._enviar")
     def test_correrlo_dos_veces_el_mismo_dia_no_duplica(self, mock_enviar):
-        hoy = timezone.localdate()
-        self.gimnasio_a.dia_vencimiento_pago = min(hoy.day + 1, 28)
+        # Fecha FIJA, mismo criterio que `test_pago_por_vencer_solo_del_gimnasio_correcto`:
+        # `min(hoy.day + 1, 28)` derivado de hoy quedaba en 28 los días 29, 30
+        # y 31, y `28 - 31 = -3` cae fuera de la ventana de [0, 3] días, así
+        # que no se enviaba nada y el test fallaba tres días por mes -- por la
+        # fixture, no por el código.
+        hoy = date(2026, 3, 10)
+        self.gimnasio_a.dia_vencimiento_pago = 12  # a 2 días: notifica
         self.gimnasio_a.save(update_fields=["dia_vencimiento_pago"])
 
         PagoMensual.objects.create(
@@ -354,8 +359,9 @@ class EnviarRecordatoriosCommandTests(TestCase):
 
         from django.core.management import call_command
 
-        call_command("enviar_recordatorios")
-        call_command("enviar_recordatorios")
+        with patch("django.utils.timezone.localdate", return_value=hoy):
+            call_command("enviar_recordatorios")
+            call_command("enviar_recordatorios")
 
         mock_enviar.assert_called_once()
         self.assertEqual(
@@ -371,8 +377,9 @@ class EnviarRecordatoriosCommandTests(TestCase):
         quedaría sin este aviso para siempre, incluso después de que el
         staff le cree acceso más adelante. `notificar_pago_por_vencer`
         chequea el Perfil primero -- ver notificaciones/services.py."""
-        hoy = timezone.localdate()
-        self.gimnasio_a.dia_vencimiento_pago = min(hoy.day + 1, 28)
+        # Fecha FIJA por el mismo motivo que el test de arriba.
+        hoy = date(2026, 3, 10)
+        self.gimnasio_a.dia_vencimiento_pago = 12  # a 2 días: notifica
         self.gimnasio_a.save(update_fields=["dia_vencimiento_pago"])
 
         alumno_sin_perfil = Alumno.objects.create(
@@ -388,7 +395,9 @@ class EnviarRecordatoriosCommandTests(TestCase):
 
         from django.core.management import call_command
 
-        with patch("notificaciones.services._enviar") as mock_enviar:
+        with patch("notificaciones.services._enviar") as mock_enviar, patch(
+            "django.utils.timezone.localdate", return_value=hoy
+        ):
             call_command("enviar_recordatorios")
         mock_enviar.assert_not_called()
         self.assertEqual(RecordatorioEnviado.objects.count(), 0)
@@ -408,7 +417,9 @@ class EnviarRecordatoriosCommandTests(TestCase):
             auth="a",
         )
 
-        with patch("notificaciones.services._enviar") as mock_enviar:
+        with patch("notificaciones.services._enviar") as mock_enviar, patch(
+            "django.utils.timezone.localdate", return_value=hoy
+        ):
             call_command("enviar_recordatorios")
         mock_enviar.assert_called_once()
         self.assertEqual(RecordatorioEnviado.objects.count(), 1)
