@@ -355,6 +355,7 @@ def leer_hoja_ancha(ws, encabezado):
                 notas=_texto("notas"),
                 bloque=codigo_bloque,
                 dia_nombre=nombre_dia_actual,
+                fila_excel=fila,
             ))
 
     if not items:

@@ -21,11 +21,16 @@ from importaciones.models import Importacion
 from importaciones.parsing import (
     FILAS_BUSQUEDA_ENCABEZADO,
     ColumnaRequeridaFaltante,
+    FilaInvalida,
     normalizar_texto,
     parsear_archivo_biblioteca,
     parsear_archivo_plantillas,
 )
-from rutinas.models import RutinaPlantilla, RutinaPlantillaItem
+from rutinas.models import (
+    SEMANAS_POR_CICLO,
+    RutinaPlantilla,
+    RutinaPlantillaItem,
+)
 
 # Un .xlsx corrupto o que en realidad no es un .xlsx (otra extensión
 # renombrada a mano) puede fallar de dos formas al abrirlo con openpyxl:
@@ -38,6 +43,61 @@ ERRORES_ARCHIVO_INVALIDO = (InvalidFileException, KeyError, zipfile.BadZipFile)
 class ImportacionInvalida(Exception):
     """Mensaje en español listo para messages.error() -- análoga a
     ErrorDeReserva en turnos/services.py."""
+
+
+def _motivo_si_item_no_entra(item):
+    """`None` si el item se puede guardar, o el motivo si no.
+
+    Dos familias de problema que el parser no puede ver porque es Django-free:
+
+    1. **Largos.** Postgres rechaza un `varchar` desbordado con un `DataError`
+       que voltea la transacción entera -- una sola celda mal pegada mataría
+       las otras 171 filas con un 500 mudo. SQLite no valida largos, así que
+       esto NUNCA lo iba a encontrar un test local sin chequearlo a mano (ver
+       `ISSUES.md` [2026-08-27], el link de 306 caracteres). Los límites se
+       LEEN del modelo, no se copian: si mañana un campo cambia de tamaño,
+       este chequeo lo acompaña solo.
+    2. **Semana fuera del ciclo.** `bulk_create` no corre validadores, así que
+       un "SEMANA 5" en el archivo entraría a la base salteándose el
+       `MaxValueValidator` de `RutinaPlantillaItem.semana`.
+
+    Se aplica en el PREVIEW, no en el INSERT: la fila se descarta con motivo y
+    número de fila, y el staff lo ve antes de confirmar.
+    """
+    limites = (
+        ("repeticiones", RutinaPlantillaItem._meta.get_field("repeticiones"),
+         "Las repeticiones"),
+        ("kilos", RutinaPlantillaItem._meta.get_field("kilos"), "Los kilos"),
+        ("descanso", RutinaPlantillaItem._meta.get_field("descanso"), "El descanso"),
+        ("ejercicio_original", Ejercicio._meta.get_field("nombre"),
+         "El nombre del ejercicio"),
+    )
+    for atributo, campo, etiqueta in limites:
+        valor = getattr(item, atributo) or ""
+        if len(valor) > campo.max_length:
+            return (
+                f"{etiqueta} tiene {len(valor)} caracteres y el máximo es "
+                f"{campo.max_length}"
+            )
+    if item.semana > SEMANAS_POR_CICLO:
+        return (
+            f"La semana {item.semana} queda fuera del ciclo: una rutina tiene "
+            f"{SEMANAS_POR_CICLO} semanas"
+        )
+    return None
+
+
+def _partir_items_que_no_entran(hoja):
+    """`(items que entran, filas inválidas + las descartadas por no entrar)`."""
+    validos = []
+    invalidas = list(hoja.filas_invalidas)
+    for item in hoja.items:
+        motivo = _motivo_si_item_no_entra(item)
+        if motivo is None:
+            validos.append(item)
+        else:
+            invalidas.append(FilaInvalida(item.fila_excel, motivo))
+    return validos, invalidas
 
 
 def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
@@ -54,12 +114,23 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
             "No se pudo leer el archivo. Verificá que sea un .xlsx válido."
         )
 
+    # Antes de resolver nada contra el catálogo, se descartan las filas que no
+    # entrarían en la base. Tiene que ser ANTES de `nombres_distintos`: si no,
+    # el preview le pediría al staff clasificar un ejercicio que después no se
+    # va a crear.
+    items_por_hoja = {}
+    invalidas_por_hoja = {}
+    for hoja in hojas:
+        validos, invalidas = _partir_items_que_no_entran(hoja)
+        items_por_hoja[hoja.nombre_hoja] = validos
+        invalidas_por_hoja[hoja.nombre_hoja] = invalidas
+
     indice = construir_indice_ejercicios(gimnasio)
 
     nombres_distintos = {
         normalizar_texto(item.ejercicio_original)
-        for hoja in hojas
-        for item in hoja.items
+        for items in items_por_hoja.values()
+        for item in items
     }
 
     ejercicios_distintos = {}
@@ -88,9 +159,11 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
                 "dias_por_semana": hoja.dias_por_semana,
                 "items": [
                     {**asdict(item), "ejercicio_normalizado": normalizar_texto(item.ejercicio_original)}
-                    for item in hoja.items
+                    for item in items_por_hoja[hoja.nombre_hoja]
                 ],
-                "filas_invalidas": [asdict(f) for f in hoja.filas_invalidas],
+                "filas_invalidas": [
+                    asdict(f) for f in invalidas_por_hoja[hoja.nombre_hoja]
+                ],
                 "motivo_exclusion": hoja.motivo_exclusion,
             }
             for hoja in hojas

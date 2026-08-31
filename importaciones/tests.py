@@ -188,6 +188,7 @@ class LeerHojaPlantillaTests(SimpleTestCase):
         self.assertEqual(hoja.items[0], ItemParseado(
             semana=1, dia=1, orden=1, ejercicio_original="Press de banca",
             series=4, repeticiones="8-12", kilos="", descanso="90s", notas="",
+            fila_excel=2,
         ))
         self.assertEqual(hoja.items[1].orden, 2)  # segundo item del mismo (semana, dia)
         self.assertEqual(hoja.filas_invalidas, [])
@@ -3041,3 +3042,189 @@ class LeerHojaAnchaTests(SimpleTestCase):
         self.assertEqual(hoja.items, [])
         self.assertIsNotNone(hoja.motivo_exclusion)
         self.assertIn("semanas", hoja.motivo_exclusion)
+
+
+class SinonimosDeTerminologiaTests(SimpleTestCase):
+    """Cada entrenador nombra las cosas distinto y el importador tiene que
+    adaptarse a él, no al revés.
+
+    "Microciclo" es semana, "sesión" es día, "carga" es kilos. El vocabulario
+    va en ES y EN porque las planillas compradas suelen venir mezcladas.
+    """
+
+    def _hoja(self, encabezados):
+        # semana=2 y dia=3, NO 1: si la columna no se detecta, el parser cae a
+        # los defaults (semana 1, día 1) y un test con 1 pasaría sin probar
+        # nada.
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(encabezados)
+        ws.append([2, 3, "Sentadilla", 4, "10", "90s", ""])
+        return ws
+
+    def test_microciclo_es_semana(self):
+        for palabra in ["Microciclo", "MICRO", "Week", "Wk", "Sem"]:
+            with self.subTest(palabra=palabra):
+                hoja = leer_hoja_plantilla(self._hoja(
+                    [palabra, "Dia", "Ejercicio", "Series", "Repeticiones", "Descanso", "Notas"]
+                ))
+                self.assertIsNone(hoja.motivo_exclusion)
+                self.assertEqual(hoja.items[0].semana, 2)
+
+    def test_sesion_es_dia(self):
+        for palabra in ["Sesión", "Sesion", "Session", "Jornada", "Day"]:
+            with self.subTest(palabra=palabra):
+                hoja = leer_hoja_plantilla(self._hoja(
+                    ["Semana", palabra, "Ejercicio", "Series", "Repeticiones", "Descanso", "Notas"]
+                ))
+                self.assertIsNone(hoja.motivo_exclusion)
+                self.assertEqual(hoja.items[0].dia, 3)
+
+    def test_variantes_de_los_campos_numericos(self):
+        casos = [
+            (["Semana", "Dia", "Movement", "Sets", "Repetitions", "Rest", "Notes"], "en"),
+            (["Semana", "Dia", "Movimiento", "Serie", "Repes", "Pausa", "Observaciones"], "es"),
+        ]
+        for encabezados, idioma in casos:
+            with self.subTest(idioma=idioma):
+                hoja = leer_hoja_plantilla(self._hoja(encabezados))
+                self.assertEqual(len(hoja.items), 1, hoja.motivo_exclusion)
+                self.assertEqual(hoja.items[0].semana, 2)
+                self.assertEqual(hoja.items[0].dia, 3)
+                self.assertEqual(hoja.items[0].series, 4)
+                self.assertEqual(hoja.items[0].repeticiones, "10")
+                self.assertEqual(hoja.items[0].descanso, "90s")
+
+    def test_variantes_de_carga(self):
+        for palabra in ["Carga", "Peso", "Kg", "Kgs", "Load", "Weight"]:
+            with self.subTest(palabra=palabra):
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.append(["Ejercicio", "Series", "Repeticiones", palabra])
+                ws.append(["Sentadilla", 4, "10", "20KG"])
+                hoja = leer_hoja_plantilla(ws)
+                self.assertEqual(hoja.items[0].kilos, "20KG")
+
+
+class LargosDePlantillaTests(TestCase):
+    """Postgres rechaza un varchar largo con un DataError que voltea la
+    transacción entera; SQLite no valida nada, así que esto NUNCA lo iba a
+    encontrar un test local sin chequearlo a mano (ISSUES.md 2026-08-27, el
+    link de 306 caracteres). La fila se descarta en el PREVIEW, con motivo,
+    no en el INSERT.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def _archivo(self, filas):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones", "Kilos"])
+        for fila in filas:
+            ws.append(fila)
+        return _archivo_xlsx(wb)
+
+    def _hojas(self, filas):
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=self._archivo(filas), usuario=self.usuario
+        )
+        return importacion.resultado["hojas"][0]
+
+    def test_una_fila_que_entra_no_se_toca(self):
+        hoja = self._hojas([[1, 1, "Sentadilla", 4, "10", "20KG"]])
+        self.assertEqual(len(hoja["items"]), 1)
+        self.assertEqual(hoja["filas_invalidas"], [])
+
+    def test_repeticiones_demasiado_largas_descartan_solo_esa_fila(self):
+        hoja = self._hojas([
+            [1, 1, "Sentadilla", 4, "10", "20KG"],
+            [1, 1, "Press", 4, "x" * 40, "20KG"],
+        ])
+        self.assertEqual(len(hoja["items"]), 1)
+        self.assertEqual(len(hoja["filas_invalidas"]), 1)
+        self.assertIn("repeticiones", hoja["filas_invalidas"][0]["motivo"].lower())
+
+    def test_un_nombre_de_ejercicio_larguisimo_tambien(self):
+        hoja = self._hojas([
+            [1, 1, "Sentadilla", 4, "10", "20KG"],
+            [1, 1, "N" * 200, 4, "10", "20KG"],
+        ])
+        self.assertEqual(len(hoja["items"]), 1)
+        self.assertEqual(len(hoja["filas_invalidas"]), 1)
+
+    def test_el_ejercicio_descartado_no_queda_pendiente_de_resolucion(self):
+        """Si el nombre siguiera en `ejercicios_distintos`, el preview le
+        pediría al staff clasificar un ejercicio que no se va a crear."""
+        hoja = self._hojas([
+            [1, 1, "Sentadilla", 4, "10", "20KG"],
+            [1, 1, "N" * 200, 4, "10", "20KG"],
+        ])
+        importacion = Importacion.objects.get()
+        self.assertNotIn(
+            normalizar_texto("N" * 200), importacion.resultado["ejercicios_distintos"]
+        )
+
+    def test_una_semana_fuera_del_ciclo_se_descarta(self):
+        """`bulk_create` no corre validadores, así que sin este chequeo una
+        semana 5 entraría a la base saltándose el MaxValueValidator."""
+        hoja = self._hojas([
+            [1, 1, "Sentadilla", 4, "10", "20KG"],
+            [5, 1, "Press", 4, "10", "20KG"],
+        ])
+        self.assertEqual(len(hoja["items"]), 1)
+        self.assertEqual(len(hoja["filas_invalidas"]), 1)
+        self.assertIn("semana", hoja["filas_invalidas"][0]["motivo"].lower())
+
+
+class FilaExcelReportadaTests(TestCase):
+    """El número de fila que se le muestra al staff tiene que ser el de Excel.
+
+    Reportar `orden` (la posición dentro del día) mandaba al entrenador a
+    buscar una celda que no existe.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def test_la_fila_descartada_se_reporta_con_su_numero_de_excel(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, 1, "Sentadilla", 4, "10"])       # fila 2
+        ws.append([1, 1, "Press", 4, "10"])            # fila 3
+        ws.append([5, 1, "Fuera de ciclo", 4, "10"])   # fila 4, se descarta
+
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario
+        )
+        invalidas = importacion.resultado["hojas"][0]["filas_invalidas"]
+
+        self.assertEqual(len(invalidas), 1)
+        self.assertEqual(invalidas[0]["fila_excel"], 4)
+
+    def test_tambien_en_la_matriz_ancha(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Titulo del plan"])
+        ws.append([None, " EJERCICIOS", None, "SEMANA 1", None, "SEMANA 2", None])
+        ws.append([None, None, None, "Series", "Reps", "Series", "Reps"])
+        ws.append(["DÍA 1", "A1.", "Plancha lateral", 4, "20", 4, "25"])   # fila 4
+        ws.append([None, "A2.", "Press Pallof", 4, "20", 4, "25"])          # fila 5
+        ws.append([None, "A3.", "Remo invertido", 4, "20", 4, "x" * 40])    # fila 6
+
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario
+        )
+        invalidas = importacion.resultado["hojas"][0]["filas_invalidas"]
+
+        self.assertEqual(len(invalidas), 1)
+        self.assertEqual(invalidas[0]["fila_excel"], 6)

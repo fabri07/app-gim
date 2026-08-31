@@ -15,15 +15,35 @@ históricas** (`rutinas/0006`, `ejercicios/0003`), siempre por la ruta
 import unicodedata
 from dataclasses import dataclass, field
 
+# El vocabulario de entrenamiento no es uno solo: cada entrenador nombra las
+# cosas distinto y las planillas compradas suelen venir con términos en inglés
+# mezclados. "Microciclo" es semana y "sesión" es día -- no son sinónimos
+# sueltos, es la jerga de periodización.
+#
+# Ojo con los alias de UNA letra ("s" por series, "r" por reps): no van. La
+# segunda pasada de `detectar_columnas` matchea por prefijo en borde de
+# palabra, y con alias de una letra cualquier encabezado corto se robaría una
+# columna que no le corresponde.
+#
+# Las tildes NO hacen falta: `normalizar_texto` las saca antes de comparar, así
+# que "día" y "sesión" ya están cubiertos por "dia" y "sesion" (el alias "día"
+# que había acá era código muerto, mismo caso que el "músculo" que se sacó de
+# ALIAS_BIBLIOTECA en 2026-08-26).
 ALIAS_PLANTILLA = {
-    "semana": ["semana", "week", "sem"],
-    "dia": ["dia", "día", "day"],
-    "ejercicio": ["ejercicio", "ejercicios", "exercise", "movimiento"],
-    "series": ["series", "serie", "sets"],
-    "repeticiones": ["repeticiones", "reps", "repes", "rep"],
-    "kilos": ["kilos", "kilogramos", "carga", "peso", "kg"],
-    "descanso": ["descanso", "pausa", "rest"],
-    "notas": ["notas", "nota", "observaciones", "comentarios"],
+    "semana": ["semana", "sem", "week", "wk", "microciclo", "micro"],
+    "dia": ["dia", "day", "sesion", "session", "jornada"],
+    "ejercicio": [
+        "ejercicio", "ejercicios", "exercise", "movimiento", "movement", "nombre",
+    ],
+    "series": ["series", "serie", "sets", "set"],
+    "repeticiones": ["repeticiones", "reps", "repes", "rep", "repetitions"],
+    "kilos": [
+        "kilos", "kilogramos", "carga", "peso", "kg", "kgs", "load", "weight",
+    ],
+    "descanso": ["descanso", "pausa", "rest", "recuperacion"],
+    "notas": [
+        "notas", "nota", "observaciones", "obs", "comentarios", "notes", "comments",
+    ],
 }
 
 ALIAS_BIBLIOTECA = {
@@ -171,6 +191,11 @@ class ItemParseado:
     # dando True sin tocar un solo test.
     bloque: str = ""       # "A1" -- agrupa superseries
     dia_nombre: str = ""   # "Tren superior · Core"
+    # La fila REAL de Excel, la que el staff ve en la planilla. Sin esto, un
+    # item descartado más adelante (por largo, por semana fuera del ciclo)
+    # solo se puede reportar por su `orden`, que es la posición dentro del día
+    # y no le sirve a nadie para encontrar la celda.
+    fila_excel: int = 0
 
 
 @dataclass(frozen=True)

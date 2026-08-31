@@ -106,6 +106,7 @@ def leer_hoja_larga(ws):
             kilos=str(kilos).strip() if kilos else "",
             descanso=str(descanso).strip() if descanso else "",
             notas=str(notas).strip() if notas else "",
+            fila_excel=fila_idx,
         ))
 
     dias_por_semana = max((i.dia for i in items), default=0)
