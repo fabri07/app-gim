@@ -247,21 +247,45 @@ proyecto tenía CRUD completo de items para `RutinaPlantilla` y **nada** para
   suya. `agrupacion.py` expone `item_referencia` (el item de la semana más
   baja, que ya definía `orden` y `categoria_display`) para darle a la fila un
   pk estable.
-- **Un alumno tiene UNA rutina activa, y la invariante vive en
-  `crear_desde_plantilla`**, no repetida en cada vista llamadora (mismo
-  criterio que `alumnos/signals.py::sincronizar_acceso_con_estado`): asignar
-  un plan nuevo archiva el anterior (`activa=False` + `fecha_fin`), nunca lo
-  borra — la rutina vieja y sus items son el historial del alumno. Antes nadie
-  ponía `activa=False` jamás y quedaban dos activas; ver `ISSUES.md`
-  `[2026-08-31]`. La migración `rutinas/0011` limpia los duplicados que el bug
-  ya había dejado en la base.
-- **`Meta.ordering` de `RutinaAsignada` lleva `-id` además de
-  `-fecha_inicio`, y no es decorativo**: las cinco consultas que resuelven "la
-  rutina del alumno" hacen `filter(activa=True).first()`, así que ese ordering
-  es lo que decide qué ve el alumno. Sin el desempate, dos rutinas que empiezan
-  el mismo día quedaban empatadas y un `ORDER BY` con empate no garantiza
-  ningún orden en Postgres. El detalle sigue avisando en pantalla si aparecen
-  dos activas (por ejemplo creadas desde `/admin/`), como red de seguridad.
+- **Qué rutina ve el alumno lo decide `RutinaAsignada.vigente_de(alumno=...)`,
+  por FECHA — nunca el flag `activa`.** Regla de producto: un plan dura 4
+  semanas y el alumno lo ve completas aunque el profesor ya haya cargado el
+  siguiente. Eso lo resuelve **"la más reciente cuya `fecha_inicio` ya
+  llegó"**, sin comparar contra el fin del ciclo: mientras el viejo corre el
+  nuevo no arrancó; al llegar su fecha toma el relevo; sin siguiente se queda
+  el último; y un plan futuro no se adelanta. Los seis lugares que resolvían
+  "la rutina del alumno" llaman a este método, así que no pueden divergir.
+- **`vigente_de` no tiene fallback y `proxima_de` es una función aparte.** Es
+  deliberado: si una sola función devolviera el plan programado cuando no hay
+  vigente, todos los consumidores heredarían ese modo — incluidas las TRES
+  escrituras del alumno, que lo dejarían marcar como entrenado y calificar un
+  plan que no arrancó, ensuciando la adherencia y `tenants/analitica.py`.
+  `proxima_de` solo alimenta carteles informativos.
+- **`activa` significa "archivada a mano"**, no "la que ve el alumno". Su único
+  camino de UI es el botón `asignada_archivar`. `crear_desde_plantilla` NO
+  archiva la anterior (se probó lo contrario durante unas horas y le sacaba al
+  alumno el plan en curso, ver `ISSUES.md`) ni escribe `fecha_fin`: el fin del
+  ciclo se deriva con `fecha_fin_prevista` (**exclusiva**: `fecha_inicio + 28
+  días`, el primer día NO cubierto; `ultimo_dia` resta uno para mostrar).
+  Persistirlo sería un campo derivado que se desincroniza en cuanto se inserta
+  un plan entre dos existentes — mismo criterio que `semana_actual`.
+- **`Meta.ordering` lleva `-id` además de `-fecha_inicio`** para desempatar dos
+  planes que arrancan el mismo día (un `ORDER BY` con empate no garantiza orden
+  en Postgres). `vigente_de` igual **repite el orden explícito**: depender del
+  Meta es frágil, un `.distinct()` o un `prefetch_related` de un caller lo
+  anula sin ruido. Hay un `Meta.indexes` sobre `(alumno, -fecha_inicio, -id)`
+  porque la consulta corre en cada request del portal y de la ficha, y el
+  historial ahora crece sin archivarse.
+- **Migraciones de datos encadenadas, y la lección que dejan:** `rutinas/0011`
+  archivó duplicados con el criterio viejo *sin mirar si la fecha había
+  llegado*, y `rutinas/0013` deshace eso porque con el criterio nuevo habría
+  dejado alumnos sin ninguna rutina. Si tocás la vigencia otra vez, revisá qué
+  hicieron las dos antes de escribir la tercera.
+- **Un plan programado no notifica al cargarse**: el signal lo saltea y lo
+  levanta el cron `enviar_recordatorios` el día que arranca (dedup por
+  `RecordatorioEnviado.Tipo.RUTINA_INICIADA`), mismo patrón que las novedades
+  con publicación programada. Sin eso el aviso llegaba hasta 4 semanas antes y
+  el día del relevo no llegaba nada.
 
 ## Comentarios en templates: `{# #}` es de UNA sola línea
 

@@ -20,6 +20,77 @@ del log.
 
 ---
 
+## [2026-08-31] La rutina del alumno se elige por fecha, no por el flag `activa`
+
+**Estado:** resuelto
+
+**Impacto:** el alumno podía perder el plan que estaba haciendo. Dos causas que
+se sumaban:
+
+1. Un plan con `fecha_inicio` **futura se adelantaba**: `filter(activa=True)
+   .first()` lo devolvía igual, y el alumno lo veía hoy rotulado "Semana 1 de 4"
+   sin haber empezado.
+2. El fix de unas horas antes (ver entrada anterior) hacía que asignar un plan
+   nuevo **archivara el anterior en el acto**: el día que el profesor preparaba
+   el próximo ciclo, el alumno perdía el que estaba entrenando.
+
+**Regla de producto (la fijó el dueño):** un plan dura 4 semanas y el alumno lo
+ve **completas**, aunque el profesor ya haya cargado el siguiente. Cuando el
+ciclo termina pasa al nuevo; si termina y no hay siguiente, se queda con el
+último.
+
+**Resolución.** `RutinaAsignada.vigente_de(alumno=...)` = **la más reciente
+cuya `fecha_inicio` ya llegó**. No compara contra el fin de las 4 semanas
+porque no hace falta: "la última que ya arrancó" resuelve los cuatro casos
+sola. `activa` pasó a significar solo "archivada a mano" (botón nuevo
+`asignada_archivar`), y `crear_desde_plantilla` ya no archiva ni escribe
+`fecha_fin` — el fin del ciclo se deriva (`fecha_fin_prevista`, exclusiva:
+`fecha_inicio + 28 días`), mismo criterio que `semana_actual`.
+
+**`vigente_de` NO tiene fallback y puede devolver `None`; `proxima_de` es una
+función aparte.** Es deliberado: si una sola función devolviera el plan
+programado cuando no hay vigente, TODOS los consumidores heredarían ese modo,
+incluidas las tres escrituras del alumno — que lo dejarían marcar como
+entrenado y calificar un plan que no arrancó, ensuciando la adherencia con la
+que el profesor ajusta las cargas y contaminando `tenants/analitica.py`, que
+barre todo el histórico.
+
+**El punto más riesgoso fue la migración de datos, no el criterio.** La
+migración `0011`, ya desplegada, conservaba por alumno la más reciente por
+`(fecha_inicio, id)` **sin mirar si esa fecha había llegado**. Un alumno con
+P1 (en curso) y P2 (programada) quedó con P1 archivada: con el criterio nuevo
+habría quedado **sin ninguna rutina**. Lo repara `rutinas/0013`, que reactiva
+todo lo archivado — seguro porque los únicos escritores de `activa=False` en
+la historia del repo eran `crear_desde_plantilla` (revertido) y la propia
+`0011`, sin ningún camino de UI. Verificado reproduciendo el escenario y
+aplicando la migración de verdad, no solo por unit test.
+
+**Efectos secundarios que hubo que arreglar en el mismo cambio:**
+- El KPI del dashboard contaba `activa=True`. Sin archivado sumaría todo el
+  histórico (un alumno con 5 ciclos valdría 5) y solo podría subir. Pasó a
+  contar **alumnos activos con plan vigente** — el filtro por `estado` corrige
+  además que un alumno de baja contara para siempre.
+- El detalle mostraba "Semana actual: N de 4" y un badge "Activa": con planes
+  que conviven, decía "1 de 4" en uno que no empezó y "4 de 4" para siempre en
+  uno de hace un año. Ahora el estado se deriva de las fechas (Vigente /
+  Programada / Finalizada / Archivada).
+- El aviso de "N rutinas activas" habría sido un falso positivo cada vez que se
+  prepara el próximo plan. Se reemplazó por "esta no es la que ve el alumno",
+  que es la protección que de verdad hacía falta: editar una rutina que el
+  alumno no ve es un error **más** probable ahora, no menos.
+- El push de "nueva rutina" salía al crear la asignación, que antes coincidía
+  con el relevo. Ahora un plan programado no notifica al cargarse: lo levanta
+  el cron `enviar_recordatorios` el día que arranca, mismo patrón que las
+  novedades con publicación programada, con dedup por `RecordatorioEnviado`.
+- La ficha del alumno era el **único** acceso a una rutina asignada y solo
+  linkeaba la actual. Con planes que conviven eso dejaba el historial
+  inalcanzable: se agregó la lista, el aviso de "próximo plan" y el link para
+  asignar (que hasta ahora obligaba a entrar por el listado de plantillas).
+
+**Encontrado en la prueba manual, no por los tests:** un plan programado
+mostraba "0% de adherencia", que se lee como "el alumno no vino" cuando en
+realidad el ciclo todavía no existe.
+
 ## [2026-08-31] Un alumno podía quedar con dos rutinas activas, y veía la vieja
 
 **Estado:** resuelto
@@ -40,13 +111,14 @@ Dos efectos secundarios: una rutina con `fecha_inicio` futura le ganaba a la
 vigente (el alumno veía un plan que todavía no había empezado, mostrado como
 "Semana 1 de 4"), y la métrica "rutinas activas" del dashboard contaba doble.
 
-**Resolución:** tres piezas.
-1. `RutinaAsignada.crear_desde_plantilla` archiva las activas anteriores del
-   alumno (`activa=False` + `fecha_fin`) dentro de la transacción que ya tenía.
-   La invariante vive **en el modelo**, que es el único camino por el que la
-   app crea una asignación — no repetida en cada vista llamadora, mismo
-   criterio que `alumnos/signals.py::sincronizar_acceso_con_estado`. **No borra
-   nada**: la rutina vieja y sus items son el historial del alumno.
+**Resolución:** tres piezas. **La (1) se revirtió el mismo día** — ver la
+entrada de más abajo sobre la vigencia por fecha: archivar al asignar le sacaba
+al alumno el plan que estaba haciendo. Las (2) y (3) siguen vigentes.
+1. ~~`crear_desde_plantilla` archiva las activas anteriores.~~ **REVERTIDO.**
+   El dueño del producto corrigió la regla: un plan dura 4 semanas y el alumno
+   las ve completas aunque el profesor ya haya cargado el siguiente. Hoy los
+   planes conviven y la selección la hace `RutinaAsignada.vigente_de` por
+   fecha.
 2. `Meta.ordering = ["-fecha_inicio", "-id"]`, para que el empate sea
    determinista y gane la más reciente de verdad.
 3. Migración de datos `rutinas/0011`, porque el fix (1) solo vale de acá en

@@ -22,6 +22,8 @@ Repetir el FK `gimnasio` en el item sería redundante (mismo criterio que
 `Pedido` padre).
 """
 
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
@@ -191,23 +193,131 @@ class RutinaAsignada(TenantOwnedModel):
     nombre_snapshot = models.CharField(max_length=120)
     objetivo_snapshot = models.CharField(max_length=120)
     fecha_inicio = models.DateField()
-    fecha_fin = models.DateField(null=True, blank=True)
-    activa = models.BooleanField(default=True)
+    fecha_fin = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Cierre MANUAL, opcional. La vigencia NO depende de este "
+        "campo sino de `fecha_inicio` (ver `vigente_de`): el fin real de un "
+        "ciclo se deriva, no se persiste.",
+    )
+    activa = models.BooleanField(
+        default=True,
+        help_text="Archivada a mano. NO significa 'la que ve el alumno' -- eso "
+        "lo decide `vigente_de` por fecha.",
+    )
 
     class Meta:
         verbose_name = "rutina asignada"
         verbose_name_plural = "rutinas asignadas"
-        # El `-id` NO es decorativo: las cinco consultas del repo que resuelven
-        # "la rutina del alumno" hacen `filter(activa=True).first()`, así que
-        # este ordering es lo que decide qué ve el alumno. Con solo
-        # `-fecha_inicio`, dos rutinas que empiezan el MISMO día (el caso
-        # típico: el entrenador reasigna hoy) quedan empatadas, y un `ORDER BY`
-        # con empate no garantiza ningún orden en Postgres -- podía cambiar
-        # entre requests. Lo fija `UnaSolaRutinaActivaTests`.
+        # El `-id` desempata dos rutinas que arrancan el MISMO día (el caso de
+        # reasignar hoy): un `ORDER BY` con empate no garantiza ningún orden en
+        # Postgres y podía cambiar entre requests. `vigente_de` igual repite
+        # este orden de forma explícita, porque depender del Meta es frágil
+        # (un `.distinct()` o un `prefetch_related` de un caller lo anulan sin
+        # ruido).
         ordering = ["-fecha_inicio", "-id"]
+        indexes = [
+            # `vigente_de` corre en CADA request del portal del alumno y de la
+            # ficha, y desde que las rutinas ya no se archivan el historial de
+            # un alumno crece sin techo. Sin esto solo estaba el índice del FK.
+            models.Index(
+                fields=["alumno", "-fecha_inicio", "-id"],
+                name="rutina_vigente_idx",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.alumno} · {self.nombre_snapshot} desde {self.fecha_inicio}"
+
+    # ------------------------------------------------------------------
+    # Vigencia: qué rutina le toca al alumno hoy
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def vigente_de(cls, *, alumno):
+        """La rutina que el alumno tiene que estar viendo HOY, o `None`.
+
+        Regla de producto: un plan dura 4 semanas y el alumno lo ve completas,
+        aunque el profesor ya haya cargado el siguiente; cuando el ciclo
+        termina pasa al nuevo, y si no hay siguiente se queda con el último.
+
+        Todo eso lo resuelve **"la más reciente que YA arrancó"**, sin comparar
+        contra el fin del ciclo:
+
+        - mientras el plan viejo corre, el nuevo todavía no arrancó -> gana el
+          viejo;
+        - al llegar su fecha, el nuevo pasa a ser el más reciente arrancado;
+        - terminado el ciclo y sin siguiente, el último sigue siendo el más
+          reciente;
+        - un plan cargado a futuro no se adelanta.
+
+        **Nunca devuelve una rutina que no arrancó**, y por eso no tiene
+        fallback: `proxima_de` es una función aparte. Si esta devolviera el
+        plan programado cuando no hay ninguno vigente, TODOS los consumidores
+        heredarían ese modo -- incluidas las tres escrituras del alumno, que
+        lo dejarían marcar como entrenado y calificar un plan que no empezó,
+        ensuciando la adherencia con la que el profesor ajusta las cargas.
+
+        El scoping por gimnasio lo aporta el `alumno` ya resuelto por el
+        caller (mismo criterio explícito que `crear_desde_plantilla` con su
+        `gimnasio`). Keyword-only para que no se pueda confundir el argumento.
+        """
+        return (
+            alumno.rutinas_asignadas.filter(
+                activa=True, fecha_inicio__lte=timezone.localdate()
+            )
+            .order_by("-fecha_inicio", "-id")
+            .first()
+        )
+
+    @classmethod
+    def proxima_de(cls, *, alumno):
+        """El próximo plan programado (el que todavía no arrancó), o `None`.
+
+        SOLO para mostrar información: el estado vacío del portal ("tu plan
+        empieza el DD/MM") y el aviso de la ficha. Ninguna escritura debe
+        usarla -- ver el docstring de `vigente_de`.
+        """
+        return (
+            alumno.rutinas_asignadas.filter(
+                activa=True, fecha_inicio__gt=timezone.localdate()
+            )
+            .order_by("fecha_inicio", "id")
+            .first()
+        )
+
+    @property
+    def fecha_fin_prevista(self):
+        """Primer día NO cubierto por el ciclo (`fecha_inicio + 4 semanas`).
+
+        Es la fecha en la que corresponde arrancar el plan siguiente, así que
+        se define EXCLUSIVA a propósito. Para mostrarle al humano "hasta el
+        X" hay que restarle un día -- eso lo hace `ultimo_dia`.
+        """
+        return self.fecha_inicio + timedelta(weeks=SEMANAS_POR_CICLO)
+
+    @property
+    def ultimo_dia(self):
+        """El último día que el ciclo SÍ cubre, para mostrar en pantalla."""
+        return self.fecha_fin_prevista - timedelta(days=1)
+
+    @property
+    def es_futura(self) -> bool:
+        return self.fecha_inicio > timezone.localdate()
+
+    @property
+    def ya_termino(self) -> bool:
+        return timezone.localdate() >= self.fecha_fin_prevista
+
+    @property
+    def esta_vigente(self) -> bool:
+        """Hoy cae dentro de sus 4 semanas.
+
+        Ojo: no es lo mismo que "es la que ve el alumno". Un plan terminado
+        sigue siendo el que ve el alumno mientras no haya otro (ver
+        `vigente_de`); esta property es para rotular el estado en pantalla.
+        """
+        return not self.es_futura and not self.ya_termino
 
     @classmethod
     def crear_desde_plantilla(cls, *, gimnasio, alumno, plantilla, fecha_inicio):
@@ -229,22 +339,29 @@ class RutinaAsignada(TenantOwnedModel):
                 "La plantilla y el alumno deben pertenecer al gimnasio indicado."
             )
 
-        with transaction.atomic():
-            # Cerrar lo que el alumno tuviera activo ANTES de crear la nueva.
-            # Un alumno tiene UNA rutina activa: es lo que asume todo el resto
-            # del código (las cinco consultas que resuelven "su rutina" hacen
-            # `filter(activa=True).first()`, en singular). La invariante vive
-            # acá, en el único camino por el que la app crea una asignación, y
-            # no repetida en cada vista llamadora -- mismo criterio que
-            # `alumnos/signals.py::sincronizar_acceso_con_estado`.
-            #
-            # Se ARCHIVA, no se borra: la rutina vieja y sus items son el
-            # historial del alumno. `fecha_fin` queda en el día del cambio.
-            cls.objects.filter(alumno=alumno, activa=True).update(
-                activa=False,
-                fecha_fin=timezone.localdate(),
-                modificado=timezone.now(),
+        # Una rutina que arranca ANTES que la vigente nunca sería elegida por
+        # `vigente_de` (que toma la más reciente): quedaría como una fila
+        # invisible en la base. Es un error de datos, no una preferencia, así
+        # que se corta acá y no solo en el form -- `crear_desde_plantilla` es
+        # el único camino por el que la app crea una asignación, mismo criterio
+        # que el guard cross-tenant de arriba.
+        vigente = cls.vigente_de(alumno=alumno)
+        if vigente is not None and fecha_inicio < vigente.fecha_inicio:
+            raise ValidationError(
+                f"La fecha de inicio no puede ser anterior a la del plan que "
+                f"{alumno} está haciendo (desde el "
+                f"{vigente.fecha_inicio:%d/%m/%Y}): esta rutina nunca llegaría "
+                f"a verse."
             )
+
+        # NO se archiva la rutina anterior ni se le escribe `fecha_fin`. Los
+        # planes conviven y los ordena la fecha: el alumno tiene que poder
+        # terminar sus 4 semanas aunque el profesor ya haya cargado el
+        # siguiente (ver `vigente_de`). `fecha_fin` tampoco se persiste porque
+        # sería un campo derivado que se desincroniza en cuanto se inserta un
+        # plan entre dos existentes -- se deriva con `fecha_fin_prevista`,
+        # mismo criterio que `semana_actual`.
+        with transaction.atomic():
             asignada = cls.objects.create(
                 gimnasio=gimnasio,
                 alumno=alumno,

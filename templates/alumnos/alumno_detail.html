@@ -71,16 +71,91 @@
   </div>
 
   <div class="tarjeta">
-    <h2>Rutina actual</h2>
+    <div class="acciones-lista">
+      <h2>Rutina actual</h2>
+      {% if alumno.estado == 'activo' %}
+        {% comment %}
+          Se oculta para un alumno dado de baja: `AsignarRutinaForm` filtra el
+          queryset por estado ACTIVO, así que el `?alumno=` apuntaría a un pk
+          fuera del queryset y el select saldría vacío sin explicación.
+        {% endcomment %}
+        <a class="boton" href="{% url 'rutinas:asignar' %}?alumno={{ alumno.pk }}">Asignar rutina</a>
+      {% endif %}
+    </div>
+
     {% if rutina_actual %}
       <p><strong>{{ rutina_actual.nombre_snapshot }}</strong> &middot; {{ rutina_actual.objetivo_snapshot }}</p>
-      <p class="texto-suave">Desde {{ rutina_actual.fecha_inicio }}</p>
+      <p class="texto-suave">
+        Del {{ rutina_actual.fecha_inicio }} al {{ rutina_actual.ultimo_dia }}
+        {% if rutina_actual.ya_termino %}
+          &middot; <span class="badge">Ciclo terminado</span>
+        {% else %}
+          &middot; semana {{ rutina_actual.semana_actual }} de 4
+        {% endif %}
+      </p>
       <a class="boton-secundario" href="{% url 'rutinas:asignada_detalle' rutina_actual.pk %}">Ver rutina</a>
       <a class="boton-secundario" hx-boost="false" href="{% url 'rutinas:asignada_pdf' rutina_actual.pk %}">Descargar PDF</a>
+    {% elif rutina_proxima %}
+      <p class="texto-suave">
+        Todavía no empezó ningún plan. El próximo arranca el
+        {{ rutina_proxima.fecha_inicio }}.
+      </p>
     {% else %}
       <p class="texto-suave">Sin rutina asignada todavía.</p>
     {% endif %}
+
+    {% if rutina_proxima and rutina_actual %}
+      {# Que el profesor sepa que ya lo cargó y no lo duplique. #}
+      <p class="texto-suave">
+        <strong>Próximo plan:</strong> «{{ rutina_proxima.nombre_snapshot }}»,
+        empieza el {{ rutina_proxima.fecha_inicio }} &middot;
+        <a href="{% url 'rutinas:asignada_detalle' rutina_proxima.pk %}">ver</a>
+      </p>
+    {% endif %}
   </div>
+
+  {% if rutinas_del_alumno|length > 1 %}
+    <div class="tarjeta">
+      <h2>Historial de planes</h2>
+      {% comment %}
+        Hasta que los planes empezaron a convivir, la ficha era el único acceso
+        a una rutina asignada y solo linkeaba la actual: sin esta lista no
+        habría forma de llegar a los anteriores.
+      {% endcomment %}
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th scope="col">Plan</th>
+              <th scope="col">Ciclo</th>
+              <th scope="col">Estado</th>
+              <th scope="col"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for rutina in rutinas_del_alumno %}
+              <tr>
+                <td>{{ rutina.nombre_snapshot }}</td>
+                <td>{{ rutina.fecha_inicio }} al {{ rutina.ultimo_dia }}</td>
+                <td>
+                  {% if not rutina.activa %}
+                    <span class="badge badge--riesgo">Archivada</span>
+                  {% elif rutina.pk == rutina_actual.pk %}
+                    <span class="badge badge--ok">La que ve hoy</span>
+                  {% elif rutina.es_futura %}
+                    <span class="badge badge--alerta">Programada</span>
+                  {% else %}
+                    <span class="badge">Finalizada</span>
+                  {% endif %}
+                </td>
+                <td><a href="{% url 'rutinas:asignada_detalle' rutina.pk %}">Ver</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
 
   <div class="tarjeta">
     <h2>Pagos</h2>

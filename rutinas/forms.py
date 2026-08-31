@@ -15,12 +15,14 @@ un `ModelForm`.
 """
 
 from django import forms
+from django.utils import timezone
 
 from alumnos.models import Alumno
 from core.forms import TenantScopedModelForm
 from ejercicios.models import Ejercicio
 from rutinas import services
 from rutinas.models import (
+    RutinaAsignada,
     RutinaAsignadaItem,
     RutinaPlantilla,
     RutinaPlantillaItem,
@@ -69,6 +71,84 @@ class AsignarRutinaForm(forms.Form):
         self.fields["plantilla"].queryset = RutinaPlantilla.objects.for_gimnasio(
             gimnasio
         ).filter(activa=True)
+        self.fields["alumno"].widget = SelectConPlanVigente(
+            planes=self._planes_vigentes(gimnasio),
+            choices=self.fields["alumno"].choices,
+        )
+
+    @staticmethod
+    def _planes_vigentes(gimnasio):
+        """`{alumno_id: (nombre del plan, fecha en que termina)}` en UNA query.
+
+        Alimenta los `data-` de cada `<option>` para que el JS pueda sugerir
+        la fecha de inicio sin ir al servidor por cada cambio del select.
+        """
+        hoy = timezone.localdate()
+        vigentes = {}
+        # Ordenado de menos a más reciente: al recorrer, cada alumno termina
+        # quedándose con la ÚLTIMA que arrancó, que es el mismo criterio de
+        # `RutinaAsignada.vigente_de`. Un solo recorrido, sin query por alumno.
+        for rutina in (
+            RutinaAsignada.objects.for_gimnasio(gimnasio)
+            .filter(activa=True, fecha_inicio__lte=hoy)
+            .order_by("fecha_inicio", "id")
+        ):
+            vigentes[rutina.alumno_id] = rutina
+        return vigentes
+
+    def clean(self):
+        """Va en `clean()` y no en `clean_fecha_inicio()` porque necesita
+        `cleaned_data["alumno"]`, que es otro campo: en un `clean_<campo>` eso
+        depende del orden de declaración, que es frágil y no se documenta
+        solo."""
+        cleaned = super().clean()
+        alumno = cleaned.get("alumno")
+        fecha_inicio = cleaned.get("fecha_inicio")
+        if not alumno or not fecha_inicio:
+            return cleaned
+
+        vigente = RutinaAsignada.vigente_de(alumno=alumno)
+        if vigente is not None and fecha_inicio < vigente.fecha_inicio:
+            # Una rutina que arranca antes que la vigente nunca sería elegida
+            # (gana la más reciente): quedaría invisible en la base. El modelo
+            # lo revalida, esto es para dar el mensaje en el campo.
+            self.add_error(
+                "fecha_inicio",
+                f"{alumno} está haciendo «{vigente.nombre_snapshot}» desde el "
+                f"{vigente.fecha_inicio:%d/%m/%Y}. Una rutina que arranque "
+                f"antes de esa fecha nunca llegaría a verse.",
+            )
+        return cleaned
+
+
+class SelectConPlanVigente(forms.Select):
+    """`<select>` de alumnos donde cada `<option>` lleva la fecha sugerida.
+
+    Existe para no agregar un endpoint: el form ya resolvió los planes
+    vigentes en una query, así que el dato viaja en el HTML y un listener de
+    `change` completa el campo de fecha. El proyecto NO usa swaps parciales de
+    htmx en ningún lado (solo `hx-boost` global), así que introducir el primero
+    para prellenar un input no se paga.
+    """
+
+    def __init__(self, *, planes, **kwargs):
+        super().__init__(**kwargs)
+        self.planes = planes
+
+    def create_option(self, name, value, *args, **kwargs):
+        option = super().create_option(name, value, *args, **kwargs)
+        pk = getattr(value, "value", value)
+        vigente = self.planes.get(pk)
+        if vigente is not None:
+            option["attrs"]["data-fecha-sugerida"] = (
+                vigente.fecha_fin_prevista.isoformat()
+            )
+            option["attrs"]["data-aviso"] = (
+                f"Está haciendo «{vigente.nombre_snapshot}» hasta el "
+                f"{vigente.ultimo_dia:%d/%m/%Y}. Este plan arranca al día "
+                f"siguiente; si ponés una fecha anterior, le cortás el ciclo."
+            )
+        return option
 
 
 class RutinaAsignadaItemForm(TenantScopedModelForm):

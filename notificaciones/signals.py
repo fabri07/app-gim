@@ -41,6 +41,13 @@ def notificar_novedad_publicada(sender, instance, created, raw=False, **kwargs):
 def notificar_rutina_asignada(sender, instance, created, raw=False, **kwargs):
     if raw or not created:
         return
+    if instance.fecha_inicio > timezone.localdate():
+        # Plan programado a futuro: el alumno NO lo ve hasta que arranque
+        # (`RutinaAsignada.vigente_de`), así que avisarle ahora sería mandarlo
+        # a una rutina que todavía no puede abrir -- y el día que realmente
+        # empieza no llegaría nada. Lo recoge `enviar_recordatorios` ese día,
+        # mismo patrón que las novedades con publicación programada.
+        return
     transaction.on_commit(lambda: services.notificar_rutina_asignada(instance))
 
 

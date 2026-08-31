@@ -111,10 +111,16 @@ class AlumnoDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        from rutinas.models import RutinaAsignada
+
         context["pagos"] = self.object.pagos.all()
-        context["rutina_actual"] = self.object.rutinas_asignadas.filter(
-            activa=True
-        ).first()
+        context["rutina_actual"] = RutinaAsignada.vigente_de(alumno=self.object)
+        context["rutina_proxima"] = RutinaAsignada.proxima_de(alumno=self.object)
+        # El historial: hasta ahora la ficha era el ÚNICO acceso a una rutina
+        # asignada y solo linkeaba la actual. Desde que los planes conviven en
+        # vez de archivarse, sin esta lista no habría forma de llegar a los
+        # anteriores.
+        context["rutinas_del_alumno"] = self.object.rutinas_asignadas.all()[:10]
         return context
 
 

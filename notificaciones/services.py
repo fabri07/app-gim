@@ -114,6 +114,16 @@ def notificar_rutina_asignada(rutina_asignada) -> None:
     # try/except, mismo patrón que `turnos/services.py:517`.
     if rutina_asignada.alumno.perfil_id is None:
         return
+    # Dedup: desde que los planes programados a futuro se avisan el día que
+    # arrancan, este service lo llama también el cron (cada ~15 min), no solo
+    # el signal de creación. Sin esto el alumno recibiría el mismo push 96
+    # veces en el día del relevo.
+    if _ya_notificado(
+        rutina_asignada.gimnasio,
+        RecordatorioEnviado.Tipo.RUTINA_INICIADA,
+        rutina_asignada.pk,
+    ):
+        return
     usuario = rutina_asignada.alumno.perfil.usuario
     payload = {
         "title": "Nueva rutina asignada",

@@ -78,6 +78,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         """
         from novedades.models import Novedad
         from pagos.models import MedioCobro
+        from rutinas.models import RutinaAsignada
 
         try:
             alumno = perfil.alumno
@@ -98,7 +99,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
             }
 
         hoy = timezone.localdate()
-        rutina_actual = alumno.rutinas_asignadas.filter(activa=True).first()
+        rutina_actual = RutinaAsignada.vigente_de(alumno=alumno)
 
         dias_disponibles = []
         if rutina_actual is not None:
@@ -165,8 +166,19 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "pagos_del_mes": PagoMensual.objects.for_gimnasio(gimnasio).filter(
                 mes=hoy.month, anio=hoy.year
             ),
-            "rutinas_activas_count": RutinaAsignada.objects.for_gimnasio(gimnasio)
-            .filter(activa=True)
+            # Alumnos ACTIVOS con un plan vigente, no filas de rutina: desde
+            # que las rutinas ya no se archivan, contar `activa=True` sumaría
+            # todo el histórico (un alumno con 5 ciclos valdría 5) y el número
+            # solo podría subir. El filtro por `estado` evita además que un
+            # alumno dado de baja siga contando para siempre, y alinea el KPI
+            # con el de "alumnos activos" de acá arriba.
+            "alumnos_con_rutina_count": Alumno.objects.for_gimnasio(gimnasio)
+            .filter(
+                estado=Alumno.Estado.ACTIVO,
+                rutinas_asignadas__activa=True,
+                rutinas_asignadas__fecha_inicio__lte=hoy,
+            )
+            .distinct()
             .count(),
             # Solo broadcasts en el dashboard del staff: las personales son de
             # un alumno puntual, no del panel de gestión (Parte B).

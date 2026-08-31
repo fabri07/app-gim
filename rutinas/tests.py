@@ -1158,6 +1158,14 @@ class RutinasViewsTests(TestCase):
         self.assertContains(response, "<th>Semana</th>", html=True)
 
     def test_asignada_detail_muestra_semana_actual(self):
+        """La semana del ciclo se muestra SOLO si la rutina está vigente.
+
+        Antes se rotulaba "Semana actual: N de 4" siempre, y con planes que
+        conviven eso mentía en dos casos: "1 de 4" en uno que todavía no
+        arrancó (`semana_actual` devuelve 1 cuando la fecha es futura) y
+        "4 de 4" para siempre en uno de hace un año. Ahora aparece solo
+        cuando hoy cae dentro de sus 4 semanas, y el estado se rotula aparte.
+        """
         asignada = RutinaAsignada.crear_desde_plantilla(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
@@ -1168,7 +1176,21 @@ class RutinasViewsTests(TestCase):
         response = self.client.get(
             reverse("rutinas:asignada_detalle", args=[asignada.pk])
         )
-        self.assertContains(response, "Semana actual: 2 de 4")
+        self.assertContains(response, "Semana 2 de 4")
+        self.assertContains(response, "Vigente")
+
+    def test_asignada_detail_no_muestra_semana_en_una_rutina_terminada(self):
+        vieja = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio_a, alumno=self.alumno_a,
+            nombre_snapshot="De hace un año", objetivo_snapshot="Fuerza",
+            fecha_inicio=timezone.localdate() - timedelta(days=365),
+        )
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("rutinas:asignada_detalle", args=[vieja.pk])
+        )
+        self.assertNotContains(response, "Semana 4 de 4")
+        self.assertContains(response, "Finalizada")
 
     def test_asignada_pdf_devuelve_un_pdf_descargable(self):
         self.client.login(username="staff_a", password="clave12345")
@@ -3048,19 +3070,19 @@ class AsignadaDetailPanelTests(RutinasTestCase):
             self.assertNotEqual(posicion, -1, url)
             self.assertIn('hx-boost="false"', contenido[posicion - 120:posicion])
 
-    def test_avisa_cuando_hay_mas_de_una_rutina_activa(self):
-        """No arregla el bug (nadie setea `activa=False`), pero lo vuelve
-        visible: sin esto el entrenador puede editar una rutina que el alumno
-        no ve."""
+    def test_avisa_si_no_es_la_rutina_que_ve_el_alumno(self):
+        """Reemplaza al viejo aviso de "rutinas activas duplicadas". Esta
+        pantalla es la de EDICIÓN: con planes que conviven, editar una que el
+        alumno no está viendo es un error MÁS probable, no menos."""
         RutinaAsignada.objects.create(
             gimnasio=self.gimnasio, alumno=self.alumno,
-            nombre_snapshot="Otra", objetivo_snapshot="Fuerza",
+            nombre_snapshot="La nueva", objetivo_snapshot="Fuerza",
             fecha_inicio=timezone.localdate(),
         )
-        self.assertContains(self._get(), "rutinas marcadas como activas")
+        self.assertContains(self._get(), "no le llegan")
 
-    def test_no_avisa_con_una_sola_rutina_activa(self):
-        self.assertNotContains(self._get(), "rutinas marcadas como activas")
+    def test_no_avisa_si_es_la_que_ve_el_alumno(self):
+        self.assertNotContains(self._get(), "no le llegan")
 
     def test_el_portal_del_alumno_no_muestra_la_senal_de_carga(self):
         """La señal es una lectura de ENTRENADOR. Al alumno se le muestra la
@@ -3137,15 +3159,19 @@ class ComentariosDeTemplateTests(SimpleTestCase):
 
 
 class UnaSolaRutinaActivaTests(RutinasTestCase):
-    """Un alumno tiene UNA rutina activa, y la selección es determinista.
+    """Los planes CONVIVEN y los ordena la fecha.
 
-    Antes del 2026-08-31 `RutinaAsignada.activa` era `default=True` y nadie la
-    ponía nunca en `False`: asignar un plan nuevo dejaba dos activas. Las cinco
-    consultas del repo hacen `filter(activa=True).first()`, así que la que veía
-    el alumno la decidía el `Meta.ordering`, que era solo `["-fecha_inicio"]`
-    -- sin desempate. Con la MISMA fecha de inicio (el caso típico: el
-    entrenador reasigna hoy) ganaba la VIEJA, y en Postgres el orden de un
-    empate no está garantizado, así que podía cambiar entre requests.
+    Esta clase fijaba lo contrario: que asignar un plan nuevo archivara el
+    anterior, para que hubiera una sola rutina activa por alumno. Duró unas
+    horas. El dueño del producto corrigió la regla: **un plan dura 4 semanas y
+    el alumno lo ve completas aunque el profesor ya haya cargado el
+    siguiente**, así que archivar al asignar le sacaba el plan en curso el día
+    en que se preparaba el próximo.
+
+    Lo que sí sobrevive de aquel fix, y por eso los tests siguen acá: el
+    desempate del `Meta.ordering` (dos planes que arrancan el mismo día) y que
+    asignar no toca las rutinas de otros alumnos. La selección real la decide
+    ahora `RutinaAsignada.vigente_de` -- ver `VigenciaDeRutinaTests`.
     """
 
     def setUp(self):
@@ -3169,24 +3195,26 @@ class UnaSolaRutinaActivaTests(RutinasTestCase):
             fecha_inicio=fecha or timezone.localdate(),
         )
 
-    def test_asignar_una_rutina_nueva_cierra_la_anterior(self):
+    def test_asignar_una_rutina_nueva_no_archiva_la_anterior(self):
+        """Invertido a propósito respecto de la versión anterior de este test:
+        el alumno tiene que poder terminar sus 4 semanas."""
         vieja = self._asignar()
         nueva = self._asignar()
         vieja.refresh_from_db()
-        self.assertFalse(vieja.activa)
+        self.assertTrue(vieja.activa)
         self.assertTrue(nueva.activa)
-        self.assertEqual(self.alumno.rutinas_asignadas.filter(activa=True).count(), 1)
 
-    def test_la_rutina_cerrada_queda_con_fecha_de_fin(self):
+    def test_asignar_no_escribe_fecha_fin(self):
+        """`fecha_fin` sería un campo derivado y persistido que se
+        desincroniza en cuanto se inserta un plan entre dos existentes. El fin
+        del ciclo se deriva con `fecha_fin_prevista`, mismo criterio que
+        `semana_actual`."""
         vieja = self._asignar()
-        self.assertIsNone(vieja.fecha_fin)
         self._asignar()
         vieja.refresh_from_db()
-        self.assertIsNotNone(vieja.fecha_fin)
+        self.assertIsNone(vieja.fecha_fin)
 
-    def test_cerrar_no_borra_el_historial(self):
-        """La rutina vieja se archiva, no se elimina: es el historial del
-        alumno y sus items siguen ahí."""
+    def test_asignar_no_borra_el_historial(self):
         vieja = self._asignar()
         self._asignar()
         vieja.refresh_from_db()
@@ -3204,6 +3232,7 @@ class UnaSolaRutinaActivaTests(RutinasTestCase):
         self._asignar()
         suya.refresh_from_db()
         self.assertTrue(suya.activa)
+        self.assertEqual(RutinaAsignada.vigente_de(alumno=otro), suya)
 
     def test_con_la_misma_fecha_de_inicio_gana_la_mas_reciente(self):
         """El desempate por `-id` del `Meta.ordering`. Sin él ganaba la vieja,
@@ -3341,3 +3370,312 @@ class MigracionCerrarDuplicadasTests(RutinasTestCase):
         self.assertEqual(
             self.alumno.rutinas_asignadas.filter(activa=True).count(), 1
         )
+
+
+class VigenciaDeRutinaTests(RutinasTestCase):
+    """`RutinaAsignada.vigente_de`: qué plan ve el alumno hoy.
+
+    Regla de producto: un plan dura 4 semanas y el alumno lo ve completas
+    aunque el profesor ya haya cargado el siguiente; cuando el ciclo termina
+    pasa al nuevo, y sin siguiente se queda con el último. Todo eso lo resuelve
+    "la más reciente que YA arrancó", sin comparar contra el fin del ciclo.
+    """
+
+    def _rutina(self, nombre, dias_desde_hoy, activa=True):
+        return RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno, nombre_snapshot=nombre,
+            objetivo_snapshot="Fuerza", activa=activa,
+            fecha_inicio=timezone.localdate() + timedelta(days=dias_desde_hoy),
+        )
+
+    def test_sin_rutinas_devuelve_none(self):
+        self.assertIsNone(RutinaAsignada.vigente_de(alumno=self.alumno))
+
+    def test_el_alumno_sigue_viendo_el_viejo_aunque_exista_el_nuevo(self):
+        """El caso que motiva todo el cambio."""
+        viejo = self._rutina("viejo", -8)
+        self._rutina("nuevo", +20)
+        self.assertEqual(RutinaAsignada.vigente_de(alumno=self.alumno), viejo)
+
+    def test_el_relevo_ocurre_cuando_llega_la_fecha(self):
+        self._rutina("viejo", -30)
+        nuevo = self._rutina("nuevo", -2)
+        self.assertEqual(RutinaAsignada.vigente_de(alumno=self.alumno), nuevo)
+
+    def test_un_plan_futuro_no_se_adelanta(self):
+        """El bug que se está arreglando: antes `filter(activa=True).first()`
+        devolvía la de fecha futura y el alumno la veía como 'Semana 1 de 4'."""
+        self._rutina("futuro", +5)
+        self.assertIsNone(RutinaAsignada.vigente_de(alumno=self.alumno))
+
+    def test_sin_siguiente_se_queda_el_ultimo_aunque_haya_terminado(self):
+        viejo = self._rutina("terminado hace meses", -200)
+        self.assertTrue(viejo.ya_termino)
+        self.assertEqual(RutinaAsignada.vigente_de(alumno=self.alumno), viejo)
+
+    def test_dos_planes_el_mismo_dia_gana_el_mas_nuevo(self):
+        self._rutina("primero", 0)
+        segundo = self._rutina("segundo", 0)
+        self.assertEqual(RutinaAsignada.vigente_de(alumno=self.alumno), segundo)
+
+    def test_una_rutina_archivada_no_se_elige(self):
+        vigente = self._rutina("vigente", -10)
+        self._rutina("archivada más nueva", -1, activa=False)
+        self.assertEqual(RutinaAsignada.vigente_de(alumno=self.alumno), vigente)
+
+    def test_no_ve_las_rutinas_de_otro_alumno(self):
+        otro = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Beto", apellido="Gómez"
+        )
+        self._rutina("mía", -5)
+        self.assertIsNone(RutinaAsignada.vigente_de(alumno=otro))
+
+    def test_no_depende_del_meta_ordering(self):
+        """`vigente_de` reordena explícito: un `.distinct()` o un
+        `prefetch_related` de un caller futuro anularían el `Meta.ordering`
+        sin ruido."""
+        self._rutina("vieja", -20)
+        nueva = self._rutina("nueva", -1)
+        self.assertIn(
+            "ORDER BY",
+            str(
+                self.alumno.rutinas_asignadas.filter(activa=True)
+                .order_by("-fecha_inicio", "-id")
+                .query
+            ),
+        )
+        self.assertEqual(RutinaAsignada.vigente_de(alumno=self.alumno), nueva)
+
+    # ---- proxima_de ----
+
+    def test_proxima_es_la_que_arranca_antes(self):
+        self._rutina("vigente", -3)
+        proxima = self._rutina("en 10 días", +10)
+        self._rutina("en 40 días", +40)
+        self.assertEqual(RutinaAsignada.proxima_de(alumno=self.alumno), proxima)
+
+    def test_proxima_es_none_si_no_hay_nada_programado(self):
+        self._rutina("vigente", -3)
+        self.assertIsNone(RutinaAsignada.proxima_de(alumno=self.alumno))
+
+    def test_vigente_y_proxima_nunca_devuelven_la_misma(self):
+        """Son conjuntos disjuntos por construcción: si se solaparan, las
+        escrituras del alumno podrían caer sobre un plan que no arrancó."""
+        self._rutina("vigente", -3)
+        self._rutina("programada", +10)
+        self.assertNotEqual(
+            RutinaAsignada.vigente_de(alumno=self.alumno),
+            RutinaAsignada.proxima_de(alumno=self.alumno),
+        )
+
+    # ---- fechas derivadas ----
+
+    def test_el_ciclo_dura_cuatro_semanas_y_fecha_fin_prevista_es_exclusiva(self):
+        r = self._rutina("x", 0)
+        self.assertEqual(r.fecha_fin_prevista, r.fecha_inicio + timedelta(days=28))
+        self.assertEqual(r.ultimo_dia, r.fecha_inicio + timedelta(days=27))
+
+    def test_el_dia_28_ya_no_esta_cubierto(self):
+        """El borde exacto: el día 27 es el último del ciclo (semana 4) y el
+        28 es el primero del siguiente. Sin fijarlo, el plan que sigue arranca
+        un día tarde o pisa un día."""
+        r = self._rutina("empezó hace 27 días", -27)
+        self.assertTrue(r.esta_vigente)
+        self.assertEqual(r.semana_actual, 4)
+        r2 = self._rutina("empezó hace 28 días", -28)
+        self.assertTrue(r2.ya_termino)
+
+    def test_estados_derivados(self):
+        self.assertTrue(self._rutina("futura", +5).es_futura)
+        self.assertTrue(self._rutina("vigente", -5).esta_vigente)
+        self.assertTrue(self._rutina("vieja", -100).ya_termino)
+
+
+class VigenciaEnLasVistasTests(RutinasTestCase):
+    """Las seis pantallas coinciden en qué rutina muestran, y las escrituras
+    del alumno no tocan un plan que no arrancó."""
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        usuario = User.objects.create_user("alu", password="clave-123456")
+        perfil = Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno.perfil = perfil
+        self.alumno.save()
+
+        self.vigente = self._con_items("EN CURSO", -8)
+        self.futura = self._con_items("PROGRAMADA", +20)
+
+    def _con_items(self, nombre, dias):
+        rutina = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno, nombre_snapshot=nombre,
+            objetivo_snapshot="Fuerza",
+            fecha_inicio=timezone.localdate() + timedelta(days=dias),
+        )
+        RutinaAsignadaItem.objects.bulk_create([
+            RutinaAsignadaItem(
+                rutina_asignada=rutina, ejercicio_nombre_snapshot="Press",
+                semana=semana, dia=1, orden=1, series=3, repeticiones="10",
+            )
+            for semana in range(1, 5)
+        ])
+        return rutina
+
+    def test_el_portal_del_alumno_muestra_la_vigente(self):
+        self.client.login(username="alu", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "EN CURSO")
+        self.assertNotContains(response, "PROGRAMADA")
+
+    def test_la_ficha_del_staff_muestra_la_vigente_y_anuncia_la_proxima(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(reverse("alumnos:detalle", args=[self.alumno.pk]))
+        self.assertEqual(response.context["rutina_actual"], self.vigente)
+        self.assertEqual(response.context["rutina_proxima"], self.futura)
+        self.assertContains(response, "Próximo plan")
+
+    def test_mi_dia_usa_la_vigente(self):
+        self.client.login(username="alu", password="clave-123456")
+        response = self.client.get(reverse("rutinas:mi_dia_detalle", args=[1]))
+        self.assertEqual(response.context["rutina_actual"], self.vigente)
+
+    def test_el_alumno_no_puede_marcar_entrenado_un_plan_que_no_arranco(self):
+        """El motivo por el que `vigente_de` no tiene fallback: si devolviera
+        el plan programado, esta escritura caería sobre él y ensuciaría la
+        adherencia con la que el profesor ajusta las cargas."""
+        self.vigente.delete()  # queda solo la futura
+        self.client.login(username="alu", password="clave-123456")
+        response = self.client.post(
+            reverse("rutinas:dia_completado_toggle", args=[1, 1])
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(RutinaAsignadaDiaCompletado.objects.count(), 0)
+
+    def test_el_alumno_no_puede_calificar_un_item_de_un_plan_futuro(self):
+        item = self.futura.items.first()
+        self.client.login(username="alu", password="clave-123456")
+        response = self.client.post(
+            reverse("rutinas:item_calificar", args=[item.pk]),
+            {"rpe": RutinaAsignadaItem.RPE.AL_LIMITE},
+        )
+        self.assertEqual(response.status_code, 404)
+        item.refresh_from_db()
+        self.assertEqual(item.rpe, "")
+
+    def test_el_alumno_si_puede_calificar_un_item_de_la_vigente(self):
+        item = self.vigente.items.first()
+        self.client.login(username="alu", password="clave-123456")
+        self.client.post(
+            reverse("rutinas:item_calificar", args=[item.pk]),
+            {"rpe": RutinaAsignadaItem.RPE.AL_LIMITE},
+        )
+        item.refresh_from_db()
+        self.assertEqual(item.rpe, RutinaAsignadaItem.RPE.AL_LIMITE)
+
+    def test_el_detalle_avisa_que_el_plan_programado_no_lo_ve_el_alumno(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(
+            reverse("rutinas:asignada_detalle", args=[self.futura.pk])
+        )
+        self.assertContains(response, "todavía no empezó")
+        self.assertContains(response, "Programada")
+
+    def test_archivar_saca_la_rutina_de_la_vigencia(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.post(
+            reverse("rutinas:asignada_archivar", args=[self.vigente.pk])
+        )
+        self.assertRedirects(
+            response, reverse("alumnos:detalle", args=[self.alumno.pk])
+        )
+        self.vigente.refresh_from_db()
+        self.assertFalse(self.vigente.activa)
+        self.assertIsNone(RutinaAsignada.vigente_de(alumno=self.alumno))
+
+    def test_archivar_es_post_only_y_staff_only(self):
+        url = reverse("rutinas:asignada_archivar", args=[self.vigente.pk])
+        self.client.login(username="staff-a", password="clave-123456")
+        self.assertEqual(self.client.get(url).status_code, 405)
+        self.client.login(username="alu", password="clave-123456")
+        self.assertEqual(self.client.post(url).status_code, 403)
+
+
+class AsignarConPlanVigenteTests(RutinasTestCase):
+    """La fecha de inicio sugerida y el guard contra la rutina invisible."""
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Plan", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=1,
+        )
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.press_banca, semana=1, dia=1,
+            orden=1, series=3, repeticiones="10",
+        )
+        self.vigente = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
+            fecha_inicio=timezone.localdate() - timedelta(days=8),
+        )
+
+    def test_el_modelo_rechaza_una_rutina_que_nunca_se_veria(self):
+        """Arrancar antes que la vigente la volvería invisible: `vigente_de`
+        toma la más reciente."""
+        with self.assertRaises(ValidationError):
+            RutinaAsignada.crear_desde_plantilla(
+                gimnasio=self.gimnasio, alumno=self.alumno,
+                plantilla=self.plantilla,
+                fecha_inicio=self.vigente.fecha_inicio - timedelta(days=1),
+            )
+
+    def test_el_form_lo_traduce_a_un_error_de_campo(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.post(reverse("rutinas:asignar"), {
+            "alumno": self.alumno.pk, "plantilla": self.plantilla.pk,
+            "fecha_inicio": (
+                self.vigente.fecha_inicio - timedelta(days=1)
+            ).isoformat(),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("fecha_inicio", response.context["form"].errors)
+
+    def test_el_option_del_alumno_trae_la_fecha_sugerida(self):
+        """Sin endpoint: el dato viaja en el HTML y lo usa un listener."""
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(reverse("rutinas:asignar"))
+        self.assertContains(
+            response,
+            f'data-fecha-sugerida="{self.vigente.fecha_fin_prevista.isoformat()}"',
+        )
+
+    def test_el_prefill_por_query_param_preselecciona_al_alumno(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(
+            reverse("rutinas:asignar") + f"?alumno={self.alumno.pk}"
+        )
+        self.assertEqual(
+            response.context["form"].initial["alumno"], str(self.alumno.pk)
+        )
+
+    def test_las_opciones_no_hacen_una_query_por_alumno(self):
+        for n in range(6):
+            otro = Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=f"A{n}", apellido="X"
+            )
+            RutinaAsignada.crear_desde_plantilla(
+                gimnasio=self.gimnasio, alumno=otro, plantilla=self.plantilla,
+                fecha_inicio=timezone.localdate() - timedelta(days=3),
+            )
+        self.client.login(username="staff-a", password="clave-123456")
+        with CaptureQueriesContext(connection) as muchos:
+            self.client.get(reverse("rutinas:asignar"))
+        self.assertLess(len(muchos), 25)

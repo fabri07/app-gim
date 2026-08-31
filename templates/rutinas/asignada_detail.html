@@ -8,29 +8,57 @@
     <h1>{{ asignada.nombre_snapshot }}</h1>
     <div class="flex gap-2">
       <a class="boton-secundario" hx-boost="false" href="{% url 'rutinas:asignada_pdf' asignada.pk %}">Descargar PDF</a>
-      <a class="boton-secundario" href="{% url 'rutinas:plantilla_listado' %}">Volver a plantillas</a>
+      <a class="boton-secundario" href="{% url 'alumnos:detalle' asignada.alumno.pk %}">Ver alumno</a>
+      <form method="post" action="{% url 'rutinas:asignada_archivar' asignada.pk %}">
+        {% csrf_token %}
+        {% if asignada.activa %}
+          <button type="submit" class="boton-peligro">Archivar</button>
+        {% else %}
+          <button type="submit" class="boton-secundario">Desarchivar</button>
+        {% endif %}
+      </form>
     </div>
   </div>
 
   <div class="tarjeta">
     <p>Alumno: {{ asignada.alumno }}</p>
     <p>Objetivo: {{ asignada.objetivo_snapshot }}</p>
-    <p>Fecha de inicio: {{ asignada.fecha_inicio }}</p>
-    <p>Fecha de fin: {{ asignada.fecha_fin|default:"—" }}</p>
-    <p>Semana actual: {{ asignada.semana_actual }} de 4</p>
+    <p>Ciclo: {{ asignada.fecha_inicio }} al {{ asignada.ultimo_dia }}</p>
+    {% if asignada.esta_vigente %}
+      <p>Semana {{ asignada.semana_actual }} de 4</p>
+    {% endif %}
     <p>
       Estado:
-      {% if asignada.activa %}
-        <span class="badge badge--ok">Activa</span>
+      {% comment %}
+        El estado sale de las FECHAS, no del flag `activa`: con planes que
+        conviven, "Activa" aparecería en todas las rutinas históricas del
+        alumno, y "Semana 4 de 4" quedaría clavado para siempre en una de
+        hace un año.
+      {% endcomment %}
+      {% if not asignada.activa %}
+        <span class="badge badge--riesgo">Archivada</span>
+      {% elif asignada.es_futura %}
+        <span class="badge badge--alerta">Programada</span>
+      {% elif asignada.ya_termino %}
+        <span class="badge">Finalizada</span>
       {% else %}
-        <span class="badge badge--riesgo">Inactiva</span>
+        <span class="badge badge--ok">Vigente</span>
       {% endif %}
     </p>
-    {% if activas_del_alumno > 1 %}
+    {% if not es_la_que_ve_el_alumno %}
+      {% comment %}
+        Reemplaza al aviso de "rutinas activas duplicadas". Esta pantalla es la
+        de EDICIÓN: editar una rutina que el alumno no está viendo es un error
+        más probable ahora que los planes conviven, no menos.
+      {% endcomment %}
       <p class="texto-error">
-        Este alumno tiene {{ activas_del_alumno }} rutinas marcadas como activas.
-        El portal y el PDF le muestran la más reciente por fecha de inicio, que
-        puede no ser esta.
+        {% if asignada.es_futura %}
+          Este plan todavía no empezó: arranca el {{ asignada.fecha_inicio }}.
+          Los cambios que hagas acá el alumno no los ve hasta esa fecha.
+        {% else %}
+          Este no es el plan que {{ asignada.alumno }} está viendo hoy. Los
+          cambios que hagas acá no le llegan.
+        {% endif %}
       </p>
     {% endif %}
   </div>
@@ -38,7 +66,18 @@
   {# ---- El diferenciador: lo que el alumno viene reportando ---- #}
   <div class="tarjeta">
     <h2>Cómo viene {{ asignada.alumno }}</h2>
-    {% if adherencia.previstas %}
+    {% if asignada.es_futura %}
+      {% comment %}
+        Sin esto, un plan programado muestra "0% de adherencia": parece que el
+        alumno no vino, cuando en realidad el ciclo todavía no existe. La
+        adherencia se calcula igual (`semana_actual` devuelve 1 con fecha
+        futura), pero no significa nada hasta que arranque.
+      {% endcomment %}
+      <p class="texto-suave">
+        Este plan arranca el {{ asignada.fecha_inicio }}. Vas a poder ver acá
+        cómo le va cuando empiece.
+      </p>
+    {% elif adherencia.previstas %}
       <div class="dashboard-grid">
         <div class="metrica">
           <span class="metrica__valor">{{ adherencia.entrenadas_hasta_hoy }}/{{ adherencia.previstas_hasta_hoy }}</span>

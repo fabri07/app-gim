@@ -7,8 +7,47 @@
   <form method="post" novalidate>
     {% csrf_token %}
     {{ form.as_p }}
+    <p id="aviso-plan-vigente" class="texto-suave" hidden></p>
     <button type="submit" class="boton">Asignar</button>
     <a class="boton-secundario" href="{% url 'rutinas:plantilla_listado' %}">Cancelar</a>
   </form>
 </div>
+
+<script>
+  (function sugerirFechaDeInicio() {
+    // Sin endpoint ni htmx: el form ya resolvió los planes vigentes en una
+    // query y los dejó como `data-` en cada <option> (ver
+    // SelectConPlanVigente). El proyecto no usa swaps parciales de htmx en
+    // ningún lado -- solo `hx-boost` global --, así que introducir el primero
+    // para prellenar un input no se paga. Mismo estilo de JS inline que
+    // gimnasio_form.html, y sin DOMContentLoaded por el mismo motivo: en una
+    // navegación boosteada ese evento no vuelve a dispararse.
+    var alumno = document.getElementById("id_alumno");
+    var fecha = document.getElementById("id_fecha_inicio");
+    var aviso = document.getElementById("aviso-plan-vigente");
+    if (!alumno || !fecha || !aviso) return;
+
+    function actualizar(pisarFecha) {
+      var opcion = alumno.options[alumno.selectedIndex];
+      var sugerida = opcion && opcion.dataset.fechaSugerida;
+      var texto = opcion && opcion.dataset.aviso;
+
+      if (texto) {
+        aviso.textContent = texto;
+        aviso.hidden = false;
+      } else {
+        aviso.hidden = true;
+      }
+      // Al cargar no se pisa una fecha que el staff ya haya escrito (o que
+      // venga de un POST inválido); al cambiar de alumno sí, porque la
+      // anterior correspondía a otra persona.
+      if (sugerida && (pisarFecha || !fecha.value)) {
+        fecha.value = sugerida;
+      }
+    }
+
+    alumno.addEventListener("change", function () { actualizar(true); });
+    actualizar(false);
+  })();
+</script>
 {% endblock %}

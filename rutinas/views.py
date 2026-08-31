@@ -213,6 +213,12 @@ class AsignarRutinaView(StaffRequiredMixin, TenantScopedMixin, FormView):
         plantilla_pk = self.request.GET.get("plantilla")
         if plantilla_pk:
             initial["plantilla"] = plantilla_pk
+        # `?alumno=` llega desde la ficha del alumno, que es el camino natural
+        # ("estoy viendo a Ana, le asigno un plan"). Igual que `plantilla`, es
+        # pura comodidad: el form revalida contra su queryset scopeado.
+        alumno_pk = self.request.GET.get("alumno")
+        if alumno_pk:
+            initial["alumno"] = alumno_pk
         return initial
 
     def form_valid(self, form):
@@ -299,14 +305,14 @@ class RutinaAsignadaDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView
             )
         context["dias"] = dias
 
-        # Aviso de rutinas activas duplicadas. No arregla el bug (nadie setea
-        # `activa=False` al asignar una rutina nueva, ver ISSUES.md), pero lo
-        # vuelve visible justo donde importa: sin esto el entrenador puede
-        # estar editando una rutina que el alumno no ve, porque el portal
-        # muestra la más reciente por `Meta.ordering`.
-        context["activas_del_alumno"] = self.object.alumno.rutinas_asignadas.filter(
-            activa=True
-        ).count()
+        # Que el profesor sepa si lo que está editando es lo que el alumno ve.
+        # Con planes que conviven, editar una rutina terminada (o una que
+        # todavía no arrancó) no tiene ningún efecto para el alumno, y es un
+        # error MÁS probable que antes, no menos. El estado sale de las fechas
+        # (`esta_vigente`/`es_futura`/`ya_termino`), no del flag `activa`.
+        context["es_la_que_ve_el_alumno"] = (
+            RutinaAsignada.vigente_de(alumno=self.object.alumno) == self.object
+        )
         return context
 
 
@@ -466,6 +472,39 @@ class RutinaAsignadaItemCreateView(ItemAsignadaMixin, CreateView):
         return redirect(self.get_success_url())
 
 
+class RutinaAsignadaArchivarView(
+    StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View
+):
+    """Saca una rutina del panel sin borrarla.
+
+    Desde que asignar un plan nuevo ya NO archiva el anterior (los planes
+    conviven para que el alumno termine sus 4 semanas), un plan cargado por
+    error queda vivo en el historial para siempre. Este es el único camino de
+    UI que escribe `activa`, que pasó a significar exactamente eso: archivada
+    a mano.
+
+    POST-only y sin página de confirmación, mismo criterio que
+    `RutinaPlantillaItemDeleteView` y `NovedadOcultarView`: apagar un booleano
+    no necesita abrir un form.
+    """
+
+    model = RutinaAsignada
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        asignada = self.get_object()
+        asignada.activa = not asignada.activa
+        asignada.save(update_fields=["activa", "modificado"])
+        if asignada.activa:
+            messages.success(request, "La rutina volvió al panel del alumno.")
+        else:
+            messages.success(
+                request,
+                "Rutina archivada. No se borró: sigue en el historial del alumno.",
+            )
+        return redirect("alumnos:detalle", pk=asignada.alumno_id)
+
+
 class RutinaAsignadaItemDeleteView(ItemAsignadaMixin, View):
     """POST-only: no hay página de confirmación por GET, el botón ya es la
     confirmación y dice explícitamente que borra las 4 semanas (mismo criterio
@@ -523,13 +562,15 @@ class RutinaAsignadaItemCalificarView(AlumnoRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         if self.alumno is None:
             raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
-        item = get_object_or_404(
-            RutinaAsignadaItem.objects.filter(
-                rutina_asignada__alumno=self.alumno,
-                rutina_asignada__activa=True,
-            ),
-            pk=kwargs["pk"],
-        )
+        # Se resuelve PRIMERO la rutina vigente y después el item dentro de
+        # ella, en vez de filtrar los items por un flag: así el criterio de
+        # vigencia vive en un solo lugar (`vigente_de`) y no se reimplementa
+        # acá. Efecto buscado: el alumno solo califica ejercicios del plan que
+        # está haciendo -- ni de uno viejo ni de uno que todavía no arrancó.
+        rutina_actual = RutinaAsignada.vigente_de(alumno=self.alumno)
+        if rutina_actual is None:
+            raise Http404
+        item = get_object_or_404(rutina_actual.items, pk=kwargs["pk"])
         valor = request.POST.get("rpe", "")
         if valor not in RutinaAsignadaItem.RPE.values:
             messages.error(request, "Esa opción de RPE no es válida.")
@@ -559,7 +600,7 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
         if self.alumno is None:
             raise Http404
         dia = kwargs["dia"]
-        rutina_actual = self.alumno.rutinas_asignadas.filter(activa=True).first()
+        rutina_actual = RutinaAsignada.vigente_de(alumno=self.alumno)
         if rutina_actual is None:
             raise Http404
         if dia not in set(rutina_actual.items.values_list("dia", flat=True)):
@@ -627,7 +668,10 @@ class RutinaAsignadaDiaCompletadoToggleView(AlumnoRequiredMixin, View):
             raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
         dia = kwargs["dia"]
         semana = kwargs["semana"]
-        rutina_actual = self.alumno.rutinas_asignadas.filter(activa=True).first()
+        # `vigente_de` y no "la activa": un plan programado a futuro NO se
+        # puede marcar como entrenado, o ensuciaría la adherencia con la que
+        # el profesor ajusta las cargas.
+        rutina_actual = RutinaAsignada.vigente_de(alumno=self.alumno)
         if rutina_actual is None or not rutina_actual.items.filter(
             dia=dia, semana=semana
         ).exists():

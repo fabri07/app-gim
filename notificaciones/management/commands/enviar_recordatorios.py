@@ -23,6 +23,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         from novedades.models import Novedad
+        from rutinas.models import RutinaAsignada
         from pagos.models import PagoMensual
         from turnos.models import Reserva
         from turnos.services import _ahora_local
@@ -35,6 +36,15 @@ class Command(BaseCommand):
         for novedad in Novedad.objects.filter(activa=True, fecha_publicacion=hoy):
             services.notificar_novedad(novedad)
             novedades_notificadas += 1
+
+        # Planes que arrancan HOY: el signal de creación los salteó porque en
+        # ese momento eran futuros (el alumno no los veía todavía).
+        rutinas_iniciadas = 0
+        for rutina in RutinaAsignada.objects.filter(
+            activa=True, fecha_inicio=hoy
+        ).select_related("gimnasio", "alumno"):
+            services.notificar_rutina_asignada(rutina)
+            rutinas_iniciadas += 1
 
         pagos_por_vencer = 0
         for pago in PagoMensual.objects.filter(
@@ -78,6 +88,7 @@ class Command(BaseCommand):
                 f"{novedades_notificadas} novedades, "
                 f"{pagos_por_vencer} pagos por vencer, "
                 f"{pagos_vencidos} pagos vencidos, "
-                f"{turnos_proximos} turnos próximos."
+                f"{turnos_proximos} turnos próximos, "
+                f"{rutinas_iniciadas} rutinas iniciadas."
             )
         )
