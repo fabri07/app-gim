@@ -29,6 +29,7 @@ from importaciones.parsing import (
     ItemParseado,
     buscar_fila_encabezado,
     detectar_columnas,
+    detectar_matriz_ancha,
     mejor_encabezado_parcial,
     leer_hoja_biblioteca,
     leer_hoja_plantilla,
@@ -2811,3 +2812,232 @@ class BuscarFilaEncabezadoTests(SimpleTestCase):
         parcial = mejor_encabezado_parcial(ws, ALIAS_BIBLIOTECA)
         self.assertEqual(parcial.fila, 1)
         self.assertEqual(parcial.valores, ["Total", "Suma"])
+
+
+def _hoja_matriz_ancha(*, filas_extra=(), semanas=("SEMANA 1", "SEMANA 2"),
+                       fila_inicio=1, subcampos=("Series", "Reps", "Carga", "RPE")):
+    """Reproduce la forma de la planilla real: dos filas de encabezado (grupos
+    combinados arriba, subcampos abajo), el día en la columna A y el código de
+    bloque + el nombre en B y C."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for _ in range(fila_inicio - 1):
+        ws.append(["Powered by Simplify Trainers"])
+
+    grupos = [None, " EJERCICIOS", None, "Videos"]
+    subs = [None, None, None, None]
+    for semana in semanas:
+        grupos.append(semana)
+        grupos.extend([None] * (len(subcampos) - 1))
+        subs.extend(subcampos)
+    ws.append(grupos)
+    ws.append(subs)
+
+    # Las tres filas base no son decorativas: `MIN_FILAS_CON_NOMBRE` exige al
+    # menos tres ejercicios con nombre real para aceptar el layout, así que un
+    # fixture más chico se rechazaría (y con razón: no sería un plan).
+    # `filas_extra` se SUMA a estas, no las reemplaza.
+    for fila in (
+        ["DÍA 1\n• CORE", "A1.", "Plancha", None, 4, "20", None, None, 4, "25", None, None],
+        [None, "A2.", "Press Pallof", None, 3, "12", "10KG", None, 3, "15", "10KG", None],
+        ["DÍA 2\n• TREN SUPERIOR", "A1.", "Remo en TRX", None, 4, "10", None, None, 4, "12", None, None],
+    ):
+        ws.append(list(fila))
+    for fila in filas_extra:
+        ws.append(list(fila))
+    return ws
+
+
+class DeteccionLayoutTests(SimpleTestCase):
+    """Cuál de los dos lectores se elige, y por qué el orden importa."""
+
+    def test_una_hoja_ancha_se_detecta_como_ancha(self):
+        self.assertIsNotNone(detectar_matriz_ancha(_hoja_matriz_ancha()))
+
+    def test_una_hoja_ancha_con_el_encabezado_abajo_tambien(self):
+        enc = detectar_matriz_ancha(_hoja_matriz_ancha(fila_inicio=12))
+        self.assertIsNotNone(enc)
+        self.assertEqual(enc.fila_grupos, 12)
+        self.assertEqual(enc.fila_subcampos, 13)
+
+    def test_una_hoja_larga_no_se_confunde_con_ancha(self):
+        """`Semana` a secas no matchea: el regex exige el dígito. Sin eso, el
+        layout de siempre caería en el lector nuevo."""
+        self.assertIsNone(detectar_matriz_ancha(_hoja_plantilla_basica()))
+
+    def test_una_hoja_ancha_nunca_cae_al_lector_largo(self):
+        """El riesgo central del diseño: la fila de subcampos tiene
+        Series/Reps/Carga y la de grupos tiene EJERCICIOS, así que el lector
+        largo la aceptaría y produciría filas plausibles con las columnas
+        corridas. Basura silenciosa es peor que cero items."""
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        self.assertGreater(len(hoja.items), 0)
+        self.assertEqual({i.semana for i in hoja.items}, {1, 2})
+
+    def test_una_hoja_auxiliar_no_se_detecta(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Powered by Simplify Trainers"])
+        ws.append(["NOMBRE:", "EVE COLAZO"])
+        ws.append(["OBJETIVO:", "Fuerza"])
+        self.assertIsNone(detectar_matriz_ancha(ws))
+
+    def test_una_sola_semana_no_alcanza(self):
+        """Con un único `SEMANA 1` no hay matriz: puede ser el título de una
+        tabla larga cualquiera."""
+        self.assertIsNone(detectar_matriz_ancha(_hoja_matriz_ancha(semanas=("SEMANA 1",))))
+
+    def test_una_tabla_resumen_por_semanas_no_genera_ejercicios_fantasma(self):
+        """Guarda anti-falso-positivo: una hoja de progreso con columnas
+        SEMANA 1/SEMANA 2 pasa los primeros pasos, pero no tiene una columna
+        de nombres de ejercicio con contenido real."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, "SEMANA 1", None, "SEMANA 2", None])
+        ws.append([None, "Series", "Reps", "Series", "Reps"])
+        ws.append(["Total", 10, "20", 12, "22"])
+        self.assertIsNone(detectar_matriz_ancha(ws))
+
+    def test_la_deteccion_no_escanea_la_hoja_entera(self):
+        """Una hoja auxiliar de miles de filas tiene que descartarse barato."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for _ in range(3000):
+            ws.append(["ruido", 1, 2, 3])
+
+        filas_leidas = set()
+        original = ws.cell
+
+        def espia(row=None, column=None, **kwargs):
+            filas_leidas.add(row)
+            return original(row=row, column=column, **kwargs)
+
+        ws.cell = espia
+        self.assertIsNone(detectar_matriz_ancha(ws))
+        self.assertLessEqual(max(filas_leidas), 40)
+
+
+class LeerHojaAnchaTests(SimpleTestCase):
+    """Una fila de Excel produce un item POR SEMANA."""
+
+    def test_emite_un_item_por_ejercicio_y_semana(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        self.assertEqual(len(hoja.items), 6)  # 3 ejercicios x 2 semanas
+
+    def test_el_dia_se_arrastra_hacia_abajo(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        por_nombre = {i.ejercicio_original: i.dia for i in hoja.items}
+        self.assertEqual(por_nombre["Plancha"], 1)
+        self.assertEqual(por_nombre["Press Pallof"], 1)  # sin marcador propio
+        self.assertEqual(por_nombre["Remo en TRX"], 2)
+
+    def test_el_nombre_del_dia_sale_del_mismo_marcador(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        nombres = {i.dia: i.dia_nombre for i in hoja.items}
+        self.assertEqual(nombres[1], "CORE")
+        self.assertEqual(nombres[2], "TREN SUPERIOR")
+
+    def test_gana_la_celda_de_dia_con_mas_texto(self):
+        """En la planilla real el marcador aparece repetido por los merges:
+        `DÍA 2` pelado en una columna y `DÍA 2 + descripción` en otra. Quedarse
+        con el primero perdería el nombre del día."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, None, " EJERCICIOS", None, "SEMANA 1", None, None, None, "SEMANA 2", None, None, None])
+        ws.append([None, None, None, None, "Series", "Reps", "Carga", "RPE", "Series", "Reps", "Carga", "RPE"])
+        # El `DÍA 1` pelado de la columna A viene ANTES que la celda rica de la
+        # columna B: si ganara el primero que aparece, se perdería el nombre.
+        ws.append(["DÍA 1", "DÍA 1\n• CORE\n• MOVILIDAD", "A1.", "Plancha lateral", 4, "20", None, None, 4, "25", None, None])
+        ws.append([None, None, "A2.", "Press Pallof", 4, "20", None, None, 4, "25", None, None])
+        ws.append([None, None, "A3.", "Remo invertido", 4, "20", None, None, 4, "25", None, None])
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(hoja.items[0].dia_nombre, "CORE · MOVILIDAD")
+
+    def test_guarda_el_codigo_de_bloque(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        self.assertEqual(hoja.items[0].bloque, "A1")
+
+    def test_el_rpe_del_archivo_se_descarta(self):
+        """El RPE de la app lo carga el alumno sobre SU rutina asignada. El
+        del Excel es de otra persona y de un ciclo cerrado."""
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            [None, "B1.", "Sentadilla búlgara", None,
+             4, "20", None, "🟡 Podría seguir con esta intensidad",
+             4, "25", None, "⚫ Debería bajar la intensidad"],
+        )))
+        for item in hoja.items:
+            self.assertNotIn("Podría seguir", item.notas)
+            self.assertNotIn("bajar", item.notas)
+
+    def test_una_semana_sin_datos_no_emite_item(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            [None, "B1.", "Solo primera semana", None, 4, "20", None, None, None, None, None, None],
+        )))
+        solo = [i for i in hoja.items if i.ejercicio_original == "Solo primera semana"]
+        self.assertEqual(len(solo), 1)
+        self.assertEqual(solo[0].semana, 1)
+
+    def test_una_fila_sin_nombre_ni_datos_se_saltea_en_silencio(self):
+        """La planilla real trae slots vacíos: el código de bloque cargado
+        (`D3.`) y el resto en blanco. No es un error que valga reportar."""
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            [None, "D3.", None, None, None, None, None, None, None, None, None, None],
+        )))
+        self.assertEqual(len(hoja.items), 6)  # las 3 filas base x 2 semanas
+        self.assertEqual(hoja.filas_invalidas, [])
+
+    def test_una_fila_con_datos_pero_sin_nombre_si_se_reporta(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            [None, "D3.", None, None, 4, "10", None, None, None, None, None, None],
+        )))
+        self.assertEqual(len(hoja.filas_invalidas), 1)
+        self.assertIn("nombre", hoja.filas_invalidas[0].motivo)
+
+    def test_series_no_numerica_solo_invalida_esa_semana(self):
+        """La diferencia de cardinalidad con el layout largo: una fila de
+        Excel son hasta 4 items, así que un dato malo en la semana 2 no puede
+        llevarse puestas las otras tres."""
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            [None, "B1.", "Peso muerto rumano", None, 4, "20", None, None, "cuatro", "25", None, None],
+        )))
+        muerto = [i for i in hoja.items if i.ejercicio_original == "Peso muerto rumano"]
+        self.assertEqual(len(muerto), 1)
+        self.assertEqual(muerto[0].semana, 1)
+        self.assertEqual(len(hoja.filas_invalidas), 1)
+        self.assertIn("Semana 2", hoja.filas_invalidas[0].motivo)
+
+    def test_dias_por_semana_usa_el_dia_mas_alto_igual_que_el_lector_largo(self):
+        """No `len(set(...))`: con días 1, 2 y 4 el plan tiene 4 días, no 3.
+        Los dos layouts tienen que coincidir en el criterio."""
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        self.assertEqual(hoja.dias_por_semana, 2)
+
+        con_salto = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            ["DÍA 4", "A1.", "Sentadilla frontal", None, 4, "10", None, None, 4, "12", None, None],
+        )))
+        self.assertEqual(con_salto.dias_por_semana, 4)
+
+    def test_el_orden_es_secuencial_dentro_de_cada_dia_y_semana(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        dia1_sem1 = [i for i in hoja.items if i.dia == 1 and i.semana == 1]
+        self.assertEqual([i.orden for i in dia1_sem1], [1, 2])
+
+    def test_la_carga_llega_a_kilos(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        press = [i for i in hoja.items if i.ejercicio_original == "Press Pallof"]
+        self.assertEqual(press[0].kilos, "10KG")
+
+    def test_ancha_sin_ejercicios_se_excluye_con_motivo(self):
+        """Nunca una hoja vacía y muda: si se detectó la matriz pero no salió
+        nada, hay que decir por qué."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, None, " EJERCICIOS", "SEMANA 1", None, "SEMANA 2", None])
+        ws.append([None, None, None, "Series", "Reps", "Series", "Reps"])
+        ws.append(["DÍA 1", "A1.", "Plancha lateral", None, None, None, None])
+        ws.append([None, "A2.", "Remo invertido", None, None, None, None])
+        ws.append([None, "A3.", "Press militar", None, None, None, None])
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(hoja.items, [])
+        self.assertIsNotNone(hoja.motivo_exclusion)
+        self.assertIn("semanas", hoja.motivo_exclusion)

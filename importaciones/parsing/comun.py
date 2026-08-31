@@ -165,6 +165,12 @@ class ItemParseado:
     kilos: str
     descanso: str
     notas: str
+    # Van al final y con default a propósito: los tests del lector largo
+    # comparan contra `ItemParseado(...)` construido con kwargs, y como el
+    # lector largo también deja "", la igualdad del frozen dataclass sigue
+    # dando True sin tocar un solo test.
+    bloque: str = ""       # "A1" -- agrupa superseries
+    dia_nombre: str = ""   # "Tren superior · Core"
 
 
 @dataclass(frozen=True)

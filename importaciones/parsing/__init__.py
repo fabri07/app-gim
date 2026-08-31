@@ -23,15 +23,26 @@ from importaciones.parsing.comun import (  # noqa: F401  (re-export)
     mejor_encabezado_parcial,
     normalizar_texto,
 )
+from importaciones.parsing.ancha import (  # noqa: F401  (re-export)
+    detectar_matriz_ancha,
+    leer_hoja_ancha,
+)
 from importaciones.parsing.tabular import leer_hoja_biblioteca, leer_hoja_larga
 
 
 def leer_hoja_plantilla(ws):
     """Único punto donde se elige el layout de una hoja de PLANTILLAS.
 
-    Por ahora siempre tabular; el despacho a la matriz ancha se conecta en
-    la tarea siguiente. El nombre y el contrato son los de siempre.
+    La matriz ancha se prueba PRIMERO, siempre: si se probara al revés, una
+    hoja ancha matchearía igual el layout largo (su fila de grupos tiene
+    "EJERCICIOS" y la de subcampos tiene "Series"/"Reps"/"Carga") y produciría
+    filas plausibles con las columnas corridas. Basura silenciosa es peor que
+    cero items. Al revés no puede pasar: `RE_SEMANA` exige el dígito, así que
+    el "Semana" a secas del layout largo no matchea nunca.
     """
+    encabezado_ancho = detectar_matriz_ancha(ws)
+    if encabezado_ancho is not None:
+        return leer_hoja_ancha(ws, encabezado_ancho)
     return leer_hoja_larga(ws)
 
 
