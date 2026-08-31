@@ -67,9 +67,9 @@
             {% for ejercicio in ejercicios %}
               <tr>
                 <td>
-                  {# El bloque agrupa superseries: A1, A2 y A3 se hacen uno
+                  {% comment %} El bloque agrupa superseries: A1, A2 y A3 se hacen uno
                      atrás del otro. Va antes del nombre porque es el orden en
-                     que el alumno lee la fila. #}
+                     que el alumno lee la fila.{% endcomment %}
                   {% if ejercicio.bloque %}<span class="badge">{{ ejercicio.bloque }}</span> {% endif %}{{ ejercicio.nombre }}
                   <br><span class="texto-suave text-xs">{{ ejercicio.categoria_display }}</span>
                 </td>

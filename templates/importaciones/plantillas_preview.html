@@ -18,10 +18,10 @@
     {% for hoja, hoja_form in hojas_con_form %}
       <div class="tarjeta">
         <h2>{{ hoja.nombre_hoja }}</h2>
-        {# Cómo se leyó la hoja, no solo cuántas filas salieron: con dos
+        {% comment %} Cómo se leyó la hoja, no solo cuántas filas salieron: con dos
            layouts posibles y una búsqueda de encabezado que puede caer en la
            fila equivocada, esto es lo que le permite al entrenador ver si la
-           app entendió su archivo ANTES de confirmar. #}
+           app entendió su archivo ANTES de confirmar.{% endcomment %}
         <p class="texto-suave">
           {{ hoja.items|length }} ejercicio{{ hoja.items|length|pluralize }} ·
           {{ hoja.dias_por_semana }} día{{ hoja.dias_por_semana|pluralize }}
@@ -67,10 +67,10 @@
             <table class="tabla">
               <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
               <tbody>
-                {# Agrupadas por fila: en una tabla con las semanas a lo ancho,
+                {% comment %} Agrupadas por fila: en una tabla con las semanas a lo ancho,
                    una misma fila de Excel puede fallar en más de una semana y
                    listarla repetida haría parecer que hay más problemas de los
-                   que hay. #}
+                   que hay.{% endcomment %}
                 {% for fila, motivos in hoja.invalidas_agrupadas %}
                   <tr><td>{{ fila }}</td><td>{{ motivos|join:" · " }}</td></tr>
                 {% endfor %}

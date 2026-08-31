@@ -24,8 +24,8 @@
       <tbody>
         {% for c in categorias %}
           <tr>
-            {# Sin columna "Estado": diría "Activa" en casi todas las filas y una
-               columna de valor constante no informa nada. Solo la excepción. #}
+            {% comment %} Sin columna "Estado": diría "Activa" en casi todas las filas y una
+               columna de valor constante no informa nada. Solo la excepción.{% endcomment %}
             <td>
               {{ c.nombre }}
               {% if not c.activo %}<span class="badge badge--riesgo">Inactiva</span>{% endif %}

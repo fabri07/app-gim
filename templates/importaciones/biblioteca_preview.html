@@ -35,12 +35,12 @@
     {% csrf_token %}
     <div class="tabla-scroll">
       <table class="tabla">
-        {# "Estado" era una columna que en una importación normal decía
+        {% comment %} "Estado" era una columna que en una importación normal decía
            "Nuevo" en las 748 filas: cero información. Lo único que aporta es
            la excepción -- el ejercicio que YA existe y por eso no se va a
            crear -- así que ahora es un badge al lado del nombre, y la
            columna que queda libre muestra el video, que sí venía en el
-           archivo y no se veía en ningún lado (reporte del 2026-08-27). #}
+           archivo y no se veía en ningún lado (reporte del 2026-08-27).{% endcomment %}
         <thead><tr><th>Nombre</th><th>Categoría</th><th>Video</th></tr></thead>
         <tbody>
           {% for item in importacion.resultado.items %}
@@ -57,9 +57,9 @@
                   {% if item.categoria_resuelta.tipo == "nueva" %}
                     <span class="badge">nueva</span>
                   {% elif item.categoria_resuelta.nombre != item.grupo_muscular_original %}
-                    {# El archivo decía otra cosa: hubo fusión difusa. Se
+                    {% comment %} El archivo decía otra cosa: hubo fusión difusa. Se
                        muestra el original para que una fusión indebida se
-                       pueda detectar ANTES de confirmar. #}
+                       pueda detectar ANTES de confirmar.{% endcomment %}
                     <span class="texto-suave">(el archivo decía «{{ item.grupo_muscular_original }}»)</span>
                   {% endif %}
                 {% else %}—{% endif %}
@@ -164,10 +164,10 @@
                   {% for opcion in opciones_categoria %}
                     <option value="{{ opcion.valor }}">{{ opcion.etiqueta }}{% if opcion.es_nueva %} (nueva){% endif %}</option>
                   {% endfor %}
-                  {# Opción explícita, no un default silencioso: sin esto no
+                  {% comment %} Opción explícita, no un default silencioso: sin esto no
                      hay forma de confirmar un ejercicio cuya categoría todavía
                      no existe, ni de importar a un gimnasio con el catálogo
-                     vacío. #}
+                     vacío.{% endcomment %}
                   <option value="sin_categoria">Sin categoría — la asigno después</option>
                 </select>
                 <span id="chip-cat-{{ forloop.counter }}" class="rutina-chip"

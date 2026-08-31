@@ -52,10 +52,10 @@
       <tbody>
         {% for e in ejercicios %}
           <tr>
-            {# El estado no tiene columna propia: en una biblioteca normal
+            {% comment %} El estado no tiene columna propia: en una biblioteca normal
                diría "Activo" en todas las filas y una columna de valor
                constante no informa nada (mismo criterio que el preview de
-               biblioteca, ISSUES.md 2026-08-27). Solo se marca la excepción. #}
+               biblioteca, ISSUES.md 2026-08-27). Solo se marca la excepción.{% endcomment %}
             <td>
               {{ e.nombre }}
               {% if not e.activo %}<span class="badge badge--riesgo">Inactivo</span>{% endif %}
