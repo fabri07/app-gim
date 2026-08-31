@@ -20,6 +20,46 @@ del log.
 
 ---
 
+## [2026-08-31] Asignar un plan al alumno daba 500: el snapshot del video era más angosto que el ejercicio
+
+**Estado:** resuelto
+
+**Impacto:** en el gimnasio del primer cliente pago, crear un alumno e
+intentar asignarle el plan importado devolvía **500 en producción**
+(`POST /rutinas/asignar/`), sin poder completar nunca la asignación. En el log:
+`django.db.utils.DataError: value too long for type character varying(200)`,
+desde el `bulk_create` de `RutinaAsignadaItem` en
+`RutinaAsignada.crear_desde_plantilla` (`rutinas/models.py`).
+
+**Causa:** `RutinaAsignadaItem.ejercicio_video_snapshot` es una COPIA de
+`Ejercicio.url_video`, pero quedó en el default de 200 de `URLField` cuando el
+campo ORIGEN se ensanchó a 500 (`ejercicios/0004`, 2026-08-27 -- justamente
+para aguantar los links de 306 caracteres del Excel de ese mismo cliente, ver
+la entrada `[2026-08-27]`). O sea: el fix anterior dejó entrar a la biblioteca
+links que después no entraban en el snapshot. Era la ÚNICA columna
+`varchar(200)` de ese INSERT.
+
+Es la misma familia de trampa ya documentada: **SQLite no valida el largo de
+un `varchar` y Postgres sí**, así que ni la suite local ni el uso en dev lo
+mostraban. No quedaron datos truncados ni a medias: el `transaction.atomic()`
+de `crear_desde_plantilla` hizo rollback completo cada vez.
+
+**Resolución / próximo paso:** `ejercicio_video_snapshot` pasó a
+`max_length=500` (migración `rutinas/0009`, se aplica sola en el build de
+Render). El test de regresión `AnchoDeCamposSnapshotTests` (`rutinas/tests.py`)
+compara **metadatos, no comportamiento** -- es la única forma de que falle en
+SQLite -- y cubre los 10 pares origen→snapshot que copia
+`crear_desde_plantilla`, no solo el que se rompió: si mañana se ensancha
+`Ejercicio.nombre`, `CategoriaEjercicio.nombre` o cualquier campo de
+`RutinaPlantillaItem` sin ensanchar su snapshot, falla la suite antes del
+deploy.
+
+**Regla general que deja:** en este proyecto un snapshot NUNCA puede ser más
+angosto que el campo que copia. Si ensanchás un campo de `Ejercicio` o de
+`RutinaPlantilla[Item]`, ensanchá también su contraparte en
+`RutinaAsignada[Item]`. `crear_desde_plantilla` es el único lugar que copia,
+y el test enumera los 10 pares para que no haya que acordarse de cuáles son.
+
 ## [2026-08-31] El importador leía 0 ejercicios de la planilla real de un entrenador
 
 **Estado:** resuelto

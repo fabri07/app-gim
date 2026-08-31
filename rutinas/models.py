@@ -292,7 +292,13 @@ class RutinaAsignadaItem(TimeStampedModel):
         related_name="items",
     )
     ejercicio_nombre_snapshot = models.CharField(max_length=120)
-    ejercicio_video_snapshot = models.URLField(blank=True)
+    # 500, igual que `Ejercicio.url_video`: este campo es una COPIA de aquel,
+    # así que siempre tiene que ser al menos igual de ancho. Quedó en el
+    # default de 200 de `URLField` cuando el origen se ensanchó
+    # (`ejercicios/0004`, 2026-08-27) y asignar una rutina que usara uno de
+    # esos links largos daba `DataError` en Postgres -- invisible en SQLite,
+    # que no valida largos. Lo fija `AnchoDeCamposSnapshotTests`.
+    ejercicio_video_snapshot = models.URLField(max_length=500, blank=True)
     categoria_snapshot = models.CharField(
         max_length=60,
         blank=True,

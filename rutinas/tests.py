@@ -19,7 +19,7 @@ from datetime import date, timedelta
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import connection
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -2120,3 +2120,54 @@ class BloqueYNombreDeDiaEnLaUITests(RutinasTestCase):
         self.assertTrue(fila[0].startswith("A1 · "))
         self.assertIn("Press de banca", fila[0])
         self.assertIsNotNone(generar_pdf_rutina_asignada(asignada))
+
+
+class AnchoDeCamposSnapshotTests(SimpleTestCase):
+    """El snapshot nunca puede ser más angosto que el campo que copia.
+
+    `RutinaAsignada.crear_desde_plantilla` copia texto de `Ejercicio` y de
+    `RutinaPlantilla[Item]` a columnas propias. Si el campo ORIGEN se
+    ensancha y el snapshot no, el `bulk_create` de la asignación revienta
+    con `DataError: value too long` en Postgres -- y **el test local no lo
+    ve**: SQLite no valida el largo de un `varchar` (misma familia de
+    trampa que `select_for_update()` siendo no-op, ver CLAUDE.md).
+
+    Pasó de verdad: `Ejercicio.url_video` se ensanchó a 500 el 2026-08-27
+    (`ejercicios/0004`, por links de 306 caracteres del Excel de un
+    cliente) y `ejercicio_video_snapshot` quedó en el default de 200 de
+    `URLField` -- asignarle a un alumno un plan que usara uno de esos
+    ejercicios daba 500 en producción.
+
+    Por eso el test compara METADATOS y no comportamiento: es la única
+    forma de que falle en la suite local.
+    """
+
+    # (modelo origen, campo origen) -> (modelo snapshot, campo snapshot)
+    PARES = [
+        ((Ejercicio, "nombre"), (RutinaAsignadaItem, "ejercicio_nombre_snapshot")),
+        ((Ejercicio, "url_video"), (RutinaAsignadaItem, "ejercicio_video_snapshot")),
+        ((CategoriaEjercicio, "nombre"), (RutinaAsignadaItem, "categoria_snapshot")),
+        ((RutinaPlantilla, "nombre"), (RutinaAsignada, "nombre_snapshot")),
+        ((RutinaPlantilla, "objetivo"), (RutinaAsignada, "objetivo_snapshot")),
+        ((RutinaPlantillaItem, "repeticiones"), (RutinaAsignadaItem, "repeticiones")),
+        ((RutinaPlantillaItem, "kilos"), (RutinaAsignadaItem, "kilos")),
+        ((RutinaPlantillaItem, "descanso"), (RutinaAsignadaItem, "descanso")),
+        ((RutinaPlantillaItem, "bloque"), (RutinaAsignadaItem, "bloque")),
+        ((RutinaPlantillaItem, "dia_nombre"), (RutinaAsignadaItem, "dia_nombre")),
+    ]
+
+    def test_cada_campo_del_snapshot_entra_lo_que_copia(self):
+        for (modelo_origen, campo_origen), (modelo_snap, campo_snap) in self.PARES:
+            with self.subTest(origen=campo_origen, snapshot=campo_snap):
+                largo_origen = modelo_origen._meta.get_field(campo_origen).max_length
+                largo_snap = modelo_snap._meta.get_field(campo_snap).max_length
+
+                self.assertGreaterEqual(
+                    largo_snap,
+                    largo_origen,
+                    f"{modelo_snap.__name__}.{campo_snap} (max_length="
+                    f"{largo_snap}) es más angosto que "
+                    f"{modelo_origen.__name__}.{campo_origen} (max_length="
+                    f"{largo_origen}): asignar una rutina con un valor largo "
+                    f"va a dar DataError en Postgres.",
+                )
