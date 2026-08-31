@@ -3523,3 +3523,90 @@ class EjemploDescargableTests(TestCase):
         for campo in ALIAS_PLANTILLA:
             self.assertIn(campo, texto)
         self.assertIn("microciclo", texto)
+
+
+class ImportacionPlantillasEscalaTests(TestCase):
+    """El costo en queries del confirm no puede crecer con la cantidad de
+    FILAS del archivo.
+
+    Es la regresión del 502 de producción (`ISSUES.md` [2026-08-27]): el flujo
+    de biblioteca hacía dos queries por fila y el Excel de 748 ejercicios se
+    comía los 30 s de timeout de gunicorn. El de plantillas tenía la misma
+    forma -- `_obtener_ejercicio` hacía un SELECT de categoría más un INSERT
+    por cada ejercicio nuevo, dentro del loop -- y con el archivo real (172
+    items, 42 ejercicios distintos) eran 139 queries.
+
+    Una matriz ancha multiplica el problema: 4 semanas convierten 43 filas de
+    Excel en 172 items.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
+        self.usuario = User.objects.create_user("staff", password="clave12345")
+
+    def _importar(self, *, ejercicios, semanas):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Plan"
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        for semana in range(1, semanas + 1):
+            for n in range(ejercicios):
+                ws.append([semana, 1, f"Ejercicio numero {n}", 4, "10"])
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+        decisiones = {
+            "hojas": [{
+                "nombre_hoja": "Plan", "incluir": True,
+                "objetivo": "Fuerza", "nivel": "principiante",
+            }],
+            "ejercicios": {
+                normalizar_texto(f"Ejercicio numero {n}"): {
+                    "accion": "crear_nuevo", "categoria_id": self.categoria.pk,
+                }
+                for n in range(ejercicios)
+            },
+        }
+        with CaptureQueriesContext(connection) as ctx:
+            confirmar_importacion_plantillas(
+                importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+        return len(ctx)
+
+    def test_el_costo_no_crece_con_la_cantidad_de_filas(self):
+        """Mismos 10 ejercicios distintos, 1 semana contra 4: cuatro veces más
+        items, las mismas queries."""
+        una_semana = self._importar(ejercicios=10, semanas=1)
+        RutinaPlantilla.objects.all().delete()  # CASCADE a sus items
+        Ejercicio.objects.all().delete()          # recién ahora: FK PROTECT
+        cuatro_semanas = self._importar(ejercicios=10, semanas=4)
+
+        self.assertEqual(una_semana, cuatro_semanas)
+
+    def test_el_costo_no_crece_linealmente_con_los_ejercicios(self):
+        """Diez veces más ejercicios distintos NO puede costar diez veces más
+        queries.
+
+        No se exige igualdad exacta: `bulk_create` parte los INSERT en lotes,
+        así que 100 objetos cuestan un par de statements más que 10. Lo que se
+        fija es que sea O(lotes) y no O(ejercicios) -- si alguien vuelve a
+        meter un SELECT o un INSERT dentro del loop, 100 ejercicios saltarían
+        a cientos de queries y este test lo agarra.
+
+        Tampoco es un `assertNumQueries` con un número fijo, que se rompe con
+        cualquier cambio interno de Django: se comparan dos tamaños.
+        """
+        pocos = self._importar(ejercicios=10, semanas=2)
+        RutinaPlantilla.objects.all().delete()  # CASCADE a sus items
+        Ejercicio.objects.all().delete()          # recién ahora: FK PROTECT
+        muchos = self._importar(ejercicios=100, semanas=2)
+
+        self.assertLess(muchos, pocos + 10)
+
+    def test_los_items_se_crean_igual(self):
+        self._importar(ejercicios=10, semanas=4)
+        self.assertEqual(RutinaPlantillaItem.objects.count(), 40)
+        self.assertEqual(Ejercicio.objects.count(), 10)

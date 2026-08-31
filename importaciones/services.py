@@ -254,6 +254,96 @@ def hojas_elegidas(resultado):
     return [h for h in resultado["hojas"] if h["nombre_hoja"] in set(elegidas)]
 
 
+def _nombres_necesarios(hojas_a_procesar, decisiones_por_hoja):
+    """Nombres normalizados de los ejercicios de las hojas que SÍ se incluyen.
+
+    Resolver los de una hoja destildada crearía `Ejercicio` que nadie pidió.
+    """
+    return {
+        item["ejercicio_normalizado"]
+        for hoja in hojas_a_procesar
+        if decisiones_por_hoja[hoja["nombre_hoja"]]["incluir"]
+        for item in hoja["items"]
+    }
+
+
+def _resolver_ejercicios(*, gimnasio, resultado, decisiones, nombres):
+    """`{nombre_normalizado: Ejercicio}` para todos los nombres de una vez.
+
+    Tres queries fijas (los existentes elegidos, el catálogo de categorías, y
+    el `bulk_create` de los nuevos) más las que Django necesite: el costo
+    depende del catálogo del gimnasio, no de cuántas filas trae el archivo.
+    """
+    from ejercicios.models import CategoriaEjercicio
+
+    decisiones_ejercicios = decisiones["ejercicios"]
+    faltantes = [n for n in nombres if n not in decisiones_ejercicios]
+    if faltantes:
+        raise ImportacionInvalida(
+            f"Falta la decisión para el ejercicio «{faltantes[0]}»."
+        )
+
+    a_reusar = {
+        n: decisiones_ejercicios[n]["ejercicio_id"]
+        for n in nombres
+        if decisiones_ejercicios[n]["accion"] == "usar_existente"
+    }
+    a_crear = [n for n in nombres if n not in a_reusar]
+
+    # Un solo SELECT scopeado por gimnasio: no se confía en los ids del POST,
+    # que es la barrera contra enganchar un ejercicio de otro tenant.
+    existentes = {
+        e.pk: e
+        for e in Ejercicio.objects.for_gimnasio(gimnasio).filter(
+            pk__in=[pk for pk in a_reusar.values() if pk]
+        )
+    }
+    resueltos = {}
+    for nombre, pk in a_reusar.items():
+        if pk not in existentes:
+            raise ImportacionInvalida(
+                "El ejercicio elegido para reusar no existe en este gimnasio."
+            )
+        resueltos[nombre] = existentes[pk]
+
+    if not a_crear:
+        return resueltos
+
+    # El catálogo entero de una: misma idea que `_CatalogoCategorias` del
+    # flujo de biblioteca.
+    categorias = {
+        c.pk: c for c in CategoriaEjercicio.objects.for_gimnasio(gimnasio)
+    }
+    nombres_originales = {}
+    for hoja in resultado["hojas"]:
+        for item in hoja["items"]:
+            nombres_originales.setdefault(
+                item["ejercicio_normalizado"], item["ejercicio_original"]
+            )
+
+    nuevos = []
+    for nombre in a_crear:
+        categoria = categorias.get(decisiones_ejercicios[nombre].get("categoria_id"))
+        if categoria is None:
+            raise ImportacionInvalida(
+                "La categoría elegida no existe en este gimnasio."
+            )
+        if nombre not in nombres_originales:
+            raise ImportacionInvalida(
+                f"No se encontró el ejercicio «{nombre}» en el archivo."
+            )
+        nuevos.append(Ejercicio(
+            gimnasio=gimnasio,
+            nombre=nombres_originales[nombre],
+            categoria=categoria,
+        ))
+
+    Ejercicio.objects.bulk_create(nuevos)
+    for nombre, ejercicio in zip(a_crear, nuevos):
+        resueltos[nombre] = ejercicio
+    return resueltos
+
+
 def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
     """Crea las `RutinaPlantilla`/`RutinaPlantillaItem`/`Ejercicio` reales a
     partir del preview persistido en `importacion.resultado` y las
@@ -310,60 +400,21 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
             # quedaría CONFIRMADA (ya no se podría reintentar).
             raise ImportacionInvalida("Datos de confirmación incompletos.")
 
-        ejercicios_por_nombre = {}  # nombre_normalizado -> Ejercicio, resuelto una vez
+        # Los ejercicios se resuelven TODOS DE UNA, antes de tocar las
+        # plantillas. Antes esto era una función que se llamaba desde el loop
+        # de items y hacía, por cada ejercicio nuevo, un SELECT de categoría
+        # más un INSERT: con el archivo real (42 ejercicios distintos) eran
+        # 139 queries, y con una biblioteca grande es el mismo 502 por timeout
+        # de gunicorn que ya pasó en producción (ISSUES.md 2026-08-27).
+        # Regla del proyecto: el costo tiene que depender del CATÁLOGO, no de
+        # la cantidad de filas -- nunca una query dentro del loop.
+        ejercicios_por_nombre = _resolver_ejercicios(
+            gimnasio=gimnasio, resultado=resultado, decisiones=decisiones,
+            nombres=_nombres_necesarios(hojas_a_procesar, decisiones_por_hoja),
+        )
 
         def _obtener_ejercicio(nombre_normalizado):
-            if nombre_normalizado in ejercicios_por_nombre:
-                return ejercicios_por_nombre[nombre_normalizado]
-            try:
-                decision = decisiones["ejercicios"][nombre_normalizado]
-            except KeyError:
-                raise ImportacionInvalida(
-                    f"Falta la decisión para el ejercicio «{nombre_normalizado}»."
-                )
-            if decision["accion"] == "usar_existente":
-                try:
-                    ejercicio = Ejercicio.objects.get(
-                        pk=decision["ejercicio_id"], gimnasio=gimnasio,
-                    )
-                except Ejercicio.DoesNotExist:
-                    raise ImportacionInvalida(
-                        "El ejercicio elegido para reusar no existe en este gimnasio."
-                    )
-            else:
-                from ejercicios.models import CategoriaEjercicio
-
-                # Se re-lee contra un queryset scopeado por gimnasio y no se
-                # confía en el id que vino en `decisiones`: es la barrera que
-                # impide que un POST manipulado enganche un ejercicio nuevo a
-                # la categoría de otro tenant.
-                categoria = (
-                    CategoriaEjercicio.objects.for_gimnasio(gimnasio)
-                    .filter(pk=decision.get("categoria_id"))
-                    .first()
-                )
-                if categoria is None:
-                    raise ImportacionInvalida(
-                        "La categoría elegida no existe en este gimnasio."
-                    )
-                try:
-                    nombre_original = next(
-                        item["ejercicio_original"]
-                        for hoja in resultado["hojas"]
-                        for item in hoja["items"]
-                        if item["ejercicio_normalizado"] == nombre_normalizado
-                    )
-                except StopIteration:
-                    raise ImportacionInvalida(
-                        f"No se encontró el ejercicio «{nombre_normalizado}» en el archivo."
-                    )
-                ejercicio = Ejercicio.objects.create(
-                    gimnasio=gimnasio,
-                    nombre=nombre_original,
-                    categoria=categoria,
-                )
-            ejercicios_por_nombre[nombre_normalizado] = ejercicio
-            return ejercicio
+            return ejercicios_por_nombre[nombre_normalizado]
 
         plantillas_creadas = []
         for hoja in hojas_a_procesar:
