@@ -98,6 +98,15 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
                 # mostrado dependa del orden de iteración.
                 "bloque": item_semana_mas_baja.bloque,
                 "dia_nombre": item_semana_mas_baja.dia_nombre,
+                # El mismo item que ya define `orden`, `categoria_display`,
+                # `bloque` y `dia_nombre` de esta fila -- o sea, el
+                # representante del ejercicio. Se expone para que la vista de
+                # staff tenga un pk estable con el que armar los botones de
+                # "editar" y "quitar" de la FILA (que actúan sobre las 4
+                # semanas), sin tener que buscar "la primera celda no vacía"
+                # con lógica de template. El portal del alumno y el PDF lo
+                # ignoran: es un agregado aditivo, no cambia su salida.
+                "item_referencia": item_semana_mas_baja,
                 # Lista (no dict): los templates de Django no pueden
                 # indexar un dict con una clave dinámica sin un filtro
                 # custom, así que cada celda ya trae su propio número

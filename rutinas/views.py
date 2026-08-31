@@ -25,8 +25,15 @@ from django.views.generic import CreateView, DetailView, FormView, ListView, Upd
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
+from rutinas import progreso, services
 from rutinas.agrupacion import listar_ejercicios_del_dia
-from rutinas.forms import AsignarRutinaForm, RutinaPlantillaForm, RutinaPlantillaItemForm
+from rutinas.forms import (
+    AgregarEjercicioAsignadoForm,
+    AsignarRutinaForm,
+    RutinaAsignadaItemForm,
+    RutinaPlantillaForm,
+    RutinaPlantillaItemForm,
+)
 from rutinas.models import (
     SEMANAS_POR_CICLO,
     RutinaAsignada,
@@ -220,14 +227,263 @@ class AsignarRutinaView(StaffRequiredMixin, TenantScopedMixin, FormView):
 
 
 class RutinaAsignadaDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView):
+    """El plan del alumno, agrupado por día igual que lo ve él.
+
+    Hasta 2026-08-31 esta vista listaba TODOS los items en una sola tabla
+    plana (una fila por ejercicio Y por semana, ~128 filas en una rutina
+    real). Se reagrupó al sumarle la edición: "quitar" actúa sobre las 4
+    semanas, y en la tabla plana ese botón habría aparecido repetido en las 4
+    filas, cada una prometiendo borrar solo la suya. Reusar
+    `listar_ejercicios_del_dia` -- el punto único de esta lógica, que ya
+    alimentaba el portal del alumno y el PDF -- hace además que el staff y el
+    alumno vean exactamente la misma grilla.
+    """
+
     model = RutinaAsignada
     template_name = "rutinas/asignada_detail.html"
     context_object_name = "asignada"
 
+    def get_queryset(self):
+        return super().get_queryset().select_related("alumno")
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["items"] = self.object.items.all()
+
+        # Una sola query trae TODOS los items; el agrupado por día y el cruce
+        # con la adherencia se hacen en Python sobre esa lista. El costo en
+        # queries no puede crecer con la cantidad de items ni de días -- hay
+        # un test de escala que lo fija.
+        items = list(self.object.items.all())
+        semana_actual = self.object.semana_actual
+        semanas = list(range(1, SEMANAS_POR_CICLO + 1))
+
+        previstas = progreso.sesiones_previstas_de(items)
+        entrenadas = progreso.sesiones_entrenadas(self.object)
+        context["adherencia"] = progreso.adherencia_de_rutina(
+            self.object, previstas=previstas, entrenadas=entrenadas
+        )
+
+        dias = []
+        for numero in sorted({item.dia for item in items}):
+            del_dia = [item for item in items if item.dia == numero]
+            ejercicios = progreso.anotar_senales(
+                listar_ejercicios_del_dia(
+                    del_dia, semanas=semanas, semana_actual=semana_actual
+                )
+            )
+            dias.append(
+                {
+                    "numero": numero,
+                    # Misma regla "gana la semana más baja" que ya usan
+                    # `agrupacion.py` y `RutinaMiDiaDetailView` para este
+                    # campo denormalizado.
+                    "nombre": next(
+                        (
+                            item.dia_nombre
+                            for item in sorted(del_dia, key=lambda i: i.semana)
+                            if item.dia_nombre
+                        ),
+                        "",
+                    ),
+                    "semanas_meta": [
+                        {
+                            "numero": semana,
+                            "es_actual": semana == semana_actual,
+                            "tiene_items": (numero, semana) in previstas,
+                            "entrenada": (numero, semana) in entrenadas,
+                        }
+                        for semana in semanas
+                    ],
+                    "ejercicios": ejercicios,
+                }
+            )
+        context["dias"] = dias
+
+        # Aviso de rutinas activas duplicadas. No arregla el bug (nadie setea
+        # `activa=False` al asignar una rutina nueva, ver ISSUES.md), pero lo
+        # vuelve visible justo donde importa: sin esto el entrenador puede
+        # estar editando una rutina que el alumno no ve, porque el portal
+        # muestra la más reciente por `Meta.ordering`.
+        context["activas_del_alumno"] = self.object.alumno.rutinas_asignadas.filter(
+            activa=True
+        ).count()
         return context
+
+
+# ---------------------------------------------------------------------------
+# Edición de la rutina asignada (los items del snapshot)
+# ---------------------------------------------------------------------------
+
+
+class ItemAsignadaMixin(StaffRequiredMixin, TenantScopedMixin):
+    """Mismo mecanismo de aislamiento que `ItemPlantillaMixin`, para el otro
+    par de modelos.
+
+    `RutinaAsignadaItem` tampoco es `TenantOwnedModel` y no tiene
+    `for_gimnasio()` propio: se resuelve PRIMERO la `RutinaAsignada` padre
+    (URL kwarg `asignada_pk`) acotada al gimnasio del staff, y ESE lookup es
+    lo que aísla, porque 404ea antes de que se llegue a consultar ningún item.
+    De ahí en más se opera siempre sobre `self.asignada.items`, nunca sobre
+    `RutinaAsignadaItem.objects` (que no tiene scoping propio).
+    """
+
+    def get_asignada(self):
+        if not hasattr(self, "_asignada"):
+            self._asignada = get_object_or_404(
+                RutinaAsignada.objects.for_gimnasio(self.gimnasio).select_related(
+                    "alumno"
+                ),
+                pk=self.kwargs["asignada_pk"],
+            )
+        return self._asignada
+
+    @property
+    def asignada(self):
+        return self.get_asignada()
+
+    def get_queryset(self):
+        # Reemplaza a TenantScopedMixin.get_queryset(): RutinaAsignadaItem no
+        # es TenantOwnedModel y no tiene `for_gimnasio()`.
+        return self.asignada.items.all()
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["asignada"] = self.asignada
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["asignada"] = self.asignada
+        context["adherencia"] = progreso.adherencia_de_rutina(self.asignada)
+        return context
+
+    def get_success_url(self):
+        return reverse("rutinas:asignada_detalle", args=[self.asignada.pk])
+
+
+class RutinaAsignadaItemUpdateView(ItemAsignadaMixin, UpdateView):
+    """Editar un ejercicio de una semana. La escritura la hace el servicio:
+    nombre y video van a las 4 semanas, el resto solo a esta."""
+
+    model = RutinaAsignadaItem
+    form_class = RutinaAsignadaItemForm
+    template_name = "rutinas/asignada_item_form.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Lo que el alumno reportó en ESTE ejercicio, semana por semana: es la
+        # información con la que el entrenador decide si subir o bajar la
+        # carga, y hasta ahora no la veía en ningún lado.
+        context["historial"] = progreso.historial_rpe(
+            services.hermanos(self.asignada, self.object)
+        )
+        return context
+
+    def form_valid(self, form):
+        datos = form.cleaned_data
+        try:
+            semanas = services.editar_ejercicio_asignado(
+                asignada=self.asignada,
+                item=self.object,
+                ejercicio_nombre=datos["ejercicio_nombre_snapshot"],
+                ejercicio_video=datos["ejercicio_video_snapshot"],
+                series=datos["series"],
+                repeticiones=datos["repeticiones"],
+                kilos=datos["kilos"],
+                descanso=datos["descanso"],
+                notas=datos["notas"],
+                bloque=datos["bloque"],
+            )
+        except services.NombreDuplicadoEnElDia:
+            # El form ya valida esto; se revalida bajo lock en el servicio por
+            # si dos ediciones entran a la vez. Si igual llegó acá, se muestra
+            # como error de campo en vez de un 500.
+            form.add_error(
+                "ejercicio_nombre_snapshot",
+                "Ya hay otro ejercicio con ese nombre en este día.",
+            )
+            return self.form_invalid(form)
+
+        messages.success(
+            self.request,
+            f"Se actualizó «{datos['ejercicio_nombre_snapshot']}». El nombre y el "
+            f"video se aplicaron a las {semanas} semanas del ciclo; series, "
+            f"kilos y notas, solo a la semana {self.object.semana}.",
+        )
+        return redirect(self.get_success_url())
+
+
+class RutinaAsignadaItemCreateView(ItemAsignadaMixin, CreateView):
+    """Sumar un ejercicio de la biblioteca a un día. Crea una fila por cada
+    semana que ese día ya tiene."""
+
+    model = RutinaAsignadaItem
+    form_class = AgregarEjercicioAsignadoForm
+    template_name = "rutinas/asignada_item_form.html"
+
+    @property
+    def dia(self):
+        dia = self.kwargs["dia"]
+        # 404 y no 403: ese día "no existe" en esta rutina. Mismo criterio que
+        # `RutinaMiDiaDetailView` y `RutinaAsignadaDiaCompletadoToggleView`.
+        if not self.asignada.items.filter(dia=dia).exists():
+            raise Http404("La rutina no tiene ese día.")
+        return dia
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["dia"] = self.dia
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["dia"] = self.dia
+        return context
+
+    def form_valid(self, form):
+        datos = form.cleaned_data
+        try:
+            creados = services.agregar_ejercicio_asignado(
+                asignada=self.asignada,
+                dia=self.dia,
+                ejercicio=datos["ejercicio"],
+                series=datos["series"],
+                repeticiones=datos["repeticiones"],
+                kilos=datos["kilos"],
+                descanso=datos["descanso"],
+                notas=datos["notas"],
+                bloque=datos["bloque"],
+            )
+        except services.NombreDuplicadoEnElDia:
+            form.add_error("ejercicio", "Ese ejercicio ya está en este día.")
+            return self.form_invalid(form)
+
+        messages.success(
+            self.request,
+            f"Se agregó «{datos['ejercicio'].nombre}» al día {self.dia} en "
+            f"{len(creados)} semanas.",
+        )
+        return redirect(self.get_success_url())
+
+
+class RutinaAsignadaItemDeleteView(ItemAsignadaMixin, View):
+    """POST-only: no hay página de confirmación por GET, el botón ya es la
+    confirmación y dice explícitamente que borra las 4 semanas (mismo criterio
+    que `RutinaPlantillaItemDeleteView`)."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        item = get_object_or_404(self.get_queryset(), pk=kwargs["pk"])
+        nombre = item.ejercicio_nombre_snapshot
+        borradas = services.quitar_ejercicio_asignado(
+            asignada=self.asignada, item=item
+        )
+        messages.success(
+            request,
+            f"Se quitó «{nombre}» del día {item.dia} en {borradas} semanas.",
+        )
+        return redirect(self.get_success_url())
 
 
 class RutinaAsignadaPdfView(

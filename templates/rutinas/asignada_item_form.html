@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+{% block title %}{% if object %}Editar{% else %}Agregar{% endif %} ejercicio · {{ asignada.alumno }} · App Gimnasios{% endblock %}
+
+{% comment %}
+Un solo template para editar y para agregar (ramifica por `object`), igual
+que item_form.html hace con los items de plantilla.
+
+Los links que llevan acá (en asignada_detail.html) tienen hx-boost="false":
+esta pantalla necesita `{% block extra_style %}` (el CSS de Tom Select, ver
+abajo), que vive en el <head> -- hx-boost por defecto solo swapea el <body>,
+así que un <link> de <head> nunca llega a insertarse en una navegación
+boosteada. Va en los links de LOS DOS modos aunque hoy el <select> exista
+solo al agregar: así el gotcha no puede reaparecer si mañana el form de
+edición gana un widget.
+{% endcomment %}
+{% block extra_style %}
+  <link href="https://cdn.jsdelivr.net/npm/tom-select@2/dist/css/tom-select.default.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="contenido">
+  <div class="acciones-lista">
+    <h1>{% if object %}Editar ejercicio{% else %}Agregar ejercicio{% endif %}</h1>
+    <a class="boton-secundario" href="{% url 'rutinas:asignada_detalle' asignada.pk %}">Cancelar</a>
+  </div>
+
+  <p class="texto-suave">
+    {{ asignada.alumno }} &middot; {{ asignada.nombre_snapshot }} &middot;
+    {% if object %}
+      Día {{ object.dia }}{% if object.dia_nombre %} — {{ object.dia_nombre }}{% endif %} &middot;
+      Semana {{ object.semana }} de 4
+    {% else %}
+      Día {{ dia }}
+    {% endif %}
+  </p>
+
+  {# Cierra la expectativa equivocada más probable: que esto toque el molde. #}
+  <p class="texto-suave">
+    Este cambio afecta solo la rutina de {{ asignada.alumno }}. La plantilla
+    «{{ asignada.nombre_snapshot }}» no se toca.
+  </p>
+
+  {# ---- Cómo viene el alumno (el dato que antes no se veía en ningún lado) ---- #}
+  <div class="tarjeta">
+    <h2>Cómo viene {{ asignada.alumno }}</h2>
+    <p>
+      Entrenó <strong>{{ adherencia.entrenadas_hasta_hoy }} de
+      {{ adherencia.previstas_hasta_hoy }}</strong> sesiones hasta la semana
+      {{ adherencia.semana_actual }}
+      ({{ adherencia.porcentaje_hasta_hoy }}%).
+    </p>
+
+    {% if object %}
+      <h3>Cómo sintió este ejercicio</h3>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <caption class="texto-suave">
+            Lo que reportó el alumno en este ejercicio, semana por semana.
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Semana</th>
+              <th scope="col">Lo que reportó</th>
+              <th scope="col">Sugerencia de carga</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for fila in historial %}
+              <tr>
+                <th scope="row">Semana {{ fila.semana }}</th>
+                <td>
+                  {% if fila.etiqueta %}
+                    {{ fila.etiqueta }}
+                  {% else %}
+                    <span class="texto-suave">Sin calificar</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if fila.senal %}
+                    <span class="{{ fila.senal.badge }}">{{ fila.senal.flecha }} {{ fila.senal.accion }}</span>
+                  {% else %}
+                    <span class="texto-suave">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="tarjeta">
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button type="submit" class="boton">Guardar</button>
+      <a class="boton-secundario" href="{% url 'rutinas:asignada_detalle' asignada.pk %}">Cancelar</a>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2/dist/js/tom-select.complete.min.js"></script>
+<script>
+  (function inicializarBuscadorEjercicio(intentosRestantes) {
+    // Mismo criterio que item_form.html: sin DOMContentLoaded, y con
+    // reintento por si esta pantalla alguna vez vuelve a ser alcanzable
+    // por un swap de htmx. El `if (!campo) return` cubre gratis el modo
+    // "editar", donde no hay <select> de ejercicio.
+    var campo = document.getElementById("id_ejercicio");
+    if (!campo) return;
+    if (typeof TomSelect === "undefined") {
+      if (intentosRestantes > 0) {
+        setTimeout(function () {
+          inicializarBuscadorEjercicio(intentosRestantes - 1);
+        }, 30);
+      }
+      return;
+    }
+    new TomSelect(campo, {
+      sortField: { field: "text", direction: "asc" },
+      create: false,
+    });
+  })(100);
+</script>
+{% endblock %}

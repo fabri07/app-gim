@@ -189,6 +189,81 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
 - **`importaciones`** — importador de planes de entrenamiento y biblioteca de
   ejercicios desde Excel; ver "Importador de Excel (Proyecto 2)" abajo.
 
+## Editar la rutina asignada y el panel «Cómo viene el alumno»
+
+Agregado el 2026-08-31 a pedido del primer cliente pago: el entrenador importa
+una planilla base y después **la personaliza alumno por alumno** (kilos según
+el nivel de cada uno, variantes de un ejercicio, sumar o sacar ejercicios). El
+proyecto tenía CRUD completo de items para `RutinaPlantilla` y **nada** para
+`RutinaAsignada`, que era de solo lectura para el staff.
+
+- **`rutinas/services.py`** (nuevo) es el ÚNICO lugar que escribe sobre los
+  items de una rutina asignada: `editar_ejercicio_asignado`,
+  `agregar_ejercicio_asignado`, `quitar_ejercicio_asignado`. Las vistas no
+  escriben (ninguna llama a `form.save()`).
+- **Regla de propagación entre semanas, lo más importante de todo esto.** Un
+  ejercicio existe hasta 4 veces (una por `semana`). `ejercicio_nombre_snapshot`
+  y `ejercicio_video_snapshot` se aplican a **las 4 semanas**; `series`,
+  `repeticiones`, `kilos`, `descanso`, `notas` y `bloque`, **solo a la semana
+  editada** (la progresión semana a semana es justamente el punto). Agregar y
+  quitar actúan sobre las 4.
+  **El nombre propaga por integridad, no por comodidad**: `agrupacion.py`
+  identifica "el mismo ejercicio entre semanas" agrupando por
+  `ejercicio_nombre_snapshot`, así que renombrar una sola semana parte el
+  ejercicio en dos filas distintas en el portal del alumno y en el PDF. Los
+  "hermanos" se resuelven por `(rutina_asignada, dia,
+  ejercicio_nombre_snapshot)` — **los tres campos importan** y hay un test por
+  cada uno (sin `dia` se renombra el mismo ejercicio en los otros días; sin
+  `rutina_asignada`, en las otras rutinas del alumno).
+- **Dos trampas reales, cada una con test de regresión.** (1) El nombre viejo
+  se lee de la BASE, no de la instancia: con un `UpdateView`,
+  `ModelForm._post_clean` ya le escribió el nombre NUEVO encima, así que usarla
+  hace que el UPDATE de los hermanos no matchee ninguna fila y el renombre
+  quede aplicado a una sola semana. (2) `QuerySet.update()` **no dispara
+  `auto_now`**, así que `modificado` (de `TimeStampedModel`) va explícito en
+  los dos `update()`.
+- **Consecuencia aceptada sobre la analítica del dueño**: `tenants/analitica.py`
+  agrupa por `ejercicio_nombre_snapshot`. Hasta acá ese texto era inmutable;
+  ahora es editable, así que renombrar mueve las calificaciones viejas de
+  bucket y cambia el ranking del dashboard retroactivamente. No tiene arreglo
+  limpio (una FK viva rompería el snapshot).
+- **`rutinas/progreso.py`** (nuevo) es el diferenciador: pone frente al
+  entrenador el feedback que el alumno ya venía dando y que **no se leía en
+  ninguna vista de staff**. `RutinaAsignadaDiaCompletado` se escribía y se
+  tiraba; el `rpe` solo aparecía entre ~128 filas planas o promediado a nivel
+  gimnasio. Ahora `adherencia_de_rutina()` cruza días entrenados contra
+  sesiones previstas (**acotado a `semana_actual`**: en la semana 2 de 4 la
+  adherencia del ciclo completo no puede pasar del 50%, y leerla así sería
+  acusar al alumno de algo que todavía no pasó), y `SENALES_POR_RPE` traduce
+  los 4 valores del `TextChoices` a ↑ / = / ↓. **Es un dict de 4 entradas, no
+  IA**: el ROADMAP veta "IA de rutinas" y esto no lo es. `anotar_senales` vive
+  acá y **no** en `agrupacion.py` a propósito — esa función también alimenta el
+  portal del alumno y el PDF, y al alumno se le muestra la etiqueta que él
+  eligió, nunca una instrucción sobre su propio entrenamiento.
+- **`asignada_detail.html` se reagrupó por día** (un ejercicio por fila, las 4
+  semanas en columnas, reusando `listar_ejercicios_del_dia`). Antes era una
+  tabla plana de ~128 filas; con "quitar" actuando sobre las 4 semanas, ese
+  botón habría aparecido repetido en las 4 filas prometiendo borrar solo la
+  suya. `agrupacion.py` expone `item_referencia` (el item de la semana más
+  baja, que ya definía `orden` y `categoria_display`) para darle a la fila un
+  pk estable.
+- **Riesgo conocido que esto NO arregla**: nadie setea `RutinaAsignada.activa
+  = False`, así que un alumno puede tener dos rutinas activas y "gana" la más
+  reciente por `Meta.ordering`. El detalle avisa en pantalla cuando pasa, para
+  que el entrenador no edite una rutina que el alumno no ve.
+
+## Comentarios en templates: `{# #}` es de UNA sola línea
+
+`{# ... #}` solo es comentario para Django si abre y cierra en la **misma
+línea**. Con un salto de línea en el medio, Django lo imprime tal cual en la
+pantalla del usuario. Para varias líneas: `{% comment %}...{% endcomment %}`.
+
+No es teórico: llegó a producción con 8 casos en 5 templates, y el portal del
+alumno mostraba el comentario **en lugar del nombre del ejercicio** (ver
+`ISSUES.md` `[2026-08-31]`). Nada lo detecta solo — es HTML válido, no lanza
+excepción y no deja log. Lo cubre `ComentariosDeTemplateTests`, que barre
+TODOS los templates del proyecto.
+
 ## Vistas de staff (Fase 2)
 
 Cada app de dominio tiene `forms.py`/`views.py`/`urls.py` (namespace propio,

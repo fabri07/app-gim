@@ -26,73 +26,141 @@
         <span class="badge badge--riesgo">Inactiva</span>
       {% endif %}
     </p>
+    {% if activas_del_alumno > 1 %}
+      <p class="texto-error">
+        Este alumno tiene {{ activas_del_alumno }} rutinas marcadas como activas.
+        El portal y el PDF le muestran la más reciente por fecha de inicio, que
+        puede no ser esta.
+      </p>
+    {% endif %}
   </div>
 
+  {# ---- El diferenciador: lo que el alumno viene reportando ---- #}
   <div class="tarjeta">
-    <h2>Ejercicios</h2>
-    <div class="tabla-scroll">
-      <table class="tabla">
-        <thead>
-          <tr>
-            <th>Semana</th>
-            <th>Día</th>
-            <th>Bloque</th>
-            <th>Orden</th>
-            <th>Ejercicio</th>
-            <th>Series</th>
-            <th>Repeticiones</th>
-            <th>Kilos</th>
-            <th>Descanso</th>
-            <th>Notas</th>
-            <th>Video</th>
-            <th>RPE reportado</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in items %}
-            <tr>
-              <td>{{ item.semana }}</td>
-              <td>{{ item.dia }}{% if item.dia_nombre %}<br><span class="texto-suave text-xs">{{ item.dia_nombre }}</span>{% endif %}</td>
-              <td>{% if item.bloque %}<span class="badge">{{ item.bloque }}</span>{% else %}<span class="texto-suave">—</span>{% endif %}</td>
-              <td>{{ item.orden }}</td>
-              <td>{{ item.ejercicio_nombre_snapshot }}</td>
-              <td>{{ item.series }}</td>
-              <td>{{ item.repeticiones }}</td>
-              <td>{{ item.kilos|default:"—" }}</td>
-              <td>{{ item.descanso|default:"—" }}</td>
-              <td class="celda-notas">
-                {% if item.notas %}
-                  <details>
-                    <summary>Notas</summary>
-                    <p class="texto-suave">{{ item.notas }}</p>
-                  </details>
-                {% else %}
-                  <span class="texto-suave">—</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if item.ejercicio_video_snapshot %}
-                  <a href="{{ item.ejercicio_video_snapshot }}" target="_blank" rel="noopener">Ver video</a>
-                {% else %}
-                  <span class="texto-suave">Sin video</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if item.rpe %}
-                  {{ item.get_rpe_display }}
-                {% else %}
-                  <span class="texto-suave">Sin calificar</span>
-                {% endif %}
-              </td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="12" class="texto-suave">Esta rutina no tiene ejercicios.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <h2>Cómo viene {{ asignada.alumno }}</h2>
+    {% if adherencia.previstas %}
+      <div class="dashboard-grid">
+        <div class="metrica">
+          <span class="metrica__valor">{{ adherencia.entrenadas_hasta_hoy }}/{{ adherencia.previstas_hasta_hoy }}</span>
+          <span class="metrica__etiqueta">Sesiones entrenadas hasta la semana {{ adherencia.semana_actual }}</span>
+        </div>
+        <div class="metrica">
+          <span class="metrica__valor">{{ adherencia.porcentaje_hasta_hoy }}%</span>
+          <span class="metrica__etiqueta">Adherencia hasta hoy</span>
+        </div>
+        <div class="metrica">
+          <span class="metrica__valor">{{ adherencia.porcentaje }}%</span>
+          <span class="metrica__etiqueta">Adherencia del ciclo completo</span>
+        </div>
+      </div>
+
+      <div class="rutina-semanas-resumen">
+        {% for semana in adherencia.por_semana %}
+          <div class="rutina-semana-resumen{% if semana.es_actual %} rutina-semana-resumen--actual{% endif %}">
+            <strong>
+              Semana {{ semana.numero }}
+              {% if semana.es_actual %}<span class="badge badge--alerta">Actual</span>{% endif %}
+            </strong>
+            {% if semana.previstas %}
+              <span>{{ semana.entrenadas }} de {{ semana.previstas }} sesiones</span>
+            {% else %}
+              <span class="texto-suave">Sin ejercicios</span>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="texto-suave">Esta rutina todavía no tiene ejercicios cargados.</p>
+    {% endif %}
   </div>
+
+  {# ---- Un día por tarjeta, un ejercicio por fila, las 4 semanas en columnas ---- #}
+  {% for dia in dias %}
+    <div class="tarjeta" id="dia-{{ dia.numero }}">
+      <div class="acciones-lista">
+        <h2>Día {{ dia.numero }}{% if dia.nombre %} <span class="texto-suave">— {{ dia.nombre }}</span>{% endif %}</h2>
+        <a class="boton" hx-boost="false" href="{% url 'rutinas:asignada_item_crear' asignada.pk dia.numero %}">Agregar ejercicio</a>
+      </div>
+
+      <div class="tabla-scroll">
+        <table class="tabla tabla--rutina-semanas">
+          <thead>
+            <tr>
+              <th rowspan="2" scope="col">Ejercicio</th>
+              {% for semana in dia.semanas_meta %}
+                <th colspan="5" scope="colgroup"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>
+                  Semana {{ semana.numero }}
+                  {% if semana.es_actual %}<span class="badge badge--alerta">Actual</span>{% endif %}
+                  {% if semana.entrenada %}<span class="badge badge--ok">✓ Entrenado</span>{% endif %}
+                </th>
+              {% endfor %}
+              <th rowspan="2" scope="col">Acciones</th>
+            </tr>
+            <tr>
+              {% for semana in dia.semanas_meta %}
+                <th scope="col"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>Series</th>
+                <th scope="col"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>Reps</th>
+                <th scope="col"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>Kilos</th>
+                <th scope="col"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>Descanso</th>
+                <th scope="col"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>Cómo lo sintió</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for ejercicio in dia.ejercicios %}
+              <tr>
+                <th scope="row">
+                  {% if ejercicio.bloque %}<span class="badge">{{ ejercicio.bloque }}</span> {% endif %}
+                  {{ ejercicio.nombre }}
+                  <br><span class="texto-suave text-xs">{{ ejercicio.categoria_display }}</span>
+                  {% if ejercicio.video %}
+                    <br><a href="{{ ejercicio.video }}" target="_blank" rel="noopener">Ver video</a>
+                  {% endif %}
+                </th>
+
+                {% for semana in ejercicio.semanas %}
+                  {% if semana.item %}
+                    <td{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>{{ semana.item.series }}</td>
+                    <td{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>{{ semana.item.repeticiones }}</td>
+                    <td{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>{{ semana.item.kilos|default:"—" }}</td>
+                    <td{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>{{ semana.item.descanso|default:"—" }}</td>
+                    <td{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>
+                      {% if semana.senal %}
+                        {{ semana.item.get_rpe_display }}
+                        <br><span class="{{ semana.senal.badge }}">{{ semana.senal.flecha }} {{ semana.senal.accion }}</span>
+                      {% else %}
+                        <span class="texto-suave">Sin calificar</span>
+                      {% endif %}
+                      <br>
+                      <a hx-boost="false" href="{% url 'rutinas:asignada_item_editar' asignada.pk semana.item.pk %}">Editar</a>
+                      {% if semana.item.notas %}
+                        <details>
+                          <summary>Notas</summary>
+                          <p class="texto-suave">{{ semana.item.notas }}</p>
+                        </details>
+                      {% endif %}
+                    </td>
+                  {% else %}
+                    <td colspan="5" class="texto-suave{% if semana.es_actual %} rutina-semana-columna--actual{% endif %}">—</td>
+                  {% endif %}
+                {% endfor %}
+
+                <td>
+                  <form method="post" action="{% url 'rutinas:asignada_item_eliminar' asignada.pk ejercicio.item_referencia.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="boton-peligro">Quitar de las 4 semanas</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% empty %}
+    <div class="tarjeta">
+      <p class="texto-suave">Esta rutina no tiene ejercicios.</p>
+    </div>
+  {% endfor %}
 </div>
 {% endblock %}

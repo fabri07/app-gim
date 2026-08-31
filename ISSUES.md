@@ -20,6 +20,41 @@ del log.
 
 ---
 
+## [2026-08-31] El alumno veía un comentario del código en lugar del nombre de su ejercicio
+
+**Estado:** resuelto
+
+**Impacto:** en el portal del alumno, la columna "Ejercicio" de la rutina no
+mostraba el nombre del ejercicio sino el texto `{# El bloque agrupa
+superseries: A1, A2 y A3 se hacen uno atrás del otro...`. Estaba **en
+producción** (mergeado ese mismo día en `8e2c2c5`) y afectaba la rutina de
+TODOS los alumnos.
+
+**Causa:** el lexer de Django solo reconoce `{# ... #}` como comentario si abre
+y cierra en la **misma línea**. Con un salto de línea en el medio no lo trata
+como comentario y lo imprime tal cual. Para varias líneas hay que usar
+`{% comment %}...{% endcomment %}`.
+
+No era un caso aislado: había **8 comentarios así en 5 templates**
+(`mi_dia_detalle.html`, `ejercicio_list.html`, `categoria_list.html`,
+`plantillas_preview.html`, `biblioteca_preview.html`), todos escritos el mismo
+día y todos visibles en pantalla -- incluidos los dos previews del importador,
+que es lo que el primer cliente pago estaba usando.
+
+Nada lo detectó: es HTML válido, ningún test miraba ese pedazo del render, y
+el error no produce ninguna excepción ni entrada de log.
+
+**Resolución / próximo paso:** los 8 convertidos a `{% comment %}`. El test de
+regresión `ComentariosDeTemplateTests` (`rutinas/tests.py`) barre **todos** los
+templates del proyecto -- no solo los de `rutinas` -- porque el error es de
+sintaxis de Django, no de una app. Verificado que falla al reintroducir el
+caso y pasa con el fix.
+
+**Cómo se encontró:** haciendo la prueba manual en el navegador de otra
+feature, no por los tests ni por el code-review. Es la confirmación directa de
+la regla que ya estaba anotada: **el code-review no reemplaza abrir la app y
+mirarla.**
+
 ## [2026-08-31] Asignar un plan al alumno daba 500: el snapshot del video era más angosto que el ejercicio
 
 **Estado:** resuelto

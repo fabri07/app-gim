@@ -15,6 +15,9 @@ flujo de asignación de punta a punta.
 """
 
 from datetime import date, timedelta
+from pathlib import Path
+
+from django.conf import settings
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -33,6 +36,7 @@ from rutinas.models import (
     RutinaPlantilla,
     RutinaPlantillaItem,
 )
+from rutinas import progreso, services
 from rutinas.agrupacion import listar_ejercicios_del_dia
 from rutinas.pdf import (
     _celda_semana,
@@ -2077,6 +2081,19 @@ class BloqueYNombreDeDiaEnLaUITests(RutinasTestCase):
         self.assertContains(response, "Tren superior")
 
     def test_la_tabla_de_la_rutina_asignada_tambien(self):
+        """Antes exigía una columna `<th>Bloque</th>`, que era como se veía en
+        la tabla PLANA de la rutina asignada (una fila por ejercicio y por
+        semana).
+
+        Esa tabla se reagrupó el 2026-08-31 al sumarle la edición: ahora es un
+        día por tarjeta y un ejercicio por fila, con las 4 semanas en
+        columnas, igual que la que ya veía el alumno. El bloque pasó a ser un
+        badge al lado del nombre -- mismo tratamiento que `mi_dia_detalle.html`
+        --, así que la columna dejó de existir a propósito. Lo que este test
+        tiene que seguir garantizando es que el dato SE VE, no en qué elemento
+        vive; la tabla de PLANTILLA no cambió y su test sigue exigiendo la
+        columna.
+        """
         asignada = RutinaAsignada.crear_desde_plantilla(
             gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
             fecha_inicio=date(2026, 8, 31),
@@ -2085,8 +2102,8 @@ class BloqueYNombreDeDiaEnLaUITests(RutinasTestCase):
         response = self.client.get(
             reverse("rutinas:asignada_detalle", args=[asignada.pk])
         )
-        self.assertContains(response, "<th>Bloque</th>", html=False)
-        self.assertContains(response, "A1")
+        self.assertContains(response, '<span class="badge">A1</span>', html=False)
+        self.assertContains(response, "Tren superior")
 
     def test_el_portal_del_alumno_titula_el_dia(self):
         asignada = RutinaAsignada.crear_desde_plantilla(
@@ -2171,3 +2188,948 @@ class AnchoDeCamposSnapshotTests(SimpleTestCase):
                     f"{largo_origen}): asignar una rutina con un valor largo "
                     f"va a dar DataError en Postgres.",
                 )
+
+
+class SenalDeCargaTests(SimpleTestCase):
+    """El mapeo RPE -> señal de carga. Puro, sin base.
+
+    Es lo que convierte el feedback del alumno en algo accionable para el
+    entrenador. Sin cálculo ni inferencia: un dict de 4 entradas.
+    """
+
+    def test_las_cuatro_choices_tienen_senal(self):
+        """Guardarraíl: si mañana se agrega un 5to nivel de RPE, este test
+        falla en vez de renderizar un hueco silencioso en la pantalla."""
+        for valor, _etiqueta in RutinaAsignadaItem.RPE.choices:
+            with self.subTest(rpe=valor):
+                self.assertIsNotNone(progreso.senal_de_carga(valor))
+
+    def test_sin_calificar_no_tiene_senal(self):
+        self.assertIsNone(progreso.senal_de_carga(""))
+
+    def test_valor_fuera_de_catalogo_no_rompe(self):
+        """Defensivo: un dato viejo o una choice eliminada no debe voltear la
+        pantalla del staff."""
+        self.assertIsNone(progreso.senal_de_carga("chirimbolo"))
+
+    def test_mas_intenso_sube_y_bajar_intensidad_baja(self):
+        subir = progreso.senal_de_carga(RutinaAsignadaItem.RPE.MAS_INTENSO)
+        bajar = progreso.senal_de_carga(RutinaAsignadaItem.RPE.BAJAR_INTENSIDAD)
+        self.assertEqual(subir.flecha, "↑")
+        self.assertIn("Subir", subir.accion)
+        self.assertEqual(bajar.flecha, "↓")
+        self.assertIn("Bajar", bajar.accion)
+
+    def test_al_limite_no_dice_subir(self):
+        """Fija la decisión de producto: "Estoy al límite" describe haber
+        llegado al tope buscado, no haberse pasado -> mantener, no bajar, y
+        nunca subir."""
+        senal = progreso.senal_de_carga(RutinaAsignadaItem.RPE.AL_LIMITE)
+        self.assertEqual(senal.flecha, "=")
+        self.assertNotIn("Subir", senal.accion)
+
+    def test_la_flecha_no_es_el_unico_portador_del_significado(self):
+        """Accesibilidad: nada codificado solo por color ni solo por símbolo.
+        Cada señal trae también su texto."""
+        for valor, _ in RutinaAsignadaItem.RPE.choices:
+            with self.subTest(rpe=valor):
+                self.assertTrue(progreso.senal_de_carga(valor).accion.strip())
+
+    def test_anotar_senales_tolera_semanas_sin_item(self):
+        ejercicios = [{"semanas": [{"numero": 1, "item": None}]}]
+        anotados = progreso.anotar_senales(ejercicios)
+        self.assertIsNone(anotados[0]["semanas"][0]["senal"])
+
+
+class AdherenciaTests(RutinasTestCase):
+    """Cuántas sesiones entrenó el alumno sobre las que le tocaban.
+
+    `RutinaAsignadaDiaCompletado` existía desde antes pero NO se leía en
+    ninguna vista de staff: el alumno marcaba cada día como entrenado y ese
+    dato no llegaba a ningún lado.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Full body", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=1,
+        )
+
+    def _asignada_con(self, pares, fecha_inicio=None):
+        """`pares`: [(dia, semana), ...] a materializar como items."""
+        asignada = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            nombre_snapshot="Full body", objetivo_snapshot="Fuerza",
+            fecha_inicio=fecha_inicio or timezone.localdate(),
+        )
+        RutinaAsignadaItem.objects.bulk_create([
+            RutinaAsignadaItem(
+                rutina_asignada=asignada, ejercicio_nombre_snapshot="Press",
+                semana=semana, dia=dia, orden=1, series=3, repeticiones="10",
+            )
+            for dia, semana in pares
+        ])
+        return asignada
+
+    def test_una_sesion_es_un_dia_de_una_semana_no_un_ejercicio(self):
+        asignada = self._asignada_con([(1, 1)])
+        RutinaAsignadaItem.objects.bulk_create([
+            RutinaAsignadaItem(
+                rutina_asignada=asignada, ejercicio_nombre_snapshot=f"Otro {n}",
+                semana=1, dia=1, orden=n + 2, series=3, repeticiones="10",
+            )
+            for n in range(4)
+        ])
+        self.assertEqual(progreso.adherencia_de_rutina(asignada).previstas, 1)
+
+    def test_solo_cuenta_los_dias_semana_que_tienen_items(self):
+        asignada = self._asignada_con([(1, 1), (1, 2)])
+        self.assertEqual(progreso.adherencia_de_rutina(asignada).previstas, 2)
+
+    def test_un_dia_completado_sin_items_no_infla_la_adherencia(self):
+        """Pasa cuando el staff quita el último ejercicio de un día: la fila
+        de "entrenado" queda a propósito (el alumno sí entrenó), pero no debe
+        contar sobre una sesión que ya no existe."""
+        asignada = self._asignada_con([(1, 1)])
+        RutinaAsignadaDiaCompletado.objects.create(
+            rutina_asignada=asignada, dia=9, semana=1
+        )
+        adherencia = progreso.adherencia_de_rutina(asignada)
+        self.assertEqual(adherencia.previstas, 1)
+        self.assertEqual(adherencia.entrenadas, 0)
+
+    def test_sin_sesiones_previstas_no_divide_por_cero(self):
+        asignada = self._asignada_con([])
+        self.assertEqual(progreso.adherencia_de_rutina(asignada).porcentaje, 0)
+
+    def test_hasta_hoy_se_acota_a_la_semana_actual(self):
+        """En la semana 2 de 4, la adherencia sobre el ciclo completo no puede
+        pasar del 50% aunque el alumno haya venido a todo -- leerla así sería
+        acusarlo de algo que todavía no pasó."""
+        asignada = self._asignada_con(
+            [(1, 1), (1, 2), (1, 3), (1, 4)],
+            fecha_inicio=timezone.localdate() - timedelta(days=7),
+        )
+        self.assertEqual(asignada.semana_actual, 2)
+        for semana in (1, 2):
+            RutinaAsignadaDiaCompletado.objects.create(
+                rutina_asignada=asignada, dia=1, semana=semana
+            )
+        adherencia = progreso.adherencia_de_rutina(asignada)
+        self.assertEqual(adherencia.porcentaje_hasta_hoy, 100)
+        self.assertEqual(adherencia.porcentaje, 50)
+
+    def test_por_semana_siempre_tiene_cuatro_entradas(self):
+        asignada = self._asignada_con([(1, 1)])
+        adherencia = progreso.adherencia_de_rutina(asignada)
+        self.assertEqual(len(adherencia.por_semana), 4)
+        self.assertTrue(adherencia.por_semana[0].es_actual)
+
+    def test_no_hace_una_query_por_item(self):
+        chica = self._asignada_con([(1, 1)])
+        grande = self._asignada_con([(d, s) for d in range(1, 5) for s in range(1, 5)])
+        with CaptureQueriesContext(connection) as pocas:
+            progreso.adherencia_de_rutina(chica)
+        with CaptureQueriesContext(connection) as muchas:
+            progreso.adherencia_de_rutina(grande)
+        self.assertEqual(len(pocas), len(muchas))
+
+    def test_no_mezcla_los_dias_completados_de_otra_rutina(self):
+        """Garantía de que solo se lee vía `asignada.items` /
+        `asignada.dias_completados`, nunca por el manager global."""
+        propia = self._asignada_con([(1, 1)])
+        ajena = self._asignada_con([(1, 1)])
+        RutinaAsignadaDiaCompletado.objects.create(
+            rutina_asignada=ajena, dia=1, semana=1
+        )
+        self.assertEqual(progreso.adherencia_de_rutina(propia).entrenadas, 0)
+        self.assertEqual(progreso.adherencia_de_rutina(ajena).entrenadas, 1)
+
+
+class EditarRutinaAsignadaServiceTests(RutinasTestCase):
+    """La regla de propagación entre semanas, que es el corazón de
+    `rutinas/services.py`.
+
+    Nombre y video van a las 4 semanas; series/kilos/etc. solo a la editada.
+    El nombre propaga por INTEGRIDAD: `agrupacion.py` identifica "el mismo
+    ejercicio entre semanas" por `ejercicio_nombre_snapshot`, así que
+    renombrar una sola semana partiría el ejercicio en dos filas distintas en
+    el portal del alumno y en el PDF.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Un tercero, con categoría, para probar que "agregar" copia bien el
+        # snapshot (el fixture base solo trae dos y sin categoría).
+        self.remo = Ejercicio.objects.create(
+            gimnasio=self.gimnasio,
+            nombre="Remo con barra",
+            categoria=CategoriaEjercicio.objects.create(
+                gimnasio=self.gimnasio, nombre="Tracción"
+            ),
+            url_video="https://youtube.com/watch?v=remo",
+        )
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Full body", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=2,
+        )
+        for dia in (1, 2):
+            for semana in range(1, 5):
+                for orden, ejercicio in enumerate(
+                    (self.press_banca, self.sentadilla), start=1
+                ):
+                    RutinaPlantillaItem.objects.create(
+                        rutina=self.plantilla, ejercicio=ejercicio, semana=semana,
+                        dia=dia, orden=orden, series=3, repeticiones="10",
+                        kilos="20kg", dia_nombre="Tren superior",
+                    )
+        self.asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
+            fecha_inicio=timezone.localdate(),
+        )
+        self.item = self.asignada.items.get(
+            dia=1, semana=2, ejercicio_nombre_snapshot=self.press_banca.nombre
+        )
+
+    def _editar(self, **overrides):
+        datos = {
+            "ejercicio_nombre": self.item.ejercicio_nombre_snapshot,
+            "ejercicio_video": self.item.ejercicio_video_snapshot,
+            "series": self.item.series,
+            "repeticiones": self.item.repeticiones,
+            "kilos": self.item.kilos,
+            "descanso": self.item.descanso,
+            "notas": self.item.notas,
+            "bloque": self.item.bloque,
+        }
+        datos.update(overrides)
+        return services.editar_ejercicio_asignado(
+            asignada=self.asignada, item=self.item, **datos
+        )
+
+    def _nombres_del_dia(self, dia=1):
+        return sorted(
+            self.asignada.items.filter(dia=dia).values_list(
+                "ejercicio_nombre_snapshot", flat=True
+            )
+        )
+
+    # ---- el nombre y el video propagan a las 4 semanas ----
+
+    def test_renombrar_afecta_las_cuatro_semanas(self):
+        self._editar(ejercicio_nombre="Press inclinado")
+        self.assertEqual(
+            self.asignada.items.filter(
+                dia=1, ejercicio_nombre_snapshot="Press inclinado"
+            ).count(),
+            4,
+        )
+
+    def test_renombrar_no_toca_el_otro_ejercicio_del_mismo_dia(self):
+        self._editar(ejercicio_nombre="Press inclinado")
+        self.assertEqual(
+            self.asignada.items.filter(
+                dia=1, ejercicio_nombre_snapshot=self.sentadilla.nombre
+            ).count(),
+            4,
+        )
+
+    def test_renombrar_no_toca_el_mismo_ejercicio_en_otro_dia(self):
+        """`dia` es parte de la clave de hermanos: sin él, renombrar en el día
+        1 renombraría también el día 2."""
+        self._editar(ejercicio_nombre="Press inclinado")
+        self.assertEqual(
+            self.asignada.items.filter(
+                dia=2, ejercicio_nombre_snapshot=self.press_banca.nombre
+            ).count(),
+            4,
+        )
+
+    def test_renombrar_no_toca_otra_rutina_del_mismo_alumno(self):
+        """`rutina_asignada` es parte de la clave: sin él, editar la rutina
+        nueva reescribiría el historial del alumno."""
+        otra = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
+            fecha_inicio=timezone.localdate(),
+        )
+        self._editar(ejercicio_nombre="Press inclinado")
+        self.assertEqual(
+            otra.items.filter(
+                ejercicio_nombre_snapshot=self.press_banca.nombre
+            ).count(),
+            8,
+        )
+
+    def test_el_video_tambien_propaga_a_las_cuatro_semanas(self):
+        self._editar(ejercicio_video="https://youtube.com/watch?v=nuevo")
+        videos = set(
+            self.asignada.items.filter(
+                dia=1, ejercicio_nombre_snapshot=self.press_banca.nombre
+            ).values_list("ejercicio_video_snapshot", flat=True)
+        )
+        self.assertEqual(videos, {"https://youtube.com/watch?v=nuevo"})
+
+    def test_vaciar_el_video_lo_vacia_en_las_cuatro_semanas(self):
+        self._editar(ejercicio_video="")
+        videos = set(
+            self.asignada.items.filter(
+                dia=1, ejercicio_nombre_snapshot=self.press_banca.nombre
+            ).values_list("ejercicio_video_snapshot", flat=True)
+        )
+        self.assertEqual(videos, {""})
+
+    def test_renombrar_no_toca_el_rpe_que_cargo_el_alumno(self):
+        hermano = self.asignada.items.get(
+            dia=1, semana=3, ejercicio_nombre_snapshot=self.press_banca.nombre
+        )
+        hermano.rpe = RutinaAsignadaItem.RPE.AL_LIMITE
+        hermano.save(update_fields=["rpe"])
+        self._editar(ejercicio_nombre="Press inclinado")
+        hermano.refresh_from_db()
+        self.assertEqual(hermano.rpe, RutinaAsignadaItem.RPE.AL_LIMITE)
+
+    def test_renombrar_no_toca_la_plantilla_original(self):
+        """El snapshot sigue siendo snapshot: editar la copia del alumno nunca
+        vuelve hacia el molde."""
+        self._editar(ejercicio_nombre="Press inclinado")
+        self.assertTrue(
+            self.plantilla.items.filter(ejercicio=self.press_banca).exists()
+        )
+
+    def test_modificado_se_actualiza_pese_al_queryset_update(self):
+        """`QuerySet.update()` NO dispara `auto_now`: sin pasarlo explícito, el
+        campo de auditoría de `TimeStampedModel` quedaría mintiendo."""
+        hermano = self.asignada.items.get(
+            dia=1, semana=4, ejercicio_nombre_snapshot=self.press_banca.nombre
+        )
+        antes = hermano.modificado
+        self._editar(ejercicio_nombre="Press inclinado")
+        hermano.refresh_from_db()
+        self.assertGreater(hermano.modificado, antes)
+
+    # ---- los campos de la semana NO propagan ----
+
+    def test_series_y_kilos_cambian_solo_en_la_semana_editada(self):
+        self._editar(series=9, kilos="99kg")
+        editado = self.asignada.items.get(pk=self.item.pk)
+        self.assertEqual(editado.series, 9)
+        self.assertEqual(editado.kilos, "99kg")
+        otras = self.asignada.items.filter(
+            dia=1, ejercicio_nombre_snapshot=self.press_banca.nombre
+        ).exclude(pk=self.item.pk)
+        self.assertEqual(set(otras.values_list("series", flat=True)), {3})
+        self.assertEqual(set(otras.values_list("kilos", flat=True)), {"20kg"})
+
+    def test_notas_y_bloque_cambian_solo_en_la_semana_editada(self):
+        self._editar(notas="cuidar el hombro", bloque="B2")
+        otras = self.asignada.items.filter(
+            dia=1, ejercicio_nombre_snapshot=self.press_banca.nombre
+        ).exclude(pk=self.item.pk)
+        self.assertEqual(set(otras.values_list("notas", flat=True)), {""})
+        self.assertEqual(set(otras.values_list("bloque", flat=True)), {""})
+
+    # ---- duplicados ----
+
+    def test_renombrar_a_un_nombre_ya_usado_en_el_dia_se_rechaza(self):
+        with self.assertRaises(services.NombreDuplicadoEnElDia):
+            self._editar(ejercicio_nombre=self.sentadilla.nombre)
+
+    def test_renombrar_a_un_nombre_usado_en_otro_dia_esta_permitido(self):
+        """Los días son independientes: el mismo ejercicio puede estar en
+        varios días."""
+        otro = self.asignada.items.get(
+            dia=2, semana=1, ejercicio_nombre_snapshot=self.sentadilla.nombre
+        )
+        services.editar_ejercicio_asignado(
+            asignada=self.asignada, item=otro,
+            ejercicio_nombre="Peso muerto", ejercicio_video="",
+            series=3, repeticiones="10",
+        )
+        self.assertIn("Peso muerto", self._nombres_del_dia(dia=2))
+
+    def test_guardar_sin_cambiar_el_nombre_no_es_duplicado(self):
+        self._editar(series=5)
+        self.assertEqual(self.asignada.items.get(pk=self.item.pk).series, 5)
+
+    def test_cambiar_solo_mayusculas_del_propio_nombre_esta_permitido(self):
+        self._editar(ejercicio_nombre=self.press_banca.nombre.upper())
+        self.assertEqual(
+            self.asignada.items.filter(
+                dia=1, ejercicio_nombre_snapshot=self.press_banca.nombre.upper()
+            ).count(),
+            4,
+        )
+
+    def test_un_nombre_que_solo_difiere_en_mayusculas_de_otro_se_rechaza(self):
+        """`iexact`: no se fusionarían en `agrupacion.py` (que compara exacto),
+        pero son el mismo error del entrenador y dan dos filas casi idénticas
+        en el portal del alumno."""
+        with self.assertRaises(services.NombreDuplicadoEnElDia):
+            self._editar(ejercicio_nombre=self.sentadilla.nombre.upper())
+
+    def test_el_duplicado_no_deja_nada_escrito(self):
+        with self.assertRaises(services.NombreDuplicadoEnElDia):
+            self._editar(ejercicio_nombre=self.sentadilla.nombre, series=99)
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.series, 3)
+        self.assertEqual(self.item.ejercicio_nombre_snapshot, self.press_banca.nombre)
+
+    # ---- agregar ----
+
+    def test_agregar_crea_una_fila_por_semana_del_dia(self):
+        creados = services.agregar_ejercicio_asignado(
+            asignada=self.asignada, dia=1, ejercicio=self.remo,
+            series=3, repeticiones="12",
+        )
+        self.assertEqual(len(creados), 4)
+        self.assertEqual(
+            self.asignada.items.filter(
+                dia=1, ejercicio_nombre_snapshot=self.remo.nombre
+            ).count(),
+            4,
+        )
+
+    def test_agregar_copia_nombre_video_y_categoria_al_snapshot(self):
+        services.agregar_ejercicio_asignado(
+            asignada=self.asignada, dia=1, ejercicio=self.remo,
+            series=3, repeticiones="12",
+        )
+        nuevo = self.asignada.items.filter(
+            dia=1, ejercicio_nombre_snapshot=self.remo.nombre
+        ).first()
+        self.assertEqual(nuevo.ejercicio_video_snapshot, self.remo.url_video)
+        self.assertEqual(
+            nuevo.categoria_snapshot,
+            self.remo.categoria.nombre if self.remo.categoria_id else "",
+        )
+
+    def test_agregar_usa_el_mismo_orden_en_todas_las_semanas(self):
+        """`agrupacion.py` toma el `orden` de la semana más baja: órdenes
+        distintos entre semanas darían una posición que no corresponde a
+        ninguna semana en particular."""
+        services.agregar_ejercicio_asignado(
+            asignada=self.asignada, dia=1, ejercicio=self.remo,
+            series=3, repeticiones="12",
+        )
+        ordenes = set(
+            self.asignada.items.filter(
+                dia=1, ejercicio_nombre_snapshot=self.remo.nombre
+            ).values_list("orden", flat=True)
+        )
+        self.assertEqual(ordenes, {3})
+
+    def test_agregar_hereda_el_dia_nombre_del_dia(self):
+        services.agregar_ejercicio_asignado(
+            asignada=self.asignada, dia=1, ejercicio=self.remo,
+            series=3, repeticiones="12",
+        )
+        nuevo = self.asignada.items.filter(
+            dia=1, ejercicio_nombre_snapshot=self.remo.nombre
+        ).first()
+        self.assertEqual(nuevo.dia_nombre, "Tren superior")
+
+    def test_agregar_en_un_dia_de_tres_semanas_no_inventa_la_cuarta(self):
+        """Crear la semana que la planilla no tenía inventaría una sesión y
+        ensuciaría el denominador de la adherencia."""
+        self.asignada.items.filter(dia=1, semana=4).delete()
+        creados = services.agregar_ejercicio_asignado(
+            asignada=self.asignada, dia=1, ejercicio=self.remo,
+            series=3, repeticiones="12",
+        )
+        self.assertEqual(len(creados), 3)
+        self.assertFalse(self.asignada.items.filter(dia=1, semana=4).exists())
+
+    def test_agregar_un_nombre_ya_presente_en_el_dia_se_rechaza(self):
+        with self.assertRaises(services.NombreDuplicadoEnElDia):
+            services.agregar_ejercicio_asignado(
+                asignada=self.asignada, dia=1, ejercicio=self.press_banca,
+                series=3, repeticiones="12",
+            )
+
+    def test_agregar_en_un_dia_sin_items_levanta_dia_inexistente(self):
+        with self.assertRaises(services.DiaInexistente):
+            services.agregar_ejercicio_asignado(
+                asignada=self.asignada, dia=9, ejercicio=self.remo,
+                series=3, repeticiones="12",
+            )
+
+    def test_agregar_no_dispara_una_query_por_semana(self):
+        self.asignada.items.filter(dia=2).exclude(semana=1).delete()
+        with CaptureQueriesContext(connection) as una_semana:
+            services.agregar_ejercicio_asignado(
+                asignada=self.asignada, dia=2, ejercicio=self.remo,
+                series=3, repeticiones="12",
+            )
+        with CaptureQueriesContext(connection) as cuatro_semanas:
+            services.agregar_ejercicio_asignado(
+                asignada=self.asignada, dia=1, ejercicio=self.remo,
+                series=3, repeticiones="12",
+            )
+        self.assertEqual(len(una_semana), len(cuatro_semanas))
+
+    # ---- quitar ----
+
+    def test_quitar_borra_las_cuatro_semanas(self):
+        borradas = services.quitar_ejercicio_asignado(
+            asignada=self.asignada, item=self.item
+        )
+        self.assertEqual(borradas, 4)
+        self.assertFalse(
+            self.asignada.items.filter(
+                dia=1, ejercicio_nombre_snapshot=self.press_banca.nombre
+            ).exists()
+        )
+
+    def test_quitar_no_toca_el_mismo_ejercicio_en_otro_dia(self):
+        services.quitar_ejercicio_asignado(asignada=self.asignada, item=self.item)
+        self.assertEqual(
+            self.asignada.items.filter(
+                dia=2, ejercicio_nombre_snapshot=self.press_banca.nombre
+            ).count(),
+            4,
+        )
+
+    # ---- integración con lo que lee aguas abajo ----
+
+    def test_renombrar_no_parte_el_ejercicio_en_dos_filas(self):
+        """El motivo entero de que el nombre propague."""
+        antes = len(listar_ejercicios_del_dia(self.asignada.items.filter(dia=1)))
+        self._editar(ejercicio_nombre="Press inclinado")
+        despues = len(listar_ejercicios_del_dia(self.asignada.items.filter(dia=1)))
+        self.assertEqual(antes, despues)
+
+    def test_el_pdf_sigue_saliendo_despues_de_editar(self):
+        self._editar(ejercicio_nombre="Press inclinado", kilos="40kg")
+        self.assertIsNotNone(generar_pdf_rutina_asignada(self.asignada))
+
+
+class RutinaAsignadaItemViewsTests(RutinasTestCase):
+    """Las tres vistas de edición del snapshot: permisos, aislamiento de
+    tenant y flujo de punta a punta.
+
+    El aislamiento no lo da `TenantScopedMixin` (los items no son
+    `TenantOwnedModel`): lo da `ItemAsignadaMixin` al resolver primero la
+    `RutinaAsignada` padre con `for_gimnasio()`. Mismo mecanismo que
+    `ItemPlantillaMixin`, y por eso se testea el mismo par de casos.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Full body", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=1,
+        )
+        for semana in range(1, 5):
+            RutinaPlantillaItem.objects.create(
+                rutina=self.plantilla, ejercicio=self.press_banca, semana=semana,
+                dia=1, orden=1, series=3, repeticiones="10",
+            )
+        self.asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
+            fecha_inicio=timezone.localdate(),
+        )
+        self.item = self.asignada.items.get(dia=1, semana=1)
+
+        # Un segundo gimnasio completo, para los dos casos de aislamiento.
+        self.otro_gim = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        self.otro_alumno = Alumno.objects.create(
+            gimnasio=self.otro_gim, nombre="Beto", apellido="Gómez"
+        )
+        self.otra_asignada = RutinaAsignada.objects.create(
+            gimnasio=self.otro_gim, alumno=self.otro_alumno,
+            nombre_snapshot="Ajena", objetivo_snapshot="Fuerza",
+            fecha_inicio=timezone.localdate(),
+        )
+        self.item_ajeno = RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.otra_asignada,
+            ejercicio_nombre_snapshot="Ajeno", semana=1, dia=1, orden=1,
+            series=3, repeticiones="10",
+        )
+
+    def _urls(self):
+        return {
+            "editar": reverse(
+                "rutinas:asignada_item_editar", args=[self.asignada.pk, self.item.pk]
+            ),
+            "eliminar": reverse(
+                "rutinas:asignada_item_eliminar", args=[self.asignada.pk, self.item.pk]
+            ),
+            "crear": reverse(
+                "rutinas:asignada_item_crear", args=[self.asignada.pk, 1]
+            ),
+        }
+
+    def _datos_edicion(self, **overrides):
+        datos = {
+            "ejercicio_nombre_snapshot": self.item.ejercicio_nombre_snapshot,
+            "ejercicio_video_snapshot": "",
+            "series": 3,
+            "repeticiones": "10",
+            "kilos": "",
+            "descanso": "",
+            "notas": "",
+            "bloque": "",
+        }
+        datos.update(overrides)
+        return datos
+
+    # ---- permisos ----
+
+    def test_anonimo_no_entra(self):
+        for nombre, url in self._urls().items():
+            with self.subTest(vista=nombre):
+                self.assertEqual(self.client.post(url, {}).status_code, 302)
+
+    def test_el_alumno_recibe_403(self):
+        usuario = User.objects.create_user("alu", password="clave-123456")
+        perfil = Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno.perfil = perfil
+        self.alumno.save()
+        self.client.login(username="alu", password="clave-123456")
+        for nombre, url in self._urls().items():
+            with self.subTest(vista=nombre):
+                self.assertEqual(self.client.post(url, {}).status_code, 403)
+
+    def test_eliminar_no_acepta_get(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        self.assertEqual(self.client.get(self._urls()["eliminar"]).status_code, 405)
+
+    # ---- aislamiento de tenant ----
+
+    def test_staff_de_otro_gimnasio_recibe_404(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        url = reverse(
+            "rutinas:asignada_item_editar",
+            args=[self.otra_asignada.pk, self.item_ajeno.pk],
+        )
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_item_de_otra_rutina_no_es_accesible_desde_una_asignada_propia(self):
+        """El caso cruzado: `asignada_pk` legítima + `pk` de un item ajeno.
+        Da 404 porque el item no está en `asignada.items`. Espejo de
+        `test_item_de_otro_gimnasio_no_es_accesible_desde_plantilla_ajena`."""
+        self.client.login(username="staff-a", password="clave-123456")
+        url = reverse(
+            "rutinas:asignada_item_editar",
+            args=[self.asignada.pk, self.item_ajeno.pk],
+        )
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_no_se_puede_borrar_un_item_ajeno_desde_una_asignada_propia(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        url = reverse(
+            "rutinas:asignada_item_eliminar",
+            args=[self.asignada.pk, self.item_ajeno.pk],
+        )
+        self.assertEqual(self.client.post(url, {}).status_code, 404)
+        self.assertTrue(
+            RutinaAsignadaItem.objects.filter(pk=self.item_ajeno.pk).exists()
+        )
+
+    def test_agregar_en_un_dia_que_la_rutina_no_tiene_da_404(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        url = reverse("rutinas:asignada_item_crear", args=[self.asignada.pk, 9])
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    # ---- flujo de punta a punta ----
+
+    def test_editar_propaga_el_nombre_y_redirige(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.post(
+            self._urls()["editar"],
+            self._datos_edicion(
+                ejercicio_nombre_snapshot="Press inclinado", kilos="40kg"
+            ),
+        )
+        self.assertRedirects(
+            response, reverse("rutinas:asignada_detalle", args=[self.asignada.pk])
+        )
+        self.assertEqual(
+            self.asignada.items.filter(
+                ejercicio_nombre_snapshot="Press inclinado"
+            ).count(),
+            4,
+        )
+        # Los kilos, en cambio, solo en la semana editada.
+        self.assertEqual(
+            self.asignada.items.filter(kilos="40kg").count(), 1
+        )
+
+    def test_agregar_crea_las_cuatro_filas(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.post(
+            self._urls()["crear"],
+            {
+                "ejercicio": self.sentadilla.pk,
+                "series": 3,
+                "repeticiones": "12",
+                "kilos": "",
+                "descanso": "",
+                "notas": "",
+                "bloque": "",
+            },
+        )
+        self.assertRedirects(
+            response, reverse("rutinas:asignada_detalle", args=[self.asignada.pk])
+        )
+        self.assertEqual(
+            self.asignada.items.filter(
+                ejercicio_nombre_snapshot=self.sentadilla.nombre
+            ).count(),
+            4,
+        )
+
+    def test_agregar_un_ejercicio_de_otro_gimnasio_es_invalido(self):
+        """FK-injection: el queryset lo acota `TenantScopedModelForm`."""
+        ajeno = Ejercicio.objects.create(gimnasio=self.otro_gim, nombre="Ajeno")
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.post(
+            self._urls()["crear"],
+            {"ejercicio": ajeno.pk, "series": 3, "repeticiones": "12"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            self.asignada.items.filter(ejercicio_nombre_snapshot="Ajeno").exists()
+        )
+
+    def test_quitar_borra_las_cuatro_filas(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.post(self._urls()["eliminar"], {})
+        self.assertRedirects(
+            response, reverse("rutinas:asignada_detalle", args=[self.asignada.pk])
+        )
+        self.assertEqual(self.asignada.items.count(), 0)
+
+    def test_nombre_duplicado_no_escribe_y_muestra_el_error(self):
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=self.asignada, ejercicio_nombre_snapshot="Sentadilla",
+            semana=1, dia=1, orden=2, series=3, repeticiones="10",
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.post(
+            self._urls()["editar"],
+            self._datos_edicion(ejercicio_nombre_snapshot="Sentadilla"),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["form"].errors)
+        self.item.refresh_from_db()
+        self.assertEqual(
+            self.item.ejercicio_nombre_snapshot, self.press_banca.nombre
+        )
+
+    def test_el_staff_no_puede_pisar_el_rpe_del_alumno(self):
+        """`rpe` no es campo del form: es dato del alumno y esta es una
+        pantalla de staff."""
+        self.item.rpe = RutinaAsignadaItem.RPE.AL_LIMITE
+        self.item.save(update_fields=["rpe"])
+        self.client.login(username="staff-a", password="clave-123456")
+        self.client.post(
+            self._urls()["editar"],
+            self._datos_edicion(rpe=RutinaAsignadaItem.RPE.MAS_INTENSO),
+        )
+        self.item.refresh_from_db()
+        self.assertEqual(self.item.rpe, RutinaAsignadaItem.RPE.AL_LIMITE)
+
+    def test_el_form_de_edicion_no_ofrece_estructura_ni_rpe(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(self._urls()["editar"])
+        self.assertEqual(
+            set(response.context["form"].fields),
+            {
+                "ejercicio_nombre_snapshot", "ejercicio_video_snapshot",
+                "series", "repeticiones", "kilos", "descanso", "notas", "bloque",
+            },
+        )
+
+    def test_el_form_muestra_el_rpe_que_reporto_el_alumno(self):
+        """El diferenciador, en el punto donde el entrenador decide."""
+        hermano = self.asignada.items.get(dia=1, semana=2)
+        hermano.rpe = RutinaAsignadaItem.RPE.MAS_INTENSO
+        hermano.save(update_fields=["rpe"])
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(self._urls()["editar"])
+        self.assertContains(response, "Subir la carga")
+        self.assertContains(response, "Sin calificar")
+
+
+class AsignadaDetailPanelTests(RutinasTestCase):
+    """El panel «Cómo viene el alumno» y la tabla reagrupada por día."""
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.asignada = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            nombre_snapshot="Full body", objetivo_snapshot="Fuerza",
+            fecha_inicio=timezone.localdate(),
+        )
+        RutinaAsignadaItem.objects.bulk_create([
+            RutinaAsignadaItem(
+                rutina_asignada=self.asignada,
+                ejercicio_nombre_snapshot=nombre,
+                semana=semana, dia=dia, orden=orden, series=3, repeticiones="10",
+            )
+            for dia in (1, 2)
+            for semana in range(1, 5)
+            for orden, nombre in enumerate(("Press", "Sentadilla"), start=1)
+        ])
+        self.client.login(username="staff-a", password="clave-123456")
+
+    def _get(self):
+        return self.client.get(
+            reverse("rutinas:asignada_detalle", args=[self.asignada.pk])
+        )
+
+    def test_agrupa_por_dia_y_no_repite_el_ejercicio_por_semana(self):
+        """16 items -> 2 días de 2 filas, no 16 filas."""
+        response = self._get()
+        dias = response.context["dias"]
+        self.assertEqual(len(dias), 2)
+        self.assertEqual(len(dias[0]["ejercicios"]), 2)
+
+    def test_muestra_la_adherencia(self):
+        RutinaAsignadaDiaCompletado.objects.create(
+            rutina_asignada=self.asignada, dia=1, semana=1
+        )
+        response = self._get()
+        self.assertContains(response, "Cómo viene")
+        self.assertEqual(response.context["adherencia"].entrenadas, 1)
+
+    def test_marca_las_semanas_que_el_alumno_entreno(self):
+        """Primera vez que `RutinaAsignadaDiaCompletado` aparece en una vista
+        de staff: hasta ahora el alumno lo marcaba y nadie lo veía."""
+        RutinaAsignadaDiaCompletado.objects.create(
+            rutina_asignada=self.asignada, dia=1, semana=1
+        )
+        self.assertContains(self._get(), "✓ Entrenado")
+
+    def test_muestra_la_senal_de_carga_del_rpe(self):
+        item = self.asignada.items.filter(dia=1, semana=1).first()
+        item.rpe = RutinaAsignadaItem.RPE.MAS_INTENSO
+        item.save(update_fields=["rpe"])
+        self.assertContains(self._get(), "Subir la carga")
+
+    def test_un_ejercicio_sin_calificar_no_muestra_senal(self):
+        self.assertContains(self._get(), "Sin calificar")
+
+    def test_hay_un_boton_de_agregar_por_dia(self):
+        response = self._get()
+        for dia in (1, 2):
+            self.assertContains(
+                response,
+                reverse("rutinas:asignada_item_crear", args=[self.asignada.pk, dia]),
+            )
+
+    def test_los_links_al_formulario_llevan_hx_boost_false(self):
+        """Guardarraíl de la causa raíz recurrente #1 del proyecto: el form
+        necesita `extra_style` (CSS de Tom Select), que vive en el <head> y
+        htmx nunca swapea en una navegación boosteada."""
+        response = self._get()
+        contenido = response.content.decode()
+        for url in (
+            reverse("rutinas:asignada_item_crear", args=[self.asignada.pk, 1]),
+            reverse(
+                "rutinas:asignada_item_editar",
+                args=[self.asignada.pk, self.asignada.items.first().pk],
+            ),
+        ):
+            posicion = contenido.find(url)
+            self.assertNotEqual(posicion, -1, url)
+            self.assertIn('hx-boost="false"', contenido[posicion - 120:posicion])
+
+    def test_avisa_cuando_hay_mas_de_una_rutina_activa(self):
+        """No arregla el bug (nadie setea `activa=False`), pero lo vuelve
+        visible: sin esto el entrenador puede editar una rutina que el alumno
+        no ve."""
+        RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            nombre_snapshot="Otra", objetivo_snapshot="Fuerza",
+            fecha_inicio=timezone.localdate(),
+        )
+        self.assertContains(self._get(), "rutinas marcadas como activas")
+
+    def test_no_avisa_con_una_sola_rutina_activa(self):
+        self.assertNotContains(self._get(), "rutinas marcadas como activas")
+
+    def test_el_portal_del_alumno_no_muestra_la_senal_de_carga(self):
+        """La señal es una lectura de ENTRENADOR. Al alumno se le muestra la
+        etiqueta que él mismo eligió, no una instrucción sobre su propio
+        entrenamiento -- por eso `anotar_senales` vive en `progreso.py` y no
+        dentro de `agrupacion.py`."""
+        item = self.asignada.items.filter(dia=1, semana=1).first()
+        item.rpe = RutinaAsignadaItem.RPE.MAS_INTENSO
+        item.save(update_fields=["rpe"])
+        usuario = User.objects.create_user("alu", password="clave-123456")
+        perfil = Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno.perfil = perfil
+        self.alumno.save()
+        self.client.login(username="alu", password="clave-123456")
+        response = self.client.get(reverse("rutinas:mi_dia_detalle", args=[1]))
+        self.assertNotContains(response, "Subir la carga")
+
+    def test_no_dispara_una_query_por_item_ni_por_dia(self):
+        chica = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            nombre_snapshot="Chica", objetivo_snapshot="Fuerza",
+            fecha_inicio=timezone.localdate(),
+        )
+        RutinaAsignadaItem.objects.create(
+            rutina_asignada=chica, ejercicio_nombre_snapshot="Press",
+            semana=1, dia=1, orden=1, series=3, repeticiones="10",
+        )
+        with CaptureQueriesContext(connection) as pocas:
+            self.client.get(reverse("rutinas:asignada_detalle", args=[chica.pk]))
+        with CaptureQueriesContext(connection) as muchas:
+            self._get()
+        self.assertEqual(len(pocas), len(muchas))
+
+
+class ComentariosDeTemplateTests(SimpleTestCase):
+    """Ningún template puede tener un `{# ... #}` abierto en una línea y
+    cerrado en otra.
+
+    El lexer de Django solo reconoce `{# ... #}` cuando abre y cierra en la
+    MISMA línea; si hay un salto de por medio no lo trata como comentario y lo
+    imprime tal cual en la pantalla del usuario. Para varias líneas hay que
+    usar `{% comment %}`.
+
+    Pasó de verdad y llegó a producción: `mi_dia_detalle.html` mostraba el
+    texto "El bloque agrupa superseries: A1, A2 y A3..." EN LUGAR del nombre
+    del ejercicio, en la rutina de todos los alumnos. Había 8 casos en 5
+    templates, todos escritos el mismo día. No los agarró ningún test porque
+    ninguno miraba ese pedazo de HTML, ni el linter (es HTML válido).
+
+    Barre TODOS los templates del proyecto a propósito, no solo los de
+    rutinas: el error es de sintaxis de Django, no de esta app.
+    """
+
+    def test_ningun_comentario_queda_sin_cerrar_en_su_linea(self):
+        raiz = Path(settings.BASE_DIR) / "templates"
+        culpables = []
+        for plantilla in raiz.rglob("*.html"):
+            for numero, linea in enumerate(
+                plantilla.read_text().splitlines(), start=1
+            ):
+                if "{#" in linea and "#}" not in linea.split("{#", 1)[1]:
+                    culpables.append(
+                        f"{plantilla.relative_to(raiz)}:{numero}: {linea.strip()[:70]}"
+                    )
+        self.assertEqual(
+            culpables,
+            [],
+            "Comentarios `{# #}` abiertos en una línea y cerrados en otra: "
+            "Django los imprime en pantalla. Usá `{% comment %}`.\n"
+            + "\n".join(culpables),
+        )

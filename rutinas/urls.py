@@ -12,6 +12,9 @@ from rutinas.views import (
     RutinaAsignadaDetailView,
     RutinaAsignadaDiaCompletadoToggleView,
     RutinaAsignadaItemCalificarView,
+    RutinaAsignadaItemCreateView,
+    RutinaAsignadaItemDeleteView,
+    RutinaAsignadaItemUpdateView,
     RutinaAsignadaPdfView,
     RutinaMiDiaDetailView,
     RutinaPlantillaCreateView,
@@ -70,6 +73,24 @@ urlpatterns = [
         "asignadas/items/<int:pk>/calificar/",
         RutinaAsignadaItemCalificarView.as_view(),
         name="item_calificar",
+    ),
+    # Edición del snapshot ya asignado. Prefijo `asignada_item_*` para no
+    # chocar con `item_crear`/`item_editar`/`item_eliminar`, que son los de
+    # PLANTILLA; sigue el prefijo `asignada_*` de `asignada_detalle`/`asignada_pdf`.
+    path(
+        "asignadas/<int:asignada_pk>/dias/<int:dia>/items/nuevo/",
+        RutinaAsignadaItemCreateView.as_view(),
+        name="asignada_item_crear",
+    ),
+    path(
+        "asignadas/<int:asignada_pk>/items/<int:pk>/editar/",
+        RutinaAsignadaItemUpdateView.as_view(),
+        name="asignada_item_editar",
+    ),
+    path(
+        "asignadas/<int:asignada_pk>/items/<int:pk>/eliminar/",
+        RutinaAsignadaItemDeleteView.as_view(),
+        name="asignada_item_eliminar",
     ),
     path(
         "mi-rutina/dia/<int:dia>/",
