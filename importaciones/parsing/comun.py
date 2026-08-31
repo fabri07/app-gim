@@ -220,6 +220,12 @@ class HojaParseada:
     # antes se calculaban y se descartaban sin llegar nunca al staff (fix
     # post-review, hallazgo 3).
     advertencias_columnas: list = field(default_factory=list)
+    # Cómo se leyó la hoja. No es decoración: con dos layouts posibles y una
+    # búsqueda de encabezado que puede caer en la fila equivocada, esto es lo
+    # que le permite al staff (y a quien lo asista) ver de un vistazo si la
+    # app entendió el archivo antes de confirmar nada.
+    layout: str = ""            # "tabular" | "ancha"
+    fila_encabezado: int = 0    # 1-indexed, la que se usó como títulos
 
 
 def _mapa_merges(ws):

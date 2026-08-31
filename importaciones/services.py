@@ -19,6 +19,7 @@ from importaciones.matching import (
 )
 from importaciones.models import Importacion
 from importaciones.parsing import (
+    ALIAS_PLANTILLA,
     FILAS_BUSQUEDA_ENCABEZADO,
     ColumnaRequeridaFaltante,
     FilaInvalida,
@@ -165,6 +166,8 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
                     asdict(f) for f in invalidas_por_hoja[hoja.nombre_hoja]
                 ],
                 "motivo_exclusion": hoja.motivo_exclusion,
+                "layout": hoja.layout,
+                "fila_encabezado": hoja.fila_encabezado,
             }
             for hoja in hojas
         ],
@@ -184,6 +187,53 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
         resultado=resultado_json,
         creado_por=usuario,
     )
+
+
+def construir_ejemplo_plantillas():
+    """Un `.xlsx` de ejemplo, listo para llenar, generado al vuelo.
+
+    Se genera y no se versiona como binario a propósito: un archivo estático se
+    desincroniza del parser en cuanto cambian los alias, y nadie se entera
+    hasta que un cliente se queja. Acá los encabezados salen de
+    `ALIAS_PLANTILLA`, así que el ejemplo siempre es un archivo que el
+    importador sabe leer.
+
+    Es la respuesta al entrenador que no maneja Excel: hasta ahora ningún lugar
+    del producto decía qué columnas acepta el importador -- los alias vivían
+    solo en el código -- y un ejemplo para llenar vale más que cualquier
+    mensaje de error.
+    """
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Mi plan"
+    ws.append([
+        "Semana", "Día", "Ejercicio", "Series", "Repeticiones", "Kilos",
+        "Descanso", "Notas",
+    ])
+    for semana in (1, 2):
+        ws.append([semana, 1, "Sentadilla", 4, "8-12", "40kg", "90s", ""])
+        ws.append([semana, 1, "Press de banca", 4, "8-12", "30kg", "90s", ""])
+        ws.append([semana, 2, "Peso muerto", 3, "6", "60kg", "2 min", "Cuidar la espalda"])
+
+    ayuda = wb.create_sheet("Cómo llenarlo")
+    for linea in [
+        ("Las únicas columnas obligatorias son Ejercicio, Series y Repeticiones.",),
+        ("Semana y Día son opcionales: sin ellas todo entra como semana 1, día 1.",),
+        ("Los títulos no tienen que estar en la primera fila: podés dejar un título arriba.",),
+        ("",),
+        ("También se entienden estos nombres de columna:",),
+    ]:
+        ayuda.append(list(linea))
+    for campo, alias in ALIAS_PLANTILLA.items():
+        ayuda.append([campo, ", ".join(alias)])
+    ayuda.append([])
+    ayuda.append(["También se puede importar una planilla con las semanas a lo ancho"])
+    ayuda.append(["(SEMANA 1, SEMANA 2... como encabezados de grupo), que es el"])
+    ayuda.append(["formato de la mayoría de las planillas compradas."])
+
+    return wb
 
 
 def hojas_elegidas(resultado):

@@ -116,6 +116,8 @@ def leer_hoja_larga(ws):
         items=items,
         filas_invalidas=filas_invalidas,
         advertencias_columnas=advertencias,
+        layout="tabular",
+        fila_encabezado=encabezado.fila,
     )
 
 

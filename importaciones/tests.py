@@ -39,6 +39,7 @@ from importaciones.parsing import (
 )
 from importaciones.services import (
     ImportacionInvalida,
+    construir_ejemplo_plantillas,
     confirmar_importacion_biblioteca,
     confirmar_importacion_plantillas,
     previsualizar_importacion_biblioteca,
@@ -3370,3 +3371,155 @@ class SeleccionDeHojasTests(TestCase):
         ]
         self.assertIn("peso muerto", pendientes)
         self.assertNotIn("remo con barra", pendientes)
+
+
+class PreviewPlantillasMuestraLoQueEntendioTests(TestCase):
+    """Con 172 items y 4 semanas, "N ejercicios detectados" no alcanza para
+    verificar nada. El preview es la única defensa del entrenador contra una
+    lectura mal alineada."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+    def _preview(self, wb):
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+        return self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+
+    def _wb_ancho(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Plan"
+        ws.append([None, " EJERCICIOS", None, "SEMANA 1", None, None, "SEMANA 2", None, None])
+        ws.append([None, None, None, "Series", "Reps", "Carga", "Series", "Reps", "Carga"])
+        ws.append(["DÍA 1\n• CORE", "A1.", "Plancha lateral", 4, "20", "10KG", 4, "25", "10KG"])
+        ws.append([None, "A2.", "Press Pallof", 4, "20", None, 4, "25", None])
+        ws.append([None, "A3.", "Remo invertido", 4, "20", None, 4, "25", None])
+        return wb
+
+    def test_muestra_la_semana_el_bloque_y_los_kilos(self):
+        response = self._preview(self._wb_ancho())
+        self.assertContains(response, "<th>Semana</th>", html=False)
+        self.assertContains(response, "<th>Bloque</th>", html=False)
+        self.assertContains(response, "<th>Kilos</th>", html=False)
+        self.assertContains(response, "A1")
+        self.assertContains(response, "10KG")
+
+    def test_dice_como_leyo_la_hoja(self):
+        """Si la app leyó el archivo como el layout equivocado, el entrenador
+        tiene que poder verlo antes de confirmar."""
+        response = self._preview(self._wb_ancho())
+        self.assertContains(response, "semanas a lo ancho")
+        self.assertContains(response, "fila 1")
+
+    def test_muestra_el_nombre_del_dia(self):
+        response = self._preview(self._wb_ancho())
+        self.assertContains(response, "CORE")
+
+    def test_las_filas_invalidas_se_agrupan_por_fila(self):
+        """Una fila de Excel produce un item por semana: si falla en dos, se
+        listaba dos veces y parecía que había el doble de problemas."""
+        wb = self._wb_ancho()
+        ws = wb.active
+        ws.append([None, "B1.", "Sentadilla frontal", "cuatro", "20", None, "cinco", "25", None])
+        response = self._preview(wb)
+
+        agrupadas = response.context["hojas_con_form"][0][0]["invalidas_agrupadas"]
+        self.assertEqual(len(agrupadas), 1)
+        fila, motivos = agrupadas[0]
+        self.assertEqual(fila, 6)
+        self.assertEqual(len(motivos), 2)
+        self.assertContains(response, "Semana 1")
+
+
+class EjemploDescargableTests(TestCase):
+    """El ejemplo se genera al vuelo, no es un binario versionado: un archivo
+    estático se desincroniza del parser en cuanto cambian los alias y nadie se
+    entera hasta que un cliente se queja.
+
+    El test que importa es el circular: el ejemplo que le damos al entrenador
+    tiene que ser un archivo que el importador sepa leer.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def test_anonimo_es_redirigido_al_login(self):
+        url = reverse("importaciones:plantillas_ejemplo")
+        self.assertRedirects(self.client.get(url), f"{reverse('login')}?next={url}")
+
+    def test_alumno_recibe_403(self):
+        alumno = User.objects.create_user("alumno-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.login(username="alumno-a", password="clave-123456")
+        response = self.client.get(reverse("importaciones:plantillas_ejemplo"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_se_descarga_como_xlsx(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(reverse("importaciones:plantillas_ejemplo"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("spreadsheetml", response["Content-Type"])
+        self.assertIn("attachment", response["Content-Disposition"])
+
+    def test_el_ejemplo_es_un_archivo_que_el_importador_sabe_leer(self):
+        """Si esto falla, le estamos dando al entrenador un archivo que la app
+        va a rechazar."""
+        buffer = io.BytesIO()
+        construir_ejemplo_plantillas().save(buffer)
+        buffer.seek(0)
+
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio,
+            archivo=SimpleUploadedFile(
+                "ejemplo.xlsx",
+                buffer.read(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            usuario=self.usuario,
+        )
+
+        plan = importacion.resultado["hojas"][0]
+        self.assertEqual(plan["nombre_hoja"], "Mi plan")
+        self.assertEqual(len(plan["items"]), 6)
+        self.assertEqual(plan["filas_invalidas"], [])
+        self.assertEqual(plan["dias_por_semana"], 2)
+        self.assertEqual({i["semana"] for i in plan["items"]}, {1, 2})
+
+    def test_la_hoja_de_ayuda_no_se_ofrece_como_plan(self):
+        buffer = io.BytesIO()
+        construir_ejemplo_plantillas().save(buffer)
+        buffer.seek(0)
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio,
+            archivo=SimpleUploadedFile("ejemplo.xlsx", buffer.read()),
+            usuario=self.usuario,
+        )
+        ayuda = importacion.resultado["hojas"][1]
+        self.assertEqual(ayuda["nombre_hoja"], "Cómo llenarlo")
+        self.assertEqual(ayuda["items"], [])
+
+    def test_los_alias_que_documenta_son_los_que_el_parser_usa(self):
+        """El ejemplo lee `ALIAS_PLANTILLA`, no una copia: si alguien agrega un
+        sinónimo, la hoja de ayuda lo refleja sola."""
+        ayuda = construir_ejemplo_plantillas()["Cómo llenarlo"]
+        texto = " ".join(
+            str(c.value) for fila in ayuda.iter_rows() for c in fila if c.value
+        )
+        for campo in ALIAS_PLANTILLA:
+            self.assertIn(campo, texto)
+        self.assertIn("microciclo", texto)

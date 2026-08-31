@@ -10,6 +10,13 @@
       siguiente elegís qué hojas son planes (las auxiliares las podés dejar
       afuera), y después revisás todo antes de confirmar.
     </p>
+    <p class="texto-suave">
+      Las únicas columnas que no pueden faltar son <strong>Ejercicio</strong>,
+      <strong>Series</strong> y <strong>Repeticiones</strong>. Si no sabés cómo
+      armarlo,
+      <a href="{% url 'importaciones:plantillas_ejemplo' %}" hx-boost="false">descargá
+      un archivo de ejemplo</a> y llenalo con tus datos.
+    </p>
     <form method="post" enctype="multipart/form-data" hx-boost="false">
       {% csrf_token %}
       {{ form.as_p }}

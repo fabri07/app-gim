@@ -365,6 +365,8 @@ def leer_hoja_ancha(ws, encabezado):
             nombre_hoja=ws.title,
             dias_por_semana=0,
             filas_invalidas=filas_invalidas,
+            layout="ancha",
+            fila_encabezado=encabezado.fila_grupos,
             motivo_exclusion=(
                 "Reconocí una tabla con las semanas a lo ancho, pero no "
                 "encontré ningún ejercicio con series y repeticiones cargadas."
@@ -379,4 +381,6 @@ def leer_hoja_ancha(ws, encabezado):
         dias_por_semana=max(i.dia for i in items),
         items=items,
         filas_invalidas=filas_invalidas,
+        layout="ancha",
+        fila_encabezado=encabezado.fila_grupos,
     )

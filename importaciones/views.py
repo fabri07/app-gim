@@ -5,6 +5,7 @@ que delegan toda la lógica a `services.py`."""
 import json
 
 from django.contrib import messages
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import FormView, View
 
@@ -20,6 +21,7 @@ from importaciones.forms import (
 from importaciones.models import Importacion
 from importaciones.services import (
     ImportacionInvalida,
+    construir_ejemplo_plantillas,
     hojas_elegidas,
     confirmar_importacion_biblioteca,
     confirmar_importacion_plantillas,
@@ -27,6 +29,27 @@ from importaciones.services import (
     previsualizar_importacion_plantillas,
 )
 from tenants.mixins import StaffRequiredMixin
+
+
+class EjemploPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
+    """Descarga un `.xlsx` de ejemplo listo para llenar.
+
+    Se genera al vuelo (no es un binario versionado, que se desincronizaría
+    del parser en silencio). `hx-boost="false"` en el link que lleva acá es
+    obligatorio: htmx intercepta el click y se traga la descarga.
+    """
+
+    def get(self, request, *args, **kwargs):
+        respuesta = HttpResponse(
+            content_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        )
+        respuesta["Content-Disposition"] = (
+            'attachment; filename="ejemplo-plan-de-entrenamiento.xlsx"'
+        )
+        construir_ejemplo_plantillas().save(respuesta)
+        return respuesta
 
 
 class SubirPlantillasView(StaffRequiredMixin, TenantScopedMixin, FormView):
@@ -120,6 +143,19 @@ class SeleccionHojasView(StaffRequiredMixin, TenantScopedMixin, View):
         importacion.resultado = {**importacion.resultado, "hojas_elegidas": elegidas}
         importacion.save(update_fields=["resultado"])
         return redirect("importaciones:plantillas_preview", pk=importacion.pk)
+
+
+def _agrupar_invalidas(hoja):
+    """`[(fila_excel, [motivos])]`, en el orden en que aparecen.
+
+    En una tabla con las semanas a lo ancho, una misma fila de Excel produce
+    hasta un item por semana, así que puede fallar en más de una. Listarla
+    repetida haría parecer que hay más problemas de los que hay.
+    """
+    agrupadas = {}
+    for fila in hoja["filas_invalidas"]:
+        agrupadas.setdefault(fila["fila_excel"], []).append(fila["motivo"])
+    return list(agrupadas.items())
 
 
 def _nombres_de_las_hojas_elegidas(resultado):
@@ -236,7 +272,11 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
         return render(request, self.template_name, {
             "importacion": importacion,
             "hojas_con_form": list(zip(
-                hojas_elegidas(importacion.resultado), hoja_formset.forms
+                [
+                    {**h, "invalidas_agrupadas": _agrupar_invalidas(h)}
+                    for h in hojas_elegidas(importacion.resultado)
+                ],
+                hoja_formset.forms,
             )),
             "hoja_formset": hoja_formset,
             "ejercicio_formset": ejercicio_formset,
