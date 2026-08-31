@@ -43,6 +43,7 @@
           <tr>
             <th>Semana</th>
             <th>Día</th>
+            <th>Bloque</th>
             <th>Orden</th>
             <th>Ejercicio</th>
             <th>Series</th>
@@ -57,7 +58,8 @@
           {% for item in items %}
             <tr>
               <td>{{ item.semana }}</td>
-              <td>{{ item.dia }}</td>
+              <td>{{ item.dia }}{% if item.dia_nombre %}<br><span class="texto-suave text-xs">{{ item.dia_nombre }}</span>{% endif %}</td>
+              <td>{% if item.bloque %}<span class="badge">{{ item.bloque }}</span>{% else %}<span class="texto-suave">—</span>{% endif %}</td>
               <td>{{ item.orden }}</td>
               <td>{{ item.ejercicio.nombre }}</td>
               <td>{{ item.series }}</td>
@@ -76,7 +78,7 @@
             </tr>
           {% empty %}
             <tr>
-              <td colspan="10" class="texto-suave">Esta plantilla todavía no tiene ejercicios.</td>
+              <td colspan="11" class="texto-suave">Esta plantilla todavía no tiene ejercicios.</td>
             </tr>
           {% endfor %}
         </tbody>

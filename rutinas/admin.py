@@ -41,12 +41,18 @@ class RutinaPlantillaItemAdmin(admin.ModelAdmin):
     # También registrado standalone (además del inline en RutinaPlantilla)
     # para poder buscar/filtrar items across plantillas, p.ej. al reasignar
     # un ejercicio antes de borrarlo (PROTECT).
-    list_display = ("rutina", "ejercicio", "semana", "dia", "orden", "series", "repeticiones")
+    list_display = (
+        "rutina", "ejercicio", "semana", "dia", "bloque", "orden",
+        "series", "repeticiones",
+    )
     list_filter = ("rutina__gimnasio",)
     search_fields = ("ejercicio__nombre", "rutina__nombre")
 
 
 @admin.register(RutinaAsignadaItem)
 class RutinaAsignadaItemAdmin(admin.ModelAdmin):
-    list_display = ("rutina_asignada", "ejercicio_nombre_snapshot", "semana", "dia", "orden", "series", "repeticiones")
+    list_display = (
+        "rutina_asignada", "ejercicio_nombre_snapshot", "semana", "dia",
+        "bloque", "orden", "series", "repeticiones",
+    )
     search_fields = ("ejercicio_nombre_snapshot", "rutina_asignada__nombre_snapshot")

@@ -3610,3 +3610,71 @@ class ImportacionPlantillasEscalaTests(TestCase):
         self._importar(ejercicios=10, semanas=4)
         self.assertEqual(RutinaPlantillaItem.objects.count(), 40)
         self.assertEqual(Ejercicio.objects.count(), 10)
+
+
+class ConfirmarImportacionSinCamposNuevosTests(TestCase):
+    """El escenario real de deploy, que ningún otro test cubre.
+
+    `Importacion.resultado` es un JSONField con los items ya parseados. Una
+    importación que quedó en EN_REVISION ANTES del deploy de `bloque` y
+    `dia_nombre` no tiene esas claves, y `item["bloque"]` sería un KeyError --
+    un 500 al confirmar, para el staff que dejó el preview abierto en una
+    pestaña mientras se desplegaba.
+
+    Por eso se lee con `.get(..., "")`: el default ES la migración. No se
+    escribe un backfill sobre un blob de preview que se descarta solo (ya
+    existe `descartar_importaciones_viejas`).
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
+        self.usuario = User.objects.create_user("staff", password="clave12345")
+
+    def test_un_resultado_sin_las_claves_nuevas_confirma_igual(self):
+        # Un `resultado` con la forma EXACTA que tenía antes del deploy.
+        importacion = Importacion.objects.create(
+            gimnasio=self.gimnasio,
+            tipo=Importacion.Tipo.PLANTILLAS,
+            creado_por=self.usuario,
+            resultado={
+                "hojas": [{
+                    "nombre_hoja": "Plan",
+                    "dias_por_semana": 1,
+                    "items": [{
+                        "semana": 1, "dia": 1, "orden": 1,
+                        "ejercicio_original": "Sentadilla",
+                        "ejercicio_normalizado": "sentadilla",
+                        "series": 4, "repeticiones": "10",
+                        "kilos": "", "descanso": "", "notas": "",
+                    }],
+                    "filas_invalidas": [],
+                    "motivo_exclusion": None,
+                }],
+                "ejercicios_distintos": {"sentadilla": {"tipo": "nuevo"}},
+                "advertencias_columnas": [],
+            },
+        )
+
+        confirmar_importacion_plantillas(
+            importacion=importacion,
+            gimnasio=self.gimnasio,
+            decisiones={
+                "hojas": [{
+                    "nombre_hoja": "Plan", "incluir": True,
+                    "objetivo": "Fuerza", "nivel": "principiante",
+                }],
+                "ejercicios": {
+                    "sentadilla": {
+                        "accion": "crear_nuevo", "categoria_id": self.categoria.pk,
+                    }
+                },
+            },
+        )
+
+        item = RutinaPlantillaItem.objects.get()
+        self.assertEqual(item.bloque, "")
+        self.assertEqual(item.dia_nombre, "")
+        self.assertEqual(item.ejercicio.nombre, "Sentadilla")

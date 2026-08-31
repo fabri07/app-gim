@@ -340,6 +340,12 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
             {
                 "rutina_actual": rutina_actual,
                 "dia": dia,
+                # `dia_nombre` está denormalizado en cada item; alcanza con el
+                # primero que lo tenga cargado (los items de un mismo día
+                # comparten el valor, lo escribe el importador de una).
+                "dia_nombre": next(
+                    (e["dia_nombre"] for e in ejercicios if e["dia_nombre"]), ""
+                ),
                 "semanas_meta": semanas_meta,
                 "ejercicios": ejercicios,
                 "rpe_choices": RutinaAsignadaItem.RPE.choices,

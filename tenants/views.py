@@ -106,9 +106,22 @@ class HomeView(LoginRequiredMixin, TemplateView):
             # la plantilla original, que puede no coincidir si se cargó de
             # forma parcial. Cada botón lleva a RutinaMiDiaDetailView, que
             # muestra las 4 semanas de ESE día.
-            dias_disponibles = sorted(
-                set(rutina_actual.items.values_list("dia", flat=True))
-            )
+            # `{numero, nombre}` y no enteros pelados: el nombre del día
+            # ("Tren superior · Core") viene del plan del entrenador y es lo
+            # que le dice al alumno qué va a entrenar antes de entrar. El
+            # `{% url %}` sigue necesitando el entero.
+            nombres = {}
+            for numero, nombre in rutina_actual.items.values_list(
+                "dia", "dia_nombre"
+            ):
+                if nombre and numero not in nombres:
+                    nombres[numero] = nombre
+            dias_disponibles = [
+                {"numero": numero, "nombre": nombres.get(numero, "")}
+                for numero in sorted(
+                    set(rutina_actual.items.values_list("dia", flat=True))
+                )
+            ]
 
         return {
             "alumno": alumno,

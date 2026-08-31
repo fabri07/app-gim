@@ -93,6 +93,8 @@ class RutinaPlantilla(TenantOwnedModel):
                         kilos=item.kilos,
                         descanso=item.descanso,
                         notas=item.notas,
+                        bloque=item.bloque,
+                        dia_nombre=item.dia_nombre,
                     )
                     for item in self.items.all()
                 ]
@@ -141,6 +143,25 @@ class RutinaPlantillaItem(TimeStampedModel):
         max_length=30, blank=True, help_text='Ej: "60s", "2 min".'
     )
     notas = models.TextField(blank=True)
+    bloque = models.CharField(
+        max_length=10,
+        blank=True,
+        help_text=(
+            'Código de superserie: "A1", "B2". Los ejercicios del mismo '
+            "bloque se hacen juntos, uno atrás del otro."
+        ),
+    )
+    dia_nombre = models.CharField(
+        max_length=80,
+        blank=True,
+        help_text='Nombre del día: "Tren superior · Core". Opcional.',
+        # Denormalizado: el mismo texto se repite en todos los items de un
+        # día. Es el mismo patrón que `categoria_snapshot`, y se resuelve al
+        # leer con la regla "gana la semana más baja" de `agrupacion.py`. La
+        # alternativa era un modelo `Dia` propio, con migración de datos, FK
+        # en `crear_desde_plantilla` y cambio de forma en `dias_disponibles` y
+        # en el agrupado del PDF -- demasiado para una etiqueta.
+    )
 
     class Meta:
         verbose_name = "item de plantilla"
@@ -228,6 +249,8 @@ class RutinaAsignada(TenantOwnedModel):
                         kilos=item.kilos,
                         descanso=item.descanso,
                         notas=item.notas,
+                        bloque=item.bloque,
+                        dia_nombre=item.dia_nombre,
                     )
                     for item in plantilla.items.select_related(
                         "ejercicio__categoria"
@@ -308,6 +331,25 @@ class RutinaAsignadaItem(TimeStampedModel):
     )
     descanso = models.CharField(max_length=30, blank=True)
     notas = models.TextField(blank=True)
+    bloque = models.CharField(
+        max_length=10,
+        blank=True,
+        help_text=(
+            'Código de superserie: "A1", "B2". Los ejercicios del mismo '
+            "bloque se hacen juntos, uno atrás del otro."
+        ),
+    )
+    dia_nombre = models.CharField(
+        max_length=80,
+        blank=True,
+        help_text='Nombre del día: "Tren superior · Core". Opcional.',
+        # Denormalizado: el mismo texto se repite en todos los items de un
+        # día. Es el mismo patrón que `categoria_snapshot`, y se resuelve al
+        # leer con la regla "gana la semana más baja" de `agrupacion.py`. La
+        # alternativa era un modelo `Dia` propio, con migración de datos, FK
+        # en `crear_desde_plantilla` y cambio de forma en `dias_disponibles` y
+        # en el agrupado del PDF -- demasiado para una etiqueta.
+    )
 
     class Meta:
         verbose_name = "item de rutina asignada"

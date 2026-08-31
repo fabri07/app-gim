@@ -1,11 +1,11 @@
 {% extends 'base.html' %}
-{% block title %}Día {{ dia }} · App Gimnasios{% endblock %}
+{% block title %}Día {{ dia }}{% if dia_nombre %} — {{ dia_nombre }}{% endif %} · App Gimnasios{% endblock %}
 {% block main_class %}contenido--ancho{% endblock %}
 
 {% block content %}
 <div class="contenido--ancho">
   <div class="acciones-lista">
-    <h1>Día {{ dia }}</h1>
+    <h1>Día {{ dia }}{% if dia_nombre %} <span class="texto-suave">— {{ dia_nombre }}</span>{% endif %}</h1>
     <a class="boton-secundario" href="{% url 'home' %}">Volver a mi rutina</a>
   </div>
   <p class="texto-suave">{{ rutina_actual.nombre_snapshot }}</p>
@@ -67,7 +67,10 @@
             {% for ejercicio in ejercicios %}
               <tr>
                 <td>
-                  {{ ejercicio.nombre }}
+                  {# El bloque agrupa superseries: A1, A2 y A3 se hacen uno
+                     atrás del otro. Va antes del nombre porque es el orden en
+                     que el alumno lee la fila. #}
+                  {% if ejercicio.bloque %}<span class="badge">{{ ejercicio.bloque }}</span> {% endif %}{{ ejercicio.nombre }}
                   <br><span class="texto-suave text-xs">{{ ejercicio.categoria_display }}</span>
                 </td>
                 <td>

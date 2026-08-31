@@ -453,6 +453,14 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
                     kilos=item["kilos"],
                     descanso=item["descanso"],
                     notas=item["notas"],
+                    # `.get()` y no `[...]`: una `Importacion` en EN_REVISION
+                    # creada ANTES del deploy de estos campos no tiene las
+                    # claves en su `resultado` JSON, y un KeyError acá sería un
+                    # 500 al confirmar. El default ES la migración -- no vale
+                    # la pena un backfill sobre un blob de preview que se
+                    # descarta solo.
+                    bloque=item.get("bloque", ""),
+                    dia_nombre=item.get("dia_nombre", ""),
                 )
                 for item in hoja["items"]
             ])

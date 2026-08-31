@@ -71,7 +71,12 @@ def _celda_semana(item):
 
 
 def _fila_ejercicio(ejercicio):
+    # El bloque va como prefijo del nombre y NO como columna propia:
+    # `_COLUMNAS` ya son 7 en A4 vertical y una octava dejaría todo ilegible.
+    # Mismo lugar donde ya vive la categoría, como segunda línea de la celda.
     nombre = ejercicio["nombre"]
+    if ejercicio["bloque"]:
+        nombre = f"{ejercicio['bloque']} · {nombre}"
     categoria_display = ejercicio["categoria_display"]
     if categoria_display:
         nombre += f"\n{categoria_display}"
@@ -143,7 +148,12 @@ def generar_pdf_rutina_asignada(asignada):
 
     for dia, items_del_dia in sorted(items_por_dia.items()):
         pdf.set_font("Helvetica", "B", 14)
-        pdf.cell(0, 10, f"Día {dia}", new_x="LMARGIN", new_y="NEXT")
+        # El nombre del día está denormalizado en cada item; alcanza con el
+        # primero que lo tenga. Mismo criterio que el portal, para que el
+        # papel y la pantalla digan lo mismo (regla de sincronía de CLAUDE.md).
+        nombre_dia = next((i.dia_nombre for i in items_del_dia if i.dia_nombre), "")
+        titulo = f"Día {dia}" + (f" - {nombre_dia}" if nombre_dia else "")
+        pdf.cell(0, 10, titulo, new_x="LMARGIN", new_y="NEXT")
 
         pdf.set_font("Helvetica", "", 9)
         with pdf.table(headings_style=encabezado_tabla) as table:
