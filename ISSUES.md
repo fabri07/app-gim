@@ -84,6 +84,30 @@ biblioteca el 2026-08-27: una columna de valor constante no informa nada, y lo
 el `<th>` "Grupo muscular" pasó a "Categoría": era el último lugar del proyecto
 que no cumplía esa regla de `CLAUDE.md`.
 
+## [2026-08-31] El preview de plantillas hace una query por ejercicio pendiente
+
+**Estado:** aceptado (riesgo asumido, preexistente)
+
+**Impacto:** cada `ResolucionEjercicioForm` del formset construye su propio
+`ModelChoiceField` de categoría, y el queryset no se comparte entre forms: el
+GET del preview dispara **una query por ejercicio pendiente** solo para poblar
+desplegables idénticos. Medido: 126 queries con 120 pendientes. Con el archivo
+real del cliente son 42 pendientes (~48 queries, irrelevante); con el techo
+documentado de ~300 ejercicios distintos por plantilla serían ~306, que sobre
+Neon (scale-to-zero) es cerca de un segundo de latencia agregada en una
+pantalla que ya tiene el presupuesto de 30 s de gunicorn como riesgo conocido.
+
+Es **anterior** al trabajo de la matriz ancha: viene del diseño de formset del
+importador original, ya anotado como riesgo aceptado el 2026-07-28 ("una
+plantilla real nunca supera ~300 ejercicios distintos"). Apareció al medir,
+mientras se arreglaba un O(n²) distinto en la misma vista.
+
+**Resolución / próximo paso:** no se toca en la rama de la matriz ancha, para
+no mezclar. Si algún día molesta, la salida NO es un `assertNumQueries` fijo
+sino compartir las choices entre forms (armar la lista una vez en la vista y
+asignarla a `field.choices`), teniendo en cuenta que la validación del POST
+vuelve a consultar por form en `to_python`.
+
 ## [2026-08-31] Dos tests de notificaciones se ponen rojos del 29 al 31 de cada mes
 
 **Estado:** abierto

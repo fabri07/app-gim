@@ -72,6 +72,12 @@ def _motivo_si_item_no_entra(item):
         ("descanso", RutinaPlantillaItem._meta.get_field("descanso"), "El descanso"),
         ("ejercicio_original", Ejercicio._meta.get_field("nombre"),
          "El nombre del ejercicio"),
+        # Los dos campos que trae la matriz ancha. `dia_nombre` sale de una
+        # celda combinada con viñetas: un día con cinco bloques descritos ya
+        # da 98 caracteres contra un límite de 80.
+        ("bloque", RutinaPlantillaItem._meta.get_field("bloque"), "El bloque"),
+        ("dia_nombre", RutinaPlantillaItem._meta.get_field("dia_nombre"),
+         "El nombre del día"),
     )
     for atributo, campo, etiqueta in limites:
         valor = getattr(item, atributo) or ""
@@ -80,10 +86,14 @@ def _motivo_si_item_no_entra(item):
                 f"{etiqueta} tiene {len(valor)} caracteres y el máximo es "
                 f"{campo.max_length}"
             )
-    if item.semana > SEMANAS_POR_CICLO:
+    # Los DOS extremos: `bulk_create` se saltea el `MinValueValidator(1)`
+    # igual que el `Max`, y una semana 0 entra a la base y después no la
+    # renderiza nadie (el portal y el PDF iteran de 1 a SEMANAS_POR_CICLO).
+    # Pérdida silenciosa, que es peor que una fila descartada con motivo.
+    if not 1 <= item.semana <= SEMANAS_POR_CICLO:
         return (
             f"La semana {item.semana} queda fuera del ciclo: una rutina tiene "
-            f"{SEMANAS_POR_CICLO} semanas"
+            f"{SEMANAS_POR_CICLO} semanas, de la 1 a la {SEMANAS_POR_CICLO}"
         )
     return None
 

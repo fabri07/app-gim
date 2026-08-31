@@ -3,6 +3,7 @@ fixtures de este repo."""
 
 import io
 import json
+from unittest.mock import patch
 
 import openpyxl
 from django.contrib.auth.models import User
@@ -20,6 +21,7 @@ from importaciones.matching import (
     resolver_nombre,
 )
 from importaciones.models import Importacion
+from importaciones.views import _nombres_de_las_hojas_elegidas
 from importaciones.parsing import (
     ColumnaRequeridaFaltante,
     ALIAS_BIBLIOTECA,
@@ -3678,3 +3680,152 @@ class ConfirmarImportacionSinCamposNuevosTests(TestCase):
         self.assertEqual(item.bloque, "")
         self.assertEqual(item.dia_nombre, "")
         self.assertEqual(item.ejercicio.nombre, "Sentadilla")
+
+
+class HallazgosDelCodeReviewTests(TestCase):
+    """Los seis defectos que encontró el `/code-review` de la rama, cada uno
+    reproducido antes de arreglarlo."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def _preview(self, wb):
+        return previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+
+    def test_un_nombre_de_dia_larguisimo_se_descarta_en_el_preview(self):
+        """`dia_nombre` es `varchar(80)` y sale de una celda combinada con
+        viñetas: un día con cinco bloques descritos da 98 caracteres. En
+        Postgres eso es el `DataError` que voltea la transacción entera y en
+        SQLite no se nota (ISSUES.md 2026-08-27)."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, " EJERCICIOS", None, "SEMANA 1", None, "SEMANA 2", None])
+        ws.append([None, None, None, "Series", "Reps", "Series", "Reps"])
+        largo = ("DÍA 1\n• ACTIVACIÓN Y MOVILIDAD ARTICULAR\n"
+                 "• FUERZA DE TREN INFERIOR\n• CORE Y ACCESORIOS\n"
+                 "• VUELTA A LA CALMA")
+        ws.append([largo, "A1.", "Sentadilla bulgara", 4, "10", 4, "12"])
+        ws.append([None, "A2.", "Peso muerto rumano", 4, "10", 4, "12"])
+        ws.append([None, "A3.", "Prensa inclinada", 4, "10", 4, "12"])
+
+        hoja = self._preview(wb).resultado["hojas"][0]
+
+        self.assertEqual(hoja["items"], [])
+        self.assertTrue(hoja["filas_invalidas"])
+        self.assertIn("nombre del día", hoja["filas_invalidas"][0]["motivo"])
+
+    def test_la_columna_de_bloque_nunca_puede_ser_la_del_nombre(self):
+        """El perfilado elegía la columna con más códigos incluso si era la
+        misma que la del nombre: bastaba un ejercicio llamado "C" para que el
+        bloque de TODAS las filas fuera el nombre completo del ejercicio -- 33
+        caracteres en un `varchar(10)`."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, " EJERCICIOS", "SEMANA 1", None, "SEMANA 2", None])
+        ws.append([None, None, "Series", "Reps", "Series", "Reps"])
+        ws.append(["DÍA 1", "Sentadilla bulgara con mancuernas", 4, "10", 4, "12"])
+        ws.append([None, "Peso muerto rumano a una pierna", 4, "10", 4, "12"])
+        ws.append([None, "Prensa inclinada a 45 grados", 4, "10", 4, "12"])
+        ws.append([None, "C", 4, "10", 4, "12"])
+
+        encabezado = detectar_matriz_ancha(ws)
+
+        self.assertNotEqual(encabezado.col_bloque, encabezado.col_nombre)
+        hoja = leer_hoja_plantilla(ws)
+        self.assertTrue(all(len(i.bloque) <= 10 for i in hoja.items))
+
+    def test_una_semana_sin_columna_de_series_no_se_lleva_puesta_a_las_demas(self):
+        """El entrenador puso Series bajo SEMANA 1 y se olvidó en SEMANA 2.
+        Antes se perdía la mitad del plan y se reportaba "'series' no es un
+        número" por cada fila, que ni siquiera describe lo que pasó: no hay
+        celda de series."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, " EJERCICIOS", None, "SEMANA 1", None, None, "SEMANA 2", None])
+        ws.append([None, None, None, "Series", "Reps", "Carga", "Reps", "Carga"])
+        for n, nombre in enumerate(
+            ["Sentadilla bulgara", "Peso muerto rumano", "Prensa inclinada"]
+        ):
+            ws.append(["DÍA 1" if n == 0 else None, f"A{n+1}.", nombre,
+                       4, "10", "20KG", "12", "20KG"])
+
+        hoja = leer_hoja_plantilla(ws)
+
+        # La semana 1 se importa entera y no aparece como error.
+        self.assertEqual(len(hoja.items), 3)
+        self.assertEqual({i.semana for i in hoja.items}, {1})
+        self.assertEqual(hoja.filas_invalidas, [])
+        # Y el staff se entera de por qué falta la 2, una sola vez.
+        self.assertEqual(len(hoja.advertencias_columnas), 1)
+        self.assertIn("Semana 2", hoja.advertencias_columnas[0])
+        self.assertIn("series", hoja.advertencias_columnas[0].lower())
+
+    def test_una_semana_cero_se_descarta(self):
+        """`bulk_create` no corre validadores: `MinValueValidator(1)` se
+        saltea igual que el `Max`. Una semana 0 entraba a la base y después no
+        la renderiza nadie (portal y PDF iteran de 1 a 4): pérdida silenciosa."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, 1, "Sentadilla", 4, "10"])
+        ws.append([0, 1, "Press militar", 4, "10"])
+
+        hoja = self._preview(wb).resultado["hojas"][0]
+
+        self.assertEqual(len(hoja["items"]), 1)
+        self.assertEqual(len(hoja["filas_invalidas"]), 1)
+        self.assertIn("semana", hoja["filas_invalidas"][0]["motivo"].lower())
+
+    def test_si_ninguna_hoja_es_importable_no_se_ofrece_continuar(self):
+        """Antes se renderizaban cero checkboxes y cualquier POST fallaba con
+        "elegí al menos una hoja", pidiendo algo que la pantalla no podía
+        ofrecer. La única salida era Descartar."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Resumen"
+        ws.append(["Concepto", "Valor"])
+        ws.append(["Cumplimiento", "25%"])
+        importacion = self._preview(wb)
+
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(
+            reverse("importaciones:plantillas_hojas", args=[importacion.pk])
+        )
+
+        self.assertTrue(response.context["sin_hojas_importables"])
+        self.assertNotContains(response, "Continuar")
+        self.assertContains(response, "Descartar")
+
+    def test_el_preview_no_recalcula_el_set_de_nombres_por_cada_ejercicio(self):
+        """Era O(distintos x items): el set se reconstruía entero adentro de la
+        comprehension, una vez POR EJERCICIO.
+
+        Se cuenta la cantidad de LLAMADAS, no de queries: el costo es de CPU en
+        Python, no de base. (El preview además dispara una query por ejercicio
+        pendiente para poblar su desplegable de categoría, pero eso es del
+        formset y es anterior a esta rama -- ver `ISSUES.md`.)
+        """
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        for n in range(120):
+            ws.append([1, 1, f"Ejercicio numero {n}", 4, "10"])
+        importacion = self._preview(wb)
+
+        self.client.login(username="staff-a", password="clave-123456")
+        with patch(
+            "importaciones.views._nombres_de_las_hojas_elegidas",
+            wraps=_nombres_de_las_hojas_elegidas,
+        ) as espia:
+            response = self.client.get(
+                reverse("importaciones:plantillas_preview", args=[importacion.pk])
+            )
+
+        self.assertEqual(espia.call_count, 1)
+        self.assertEqual(len(response.context["ejercicio_formset"].initial), 120)

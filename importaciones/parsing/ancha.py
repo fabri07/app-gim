@@ -87,6 +87,7 @@ class EncabezadoAncho:
     fila_grupos: int
     fila_subcampos: int
     bloques: list
+    advertencias: list
     col_nombre: int
     col_bloque: int | None
     cols_dia: list
@@ -125,13 +126,23 @@ def _labels_de_semana(ws, fila, ncols):
 
 
 def _cortar_bloques(labels, fila_subcampos, ws, ncols):
-    """Cada semana ocupa desde su label hasta la columna anterior al siguiente.
+    """`(bloques, advertencias)`. Cada semana ocupa desde su label hasta la
+    columna anterior al siguiente.
 
-    Devuelve `None` si algún bloque no tiene ni series ni repeticiones: sin uno
-    de los dos no hay nada que programar y lo más probable es que no sea una
-    matriz de entrenamiento.
+    Un bloque sin columna de `series` **se descarta con una advertencia**, no
+    invalida la hoja ni se intenta leer. `RutinaPlantillaItem.series` es
+    obligatorio, así que sin esa columna no hay item posible; intentarlo igual
+    era peor de las dos formas: se perdían las semanas buenas del archivo (el
+    entrenador que puso Series bajo SEMANA 1 y se olvidó en SEMANA 2 perdía
+    la mitad del plan) y el motivo que se reportaba por cada fila era
+    "'series' no es un número", que ni siquiera describe lo que pasó -- no hay
+    celda de series.
+
+    Devuelve `(None, [])` si no queda ningún bloque utilizable: ahí sí es
+    probable que la hoja no sea una matriz de entrenamiento.
     """
     bloques = []
+    advertencias = []
     for i, (col_inicio, numero) in enumerate(labels):
         col_fin = labels[i + 1][0] - 1 if i + 1 < len(labels) else ncols
         subcampos = {}
@@ -139,10 +150,17 @@ def _cortar_bloques(labels, fila_subcampos, ws, ncols):
             campo = _campo_de_subcampo(ws.cell(row=fila_subcampos, column=col).value)
             if campo and campo not in subcampos.values():
                 subcampos[col] = campo
-        if "series" not in subcampos.values() and "repeticiones" not in subcampos.values():
-            return None
+        if "series" not in subcampos.values():
+            advertencias.append(
+                f"La Semana {numero} no tiene columna de series, así que no se "
+                "importó. Agregale una columna «Series» y volvé a subir el "
+                "archivo si querés incluirla."
+            )
+            continue
         bloques.append(BloqueSemana(numero=numero, subcampos=subcampos))
-    return bloques
+    if not bloques:
+        return None, []
+    return bloques, advertencias
 
 
 def _perfilar_columnas_izquierda(ws, merges, fila_subcampos, col_limite, ncols):
@@ -177,9 +195,17 @@ def _perfilar_columnas_izquierda(ws, merges, fila_subcampos, col_limite, ncols):
     col_nombre = max(perfil, key=lambda c: perfil[c][0])
     if perfil[col_nombre][0] < MIN_FILAS_CON_NOMBRE:
         return None, None, []
-    col_bloque = max(perfil, key=lambda c: perfil[c][1])
-    if perfil[col_bloque][1] == 0:
-        col_bloque = None
+    # La columna del nombre queda EXCLUIDA de los candidatos a bloque. Sin
+    # esto, un solo ejercicio de nombre corto ("C") le daba un hit de
+    # `RE_BLOQUE` a la columna de nombres, que ganaba por ser la única con
+    # algún hit, y el bloque de TODAS las filas pasaba a ser el nombre
+    # completo del ejercicio -- 33 caracteres en un `varchar(10)`.
+    candidatos_bloque = [c for c in perfil if c != col_nombre and perfil[c][1]]
+    col_bloque = (
+        max(candidatos_bloque, key=lambda c: perfil[c][1])
+        if candidatos_bloque
+        else None
+    )
     cols_dia = [c for c in perfil if perfil[c][2]]
     return col_nombre, col_bloque, cols_dia
 
@@ -215,7 +241,9 @@ def detectar_matriz_ancha(ws, *, max_filas=FILAS_ESCANEO_ANCHA):
             if conocidos < 2:
                 continue
 
-            bloques = _cortar_bloques(labels, fila_subcampos, ws, ncols)
+            bloques, advertencias = _cortar_bloques(
+                labels, fila_subcampos, ws, ncols
+            )
             if bloques is None:
                 continue
 
@@ -230,6 +258,7 @@ def detectar_matriz_ancha(ws, *, max_filas=FILAS_ESCANEO_ANCHA):
                 fila_grupos=fila,
                 fila_subcampos=fila_subcampos,
                 bloques=bloques,
+                advertencias=advertencias,
                 col_nombre=col_nombre,
                 col_bloque=col_bloque,
                 cols_dia=cols_dia,
@@ -365,6 +394,7 @@ def leer_hoja_ancha(ws, encabezado):
             nombre_hoja=ws.title,
             dias_por_semana=0,
             filas_invalidas=filas_invalidas,
+            advertencias_columnas=encabezado.advertencias,
             layout="ancha",
             fila_encabezado=encabezado.fila_grupos,
             motivo_exclusion=(
@@ -381,6 +411,7 @@ def leer_hoja_ancha(ws, encabezado):
         dias_por_semana=max(i.dia for i in items),
         items=items,
         filas_invalidas=filas_invalidas,
+        advertencias_columnas=encabezado.advertencias,
         layout="ancha",
         fila_encabezado=encabezado.fila_grupos,
     )

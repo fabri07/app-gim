@@ -112,12 +112,21 @@ class SeleccionHojasView(StaffRequiredMixin, TenantScopedMixin, View):
                 "marcada": marcada,
             }
 
+    def _contexto(self, importacion, **extra):
+        filas = list(self._filas(importacion))
+        return {
+            "importacion": importacion,
+            "filas": filas,
+            # Sin ninguna hoja con ejercicios no hay nada que elegir: ofrecer
+            # "Continuar" sería pedirle al staff algo que la pantalla no puede
+            # dar, y cualquier POST volvería con "elegí al menos una hoja".
+            "sin_hojas_importables": not any(f["cantidad"] for f in filas),
+            **extra,
+        }
+
     def get(self, request, *args, **kwargs):
         importacion = self.get_importacion()
-        return render(request, self.template_name, {
-            "importacion": importacion,
-            "filas": list(self._filas(importacion)),
-        })
+        return render(request, self.template_name, self._contexto(importacion))
 
     def post(self, request, *args, **kwargs):
         importacion = self.get_importacion()
@@ -132,13 +141,10 @@ class SeleccionHojasView(StaffRequiredMixin, TenantScopedMixin, View):
         ]
 
         if not elegidas:
-            return render(request, self.template_name, {
-                "importacion": importacion,
-                "filas": list(self._filas(importacion)),
-                "error": (
-                    "Elegí al menos una hoja con ejercicios para poder seguir."
-                ),
-            })
+            return render(request, self.template_name, self._contexto(
+                importacion,
+                error="Elegí al menos una hoja con ejercicios para poder seguir.",
+            ))
 
         importacion.resultado = {**importacion.resultado, "hojas_elegidas": elegidas}
         importacion.save(update_fields=["resultado"])
@@ -200,6 +206,10 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
             }
             for h in hojas_elegidas(resultado)
         ]
+        # Fuera de la comprehension: adentro se reconstruía el set entero una
+        # vez POR EJERCICIO, o sea O(distintos x items) en una pantalla que ya
+        # tiene el presupuesto de 30 s de gunicorn documentado como riesgo.
+        nombres_a_resolver = _nombres_de_las_hojas_elegidas(resultado)
         ejercicios_initial = [
             {
                 "nombre_normalizado": nombre,
@@ -208,7 +218,7 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
             }
             for nombre, info in resultado["ejercicios_distintos"].items()
             if info["tipo"] != "exacto"  # los exactos no requieren decisión del staff
-            and nombre in _nombres_de_las_hojas_elegidas(resultado)
+            and nombre in nombres_a_resolver
         ]
         hoja_formset = HojaMetadataFormSet(initial=hojas_initial, prefix="form")
         # `form_kwargs` es lo que hace llegar el gimnasio a cada form del
