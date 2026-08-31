@@ -20,6 +20,124 @@ del log.
 
 ---
 
+## [2026-08-31] El importador leía 0 ejercicios de la planilla real de un entrenador
+
+**Estado:** resuelto
+
+**Impacto:** el primer cliente pago intentó importar el plan de una alumna y el
+preview mostró **0 ejercicios** en los dos archivos que probó. El parser asumía
+un único layout -- **tabla larga**, fila 1 = encabezados, una fila por
+combinación semana/día/ejercicio -- y la planilla real es una **matriz ancha**:
+encabezado en dos filas (grupos combinados `EJERCICIOS`/`SEMANA 1..4` arriba,
+subcampos `Series`/`Reps`/`Carga`/`RPE` abajo), el día en una celda combinada
+vertical con su descripción adentro (`DÍA 2\n• TREN SUPERIOR\n• CORE`), y dos
+columnas de ejercicio (código de bloque `A1.` y nombre). En el archivo original
+el encabezado ni siquiera está en la fila 1: arranca en la **12**, debajo del
+logo, el objetivo y las fechas. Los mensajes que veía el cliente eran "falta la
+columna 'series'" (está en la fila 2) y "falta la columna 'ejercicio'".
+
+El archivo dice "Powered by Simplify Trainers": es una plantilla comercial, así
+que iba a repetirse con otros gimnasios.
+
+**Resolución / próximo paso:** paquete `importaciones/parsing/` con detección de
+layout. Lo más importante del diseño es el ORDEN: **la matriz ancha se prueba
+antes que el lector largo, siempre**. Al revés, esta misma hoja matchea el
+layout largo (su fila de grupos tiene "EJERCICIOS" y la de subcampos tiene
+"Series"/"Reps"/"Carga") y produce filas plausibles con las columnas corridas --
+basura silenciosa, peor que los 0 items. Al revés no puede pasar: el regex de
+semana exige el dígito, así que el "Semana" a secas del layout largo no matchea.
+
+Verificado contra los dos archivos reales: los dos dan **172 items** (43
+ejercicios × 4 días × 4 semanas), 0 filas inválidas, y las 6 hojas auxiliares
+del original se descartan (`AUX` tiene 3206 filas y se corta tras leer 40).
+
+Riesgos que se cerraron en el camino:
+
+- **`FilaInvalida` cambió de cardinalidad.** Una fila de Excel produce hasta un
+  item POR SEMANA, así que un `series` malo en la semana 2 no puede invalidar
+  las otras tres. El preview agrupa los motivos por fila, o una misma fila se
+  listaba cuatro veces.
+- **Una query por ejercicio dentro del loop del confirm.** 139 queries para el
+  archivo real: la misma forma que causó el 502 de agosto, agravada porque 4
+  semanas convierten 43 filas en 172 items. Resuelto con resolución en lote
+  (57 queries) y fijado por `ImportacionPlantillasEscalaTests`.
+- **Guarda anti-falso-positivo.** Una hoja auxiliar con una tabla de progreso
+  "SEMANA 1 / SEMANA 2" pasaba los primeros pasos de la detección; se exigen al
+  menos 3 filas con nombre de ejercicio real.
+- **Largos y semana fuera del ciclo**, descartados en el preview leyendo
+  `_meta`. Misma familia que el link de 306 caracteres: SQLite no valida y
+  Postgres voltea la transacción entera.
+
+## [2026-08-31] La columna "Estado" del listado de ejercicios no informaba nada
+
+**Estado:** resuelto
+
+**Impacto:** reportado por el mismo cliente. Tras importar 748 ejercicios, la
+columna "Estado" decía "Activo" en las 748 filas. El cliente además creía que
+no se podía editar; sí se puede (`EjercicioForm` y `CategoriaEjercicioForm`
+incluyen `activo`, renderizado por `form.as_p`) -- lo que sobraba era la
+columna, no el control.
+
+**Resolución / próximo paso:** mismo criterio ya aplicado al preview de
+biblioteca el 2026-08-27: una columna de valor constante no informa nada, y lo
+único que aportaba -- la excepción -- pasa a badge al lado del nombre. De paso,
+el `<th>` "Grupo muscular" pasó a "Categoría": era el último lugar del proyecto
+que no cumplía esa regla de `CLAUDE.md`.
+
+## [2026-08-31] El preview de plantillas hace una query por ejercicio pendiente
+
+**Estado:** aceptado (riesgo asumido, preexistente)
+
+**Impacto:** cada `ResolucionEjercicioForm` del formset construye su propio
+`ModelChoiceField` de categoría, y el queryset no se comparte entre forms: el
+GET del preview dispara **una query por ejercicio pendiente** solo para poblar
+desplegables idénticos. Medido: 126 queries con 120 pendientes. Con el archivo
+real del cliente son 42 pendientes (~48 queries, irrelevante); con el techo
+documentado de ~300 ejercicios distintos por plantilla serían ~306, que sobre
+Neon (scale-to-zero) es cerca de un segundo de latencia agregada en una
+pantalla que ya tiene el presupuesto de 30 s de gunicorn como riesgo conocido.
+
+Es **anterior** al trabajo de la matriz ancha: viene del diseño de formset del
+importador original, ya anotado como riesgo aceptado el 2026-07-28 ("una
+plantilla real nunca supera ~300 ejercicios distintos"). Apareció al medir,
+mientras se arreglaba un O(n²) distinto en la misma vista.
+
+**Resolución / próximo paso:** no se toca en la rama de la matriz ancha, para
+no mezclar. Si algún día molesta, la salida NO es un `assertNumQueries` fijo
+sino compartir las choices entre forms (armar la lista una vez en la vista y
+asignarla a `field.choices`), teniendo en cuenta que la validación del POST
+vuelve a consultar por form en `to_python`.
+
+## [2026-08-31] Dos tests de notificaciones se ponen rojos del 29 al 31 de cada mes
+
+**Estado:** resuelto
+
+**Impacto:** `EnviarRecordatoriosCommandTests.test_correrlo_dos_veces_el_mismo_dia_no_duplica`
+y `test_alumno_sin_perfil_no_queda_bloqueado_para_siempre` fallan en `main`
+limpio si se corren un día 29, 30 o 31. El fixture hace
+`dia_vencimiento_pago = min(hoy.day + 1, 28)`; el 31, eso queda en 28, y
+`28 - 31 = -3` cae fuera de la ventana de [0, 3] días del recordatorio, así que
+no se envía nada y los `assert_called_once` fallan.
+
+**No es un bug de producción**: la lógica del cron es correcta (un pago cuyo
+vencimiento ya pasó lo cubre "pago vencido", no "pago por vencer"). Es un test
+con fecha frágil. Detectado al tomar la línea de base para el trabajo del
+importador; queda **fuera de esa rama** por ser otra app y otro problema.
+
+**Resolución / próximo paso:** resuelto aplicando a los dos el patrón que ya
+estaba en el MISMO archivo: `test_pago_por_vencer_solo_del_gimnasio_correcto`
+había sufrido exactamente esto y se arregló fijando `hoy = date(2026, 3, 10)`
+con `patch("django.utils.timezone.localdate")`, dejando el porqué en un
+comentario. Ese arreglo no se propagó a los otros dos, que quedaron derivando
+la fecha del día actual. Ahora los tres usan la fecha fija y ninguno depende
+del reloj.
+
+**Para la próxima:** si un test necesita que "hoy" caiga en una ventana de
+días, la fecha va fija. Cualquier fixture relativa a `timezone.localdate()`
+que después haga aritmética de días es irrepresentable cerca de fin de mes,
+porque la resta no da la vuelta de mes.
+
+
 ## [2026-08-27] El preview del importador no ofrecía las categorías del propio archivo
 
 **Estado:** resuelto

@@ -18,7 +18,19 @@
     {% for hoja, hoja_form in hojas_con_form %}
       <div class="tarjeta">
         <h2>{{ hoja.nombre_hoja }}</h2>
-        <p class="texto-suave">{{ hoja.items|length }} ejercicios detectados</p>
+        {# Cómo se leyó la hoja, no solo cuántas filas salieron: con dos
+           layouts posibles y una búsqueda de encabezado que puede caer en la
+           fila equivocada, esto es lo que le permite al entrenador ver si la
+           app entendió su archivo ANTES de confirmar. #}
+        <p class="texto-suave">
+          {{ hoja.items|length }} ejercicio{{ hoja.items|length|pluralize }} ·
+          {{ hoja.dias_por_semana }} día{{ hoja.dias_por_semana|pluralize }}
+          {% if hoja.items %}
+            · leído como
+            {% if hoja.layout == "ancha" %}tabla con las semanas a lo ancho{% else %}tabla simple{% endif %},
+            con los títulos en la fila {{ hoja.fila_encabezado }}
+          {% endif %}
+        </p>
         {% if hoja.motivo_exclusion %}
           <p class="texto-error">{{ hoja.motivo_exclusion }}</p>
         {% endif %}
@@ -26,14 +38,23 @@
         {% if hoja.items %}
           <div class="tabla-scroll">
             <table class="tabla">
-              <thead><tr><th>Día</th><th>Ejercicio</th><th>Series</th><th>Repeticiones</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Fila</th><th>Día</th><th>Semana</th><th>Bloque</th>
+                  <th>Ejercicio</th><th>Series</th><th>Repeticiones</th><th>Kilos</th>
+                </tr>
+              </thead>
               <tbody>
                 {% for item in hoja.items %}
                   <tr>
-                    <td>{{ item.dia }}</td>
+                    <td class="texto-suave">{{ item.fila_excel }}</td>
+                    <td>{{ item.dia }}{% if item.dia_nombre %} <span class="texto-suave text-xs">{{ item.dia_nombre }}</span>{% endif %}</td>
+                    <td>{{ item.semana }}</td>
+                    <td>{% if item.bloque %}<span class="badge">{{ item.bloque }}</span>{% else %}<span class="texto-suave">—</span>{% endif %}</td>
                     <td>{{ item.ejercicio_original }}</td>
                     <td>{{ item.series }}</td>
                     <td>{{ item.repeticiones }}</td>
+                    <td>{% if item.kilos %}{{ item.kilos }}{% else %}<span class="texto-suave">—</span>{% endif %}</td>
                   </tr>
                 {% endfor %}
               </tbody>
@@ -41,12 +62,17 @@
           </div>
         {% endif %}
         {% if hoja.filas_invalidas %}
+          <h3>Filas que no se van a importar</h3>
           <div class="tabla-scroll">
             <table class="tabla">
               <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
               <tbody>
-                {% for fila in hoja.filas_invalidas %}
-                  <tr><td>{{ fila.fila_excel }}</td><td>{{ fila.motivo }}</td></tr>
+                {# Agrupadas por fila: en una tabla con las semanas a lo ancho,
+                   una misma fila de Excel puede fallar en más de una semana y
+                   listarla repetida haría parecer que hay más problemas de los
+                   que hay. #}
+                {% for fila, motivos in hoja.invalidas_agrupadas %}
+                  <tr><td>{{ fila }}</td><td>{{ motivos|join:" · " }}</td></tr>
                 {% endfor %}
               </tbody>
             </table>

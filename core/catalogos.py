@@ -4,7 +4,7 @@ de declaración, con un bucket final para datos sin categorizar.
 Patrón que se repite cada vez que un campo `choices` con `blank=True`
 necesita mostrarse agrupado sin perder ni mezclar los casos sin cargar
 (p. ej. `Alumno.sexo` en `tenants/analitica.py::distribucion_por_genero`,
-`RutinaAsignadaItem.grupo_muscular_snapshot` en `rutinas/agrupacion.py`) --
+`RutinaAsignadaItem.categoria_snapshot` en `rutinas/agrupacion.py`) --
 un solo lugar evita que la regla de "el bucket vacío va al final, no se
 descarta" diverja entre esos lugares.
 """

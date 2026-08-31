@@ -6,9 +6,16 @@
   <h1>Importar plantillas de rutina</h1>
   <div class="tarjeta">
     <p class="texto-suave">
-      Subí un archivo .xlsx con tus planes de entrenamiento. Cada hoja del
-      archivo se convierte en una plantilla reutilizable — vas a poder
-      revisar todo antes de confirmar.
+      Subí un archivo .xlsx con tus planes de entrenamiento. En el paso
+      siguiente elegís qué hojas son planes (las auxiliares las podés dejar
+      afuera), y después revisás todo antes de confirmar.
+    </p>
+    <p class="texto-suave">
+      Las únicas columnas que no pueden faltar son <strong>Ejercicio</strong>,
+      <strong>Series</strong> y <strong>Repeticiones</strong>. Si no sabés cómo
+      armarlo,
+      <a href="{% url 'importaciones:plantillas_ejemplo' %}" hx-boost="false">descargá
+      un archivo de ejemplo</a> y llenalo con tus datos.
     </p>
     <form method="post" enctype="multipart/form-data" hx-boost="false">
       {% csrf_token %}

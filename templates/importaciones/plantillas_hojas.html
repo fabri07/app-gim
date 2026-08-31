@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+{% block title %}Elegir hojas · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <h1>¿Qué hojas querés importar?</h1>
+  {% if sin_hojas_importables %}
+    <p class="texto-error">
+      No encontré ejercicios en ninguna hoja de este archivo. Abajo está lo que
+      leí de cada una: revisá que la hoja del plan tenga una fila con los
+      títulos de las columnas (al menos Ejercicio, Series y Repeticiones) y
+      volvé a subirla.
+    </p>
+    <p class="texto-suave">
+      <a href="{% url 'importaciones:plantillas_ejemplo' %}" hx-boost="false">Descargá
+      un archivo de ejemplo</a> para ver cómo tiene que estar armado.
+    </p>
+  {% else %}
+    <p class="texto-suave">
+      Leí el archivo y encontré esto. Cada hoja que dejes marcada se convierte en
+      una plantilla de rutina; las que no son planes de entrenamiento (listados
+      auxiliares, hojas de cálculo, planillas de seguimiento) podés dejarlas sin
+      marcar.
+    </p>
+  {% endif %}
+
+  {% if error %}
+    <p class="texto-error">{{ error }}</p>
+  {% endif %}
+
+  <form method="post" hx-boost="false">
+    {% csrf_token %}
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Importar</th>
+            <th>Hoja</th>
+            <th>Ejercicios</th>
+            <th>Días</th>
+            <th>Semanas</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for fila in filas %}
+            <tr>
+              <td>
+                {% if fila.cantidad %}
+                  <input type="checkbox" name="hojas" value="{{ fila.nombre_hoja }}"
+                         id="hoja-{{ forloop.counter }}"
+                         {% if fila.marcada %}checked{% endif %}>
+                {% else %}
+                  <span class="texto-suave">—</span>
+                {% endif %}
+              </td>
+              <td>
+                <label for="hoja-{{ forloop.counter }}">{{ fila.nombre_hoja }}</label>
+                {% if fila.motivo_exclusion %}
+                  <br><span class="texto-suave text-xs">{{ fila.motivo_exclusion }}</span>
+                {% endif %}
+              </td>
+              <td>{{ fila.cantidad }}</td>
+              <td>{% if fila.cantidad %}{{ fila.dias }}{% else %}—{% endif %}</td>
+              <td>{% if fila.cantidad %}{{ fila.semanas }}{% else %}—{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if not sin_hojas_importables %}
+      <button type="submit" class="boton">Continuar</button>
+    {% endif %}
+  </form>
+
+  <form method="post" action="{% url 'importaciones:plantillas_descartar' importacion.pk %}" hx-boost="false">
+    {% csrf_token %}
+    <button type="submit" class="boton-peligro">Descartar</button>
+  </form>
+</div>
+{% endblock %}

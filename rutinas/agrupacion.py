@@ -91,6 +91,13 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
                 ),
                 "video": entrada["video"],
                 "orden": item_semana_mas_baja.orden,
+                # Misma regla que `categoria_display`: gana la semana más
+                # baja. `bloque` y `dia_nombre` están denormalizados por item,
+                # así que en teoría podrían diferir entre semanas del mismo
+                # ejercicio; elegir siempre la misma semana evita que el valor
+                # mostrado dependa del orden de iteración.
+                "bloque": item_semana_mas_baja.bloque,
+                "dia_nombre": item_semana_mas_baja.dia_nombre,
                 # Lista (no dict): los templates de Django no pueden
                 # indexar un dict con una clave dinámica sin un filtro
                 # custom, así que cada celda ya trae su propio número

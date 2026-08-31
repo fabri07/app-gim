@@ -411,7 +411,7 @@
         {% if dias_disponibles %}
           <div class="rutina-dias">
             {% for dia in dias_disponibles %}
-              <a class="boton-secundario" href="{% url 'rutinas:mi_dia_detalle' dia %}">Día {{ dia }}</a>
+              <a class="boton-secundario" href="{% url 'rutinas:mi_dia_detalle' dia.numero %}">Día {{ dia.numero }}{% if dia.nombre %} · {{ dia.nombre }}{% endif %}</a>
             {% endfor %}
           </div>
         {% else %}

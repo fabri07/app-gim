@@ -19,12 +19,19 @@ from importaciones.matching import (
 )
 from importaciones.models import Importacion
 from importaciones.parsing import (
+    ALIAS_PLANTILLA,
+    FILAS_BUSQUEDA_ENCABEZADO,
     ColumnaRequeridaFaltante,
+    FilaInvalida,
     normalizar_texto,
     parsear_archivo_biblioteca,
     parsear_archivo_plantillas,
 )
-from rutinas.models import RutinaPlantilla, RutinaPlantillaItem
+from rutinas.models import (
+    SEMANAS_POR_CICLO,
+    RutinaPlantilla,
+    RutinaPlantillaItem,
+)
 
 # Un .xlsx corrupto o que en realidad no es un .xlsx (otra extensión
 # renombrada a mano) puede fallar de dos formas al abrirlo con openpyxl:
@@ -37,6 +44,71 @@ ERRORES_ARCHIVO_INVALIDO = (InvalidFileException, KeyError, zipfile.BadZipFile)
 class ImportacionInvalida(Exception):
     """Mensaje en español listo para messages.error() -- análoga a
     ErrorDeReserva en turnos/services.py."""
+
+
+def _motivo_si_item_no_entra(item):
+    """`None` si el item se puede guardar, o el motivo si no.
+
+    Dos familias de problema que el parser no puede ver porque es Django-free:
+
+    1. **Largos.** Postgres rechaza un `varchar` desbordado con un `DataError`
+       que voltea la transacción entera -- una sola celda mal pegada mataría
+       las otras 171 filas con un 500 mudo. SQLite no valida largos, así que
+       esto NUNCA lo iba a encontrar un test local sin chequearlo a mano (ver
+       `ISSUES.md` [2026-08-27], el link de 306 caracteres). Los límites se
+       LEEN del modelo, no se copian: si mañana un campo cambia de tamaño,
+       este chequeo lo acompaña solo.
+    2. **Semana fuera del ciclo.** `bulk_create` no corre validadores, así que
+       un "SEMANA 5" en el archivo entraría a la base salteándose el
+       `MaxValueValidator` de `RutinaPlantillaItem.semana`.
+
+    Se aplica en el PREVIEW, no en el INSERT: la fila se descarta con motivo y
+    número de fila, y el staff lo ve antes de confirmar.
+    """
+    limites = (
+        ("repeticiones", RutinaPlantillaItem._meta.get_field("repeticiones"),
+         "Las repeticiones"),
+        ("kilos", RutinaPlantillaItem._meta.get_field("kilos"), "Los kilos"),
+        ("descanso", RutinaPlantillaItem._meta.get_field("descanso"), "El descanso"),
+        ("ejercicio_original", Ejercicio._meta.get_field("nombre"),
+         "El nombre del ejercicio"),
+        # Los dos campos que trae la matriz ancha. `dia_nombre` sale de una
+        # celda combinada con viñetas: un día con cinco bloques descritos ya
+        # da 98 caracteres contra un límite de 80.
+        ("bloque", RutinaPlantillaItem._meta.get_field("bloque"), "El bloque"),
+        ("dia_nombre", RutinaPlantillaItem._meta.get_field("dia_nombre"),
+         "El nombre del día"),
+    )
+    for atributo, campo, etiqueta in limites:
+        valor = getattr(item, atributo) or ""
+        if len(valor) > campo.max_length:
+            return (
+                f"{etiqueta} tiene {len(valor)} caracteres y el máximo es "
+                f"{campo.max_length}"
+            )
+    # Los DOS extremos: `bulk_create` se saltea el `MinValueValidator(1)`
+    # igual que el `Max`, y una semana 0 entra a la base y después no la
+    # renderiza nadie (el portal y el PDF iteran de 1 a SEMANAS_POR_CICLO).
+    # Pérdida silenciosa, que es peor que una fila descartada con motivo.
+    if not 1 <= item.semana <= SEMANAS_POR_CICLO:
+        return (
+            f"La semana {item.semana} queda fuera del ciclo: una rutina tiene "
+            f"{SEMANAS_POR_CICLO} semanas, de la 1 a la {SEMANAS_POR_CICLO}"
+        )
+    return None
+
+
+def _partir_items_que_no_entran(hoja):
+    """`(items que entran, filas inválidas + las descartadas por no entrar)`."""
+    validos = []
+    invalidas = list(hoja.filas_invalidas)
+    for item in hoja.items:
+        motivo = _motivo_si_item_no_entra(item)
+        if motivo is None:
+            validos.append(item)
+        else:
+            invalidas.append(FilaInvalida(item.fila_excel, motivo))
+    return validos, invalidas
 
 
 def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
@@ -53,12 +125,23 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
             "No se pudo leer el archivo. Verificá que sea un .xlsx válido."
         )
 
+    # Antes de resolver nada contra el catálogo, se descartan las filas que no
+    # entrarían en la base. Tiene que ser ANTES de `nombres_distintos`: si no,
+    # el preview le pediría al staff clasificar un ejercicio que después no se
+    # va a crear.
+    items_por_hoja = {}
+    invalidas_por_hoja = {}
+    for hoja in hojas:
+        validos, invalidas = _partir_items_que_no_entran(hoja)
+        items_por_hoja[hoja.nombre_hoja] = validos
+        invalidas_por_hoja[hoja.nombre_hoja] = invalidas
+
     indice = construir_indice_ejercicios(gimnasio)
 
     nombres_distintos = {
         normalizar_texto(item.ejercicio_original)
-        for hoja in hojas
-        for item in hoja.items
+        for items in items_por_hoja.values()
+        for item in items
     }
 
     ejercicios_distintos = {}
@@ -87,10 +170,14 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
                 "dias_por_semana": hoja.dias_por_semana,
                 "items": [
                     {**asdict(item), "ejercicio_normalizado": normalizar_texto(item.ejercicio_original)}
-                    for item in hoja.items
+                    for item in items_por_hoja[hoja.nombre_hoja]
                 ],
-                "filas_invalidas": [asdict(f) for f in hoja.filas_invalidas],
+                "filas_invalidas": [
+                    asdict(f) for f in invalidas_por_hoja[hoja.nombre_hoja]
+                ],
                 "motivo_exclusion": hoja.motivo_exclusion,
+                "layout": hoja.layout,
+                "fila_encabezado": hoja.fila_encabezado,
             }
             for hoja in hojas
         ],
@@ -110,6 +197,161 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
         resultado=resultado_json,
         creado_por=usuario,
     )
+
+
+def construir_ejemplo_plantillas():
+    """Un `.xlsx` de ejemplo, listo para llenar, generado al vuelo.
+
+    Se genera y no se versiona como binario a propósito: un archivo estático se
+    desincroniza del parser en cuanto cambian los alias, y nadie se entera
+    hasta que un cliente se queja. Acá los encabezados salen de
+    `ALIAS_PLANTILLA`, así que el ejemplo siempre es un archivo que el
+    importador sabe leer.
+
+    Es la respuesta al entrenador que no maneja Excel: hasta ahora ningún lugar
+    del producto decía qué columnas acepta el importador -- los alias vivían
+    solo en el código -- y un ejemplo para llenar vale más que cualquier
+    mensaje de error.
+    """
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Mi plan"
+    ws.append([
+        "Semana", "Día", "Ejercicio", "Series", "Repeticiones", "Kilos",
+        "Descanso", "Notas",
+    ])
+    for semana in (1, 2):
+        ws.append([semana, 1, "Sentadilla", 4, "8-12", "40kg", "90s", ""])
+        ws.append([semana, 1, "Press de banca", 4, "8-12", "30kg", "90s", ""])
+        ws.append([semana, 2, "Peso muerto", 3, "6", "60kg", "2 min", "Cuidar la espalda"])
+
+    ayuda = wb.create_sheet("Cómo llenarlo")
+    for linea in [
+        ("Las únicas columnas obligatorias son Ejercicio, Series y Repeticiones.",),
+        ("Semana y Día son opcionales: sin ellas todo entra como semana 1, día 1.",),
+        ("Los títulos no tienen que estar en la primera fila: podés dejar un título arriba.",),
+        ("",),
+        ("También se entienden estos nombres de columna:",),
+    ]:
+        ayuda.append(list(linea))
+    for campo, alias in ALIAS_PLANTILLA.items():
+        ayuda.append([campo, ", ".join(alias)])
+    ayuda.append([])
+    ayuda.append(["También se puede importar una planilla con las semanas a lo ancho"])
+    ayuda.append(["(SEMANA 1, SEMANA 2... como encabezados de grupo), que es el"])
+    ayuda.append(["formato de la mayoría de las planillas compradas."])
+
+    return wb
+
+
+def hojas_elegidas(resultado):
+    """Las hojas que el staff eligió importar, o todas si no eligió.
+
+    La elección se guarda como una lista de NOMBRES en
+    `resultado["hojas_elegidas"]` -- ni un campo de modelo nuevo ni un estado
+    nuevo, y sin volver a abrir el archivo (la invariante que documenta
+    `importaciones/models.py`).
+
+    Se lee con `.get()`: una `Importacion` en EN_REVISION creada antes del
+    deploy de esta pantalla no tiene la clave, y ahí "no eligió" significa
+    "todas", que es exactamente lo que hacía antes.
+    """
+    elegidas = resultado.get("hojas_elegidas")
+    if elegidas is None:
+        return list(resultado["hojas"])
+    return [h for h in resultado["hojas"] if h["nombre_hoja"] in set(elegidas)]
+
+
+def _nombres_necesarios(hojas_a_procesar, decisiones_por_hoja):
+    """Nombres normalizados de los ejercicios de las hojas que SÍ se incluyen.
+
+    Resolver los de una hoja destildada crearía `Ejercicio` que nadie pidió.
+    """
+    return {
+        item["ejercicio_normalizado"]
+        for hoja in hojas_a_procesar
+        if decisiones_por_hoja[hoja["nombre_hoja"]]["incluir"]
+        for item in hoja["items"]
+    }
+
+
+def _resolver_ejercicios(*, gimnasio, resultado, decisiones, nombres):
+    """`{nombre_normalizado: Ejercicio}` para todos los nombres de una vez.
+
+    Tres queries fijas (los existentes elegidos, el catálogo de categorías, y
+    el `bulk_create` de los nuevos) más las que Django necesite: el costo
+    depende del catálogo del gimnasio, no de cuántas filas trae el archivo.
+    """
+    from ejercicios.models import CategoriaEjercicio
+
+    decisiones_ejercicios = decisiones["ejercicios"]
+    faltantes = [n for n in nombres if n not in decisiones_ejercicios]
+    if faltantes:
+        raise ImportacionInvalida(
+            f"Falta la decisión para el ejercicio «{faltantes[0]}»."
+        )
+
+    a_reusar = {
+        n: decisiones_ejercicios[n]["ejercicio_id"]
+        for n in nombres
+        if decisiones_ejercicios[n]["accion"] == "usar_existente"
+    }
+    a_crear = [n for n in nombres if n not in a_reusar]
+
+    # Un solo SELECT scopeado por gimnasio: no se confía en los ids del POST,
+    # que es la barrera contra enganchar un ejercicio de otro tenant.
+    existentes = {
+        e.pk: e
+        for e in Ejercicio.objects.for_gimnasio(gimnasio).filter(
+            pk__in=[pk for pk in a_reusar.values() if pk]
+        )
+    }
+    resueltos = {}
+    for nombre, pk in a_reusar.items():
+        if pk not in existentes:
+            raise ImportacionInvalida(
+                "El ejercicio elegido para reusar no existe en este gimnasio."
+            )
+        resueltos[nombre] = existentes[pk]
+
+    if not a_crear:
+        return resueltos
+
+    # El catálogo entero de una: misma idea que `_CatalogoCategorias` del
+    # flujo de biblioteca.
+    categorias = {
+        c.pk: c for c in CategoriaEjercicio.objects.for_gimnasio(gimnasio)
+    }
+    nombres_originales = {}
+    for hoja in resultado["hojas"]:
+        for item in hoja["items"]:
+            nombres_originales.setdefault(
+                item["ejercicio_normalizado"], item["ejercicio_original"]
+            )
+
+    nuevos = []
+    for nombre in a_crear:
+        categoria = categorias.get(decisiones_ejercicios[nombre].get("categoria_id"))
+        if categoria is None:
+            raise ImportacionInvalida(
+                "La categoría elegida no existe en este gimnasio."
+            )
+        if nombre not in nombres_originales:
+            raise ImportacionInvalida(
+                f"No se encontró el ejercicio «{nombre}» en el archivo."
+            )
+        nuevos.append(Ejercicio(
+            gimnasio=gimnasio,
+            nombre=nombres_originales[nombre],
+            categoria=categoria,
+        ))
+
+    Ejercicio.objects.bulk_create(nuevos)
+    for nombre, ejercicio in zip(a_crear, nuevos):
+        resueltos[nombre] = ejercicio
+    return resueltos
 
 
 def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
@@ -137,71 +379,56 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
             raise ImportacionInvalida("Esta importación ya fue procesada.")
 
         resultado = importacion.resultado
-        decisiones_hojas = decisiones["hojas"]
-        if len(decisiones_hojas) != len(resultado["hojas"]):
-            # P. ej. checkboxes sin marcar en el form de confirmación
-            # (Tarea 9) simplemente no llegan en el POST -- sin este chequeo
-            # las hojas sobrantes se saltearían en silencio y la importación
-            # igual quedaría CONFIRMADA (ya no se podría reintentar).
+        hojas_a_procesar = hojas_elegidas(resultado)
+        # El pareo hoja<->decisión es POR NOMBRE, no posicional. Mientras el
+        # preview mostraba las N hojas del archivo en orden, alinear por índice
+        # funcionaba; desde que el staff elige qué hojas importar, la lista de
+        # decisiones ya no tiene por qué coincidir en largo ni en orden con
+        # `resultado["hojas"]`, y un desalineamiento acá crea plantillas con
+        # el objetivo y el nivel de OTRA hoja, en silencio. Los nombres de hoja
+        # son únicos dentro de un workbook, así que sirven de clave.
+        decisiones_por_hoja = {
+            d["nombre_hoja"]: d for d in decisiones["hojas"] if "nombre_hoja" in d
+        }
+        if len(decisiones_por_hoja) != len(decisiones["hojas"]):
             raise ImportacionInvalida("Datos de confirmación incompletos.")
 
-        ejercicios_por_nombre = {}  # nombre_normalizado -> Ejercicio, resuelto una vez
+        nombres_del_archivo = {h["nombre_hoja"] for h in resultado["hojas"]}
+        if not set(decisiones_por_hoja) <= nombres_del_archivo:
+            # Un POST armado a mano no puede inventar una hoja.
+            raise ImportacionInvalida("Datos de confirmación incompletos.")
+
+        faltantes = [
+            h["nombre_hoja"]
+            for h in hojas_a_procesar
+            if h["nombre_hoja"] not in decisiones_por_hoja
+        ]
+        if faltantes:
+            # P. ej. checkboxes sin marcar en el form de confirmación
+            # simplemente no llegan en el POST -- sin este chequeo las hojas
+            # sobrantes se saltearían en silencio y la importación igual
+            # quedaría CONFIRMADA (ya no se podría reintentar).
+            raise ImportacionInvalida("Datos de confirmación incompletos.")
+
+        # Los ejercicios se resuelven TODOS DE UNA, antes de tocar las
+        # plantillas. Antes esto era una función que se llamaba desde el loop
+        # de items y hacía, por cada ejercicio nuevo, un SELECT de categoría
+        # más un INSERT: con el archivo real (42 ejercicios distintos) eran
+        # 139 queries, y con una biblioteca grande es el mismo 502 por timeout
+        # de gunicorn que ya pasó en producción (ISSUES.md 2026-08-27).
+        # Regla del proyecto: el costo tiene que depender del CATÁLOGO, no de
+        # la cantidad de filas -- nunca una query dentro del loop.
+        ejercicios_por_nombre = _resolver_ejercicios(
+            gimnasio=gimnasio, resultado=resultado, decisiones=decisiones,
+            nombres=_nombres_necesarios(hojas_a_procesar, decisiones_por_hoja),
+        )
 
         def _obtener_ejercicio(nombre_normalizado):
-            if nombre_normalizado in ejercicios_por_nombre:
-                return ejercicios_por_nombre[nombre_normalizado]
-            try:
-                decision = decisiones["ejercicios"][nombre_normalizado]
-            except KeyError:
-                raise ImportacionInvalida(
-                    f"Falta la decisión para el ejercicio «{nombre_normalizado}»."
-                )
-            if decision["accion"] == "usar_existente":
-                try:
-                    ejercicio = Ejercicio.objects.get(
-                        pk=decision["ejercicio_id"], gimnasio=gimnasio,
-                    )
-                except Ejercicio.DoesNotExist:
-                    raise ImportacionInvalida(
-                        "El ejercicio elegido para reusar no existe en este gimnasio."
-                    )
-            else:
-                from ejercicios.models import CategoriaEjercicio
-
-                # Se re-lee contra un queryset scopeado por gimnasio y no se
-                # confía en el id que vino en `decisiones`: es la barrera que
-                # impide que un POST manipulado enganche un ejercicio nuevo a
-                # la categoría de otro tenant.
-                categoria = (
-                    CategoriaEjercicio.objects.for_gimnasio(gimnasio)
-                    .filter(pk=decision.get("categoria_id"))
-                    .first()
-                )
-                if categoria is None:
-                    raise ImportacionInvalida(
-                        "La categoría elegida no existe en este gimnasio."
-                    )
-                try:
-                    nombre_original = next(
-                        item["ejercicio_original"]
-                        for hoja in resultado["hojas"]
-                        for item in hoja["items"]
-                        if item["ejercicio_normalizado"] == nombre_normalizado
-                    )
-                except StopIteration:
-                    raise ImportacionInvalida(
-                        f"No se encontró el ejercicio «{nombre_normalizado}» en el archivo."
-                    )
-                ejercicio = Ejercicio.objects.create(
-                    gimnasio=gimnasio,
-                    nombre=nombre_original,
-                    categoria=categoria,
-                )
-            ejercicios_por_nombre[nombre_normalizado] = ejercicio
-            return ejercicio
+            return ejercicios_por_nombre[nombre_normalizado]
 
         plantillas_creadas = []
-        for hoja, decision_hoja in zip(resultado["hojas"], decisiones_hojas):
+        for hoja in hojas_a_procesar:
+            decision_hoja = decisiones_por_hoja[hoja["nombre_hoja"]]
             if not decision_hoja["incluir"]:
                 continue
             if not hoja["items"]:
@@ -236,6 +463,14 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
                     kilos=item["kilos"],
                     descanso=item["descanso"],
                     notas=item["notas"],
+                    # `.get()` y no `[...]`: una `Importacion` en EN_REVISION
+                    # creada ANTES del deploy de estos campos no tiene las
+                    # claves en su `resultado` JSON, y un KeyError acá sería un
+                    # 500 al confirmar. El default ES la migración -- no vale
+                    # la pena un backfill sobre un blob de preview que se
+                    # descarta solo.
+                    bloque=item.get("bloque", ""),
+                    dia_nombre=item.get("dia_nombre", ""),
                 )
                 for item in hoja["items"]
             ])
@@ -287,17 +522,20 @@ def previsualizar_importacion_biblioteca(*, gimnasio, archivo, usuario):
             "No se pudo leer el archivo. Verificá que sea un .xlsx válido."
         )
     except ColumnaRequeridaFaltante as error:
-        # Listar lo que SÍ se leyó es lo que hace accionable el mensaje: el
-        # caso típico es una fila de título arriba de la tabla, y viendo el
-        # eco de esa fila el staff entiende al toque que la app miró la fila
-        # equivocada.
+        # Listar lo que SÍ se leyó es lo que hace accionable el mensaje: sin
+        # el eco de esa fila, el staff no tiene forma de saber qué miró la app.
+        #
+        # Ya NO se le pide que borre el título de arriba: desde el 2026-08-31
+        # `buscar_fila_encabezado` mira las primeras FILAS_BUSQUEDA_ENCABEZADO
+        # y encuentra la tabla sola. Si igual se llega acá, es que no hay
+        # ninguna fila de títulos en esa ventana, que es otro problema.
         leidos = ", ".join(f"«{e}»" for e in error.encabezados) or "ninguno"
         raise ImportacionInvalida(
             f"No encontré la columna «{error.campo}» en el archivo. "
-            f"En la primera fila leí estos encabezados: {leidos}. "
-            "La primera fila de la hoja tiene que ser la de los títulos de "
-            "las columnas (por ejemplo NOMBRE, LINK, CATEGORÍA): si arriba "
-            "hay un título o una fila en blanco, borrala y volvé a subirlo."
+            f"Miré las {FILAS_BUSQUEDA_ENCABEZADO} primeras filas de la hoja "
+            f"y la que más se parecía a los títulos fue la fila {error.fila}, "
+            f"donde leí: {leidos}. La hoja tiene que tener una fila con los "
+            "títulos de las columnas (por ejemplo NOMBRE, LINK, CATEGORÍA)."
         )
 
     indice = construir_indice_ejercicios(gimnasio)

@@ -5,6 +5,7 @@ que delegan toda la lógica a `services.py`."""
 import json
 
 from django.contrib import messages
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import FormView, View
 
@@ -20,12 +21,35 @@ from importaciones.forms import (
 from importaciones.models import Importacion
 from importaciones.services import (
     ImportacionInvalida,
+    construir_ejemplo_plantillas,
+    hojas_elegidas,
     confirmar_importacion_biblioteca,
     confirmar_importacion_plantillas,
     previsualizar_importacion_biblioteca,
     previsualizar_importacion_plantillas,
 )
 from tenants.mixins import StaffRequiredMixin
+
+
+class EjemploPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
+    """Descarga un `.xlsx` de ejemplo listo para llenar.
+
+    Se genera al vuelo (no es un binario versionado, que se desincronizaría
+    del parser en silencio). `hx-boost="false"` en el link que lleva acá es
+    obligatorio: htmx intercepta el click y se traga la descarga.
+    """
+
+    def get(self, request, *args, **kwargs):
+        respuesta = HttpResponse(
+            content_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        )
+        respuesta["Content-Disposition"] = (
+            'attachment; filename="ejemplo-plan-de-entrenamiento.xlsx"'
+        )
+        construir_ejemplo_plantillas().save(respuesta)
+        return respuesta
 
 
 class SubirPlantillasView(StaffRequiredMixin, TenantScopedMixin, FormView):
@@ -42,7 +66,118 @@ class SubirPlantillasView(StaffRequiredMixin, TenantScopedMixin, FormView):
         except ImportacionInvalida as exc:
             form.add_error(None, str(exc))
             return self.form_invalid(form)
+        return redirect("importaciones:plantillas_hojas", pk=importacion.pk)
+
+
+class SeleccionHojasView(StaffRequiredMixin, TenantScopedMixin, View):
+    """Paso intermedio: qué hojas del archivo son planes de entrenamiento.
+
+    Un workbook real no trae solo el plan. El del primer cliente pago tiene 7
+    hojas y 6 son auxiliares (`AUX` con 3206 filas, `Movilidad Articular` con
+    1020, `Avatar`, `Logros`, `Carga de Datos`, `Plantilla - aux`); sin este
+    paso el preview mostraba 7 tarjetas y el staff tenía que destildar 6.
+
+    La elección se guarda como una lista de nombres dentro de
+    `resultado["hojas_elegidas"]`: sin campo de modelo nuevo, sin estado
+    nuevo, y **sin volver a abrir el archivo** -- la invariante que documenta
+    `importaciones/models.py`. Ya está todo parseado desde el paso anterior.
+    """
+
+    template_name = "importaciones/plantillas_hojas.html"
+
+    def get_importacion(self):
+        return get_object_or_404(
+            Importacion.objects.for_gimnasio(self.gimnasio),
+            pk=self.kwargs["pk"],
+            tipo=Importacion.Tipo.PLANTILLAS,
+            estado=Importacion.Estado.EN_REVISION,
+        )
+
+    def _filas(self, importacion):
+        elegidas = importacion.resultado.get("hojas_elegidas")
+        for hoja in importacion.resultado["hojas"]:
+            items = hoja["items"]
+            # Por defecto se ofrecen tildadas solo las que de verdad parsearon
+            # algo: es lo que hace que el staff no tenga que destildar seis
+            # hojas auxiliares para llegar a la única que le importa.
+            marcada = (
+                hoja["nombre_hoja"] in elegidas if elegidas is not None else bool(items)
+            )
+            yield {
+                "nombre_hoja": hoja["nombre_hoja"],
+                "cantidad": len(items),
+                "dias": hoja["dias_por_semana"],
+                "semanas": len({i["semana"] for i in items}),
+                "motivo_exclusion": hoja["motivo_exclusion"],
+                "marcada": marcada,
+            }
+
+    def _contexto(self, importacion, **extra):
+        filas = list(self._filas(importacion))
+        return {
+            "importacion": importacion,
+            "filas": filas,
+            # Sin ninguna hoja con ejercicios no hay nada que elegir: ofrecer
+            # "Continuar" sería pedirle al staff algo que la pantalla no puede
+            # dar, y cualquier POST volvería con "elegí al menos una hoja".
+            "sin_hojas_importables": not any(f["cantidad"] for f in filas),
+            **extra,
+        }
+
+    def get(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        return render(request, self.template_name, self._contexto(importacion))
+
+    def post(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        nombres_reales = {h["nombre_hoja"] for h in importacion.resultado["hojas"]}
+        con_items = {
+            h["nombre_hoja"] for h in importacion.resultado["hojas"] if h["items"]
+        }
+        # Se intersecta contra los nombres REALES en vez de confiar en el POST:
+        # misma barrera que el re-fetch scopeado del resto del importador.
+        elegidas = [
+            n for n in request.POST.getlist("hojas") if n in nombres_reales and n in con_items
+        ]
+
+        if not elegidas:
+            return render(request, self.template_name, self._contexto(
+                importacion,
+                error="Elegí al menos una hoja con ejercicios para poder seguir.",
+            ))
+
+        importacion.resultado = {**importacion.resultado, "hojas_elegidas": elegidas}
+        importacion.save(update_fields=["resultado"])
         return redirect("importaciones:plantillas_preview", pk=importacion.pk)
+
+
+def _agrupar_invalidas(hoja):
+    """`[(fila_excel, [motivos])]`, en el orden en que aparecen.
+
+    En una tabla con las semanas a lo ancho, una misma fila de Excel produce
+    hasta un item por semana, así que puede fallar en más de una. Listarla
+    repetida haría parecer que hay más problemas de los que hay.
+    """
+    agrupadas = {}
+    for fila in hoja["filas_invalidas"]:
+        agrupadas.setdefault(fila["fila_excel"], []).append(fila["motivo"])
+    return list(agrupadas.items())
+
+
+def _nombres_de_las_hojas_elegidas(resultado):
+    """Nombres normalizados de los ejercicios de las hojas que se van a
+    importar.
+
+    `ejercicios_distintos` se calcula sobre el archivo entero, así que incluye
+    los de las hojas que el staff dejó sin marcar. Pedirle que clasifique un
+    ejercicio que no se va a crear es trabajo por nada -- y con un archivo de
+    varias hojas auxiliares, mucho trabajo por nada.
+    """
+    return {
+        item["ejercicio_normalizado"]
+        for hoja in hojas_elegidas(resultado)
+        for item in hoja["items"]
+    }
 
 
 class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
@@ -69,8 +204,12 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
                 "objetivo": "",
                 "nivel": "",
             }
-            for h in resultado["hojas"]
+            for h in hojas_elegidas(resultado)
         ]
+        # Fuera de la comprehension: adentro se reconstruía el set entero una
+        # vez POR EJERCICIO, o sea O(distintos x items) en una pantalla que ya
+        # tiene el presupuesto de 30 s de gunicorn documentado como riesgo.
+        nombres_a_resolver = _nombres_de_las_hojas_elegidas(resultado)
         ejercicios_initial = [
             {
                 "nombre_normalizado": nombre,
@@ -79,6 +218,7 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
             }
             for nombre, info in resultado["ejercicios_distintos"].items()
             if info["tipo"] != "exacto"  # los exactos no requieren decisión del staff
+            and nombre in nombres_a_resolver
         ]
         hoja_formset = HojaMetadataFormSet(initial=hojas_initial, prefix="form")
         # `form_kwargs` es lo que hace llegar el gimnasio a cada form del
@@ -141,7 +281,13 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
         # renderizando).
         return render(request, self.template_name, {
             "importacion": importacion,
-            "hojas_con_form": list(zip(importacion.resultado["hojas"], hoja_formset.forms)),
+            "hojas_con_form": list(zip(
+                [
+                    {**h, "invalidas_agrupadas": _agrupar_invalidas(h)}
+                    for h in hojas_elegidas(importacion.resultado)
+                ],
+                hoja_formset.forms,
+            )),
             "hoja_formset": hoja_formset,
             "ejercicio_formset": ejercicio_formset,
             # Las zonas del drag-and-drop: antes iteraban las choices del
@@ -166,8 +312,17 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
             return self.render(request, importacion, hoja_formset, ejercicio_formset)
 
         decisiones = {
+            # `nombre_hoja` viaja en un hidden del form y es lo que parea
+            # cada decisión con SU hoja. Viene del cliente, así que
+            # `confirmar_importacion_plantillas` lo revalida contra los
+            # nombres reales de esta importación antes de usarlo.
             "hojas": [
-                {"incluir": f["incluir"], "objetivo": f["objetivo"], "nivel": f["nivel"]}
+                {
+                    "nombre_hoja": f["nombre_hoja"],
+                    "incluir": f["incluir"],
+                    "objetivo": f["objetivo"],
+                    "nivel": f["nivel"],
+                }
                 for f in hoja_formset.cleaned_data
             ],
             "ejercicios": {

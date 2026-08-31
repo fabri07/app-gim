@@ -216,6 +216,15 @@
     @apply text-sm text-gray-500;
   }
 
+  /* Mensajes de error dentro de una tarjeta o tabla (no los de un campo de
+     formulario, que los pinta Django con su propia `errorlist`). La clase se
+     venía usando en los previews del importador desde 2026-07-27 sin estar
+     definida en ninguna parte: el texto salía igual que el normal, así que un
+     "no se pudo importar" no se distinguía de una línea cualquiera. */
+  .texto-error {
+    @apply text-sm font-medium text-red-700;
+  }
+
   /* Tables */
   .tabla {
     @apply w-full text-sm bg-white rounded-2xl border border-gray-200

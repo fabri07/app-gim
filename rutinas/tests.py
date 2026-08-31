@@ -34,7 +34,11 @@ from rutinas.models import (
     RutinaPlantillaItem,
 )
 from rutinas.agrupacion import listar_ejercicios_del_dia
-from rutinas.pdf import _celda_semana, generar_pdf_rutina_asignada
+from rutinas.pdf import (
+    _celda_semana,
+    _fila_ejercicio,
+    generar_pdf_rutina_asignada,
+)
 from tenants.models import Gimnasio, Perfil
 
 
@@ -1953,3 +1957,166 @@ class ConversionSnapshotSlugANombreTests(TestCase):
 
         item.refresh_from_db()
         self.assertEqual(item.categoria_snapshot, "Piernas")
+
+
+class BloqueYNombreDeDiaTests(RutinasTestCase):
+    """Los dos campos que trae el importador desde la planilla del entrenador:
+    el código de superserie (A1, B2 -- los ejercicios del mismo bloque se hacen
+    juntos) y el nombre del día ("Tren superior · Core").
+
+    Van denormalizados por item, igual que `categoria_snapshot`, y se resuelven
+    al leer con la regla "gana la semana más baja".
+    """
+
+    def _plantilla_con_bloques(self):
+        plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Full body", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=1,
+        )
+        for semana in (1, 2):
+            RutinaPlantillaItem.objects.create(
+                rutina=plantilla, ejercicio=self.press_banca, semana=semana,
+                dia=1, orden=1, series=4, repeticiones="10",
+                bloque="A1", dia_nombre="Tren superior · Core",
+            )
+            RutinaPlantillaItem.objects.create(
+                rutina=plantilla, ejercicio=self.sentadilla, semana=semana,
+                dia=1, orden=2, series=4, repeticiones="12",
+                bloque="A2", dia_nombre="Tren superior · Core",
+            )
+        return plantilla
+
+    def test_sobreviven_a_crear_desde_plantilla(self):
+        plantilla = self._plantilla_con_bloques()
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=plantilla,
+            fecha_inicio=date(2026, 8, 31),
+        )
+        item = asignada.items.get(semana=1, orden=1)
+        self.assertEqual(item.bloque, "A1")
+        self.assertEqual(item.dia_nombre, "Tren superior · Core")
+
+    def test_sobreviven_a_duplicar(self):
+        copia = self._plantilla_con_bloques().duplicar()
+        item = copia.items.get(semana=1, orden=2)
+        self.assertEqual(item.bloque, "A2")
+        self.assertEqual(item.dia_nombre, "Tren superior · Core")
+
+    def test_agrupacion_los_expone_por_la_semana_mas_baja(self):
+        plantilla = self._plantilla_con_bloques()
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=plantilla,
+            fecha_inicio=date(2026, 8, 31),
+        )
+        # Si el valor se tomara de cualquier semana, este cambio en la 2 se
+        # colaría; tiene que ganar la más baja, igual que `categoria_display`.
+        asignada.items.filter(semana=2, orden=1).update(bloque="ZZ")
+
+        ejercicios = listar_ejercicios_del_dia(list(asignada.items.all()))
+        primero = ejercicios[0]
+        self.assertEqual(primero["bloque"], "A1")
+        self.assertEqual(primero["dia_nombre"], "Tren superior · Core")
+
+    def test_un_item_sin_bloque_no_rompe_nada(self):
+        """La carga manual y todas las rutinas anteriores a esta feature no
+        tienen bloque: el campo es opcional."""
+        plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Manual", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=1,
+        )
+        RutinaPlantillaItem.objects.create(
+            rutina=plantilla, ejercicio=self.press_banca, semana=1, dia=1,
+            orden=1, series=4, repeticiones="10",
+        )
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=plantilla,
+            fecha_inicio=date(2026, 8, 31),
+        )
+        ejercicios = listar_ejercicios_del_dia(list(asignada.items.all()))
+        self.assertEqual(ejercicios[0]["bloque"], "")
+        self.assertEqual(ejercicios[0]["dia_nombre"], "")
+
+    def test_el_orden_no_cambia_por_el_bloque(self):
+        """`Meta.ordering` sigue siendo semana/día/orden: el importador ya
+        asigna `orden` en el orden del archivo, así que A1, A2, B1 salen
+        agrupados solos. Meter `bloque` en el ordering mandaría los items
+        manuales (bloque vacío) al principio."""
+        self.assertEqual(
+            RutinaPlantillaItem._meta.ordering, ["semana", "dia", "orden"]
+        )
+
+
+class BloqueYNombreDeDiaEnLaUITests(RutinasTestCase):
+    """Que los campos existan en el modelo no sirve si no se ven. Estos tests
+    son el guardarraíl contra agregar una columna al `<thead>` y olvidarse del
+    `<tbody>` (o al revés)."""
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Full body", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=1,
+        )
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.press_banca, semana=1, dia=1,
+            orden=1, series=4, repeticiones="10",
+            bloque="A1", dia_nombre="Tren superior · Core",
+        )
+
+    def test_la_tabla_de_la_plantilla_los_muestra(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
+        )
+        self.assertContains(response, "<th>Bloque</th>", html=False)
+        self.assertContains(response, "A1")
+        self.assertContains(response, "Tren superior")
+
+    def test_la_tabla_de_la_rutina_asignada_tambien(self):
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
+            fecha_inicio=date(2026, 8, 31),
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(
+            reverse("rutinas:asignada_detalle", args=[asignada.pk])
+        )
+        self.assertContains(response, "<th>Bloque</th>", html=False)
+        self.assertContains(response, "A1")
+
+    def test_el_portal_del_alumno_titula_el_dia(self):
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
+            fecha_inicio=date(2026, 8, 31),
+        )
+        usuario = User.objects.create_user("alu", password="clave-123456")
+        perfil = Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.alumno.perfil = perfil
+        self.alumno.save()
+        self.client.login(username="alu", password="clave-123456")
+
+        response = self.client.get(reverse("rutinas:mi_dia_detalle", args=[1]))
+        self.assertEqual(response.context["dia_nombre"], "Tren superior · Core")
+        self.assertContains(response, "Tren superior · Core")
+        self.assertContains(response, "A1")
+        self.assertEqual(asignada.items.count(), 1)
+
+    def test_el_pdf_lleva_el_bloque_y_el_nombre_del_dia(self):
+        """Regla de sincronía de CLAUDE.md: el papel y la pantalla tienen que
+        decir lo mismo."""
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
+            fecha_inicio=date(2026, 8, 31),
+        )
+        ejercicios = listar_ejercicios_del_dia(list(asignada.items.all()))
+        fila = _fila_ejercicio(ejercicios[0])
+
+        self.assertTrue(fila[0].startswith("A1 · "))
+        self.assertIn("Press de banca", fila[0])
+        self.assertIsNotNone(generar_pdf_rutina_asignada(asignada))

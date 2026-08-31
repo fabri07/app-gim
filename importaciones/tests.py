@@ -3,6 +3,7 @@ fixtures de este repo."""
 
 import io
 import json
+from unittest.mock import patch
 
 import openpyxl
 from django.contrib.auth.models import User
@@ -20,6 +21,7 @@ from importaciones.matching import (
     resolver_nombre,
 )
 from importaciones.models import Importacion
+from importaciones.views import _nombres_de_las_hojas_elegidas
 from importaciones.parsing import (
     ColumnaRequeridaFaltante,
     ALIAS_BIBLIOTECA,
@@ -27,7 +29,10 @@ from importaciones.parsing import (
     FilaInvalida,
     HojaParseada,
     ItemParseado,
+    buscar_fila_encabezado,
     detectar_columnas,
+    detectar_matriz_ancha,
+    mejor_encabezado_parcial,
     leer_hoja_biblioteca,
     leer_hoja_plantilla,
     normalizar_texto,
@@ -36,6 +41,7 @@ from importaciones.parsing import (
 )
 from importaciones.services import (
     ImportacionInvalida,
+    construir_ejemplo_plantillas,
     confirmar_importacion_biblioteca,
     confirmar_importacion_plantillas,
     previsualizar_importacion_biblioteca,
@@ -185,6 +191,7 @@ class LeerHojaPlantillaTests(SimpleTestCase):
         self.assertEqual(hoja.items[0], ItemParseado(
             semana=1, dia=1, orden=1, ejercicio_original="Press de banca",
             series=4, repeticiones="8-12", kilos="", descanso="90s", notas="",
+            fila_excel=2,
         ))
         self.assertEqual(hoja.items[1].orden, 2)  # segundo item del mismo (semana, dia)
         self.assertEqual(hoja.filas_invalidas, [])
@@ -468,7 +475,7 @@ class ConfirmarImportacionPlantillasTests(TestCase):
 
     def _decisiones_completas(self, accion_sentadila="usar_existente"):
         return {
-            "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
+            "hojas": [{"nombre_hoja": "Hombres", "incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
             "ejercicios": {
                 "press de banca": {"accion": "crear_nuevo", "categoria_id": self.pecho.pk},
                 "sentadila": {
@@ -608,8 +615,8 @@ class ConfirmarImportacionPlantillasTests(TestCase):
         )
         decisiones = {
             "hojas": [
-                {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
-                {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
+                {"nombre_hoja": "Hombres", "incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
+                {"nombre_hoja": "Mujeres", "incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
             ],
             "ejercicios": {
                 "peso muerto": {"accion": "crear_nuevo", "categoria_id": self.piernas.pk},
@@ -645,8 +652,8 @@ class ConfirmarImportacionPlantillasTests(TestCase):
         ejercicios_antes = Ejercicio.objects.count()
         decisiones = {
             "hojas": [
-                {"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"},
-                {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
+                {"nombre_hoja": "Hombres", "incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"},
+                {"nombre_hoja": "Mujeres", "incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
             ],
             "ejercicios": {
                 "press de banca": {"accion": "crear_nuevo", "categoria_id": self.pecho.pk},
@@ -691,7 +698,7 @@ class ConfirmarImportacionPlantillasConCargaTests(TestCase):
             importacion=self.importacion,
             gimnasio=self.gimnasio,
             decisiones={
-                "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
+                "hojas": [{"nombre_hoja": "Hombres", "incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
                 "ejercicios": {
                     "sentadilla": {"accion": "crear_nuevo", "categoria_id": self.piernas.pk},
                 },
@@ -992,6 +999,19 @@ class ImportacionPlantillasViewsTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         importacion = Importacion.objects.get()
+        self.assertRedirects(
+            response, reverse("importaciones:plantillas_hojas", args=[importacion.pk])
+        )
+
+        # Paso nuevo: elegir qué hojas del archivo son planes.
+        response = self.client.get(response.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Hombres")
+
+        response = self.client.post(
+            reverse("importaciones:plantillas_hojas", args=[importacion.pk]),
+            {"hojas": ["Hombres"]},
+        )
         self.assertRedirects(
             response, reverse("importaciones:plantillas_preview", args=[importacion.pk])
         )
@@ -1582,7 +1602,7 @@ class HojaExcluidaPorColumnaFaltanteTests(TestCase):
             usuario=self.staff,
         )
         decisiones = {
-            "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
+            "hojas": [{"nombre_hoja": "Hombres", "incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
             "ejercicios": {},
         }
         with self.assertRaises(ImportacionInvalida):
@@ -1795,11 +1815,22 @@ class DeteccionTolerantePorContenidoTests(SimpleTestCase):
         self.assertNotIn("url_video", campos)
 
 
-class BibliotecaSinColumnaNombreTests(SimpleTestCase):
-    """Reproduce la importación #7 del primer cliente: el MISMO archivo que
-    la #8, pero con una fila de título arriba. `leer_hoja_biblioteca`
-    devolvía `[], [], []` y la app armaba un preview con cero filas y el
-    botón "Confirmar importación" habilitado, sin decir nada."""
+class BibliotecaConTituloArribaTests(SimpleTestCase):
+    """El caso que ANTES era un error explicado y ahora se importa bien.
+
+    Reproduce la importación #7 del primer cliente pago: el mismo archivo que
+    la #8 pero con una fila de título arriba de la tabla. Hasta el 2026-08-31
+    `leer_hoja_biblioteca` leía rígido la fila 1, no encontraba la columna
+    "nombre" y levantaba `ColumnaRequeridaFaltante` con un mensaje que le
+    pedía al staff borrar la fila de arriba. Con `buscar_fila_encabezado` la
+    app encuentra la tabla sola.
+
+    NO revertir estos tests a esperar la excepción: el mensaje lindo existía
+    porque la app no sabía buscar la tabla, no porque el archivo estuviera
+    mal. La propiedad "la app te dice qué leyó" se conserva y se sigue
+    fijando en `BibliotecaSinColumnaNombreTests`, para el archivo donde
+    realmente no hay tabla en ninguna parte.
+    """
 
     def _hoja(self, filas):
         wb = openpyxl.Workbook()
@@ -1808,31 +1839,47 @@ class BibliotecaSinColumnaNombreTests(SimpleTestCase):
             ws.append(fila)
         return ws
 
-    def test_falta_la_columna_nombre_levanta_error(self):
+    def test_un_titulo_arriba_de_la_tabla_ya_no_rompe_la_importacion(self):
         hoja = self._hoja([
             ["Biblioteca de ejercicios 2026", None, None],
             ["NOMBRE", "LINK", "CATEGORÍA"],
             ["Sentadilla", "https://y.com/1", "RODILLA"],
         ])
 
-        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
-            leer_hoja_biblioteca(hoja)
+        items, invalidas, _ = leer_hoja_biblioteca(hoja)
 
-        self.assertEqual(ctx.exception.campo, "nombre")
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["nombre_original"], "Sentadilla")
+        self.assertEqual(items[0]["grupo_muscular_original"], "RODILLA")
+        self.assertEqual(invalidas, [])
 
-    def test_el_error_lista_los_encabezados_que_si_encontro(self):
-        """Sin esto el staff no tiene forma de saber qué leyó la app: es la
-        diferencia entre "arreglá la fila 1" y adivinar."""
+    def test_la_fila_reportada_es_la_real_de_excel(self):
+        """El número que ve el staff tiene que ser el de Excel, no uno
+        relativo al encabezado: con el título arriba, la primera fila de
+        datos es la 3."""
         hoja = self._hoja([
-            ["Biblioteca 2026", "col b", None],
+            ["Biblioteca de ejercicios 2026", None, None],
             ["NOMBRE", "LINK", "CATEGORÍA"],
+            ["Sentadilla", "https://y.com/1", "RODILLA"],
         ])
 
-        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
-            leer_hoja_biblioteca(hoja)
+        items, _, _ = leer_hoja_biblioteca(hoja)
 
-        self.assertIn("Biblioteca 2026", ctx.exception.encabezados)
-        self.assertIn("col b", ctx.exception.encabezados)
+        self.assertEqual(items[0]["fila_excel"], 3)
+
+    def test_tambien_con_filas_en_blanco_entre_el_titulo_y_la_tabla(self):
+        hoja = self._hoja([
+            ["Plan 2026"],
+            [],
+            [],
+            ["NOMBRE", "CATEGORÍA"],
+            ["Sentadilla", "RODILLA"],
+        ])
+
+        items, _, _ = leer_hoja_biblioteca(hoja)
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["fila_excel"], 5)
 
     def test_el_archivo_bien_armado_sigue_funcionando(self):
         hoja = self._hoja([
@@ -1846,6 +1893,84 @@ class BibliotecaSinColumnaNombreTests(SimpleTestCase):
         self.assertEqual(invalidas, [])
 
 
+class BibliotecaSinColumnaNombreTests(SimpleTestCase):
+    """Sin columna de nombre en NINGUNA de las filas que se miran, no hay
+    nada que importar: sigue siendo un error, no un archivo de cero filas.
+
+    Esta clase cubría antes el caso "título arriba de la tabla", que desde el
+    2026-08-31 se importa bien (ver `BibliotecaConTituloArribaTests`). Lo que
+    se conserva -- y es lo que de verdad importa -- es que el error le diga al
+    staff QUÉ leyó la app, para que no tenga que adivinar.
+    """
+
+    def _hoja(self, filas):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for fila in filas:
+            ws.append(fila)
+        return ws
+
+    def test_falta_la_columna_nombre_levanta_error(self):
+        hoja = self._hoja([
+            ["Resumen mensual", None, None],
+            ["Total", "Suma", "Observación"],
+            [10, 20, "ok"],
+        ])
+
+        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
+            leer_hoja_biblioteca(hoja)
+
+        self.assertEqual(ctx.exception.campo, "nombre")
+
+    def test_el_error_lista_los_encabezados_que_si_encontro(self):
+        """Sin esto el staff no tiene forma de saber qué leyó la app: es la
+        diferencia entre corregir el archivo y adivinar.
+
+        Se ecoa la fila que MÁS se parece a un encabezado (acá la 2, que al
+        menos tiene CATEGORÍA), no la 1: mostrarle el título decorativo del
+        archivo no le dice nada.
+        """
+        hoja = self._hoja([
+            ["Resumen mensual", "col b", None],
+            ["Total", "CATEGORÍA", "Observación"],
+            [10, "RODILLA", "ok"],
+        ])
+
+        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
+            leer_hoja_biblioteca(hoja)
+
+        self.assertIn("Total", ctx.exception.encabezados)
+        self.assertIn("CATEGORÍA", ctx.exception.encabezados)
+
+    def test_el_error_dice_de_que_fila_salieron_esos_encabezados(self):
+        """Decir "la primera fila" dejó de ser cierto cuando la búsqueda pasó
+        a mirar las primeras 15."""
+        hoja = self._hoja([
+            ["Resumen mensual", None, None],
+            ["Total", "CATEGORÍA", "Observación"],
+            [10, "RODILLA", "ok"],
+        ])
+
+        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
+            leer_hoja_biblioteca(hoja)
+
+        self.assertEqual(ctx.exception.fila, 2)
+
+    def test_si_no_hay_nada_parecido_ecoa_la_primera_fila(self):
+        """El comportamiento de antes de la búsqueda multi-fila, conservado
+        como piso: siempre se muestra algo."""
+        hoja = self._hoja([
+            ["Resumen mensual", "col b"],
+            ["Total", "Suma"],
+        ])
+
+        with self.assertRaises(ColumnaRequeridaFaltante) as ctx:
+            leer_hoja_biblioteca(hoja)
+
+        self.assertEqual(ctx.exception.fila, 1)
+        self.assertIn("Resumen mensual", ctx.exception.encabezados)
+
+
 class PreviewBibliotecaSinColumnaNombreTests(TestCase):
     """El error de columna faltante tiene que llegar al staff como mensaje,
     no como un preview vacío ni como un 500."""
@@ -1856,6 +1981,14 @@ class PreviewBibliotecaSinColumnaNombreTests(TestCase):
         Perfil.objects.create(
             usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
         )
+
+    def _archivo_sin_tabla(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Resumen mensual", None, None])
+        ws.append(["Total", "CATEGORÍA", "Observación"])
+        ws.append([10, "RODILLA", "ok"])
+        return _archivo_xlsx(wb)
 
     def _archivo_con_titulo_arriba(self):
         wb = openpyxl.Workbook()
@@ -1869,7 +2002,7 @@ class PreviewBibliotecaSinColumnaNombreTests(TestCase):
         with self.assertRaises(ImportacionInvalida):
             previsualizar_importacion_biblioteca(
                 gimnasio=self.gimnasio,
-                archivo=self._archivo_con_titulo_arriba(),
+                archivo=self._archivo_sin_tabla(),
                 usuario=self.usuario,
             )
 
@@ -1879,14 +2012,24 @@ class PreviewBibliotecaSinColumnaNombreTests(TestCase):
         with self.assertRaises(ImportacionInvalida) as ctx:
             previsualizar_importacion_biblioteca(
                 gimnasio=self.gimnasio,
-                archivo=self._archivo_con_titulo_arriba(),
+                archivo=self._archivo_sin_tabla(),
                 usuario=self.usuario,
             )
 
         mensaje = str(ctx.exception)
         self.assertIn("nombre", mensaje)
-        self.assertIn("Biblioteca de ejercicios 2026", mensaje)
-        self.assertIn("primera fila", mensaje)
+        self.assertIn("Total", mensaje)
+        self.assertIn("15 primeras filas", mensaje)
+
+    def test_el_archivo_con_titulo_arriba_ahora_se_importa(self):
+        """Antes del 2026-08-31 este archivo daba `ImportacionInvalida`."""
+        importacion = previsualizar_importacion_biblioteca(
+            gimnasio=self.gimnasio,
+            archivo=self._archivo_con_titulo_arriba(),
+            usuario=self.usuario,
+        )
+
+        self.assertEqual(len(importacion.resultado["items"]), 1)
 
 
 class ResolverCategoriasTests(SimpleTestCase):
@@ -2591,3 +2734,1098 @@ class CategoriasNuevasSeOfrecenEnElPreviewTests(TestCase):
         self.assertContains(response, 'id="resoluciones-previas"')
         self.assertContains(response, "press pallof estatico")
         self.assertContains(response, "categoria_nueva")
+
+
+class BuscarFilaEncabezadoTests(SimpleTestCase):
+    """La fila de títulos no siempre es la 1.
+
+    La planilla real del primer cliente pago la tiene en la fila 12: arriba
+    hay logo, objetivo, fechas de inicio/fin y un "Cumplim: 25%". Hasta acá
+    los tres lectores hacían `next(ws.iter_rows(min_row=1, max_row=1))` y el
+    archivo entero se rechazaba.
+    """
+
+    REQUERIDOS = ("ejercicio", "series", "repeticiones")
+
+    def _hoja(self, filas):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for fila in filas:
+            ws.append(fila)
+        return ws
+
+    def test_encabezado_en_la_primera_fila(self):
+        ws = self._hoja([
+            ["Ejercicio", "Series", "Repeticiones"],
+            ["Sentadilla", 4, "10"],
+        ])
+        encabezado = buscar_fila_encabezado(ws, ALIAS_PLANTILLA, self.REQUERIDOS)
+        self.assertEqual(encabezado.fila, 1)
+        self.assertEqual(encabezado.campos["ejercicio"], 0)
+
+    def test_encabezado_despues_de_un_titulo_y_filas_en_blanco(self):
+        ws = self._hoja([
+            ["Plan de entrenamiento 2026"],
+            [],
+            ["Alumna:", "Eve Colazo"],
+            [],
+            ["Ejercicio", "Series", "Repeticiones"],
+            ["Sentadilla", 4, "10"],
+        ])
+        encabezado = buscar_fila_encabezado(ws, ALIAS_PLANTILLA, self.REQUERIDOS)
+        self.assertEqual(encabezado.fila, 5)
+        self.assertEqual(encabezado.campos["series"], 1)
+
+    def test_sin_ninguna_fila_de_titulos_devuelve_none(self):
+        ws = self._hoja([
+            ["Total", "Suma", "Observación"],
+            [10, 20, "ok"],
+        ])
+        self.assertIsNone(
+            buscar_fila_encabezado(ws, ALIAS_PLANTILLA, self.REQUERIDOS)
+        )
+
+    def test_una_fila_de_datos_no_se_confunde_con_el_encabezado(self):
+        """El guardarraíl de la búsqueda multi-fila: si una fila de datos
+        pudiera hacerse pasar por encabezado, el parser leería columnas
+        corridas y produciría basura plausible en vez de un error."""
+        ws = self._hoja([
+            ["Dia", "Series", "Repeticiones"],
+            [1, 4, "8-12"],
+            [1, 3, "10"],
+        ])
+        # Falta `ejercicio` en TODA la hoja: ninguna fila califica.
+        self.assertIsNone(
+            buscar_fila_encabezado(ws, ALIAS_PLANTILLA, self.REQUERIDOS)
+        )
+
+    def test_no_mira_mas_alla_de_la_ventana(self):
+        filas = [["ruido"]] * 20 + [["Ejercicio", "Series", "Repeticiones"]]
+        ws = self._hoja(filas)
+        self.assertIsNone(
+            buscar_fila_encabezado(ws, ALIAS_PLANTILLA, self.REQUERIDOS, max_filas=15)
+        )
+        self.assertEqual(
+            buscar_fila_encabezado(
+                ws, ALIAS_PLANTILLA, self.REQUERIDOS, max_filas=25
+            ).fila,
+            21,
+        )
+
+    def test_mejor_encabezado_parcial_sirve_para_el_mensaje_de_error(self):
+        """Cuando no se encuentra la tabla, al staff hay que decirle qué SÍ
+        se leyó. Gana la fila con más campos detectados, no la fila 1."""
+        ws = self._hoja([
+            ["Biblioteca de ejercicios 2026"],
+            ["Nombre", "Categoría"],
+            ["Sentadilla", "Piernas"],
+        ])
+        parcial = mejor_encabezado_parcial(ws, ALIAS_BIBLIOTECA)
+        self.assertEqual(parcial.fila, 2)
+        self.assertIn("Nombre", parcial.valores)
+
+    def test_mejor_encabezado_parcial_cae_en_la_fila_1_si_no_hay_nada(self):
+        ws = self._hoja([["Total", "Suma"], [1, 2]])
+        parcial = mejor_encabezado_parcial(ws, ALIAS_BIBLIOTECA)
+        self.assertEqual(parcial.fila, 1)
+        self.assertEqual(parcial.valores, ["Total", "Suma"])
+
+
+def _hoja_matriz_ancha(*, filas_extra=(), semanas=("SEMANA 1", "SEMANA 2"),
+                       fila_inicio=1, subcampos=("Series", "Reps", "Carga", "RPE")):
+    """Reproduce la forma de la planilla real: dos filas de encabezado (grupos
+    combinados arriba, subcampos abajo), el día en la columna A y el código de
+    bloque + el nombre en B y C."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for _ in range(fila_inicio - 1):
+        ws.append(["Powered by Simplify Trainers"])
+
+    grupos = [None, " EJERCICIOS", None, "Videos"]
+    subs = [None, None, None, None]
+    for semana in semanas:
+        grupos.append(semana)
+        grupos.extend([None] * (len(subcampos) - 1))
+        subs.extend(subcampos)
+    ws.append(grupos)
+    ws.append(subs)
+
+    # Las tres filas base no son decorativas: `MIN_FILAS_CON_NOMBRE` exige al
+    # menos tres ejercicios con nombre real para aceptar el layout, así que un
+    # fixture más chico se rechazaría (y con razón: no sería un plan).
+    # `filas_extra` se SUMA a estas, no las reemplaza.
+    for fila in (
+        ["DÍA 1\n• CORE", "A1.", "Plancha", None, 4, "20", None, None, 4, "25", None, None],
+        [None, "A2.", "Press Pallof", None, 3, "12", "10KG", None, 3, "15", "10KG", None],
+        ["DÍA 2\n• TREN SUPERIOR", "A1.", "Remo en TRX", None, 4, "10", None, None, 4, "12", None, None],
+    ):
+        ws.append(list(fila))
+    for fila in filas_extra:
+        ws.append(list(fila))
+    return ws
+
+
+class DeteccionLayoutTests(SimpleTestCase):
+    """Cuál de los dos lectores se elige, y por qué el orden importa."""
+
+    def test_una_hoja_ancha_se_detecta_como_ancha(self):
+        self.assertIsNotNone(detectar_matriz_ancha(_hoja_matriz_ancha()))
+
+    def test_una_hoja_ancha_con_el_encabezado_abajo_tambien(self):
+        enc = detectar_matriz_ancha(_hoja_matriz_ancha(fila_inicio=12))
+        self.assertIsNotNone(enc)
+        self.assertEqual(enc.fila_grupos, 12)
+        self.assertEqual(enc.fila_subcampos, 13)
+
+    def test_una_hoja_larga_no_se_confunde_con_ancha(self):
+        """`Semana` a secas no matchea: el regex exige el dígito. Sin eso, el
+        layout de siempre caería en el lector nuevo."""
+        self.assertIsNone(detectar_matriz_ancha(_hoja_plantilla_basica()))
+
+    def test_una_hoja_ancha_nunca_cae_al_lector_largo(self):
+        """El riesgo central del diseño: la fila de subcampos tiene
+        Series/Reps/Carga y la de grupos tiene EJERCICIOS, así que el lector
+        largo la aceptaría y produciría filas plausibles con las columnas
+        corridas. Basura silenciosa es peor que cero items."""
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        self.assertGreater(len(hoja.items), 0)
+        self.assertEqual({i.semana for i in hoja.items}, {1, 2})
+
+    def test_una_hoja_auxiliar_no_se_detecta(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Powered by Simplify Trainers"])
+        ws.append(["NOMBRE:", "EVE COLAZO"])
+        ws.append(["OBJETIVO:", "Fuerza"])
+        self.assertIsNone(detectar_matriz_ancha(ws))
+
+    def test_una_sola_semana_no_alcanza(self):
+        """Con un único `SEMANA 1` no hay matriz: puede ser el título de una
+        tabla larga cualquiera."""
+        self.assertIsNone(detectar_matriz_ancha(_hoja_matriz_ancha(semanas=("SEMANA 1",))))
+
+    def test_una_tabla_resumen_por_semanas_no_genera_ejercicios_fantasma(self):
+        """Guarda anti-falso-positivo: una hoja de progreso con columnas
+        SEMANA 1/SEMANA 2 pasa los primeros pasos, pero no tiene una columna
+        de nombres de ejercicio con contenido real."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, "SEMANA 1", None, "SEMANA 2", None])
+        ws.append([None, "Series", "Reps", "Series", "Reps"])
+        ws.append(["Total", 10, "20", 12, "22"])
+        self.assertIsNone(detectar_matriz_ancha(ws))
+
+    def test_la_deteccion_no_escanea_la_hoja_entera(self):
+        """Una hoja auxiliar de miles de filas tiene que descartarse barato."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for _ in range(3000):
+            ws.append(["ruido", 1, 2, 3])
+
+        filas_leidas = set()
+        original = ws.cell
+
+        def espia(row=None, column=None, **kwargs):
+            filas_leidas.add(row)
+            return original(row=row, column=column, **kwargs)
+
+        ws.cell = espia
+        self.assertIsNone(detectar_matriz_ancha(ws))
+        self.assertLessEqual(max(filas_leidas), 40)
+
+
+class LeerHojaAnchaTests(SimpleTestCase):
+    """Una fila de Excel produce un item POR SEMANA."""
+
+    def test_emite_un_item_por_ejercicio_y_semana(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        self.assertEqual(len(hoja.items), 6)  # 3 ejercicios x 2 semanas
+
+    def test_el_dia_se_arrastra_hacia_abajo(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        por_nombre = {i.ejercicio_original: i.dia for i in hoja.items}
+        self.assertEqual(por_nombre["Plancha"], 1)
+        self.assertEqual(por_nombre["Press Pallof"], 1)  # sin marcador propio
+        self.assertEqual(por_nombre["Remo en TRX"], 2)
+
+    def test_el_nombre_del_dia_sale_del_mismo_marcador(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        nombres = {i.dia: i.dia_nombre for i in hoja.items}
+        self.assertEqual(nombres[1], "CORE")
+        self.assertEqual(nombres[2], "TREN SUPERIOR")
+
+    def test_gana_la_celda_de_dia_con_mas_texto(self):
+        """En la planilla real el marcador aparece repetido por los merges:
+        `DÍA 2` pelado en una columna y `DÍA 2 + descripción` en otra. Quedarse
+        con el primero perdería el nombre del día."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, None, " EJERCICIOS", None, "SEMANA 1", None, None, None, "SEMANA 2", None, None, None])
+        ws.append([None, None, None, None, "Series", "Reps", "Carga", "RPE", "Series", "Reps", "Carga", "RPE"])
+        # El `DÍA 1` pelado de la columna A viene ANTES que la celda rica de la
+        # columna B: si ganara el primero que aparece, se perdería el nombre.
+        ws.append(["DÍA 1", "DÍA 1\n• CORE\n• MOVILIDAD", "A1.", "Plancha lateral", 4, "20", None, None, 4, "25", None, None])
+        ws.append([None, None, "A2.", "Press Pallof", 4, "20", None, None, 4, "25", None, None])
+        ws.append([None, None, "A3.", "Remo invertido", 4, "20", None, None, 4, "25", None, None])
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(hoja.items[0].dia_nombre, "CORE · MOVILIDAD")
+
+    def test_guarda_el_codigo_de_bloque(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        self.assertEqual(hoja.items[0].bloque, "A1")
+
+    def test_el_rpe_del_archivo_se_descarta(self):
+        """El RPE de la app lo carga el alumno sobre SU rutina asignada. El
+        del Excel es de otra persona y de un ciclo cerrado."""
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            [None, "B1.", "Sentadilla búlgara", None,
+             4, "20", None, "🟡 Podría seguir con esta intensidad",
+             4, "25", None, "⚫ Debería bajar la intensidad"],
+        )))
+        for item in hoja.items:
+            self.assertNotIn("Podría seguir", item.notas)
+            self.assertNotIn("bajar", item.notas)
+
+    def test_una_semana_sin_datos_no_emite_item(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            [None, "B1.", "Solo primera semana", None, 4, "20", None, None, None, None, None, None],
+        )))
+        solo = [i for i in hoja.items if i.ejercicio_original == "Solo primera semana"]
+        self.assertEqual(len(solo), 1)
+        self.assertEqual(solo[0].semana, 1)
+
+    def test_una_fila_sin_nombre_ni_datos_se_saltea_en_silencio(self):
+        """La planilla real trae slots vacíos: el código de bloque cargado
+        (`D3.`) y el resto en blanco. No es un error que valga reportar."""
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            [None, "D3.", None, None, None, None, None, None, None, None, None, None],
+        )))
+        self.assertEqual(len(hoja.items), 6)  # las 3 filas base x 2 semanas
+        self.assertEqual(hoja.filas_invalidas, [])
+
+    def test_una_fila_con_datos_pero_sin_nombre_si_se_reporta(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            [None, "D3.", None, None, 4, "10", None, None, None, None, None, None],
+        )))
+        self.assertEqual(len(hoja.filas_invalidas), 1)
+        self.assertIn("nombre", hoja.filas_invalidas[0].motivo)
+
+    def test_series_no_numerica_solo_invalida_esa_semana(self):
+        """La diferencia de cardinalidad con el layout largo: una fila de
+        Excel son hasta 4 items, así que un dato malo en la semana 2 no puede
+        llevarse puestas las otras tres."""
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            [None, "B1.", "Peso muerto rumano", None, 4, "20", None, None, "cuatro", "25", None, None],
+        )))
+        muerto = [i for i in hoja.items if i.ejercicio_original == "Peso muerto rumano"]
+        self.assertEqual(len(muerto), 1)
+        self.assertEqual(muerto[0].semana, 1)
+        self.assertEqual(len(hoja.filas_invalidas), 1)
+        self.assertIn("Semana 2", hoja.filas_invalidas[0].motivo)
+
+    def test_dias_por_semana_usa_el_dia_mas_alto_igual_que_el_lector_largo(self):
+        """No `len(set(...))`: con días 1, 2 y 4 el plan tiene 4 días, no 3.
+        Los dos layouts tienen que coincidir en el criterio."""
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        self.assertEqual(hoja.dias_por_semana, 2)
+
+        con_salto = leer_hoja_plantilla(_hoja_matriz_ancha(filas_extra=(
+            ["DÍA 4", "A1.", "Sentadilla frontal", None, 4, "10", None, None, 4, "12", None, None],
+        )))
+        self.assertEqual(con_salto.dias_por_semana, 4)
+
+    def test_el_orden_es_secuencial_dentro_de_cada_dia_y_semana(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        dia1_sem1 = [i for i in hoja.items if i.dia == 1 and i.semana == 1]
+        self.assertEqual([i.orden for i in dia1_sem1], [1, 2])
+
+    def test_la_carga_llega_a_kilos(self):
+        hoja = leer_hoja_plantilla(_hoja_matriz_ancha())
+        press = [i for i in hoja.items if i.ejercicio_original == "Press Pallof"]
+        self.assertEqual(press[0].kilos, "10KG")
+
+    def test_ancha_sin_ejercicios_se_excluye_con_motivo(self):
+        """Nunca una hoja vacía y muda: si se detectó la matriz pero no salió
+        nada, hay que decir por qué."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, None, " EJERCICIOS", "SEMANA 1", None, "SEMANA 2", None])
+        ws.append([None, None, None, "Series", "Reps", "Series", "Reps"])
+        ws.append(["DÍA 1", "A1.", "Plancha lateral", None, None, None, None])
+        ws.append([None, "A2.", "Remo invertido", None, None, None, None])
+        ws.append([None, "A3.", "Press militar", None, None, None, None])
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(hoja.items, [])
+        self.assertIsNotNone(hoja.motivo_exclusion)
+        self.assertIn("semanas", hoja.motivo_exclusion)
+
+
+class SinonimosDeTerminologiaTests(SimpleTestCase):
+    """Cada entrenador nombra las cosas distinto y el importador tiene que
+    adaptarse a él, no al revés.
+
+    "Microciclo" es semana, "sesión" es día, "carga" es kilos. El vocabulario
+    va en ES y EN porque las planillas compradas suelen venir mezcladas.
+    """
+
+    def _hoja(self, encabezados):
+        # semana=2 y dia=3, NO 1: si la columna no se detecta, el parser cae a
+        # los defaults (semana 1, día 1) y un test con 1 pasaría sin probar
+        # nada.
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(encabezados)
+        ws.append([2, 3, "Sentadilla", 4, "10", "90s", ""])
+        return ws
+
+    def test_microciclo_es_semana(self):
+        for palabra in ["Microciclo", "MICRO", "Week", "Wk", "Sem"]:
+            with self.subTest(palabra=palabra):
+                hoja = leer_hoja_plantilla(self._hoja(
+                    [palabra, "Dia", "Ejercicio", "Series", "Repeticiones", "Descanso", "Notas"]
+                ))
+                self.assertIsNone(hoja.motivo_exclusion)
+                self.assertEqual(hoja.items[0].semana, 2)
+
+    def test_sesion_es_dia(self):
+        for palabra in ["Sesión", "Sesion", "Session", "Jornada", "Day"]:
+            with self.subTest(palabra=palabra):
+                hoja = leer_hoja_plantilla(self._hoja(
+                    ["Semana", palabra, "Ejercicio", "Series", "Repeticiones", "Descanso", "Notas"]
+                ))
+                self.assertIsNone(hoja.motivo_exclusion)
+                self.assertEqual(hoja.items[0].dia, 3)
+
+    def test_variantes_de_los_campos_numericos(self):
+        casos = [
+            (["Semana", "Dia", "Movement", "Sets", "Repetitions", "Rest", "Notes"], "en"),
+            (["Semana", "Dia", "Movimiento", "Serie", "Repes", "Pausa", "Observaciones"], "es"),
+        ]
+        for encabezados, idioma in casos:
+            with self.subTest(idioma=idioma):
+                hoja = leer_hoja_plantilla(self._hoja(encabezados))
+                self.assertEqual(len(hoja.items), 1, hoja.motivo_exclusion)
+                self.assertEqual(hoja.items[0].semana, 2)
+                self.assertEqual(hoja.items[0].dia, 3)
+                self.assertEqual(hoja.items[0].series, 4)
+                self.assertEqual(hoja.items[0].repeticiones, "10")
+                self.assertEqual(hoja.items[0].descanso, "90s")
+
+    def test_variantes_de_carga(self):
+        for palabra in ["Carga", "Peso", "Kg", "Kgs", "Load", "Weight"]:
+            with self.subTest(palabra=palabra):
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.append(["Ejercicio", "Series", "Repeticiones", palabra])
+                ws.append(["Sentadilla", 4, "10", "20KG"])
+                hoja = leer_hoja_plantilla(ws)
+                self.assertEqual(hoja.items[0].kilos, "20KG")
+
+
+class LargosDePlantillaTests(TestCase):
+    """Postgres rechaza un varchar largo con un DataError que voltea la
+    transacción entera; SQLite no valida nada, así que esto NUNCA lo iba a
+    encontrar un test local sin chequearlo a mano (ISSUES.md 2026-08-27, el
+    link de 306 caracteres). La fila se descarta en el PREVIEW, con motivo,
+    no en el INSERT.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def _archivo(self, filas):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones", "Kilos"])
+        for fila in filas:
+            ws.append(fila)
+        return _archivo_xlsx(wb)
+
+    def _hojas(self, filas):
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=self._archivo(filas), usuario=self.usuario
+        )
+        return importacion.resultado["hojas"][0]
+
+    def test_una_fila_que_entra_no_se_toca(self):
+        hoja = self._hojas([[1, 1, "Sentadilla", 4, "10", "20KG"]])
+        self.assertEqual(len(hoja["items"]), 1)
+        self.assertEqual(hoja["filas_invalidas"], [])
+
+    def test_repeticiones_demasiado_largas_descartan_solo_esa_fila(self):
+        hoja = self._hojas([
+            [1, 1, "Sentadilla", 4, "10", "20KG"],
+            [1, 1, "Press", 4, "x" * 40, "20KG"],
+        ])
+        self.assertEqual(len(hoja["items"]), 1)
+        self.assertEqual(len(hoja["filas_invalidas"]), 1)
+        self.assertIn("repeticiones", hoja["filas_invalidas"][0]["motivo"].lower())
+
+    def test_un_nombre_de_ejercicio_larguisimo_tambien(self):
+        hoja = self._hojas([
+            [1, 1, "Sentadilla", 4, "10", "20KG"],
+            [1, 1, "N" * 200, 4, "10", "20KG"],
+        ])
+        self.assertEqual(len(hoja["items"]), 1)
+        self.assertEqual(len(hoja["filas_invalidas"]), 1)
+
+    def test_el_ejercicio_descartado_no_queda_pendiente_de_resolucion(self):
+        """Si el nombre siguiera en `ejercicios_distintos`, el preview le
+        pediría al staff clasificar un ejercicio que no se va a crear."""
+        hoja = self._hojas([
+            [1, 1, "Sentadilla", 4, "10", "20KG"],
+            [1, 1, "N" * 200, 4, "10", "20KG"],
+        ])
+        importacion = Importacion.objects.get()
+        self.assertNotIn(
+            normalizar_texto("N" * 200), importacion.resultado["ejercicios_distintos"]
+        )
+
+    def test_una_semana_fuera_del_ciclo_se_descarta(self):
+        """`bulk_create` no corre validadores, así que sin este chequeo una
+        semana 5 entraría a la base saltándose el MaxValueValidator."""
+        hoja = self._hojas([
+            [1, 1, "Sentadilla", 4, "10", "20KG"],
+            [5, 1, "Press", 4, "10", "20KG"],
+        ])
+        self.assertEqual(len(hoja["items"]), 1)
+        self.assertEqual(len(hoja["filas_invalidas"]), 1)
+        self.assertIn("semana", hoja["filas_invalidas"][0]["motivo"].lower())
+
+
+class FilaExcelReportadaTests(TestCase):
+    """El número de fila que se le muestra al staff tiene que ser el de Excel.
+
+    Reportar `orden` (la posición dentro del día) mandaba al entrenador a
+    buscar una celda que no existe.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def test_la_fila_descartada_se_reporta_con_su_numero_de_excel(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, 1, "Sentadilla", 4, "10"])       # fila 2
+        ws.append([1, 1, "Press", 4, "10"])            # fila 3
+        ws.append([5, 1, "Fuera de ciclo", 4, "10"])   # fila 4, se descarta
+
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario
+        )
+        invalidas = importacion.resultado["hojas"][0]["filas_invalidas"]
+
+        self.assertEqual(len(invalidas), 1)
+        self.assertEqual(invalidas[0]["fila_excel"], 4)
+
+    def test_tambien_en_la_matriz_ancha(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Titulo del plan"])
+        ws.append([None, " EJERCICIOS", None, "SEMANA 1", None, "SEMANA 2", None])
+        ws.append([None, None, None, "Series", "Reps", "Series", "Reps"])
+        ws.append(["DÍA 1", "A1.", "Plancha lateral", 4, "20", 4, "25"])   # fila 4
+        ws.append([None, "A2.", "Press Pallof", 4, "20", 4, "25"])          # fila 5
+        ws.append([None, "A3.", "Remo invertido", 4, "20", 4, "x" * 40])    # fila 6
+
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario
+        )
+        invalidas = importacion.resultado["hojas"][0]["filas_invalidas"]
+
+        self.assertEqual(len(invalidas), 1)
+        self.assertEqual(invalidas[0]["fila_excel"], 6)
+
+
+class SeleccionDeHojasTests(TestCase):
+    """El archivo real del primer cliente pago trae 7 hojas y 6 son
+    auxiliares (`AUX` con 3206 filas, `Movilidad Articular` con 1020,
+    `Avatar`, `Logros`, `Carga de Datos`, `Plantilla - aux`).
+
+    Sin este paso el preview mostraba las 7 y el staff tenía que destildar 6
+    para llegar a la única que le importaba.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.piernas = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        wb = openpyxl.Workbook()
+        plan = wb.active
+        plan.title = "Plan agosto"
+        plan.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        plan.append([1, "Peso muerto", 4, "8-12"])
+        aux = wb.create_sheet("AUX")
+        aux.append(["Nombre", "Valor"])
+        aux.append(["Cumplimiento", "25%"])
+        self.importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+
+    def _url(self, nombre):
+        return reverse(f"importaciones:{nombre}", args=[self.importacion.pk])
+
+    def test_alumno_recibe_403(self):
+        alumno = User.objects.create_user("alumno-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.login(username="alumno-a", password="clave-123456")
+        self.assertEqual(self.client.get(self._url("plantillas_hojas")).status_code, 403)
+
+    def test_lista_todas_las_hojas_con_lo_que_detecto(self):
+        response = self.client.get(self._url("plantillas_hojas"))
+        self.assertContains(response, "Plan agosto")
+        self.assertContains(response, "AUX")
+        filas = {f["nombre_hoja"]: f for f in response.context["filas"]}
+        self.assertEqual(filas["Plan agosto"]["cantidad"], 1)
+        self.assertEqual(filas["AUX"]["cantidad"], 0)
+
+    def test_solo_vienen_pre_marcadas_las_hojas_con_ejercicios(self):
+        response = self.client.get(self._url("plantillas_hojas"))
+        filas = {f["nombre_hoja"]: f for f in response.context["filas"]}
+        self.assertTrue(filas["Plan agosto"]["marcada"])
+        self.assertFalse(filas["AUX"]["marcada"])
+
+    def test_la_eleccion_se_guarda_y_lleva_al_preview(self):
+        response = self.client.post(
+            self._url("plantillas_hojas"), {"hojas": ["Plan agosto"]}
+        )
+        self.assertRedirects(response, self._url("plantillas_preview"))
+        self.importacion.refresh_from_db()
+        self.assertEqual(self.importacion.resultado["hojas_elegidas"], ["Plan agosto"])
+
+    def test_el_preview_solo_muestra_las_hojas_elegidas(self):
+        self.client.post(self._url("plantillas_hojas"), {"hojas": ["Plan agosto"]})
+        response = self.client.get(self._url("plantillas_preview"))
+        nombres = [h["nombre_hoja"] for h, _ in response.context["hojas_con_form"]]
+        self.assertEqual(nombres, ["Plan agosto"])
+
+    def test_no_elegir_ninguna_no_avanza(self):
+        response = self.client.post(self._url("plantillas_hojas"), {})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "al menos una hoja")
+        self.importacion.refresh_from_db()
+        self.assertNotIn("hojas_elegidas", self.importacion.resultado)
+
+    def test_un_nombre_de_hoja_inventado_se_ignora(self):
+        """El POST viene del cliente: se intersecta contra los nombres reales
+        en vez de confiar en él, misma barrera que el re-fetch scopeado del
+        resto del importador."""
+        response = self.client.post(
+            self._url("plantillas_hojas"), {"hojas": ["Plan agosto", "Hoja Fantasma"]}
+        )
+        self.assertRedirects(response, self._url("plantillas_preview"))
+        self.importacion.refresh_from_db()
+        self.assertEqual(self.importacion.resultado["hojas_elegidas"], ["Plan agosto"])
+
+    def test_una_hoja_sin_ejercicios_no_se_puede_elegir(self):
+        response = self.client.post(self._url("plantillas_hojas"), {"hojas": ["AUX"]})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "al menos una hoja")
+
+    def test_una_importacion_vieja_sin_la_clave_sigue_funcionando(self):
+        """Una `Importacion` EN_REVISION creada antes del deploy de esta
+        pantalla no tiene `hojas_elegidas`: ahí "no eligió" significa "todas",
+        que es exactamente lo que hacía antes."""
+        self.assertNotIn("hojas_elegidas", self.importacion.resultado)
+        response = self.client.get(self._url("plantillas_preview"))
+        nombres = [h["nombre_hoja"] for h, _ in response.context["hojas_con_form"]]
+        self.assertEqual(nombres, ["Plan agosto", "AUX"])
+
+    def test_los_ejercicios_de_una_hoja_no_elegida_no_hay_que_clasificarlos(self):
+        wb = openpyxl.Workbook()
+        a = wb.active
+        a.title = "Plan A"
+        a.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        a.append([1, "Peso muerto", 4, "8"])
+        b = wb.create_sheet("Plan B")
+        b.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        b.append([1, "Remo con barra", 4, "8"])
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+        self.client.post(
+            reverse("importaciones:plantillas_hojas", args=[importacion.pk]),
+            {"hojas": ["Plan A"]},
+        )
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        pendientes = [
+            f["nombre_normalizado"] for f in response.context["ejercicio_formset"].initial
+        ]
+        self.assertIn("peso muerto", pendientes)
+        self.assertNotIn("remo con barra", pendientes)
+
+
+class PreviewPlantillasMuestraLoQueEntendioTests(TestCase):
+    """Con 172 items y 4 semanas, "N ejercicios detectados" no alcanza para
+    verificar nada. El preview es la única defensa del entrenador contra una
+    lectura mal alineada."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+    def _preview(self, wb):
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+        return self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+
+    def _wb_ancho(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Plan"
+        ws.append([None, " EJERCICIOS", None, "SEMANA 1", None, None, "SEMANA 2", None, None])
+        ws.append([None, None, None, "Series", "Reps", "Carga", "Series", "Reps", "Carga"])
+        ws.append(["DÍA 1\n• CORE", "A1.", "Plancha lateral", 4, "20", "10KG", 4, "25", "10KG"])
+        ws.append([None, "A2.", "Press Pallof", 4, "20", None, 4, "25", None])
+        ws.append([None, "A3.", "Remo invertido", 4, "20", None, 4, "25", None])
+        return wb
+
+    def test_muestra_la_semana_el_bloque_y_los_kilos(self):
+        response = self._preview(self._wb_ancho())
+        self.assertContains(response, "<th>Semana</th>", html=False)
+        self.assertContains(response, "<th>Bloque</th>", html=False)
+        self.assertContains(response, "<th>Kilos</th>", html=False)
+        self.assertContains(response, "A1")
+        self.assertContains(response, "10KG")
+
+    def test_dice_como_leyo_la_hoja(self):
+        """Si la app leyó el archivo como el layout equivocado, el entrenador
+        tiene que poder verlo antes de confirmar."""
+        response = self._preview(self._wb_ancho())
+        self.assertContains(response, "semanas a lo ancho")
+        self.assertContains(response, "fila 1")
+
+    def test_muestra_el_nombre_del_dia(self):
+        response = self._preview(self._wb_ancho())
+        self.assertContains(response, "CORE")
+
+    def test_las_filas_invalidas_se_agrupan_por_fila(self):
+        """Una fila de Excel produce un item por semana: si falla en dos, se
+        listaba dos veces y parecía que había el doble de problemas."""
+        wb = self._wb_ancho()
+        ws = wb.active
+        ws.append([None, "B1.", "Sentadilla frontal", "cuatro", "20", None, "cinco", "25", None])
+        response = self._preview(wb)
+
+        agrupadas = response.context["hojas_con_form"][0][0]["invalidas_agrupadas"]
+        self.assertEqual(len(agrupadas), 1)
+        fila, motivos = agrupadas[0]
+        self.assertEqual(fila, 6)
+        self.assertEqual(len(motivos), 2)
+        self.assertContains(response, "Semana 1")
+
+
+class EjemploDescargableTests(TestCase):
+    """El ejemplo se genera al vuelo, no es un binario versionado: un archivo
+    estático se desincroniza del parser en cuanto cambian los alias y nadie se
+    entera hasta que un cliente se queja.
+
+    El test que importa es el circular: el ejemplo que le damos al entrenador
+    tiene que ser un archivo que el importador sepa leer.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def test_anonimo_es_redirigido_al_login(self):
+        url = reverse("importaciones:plantillas_ejemplo")
+        self.assertRedirects(self.client.get(url), f"{reverse('login')}?next={url}")
+
+    def test_alumno_recibe_403(self):
+        alumno = User.objects.create_user("alumno-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.login(username="alumno-a", password="clave-123456")
+        response = self.client.get(reverse("importaciones:plantillas_ejemplo"))
+        self.assertEqual(response.status_code, 403)
+
+    def test_se_descarga_como_xlsx(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(reverse("importaciones:plantillas_ejemplo"))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("spreadsheetml", response["Content-Type"])
+        self.assertIn("attachment", response["Content-Disposition"])
+
+    def test_el_ejemplo_es_un_archivo_que_el_importador_sabe_leer(self):
+        """Si esto falla, le estamos dando al entrenador un archivo que la app
+        va a rechazar."""
+        buffer = io.BytesIO()
+        construir_ejemplo_plantillas().save(buffer)
+        buffer.seek(0)
+
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio,
+            archivo=SimpleUploadedFile(
+                "ejemplo.xlsx",
+                buffer.read(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            usuario=self.usuario,
+        )
+
+        plan = importacion.resultado["hojas"][0]
+        self.assertEqual(plan["nombre_hoja"], "Mi plan")
+        self.assertEqual(len(plan["items"]), 6)
+        self.assertEqual(plan["filas_invalidas"], [])
+        self.assertEqual(plan["dias_por_semana"], 2)
+        self.assertEqual({i["semana"] for i in plan["items"]}, {1, 2})
+
+    def test_la_hoja_de_ayuda_no_se_ofrece_como_plan(self):
+        buffer = io.BytesIO()
+        construir_ejemplo_plantillas().save(buffer)
+        buffer.seek(0)
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio,
+            archivo=SimpleUploadedFile("ejemplo.xlsx", buffer.read()),
+            usuario=self.usuario,
+        )
+        ayuda = importacion.resultado["hojas"][1]
+        self.assertEqual(ayuda["nombre_hoja"], "Cómo llenarlo")
+        self.assertEqual(ayuda["items"], [])
+
+    def test_los_alias_que_documenta_son_los_que_el_parser_usa(self):
+        """El ejemplo lee `ALIAS_PLANTILLA`, no una copia: si alguien agrega un
+        sinónimo, la hoja de ayuda lo refleja sola."""
+        ayuda = construir_ejemplo_plantillas()["Cómo llenarlo"]
+        texto = " ".join(
+            str(c.value) for fila in ayuda.iter_rows() for c in fila if c.value
+        )
+        for campo in ALIAS_PLANTILLA:
+            self.assertIn(campo, texto)
+        self.assertIn("microciclo", texto)
+
+
+class ImportacionPlantillasEscalaTests(TestCase):
+    """El costo en queries del confirm no puede crecer con la cantidad de
+    FILAS del archivo.
+
+    Es la regresión del 502 de producción (`ISSUES.md` [2026-08-27]): el flujo
+    de biblioteca hacía dos queries por fila y el Excel de 748 ejercicios se
+    comía los 30 s de timeout de gunicorn. El de plantillas tenía la misma
+    forma -- `_obtener_ejercicio` hacía un SELECT de categoría más un INSERT
+    por cada ejercicio nuevo, dentro del loop -- y con el archivo real (172
+    items, 42 ejercicios distintos) eran 139 queries.
+
+    Una matriz ancha multiplica el problema: 4 semanas convierten 43 filas de
+    Excel en 172 items.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
+        self.usuario = User.objects.create_user("staff", password="clave12345")
+
+    def _importar(self, *, ejercicios, semanas):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Plan"
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        for semana in range(1, semanas + 1):
+            for n in range(ejercicios):
+                ws.append([semana, 1, f"Ejercicio numero {n}", 4, "10"])
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+        decisiones = {
+            "hojas": [{
+                "nombre_hoja": "Plan", "incluir": True,
+                "objetivo": "Fuerza", "nivel": "principiante",
+            }],
+            "ejercicios": {
+                normalizar_texto(f"Ejercicio numero {n}"): {
+                    "accion": "crear_nuevo", "categoria_id": self.categoria.pk,
+                }
+                for n in range(ejercicios)
+            },
+        }
+        with CaptureQueriesContext(connection) as ctx:
+            confirmar_importacion_plantillas(
+                importacion=importacion, gimnasio=self.gimnasio, decisiones=decisiones,
+            )
+        return len(ctx)
+
+    def test_el_costo_no_crece_con_la_cantidad_de_filas(self):
+        """Mismos 10 ejercicios distintos, 1 semana contra 4: cuatro veces más
+        items, las mismas queries."""
+        una_semana = self._importar(ejercicios=10, semanas=1)
+        RutinaPlantilla.objects.all().delete()  # CASCADE a sus items
+        Ejercicio.objects.all().delete()          # recién ahora: FK PROTECT
+        cuatro_semanas = self._importar(ejercicios=10, semanas=4)
+
+        self.assertEqual(una_semana, cuatro_semanas)
+
+    def test_el_costo_no_crece_linealmente_con_los_ejercicios(self):
+        """Diez veces más ejercicios distintos NO puede costar diez veces más
+        queries.
+
+        No se exige igualdad exacta: `bulk_create` parte los INSERT en lotes,
+        así que 100 objetos cuestan un par de statements más que 10. Lo que se
+        fija es que sea O(lotes) y no O(ejercicios) -- si alguien vuelve a
+        meter un SELECT o un INSERT dentro del loop, 100 ejercicios saltarían
+        a cientos de queries y este test lo agarra.
+
+        Tampoco es un `assertNumQueries` con un número fijo, que se rompe con
+        cualquier cambio interno de Django: se comparan dos tamaños.
+        """
+        pocos = self._importar(ejercicios=10, semanas=2)
+        RutinaPlantilla.objects.all().delete()  # CASCADE a sus items
+        Ejercicio.objects.all().delete()          # recién ahora: FK PROTECT
+        muchos = self._importar(ejercicios=100, semanas=2)
+
+        self.assertLess(muchos, pocos + 10)
+
+    def test_los_items_se_crean_igual(self):
+        self._importar(ejercicios=10, semanas=4)
+        self.assertEqual(RutinaPlantillaItem.objects.count(), 40)
+        self.assertEqual(Ejercicio.objects.count(), 10)
+
+
+class ConfirmarImportacionSinCamposNuevosTests(TestCase):
+    """El escenario real de deploy, que ningún otro test cubre.
+
+    `Importacion.resultado` es un JSONField con los items ya parseados. Una
+    importación que quedó en EN_REVISION ANTES del deploy de `bloque` y
+    `dia_nombre` no tiene esas claves, y `item["bloque"]` sería un KeyError --
+    un 500 al confirmar, para el staff que dejó el preview abierto en una
+    pestaña mientras se desplegaba.
+
+    Por eso se lee con `.get(..., "")`: el default ES la migración. No se
+    escribe un backfill sobre un blob de preview que se descarta solo (ya
+    existe `descartar_importaciones_viejas`).
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
+        self.usuario = User.objects.create_user("staff", password="clave12345")
+
+    def test_un_resultado_sin_las_claves_nuevas_confirma_igual(self):
+        # Un `resultado` con la forma EXACTA que tenía antes del deploy.
+        importacion = Importacion.objects.create(
+            gimnasio=self.gimnasio,
+            tipo=Importacion.Tipo.PLANTILLAS,
+            creado_por=self.usuario,
+            resultado={
+                "hojas": [{
+                    "nombre_hoja": "Plan",
+                    "dias_por_semana": 1,
+                    "items": [{
+                        "semana": 1, "dia": 1, "orden": 1,
+                        "ejercicio_original": "Sentadilla",
+                        "ejercicio_normalizado": "sentadilla",
+                        "series": 4, "repeticiones": "10",
+                        "kilos": "", "descanso": "", "notas": "",
+                    }],
+                    "filas_invalidas": [],
+                    "motivo_exclusion": None,
+                }],
+                "ejercicios_distintos": {"sentadilla": {"tipo": "nuevo"}},
+                "advertencias_columnas": [],
+            },
+        )
+
+        confirmar_importacion_plantillas(
+            importacion=importacion,
+            gimnasio=self.gimnasio,
+            decisiones={
+                "hojas": [{
+                    "nombre_hoja": "Plan", "incluir": True,
+                    "objetivo": "Fuerza", "nivel": "principiante",
+                }],
+                "ejercicios": {
+                    "sentadilla": {
+                        "accion": "crear_nuevo", "categoria_id": self.categoria.pk,
+                    }
+                },
+            },
+        )
+
+        item = RutinaPlantillaItem.objects.get()
+        self.assertEqual(item.bloque, "")
+        self.assertEqual(item.dia_nombre, "")
+        self.assertEqual(item.ejercicio.nombre, "Sentadilla")
+
+
+class HallazgosDelCodeReviewTests(TestCase):
+    """Los seis defectos que encontró el `/code-review` de la rama, cada uno
+    reproducido antes de arreglarlo."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def _preview(self, wb):
+        return previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+
+    def test_un_nombre_de_dia_larguisimo_se_descarta_en_el_preview(self):
+        """`dia_nombre` es `varchar(80)` y sale de una celda combinada con
+        viñetas: un día con cinco bloques descritos da 98 caracteres. En
+        Postgres eso es el `DataError` que voltea la transacción entera y en
+        SQLite no se nota (ISSUES.md 2026-08-27)."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, " EJERCICIOS", None, "SEMANA 1", None, "SEMANA 2", None])
+        ws.append([None, None, None, "Series", "Reps", "Series", "Reps"])
+        largo = ("DÍA 1\n• ACTIVACIÓN Y MOVILIDAD ARTICULAR\n"
+                 "• FUERZA DE TREN INFERIOR\n• CORE Y ACCESORIOS\n"
+                 "• VUELTA A LA CALMA")
+        ws.append([largo, "A1.", "Sentadilla bulgara", 4, "10", 4, "12"])
+        ws.append([None, "A2.", "Peso muerto rumano", 4, "10", 4, "12"])
+        ws.append([None, "A3.", "Prensa inclinada", 4, "10", 4, "12"])
+
+        hoja = self._preview(wb).resultado["hojas"][0]
+
+        self.assertEqual(hoja["items"], [])
+        self.assertTrue(hoja["filas_invalidas"])
+        self.assertIn("nombre del día", hoja["filas_invalidas"][0]["motivo"])
+
+    def test_la_columna_de_bloque_nunca_puede_ser_la_del_nombre(self):
+        """El perfilado elegía la columna con más códigos incluso si era la
+        misma que la del nombre: bastaba un ejercicio llamado "C" para que el
+        bloque de TODAS las filas fuera el nombre completo del ejercicio -- 33
+        caracteres en un `varchar(10)`."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, " EJERCICIOS", "SEMANA 1", None, "SEMANA 2", None])
+        ws.append([None, None, "Series", "Reps", "Series", "Reps"])
+        ws.append(["DÍA 1", "Sentadilla bulgara con mancuernas", 4, "10", 4, "12"])
+        ws.append([None, "Peso muerto rumano a una pierna", 4, "10", 4, "12"])
+        ws.append([None, "Prensa inclinada a 45 grados", 4, "10", 4, "12"])
+        ws.append([None, "C", 4, "10", 4, "12"])
+
+        encabezado = detectar_matriz_ancha(ws)
+
+        self.assertNotEqual(encabezado.col_bloque, encabezado.col_nombre)
+        hoja = leer_hoja_plantilla(ws)
+        self.assertTrue(all(len(i.bloque) <= 10 for i in hoja.items))
+
+    def test_una_semana_sin_columna_de_series_no_se_lleva_puesta_a_las_demas(self):
+        """El entrenador puso Series bajo SEMANA 1 y se olvidó en SEMANA 2.
+        Antes se perdía la mitad del plan y se reportaba "'series' no es un
+        número" por cada fila, que ni siquiera describe lo que pasó: no hay
+        celda de series."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append([None, " EJERCICIOS", None, "SEMANA 1", None, None, "SEMANA 2", None])
+        ws.append([None, None, None, "Series", "Reps", "Carga", "Reps", "Carga"])
+        for n, nombre in enumerate(
+            ["Sentadilla bulgara", "Peso muerto rumano", "Prensa inclinada"]
+        ):
+            ws.append(["DÍA 1" if n == 0 else None, f"A{n+1}.", nombre,
+                       4, "10", "20KG", "12", "20KG"])
+
+        hoja = leer_hoja_plantilla(ws)
+
+        # La semana 1 se importa entera y no aparece como error.
+        self.assertEqual(len(hoja.items), 3)
+        self.assertEqual({i.semana for i in hoja.items}, {1})
+        self.assertEqual(hoja.filas_invalidas, [])
+        # Y el staff se entera de por qué falta la 2, una sola vez.
+        self.assertEqual(len(hoja.advertencias_columnas), 1)
+        self.assertIn("Semana 2", hoja.advertencias_columnas[0])
+        self.assertIn("series", hoja.advertencias_columnas[0].lower())
+
+    def test_una_semana_cero_se_descarta(self):
+        """`bulk_create` no corre validadores: `MinValueValidator(1)` se
+        saltea igual que el `Max`. Una semana 0 entraba a la base y después no
+        la renderiza nadie (portal y PDF iteran de 1 a 4): pérdida silenciosa."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, 1, "Sentadilla", 4, "10"])
+        ws.append([0, 1, "Press militar", 4, "10"])
+
+        hoja = self._preview(wb).resultado["hojas"][0]
+
+        self.assertEqual(len(hoja["items"]), 1)
+        self.assertEqual(len(hoja["filas_invalidas"]), 1)
+        self.assertIn("semana", hoja["filas_invalidas"][0]["motivo"].lower())
+
+    def test_si_ninguna_hoja_es_importable_no_se_ofrece_continuar(self):
+        """Antes se renderizaban cero checkboxes y cualquier POST fallaba con
+        "elegí al menos una hoja", pidiendo algo que la pantalla no podía
+        ofrecer. La única salida era Descartar."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Resumen"
+        ws.append(["Concepto", "Valor"])
+        ws.append(["Cumplimiento", "25%"])
+        importacion = self._preview(wb)
+
+        self.client.login(username="staff-a", password="clave-123456")
+        response = self.client.get(
+            reverse("importaciones:plantillas_hojas", args=[importacion.pk])
+        )
+
+        self.assertTrue(response.context["sin_hojas_importables"])
+        self.assertNotContains(response, "Continuar")
+        self.assertContains(response, "Descartar")
+
+    def test_el_preview_no_recalcula_el_set_de_nombres_por_cada_ejercicio(self):
+        """Era O(distintos x items): el set se reconstruía entero adentro de la
+        comprehension, una vez POR EJERCICIO.
+
+        Se cuenta la cantidad de LLAMADAS, no de queries: el costo es de CPU en
+        Python, no de base. (El preview además dispara una query por ejercicio
+        pendiente para poblar su desplegable de categoría, pero eso es del
+        formset y es anterior a esta rama -- ver `ISSUES.md`.)
+        """
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        for n in range(120):
+            ws.append([1, 1, f"Ejercicio numero {n}", 4, "10"])
+        importacion = self._preview(wb)
+
+        self.client.login(username="staff-a", password="clave-123456")
+        with patch(
+            "importaciones.views._nombres_de_las_hojas_elegidas",
+            wraps=_nombres_de_las_hojas_elegidas,
+        ) as espia:
+            response = self.client.get(
+                reverse("importaciones:plantillas_preview", args=[importacion.pk])
+            )
+
+        self.assertEqual(espia.call_count, 1)
+        self.assertEqual(len(response.context["ejercicio_formset"].initial), 120)
