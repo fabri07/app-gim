@@ -867,3 +867,62 @@ class CategoriaCRUDTests(TestCase):
         response = self.client.get(reverse("ejercicios:listado"))
 
         self.assertContains(response, reverse("ejercicios:categorias_listado"))
+
+
+class ColumnaEstadoConstanteTests(TestCase):
+    """La columna "Estado" del listado decía "Activo" en las 748 filas de la
+    biblioteca recién importada del primer cliente pago.
+
+    Mismo criterio ya aplicado al preview de biblioteca en `ISSUES.md`
+    [2026-08-27]: una columna de valor constante no informa nada, y lo único
+    que aportaba -- la excepción -- se muestra mejor como badge al lado del
+    nombre, donde aparece justo cuando importa. El control sigue siendo
+    editable en el form (`EjercicioForm`/`CategoriaEjercicioForm` incluyen
+    `activo`); lo que sobraba era la columna.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.core = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="CORE"
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+    def test_el_listado_de_ejercicios_no_gasta_una_columna_en_estado(self):
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Plancha", categoria=self.core
+        )
+        response = self.client.get(reverse("ejercicios:listado"))
+        self.assertNotContains(response, "<th>Estado</th>", html=False)
+        self.assertNotContains(response, ">Activo<", html=False)
+
+    def test_un_ejercicio_inactivo_si_se_distingue(self):
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Plancha", categoria=self.core, activo=False
+        )
+        response = self.client.get(reverse("ejercicios:listado"))
+        self.assertContains(response, "Inactivo")
+
+    def test_el_listado_de_categorias_tampoco(self):
+        response = self.client.get(reverse("ejercicios:categorias_listado"))
+        self.assertNotContains(response, "<th>Estado</th>", html=False)
+        self.assertNotContains(response, ">Activa<", html=False)
+
+    def test_una_categoria_inactiva_si_se_distingue(self):
+        CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="VIEJA", activo=False
+        )
+        response = self.client.get(reverse("ejercicios:categorias_listado"))
+        self.assertContains(response, "Inactiva")
+
+    def test_la_columna_de_agrupacion_se_llama_categoria_no_grupo_muscular(self):
+        """`CLAUDE.md` fija que la etiqueta visible en toda la UI es
+        "Categoría": MOVILIDAD o MUSCLE UP no son grupos musculares. Este
+        `<th>` era el último lugar del proyecto que no lo cumplía."""
+        response = self.client.get(reverse("ejercicios:listado"))
+        self.assertNotContains(response, "Grupo muscular")
+        self.assertContains(response, "Categoría")

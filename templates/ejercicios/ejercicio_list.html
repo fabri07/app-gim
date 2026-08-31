@@ -44,8 +44,7 @@
       <thead>
         <tr>
           <th>Nombre</th>
-          <th>Grupo muscular</th>
-          <th>Estado</th>
+          <th>Categoría</th>
           <th>Video</th>
           <th></th>
         </tr>
@@ -53,15 +52,15 @@
       <tbody>
         {% for e in ejercicios %}
           <tr>
-            <td>{{ e.nombre }}</td>
-            <td>{{ e.categoria.nombre|default:"—" }}</td>
+            {# El estado no tiene columna propia: en una biblioteca normal
+               diría "Activo" en todas las filas y una columna de valor
+               constante no informa nada (mismo criterio que el preview de
+               biblioteca, ISSUES.md 2026-08-27). Solo se marca la excepción. #}
             <td>
-              {% if e.activo %}
-                <span class="badge badge--ok">Activo</span>
-              {% else %}
-                <span class="badge badge--riesgo">Inactivo</span>
-              {% endif %}
+              {{ e.nombre }}
+              {% if not e.activo %}<span class="badge badge--riesgo">Inactivo</span>{% endif %}
             </td>
+            <td>{{ e.categoria.nombre|default:"—" }}</td>
             <td>
               {% if e.url_video %}
                 <a href="{{ e.url_video }}" target="_blank" rel="noopener">Ver video</a>
@@ -73,7 +72,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="5" class="texto-suave">No hay ejercicios cargados todavía.</td>
+            <td colspan="4" class="texto-suave">No hay ejercicios cargados todavía.</td>
           </tr>
         {% endfor %}
       </tbody>

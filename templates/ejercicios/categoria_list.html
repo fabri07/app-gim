@@ -19,12 +19,17 @@
   <div class="tabla-scroll">
     <table class="tabla">
       <thead>
-        <tr><th>Nombre</th><th>Orden</th><th>Ejercicios</th><th>Estado</th><th></th></tr>
+        <tr><th>Nombre</th><th>Orden</th><th>Ejercicios</th><th></th></tr>
       </thead>
       <tbody>
         {% for c in categorias %}
           <tr>
-            <td>{{ c.nombre }}</td>
+            {# Sin columna "Estado": diría "Activa" en casi todas las filas y una
+               columna de valor constante no informa nada. Solo la excepción. #}
+            <td>
+              {{ c.nombre }}
+              {% if not c.activo %}<span class="badge badge--riesgo">Inactiva</span>{% endif %}
+            </td>
             <td>{{ c.orden }}</td>
             <td>
               {% if c.total_ejercicios %}
@@ -33,18 +38,11 @@
                 <span class="texto-suave">0</span>
               {% endif %}
             </td>
-            <td>
-              {% if c.activo %}
-                <span class="badge badge--ok">Activa</span>
-              {% else %}
-                <span class="badge badge--riesgo">Inactiva</span>
-              {% endif %}
-            </td>
             <td><a href="{% url 'ejercicios:categorias_editar' c.pk %}">Editar</a></td>
           </tr>
         {% empty %}
           <tr>
-            <td colspan="5" class="texto-suave">No hay categorías todavía.</td>
+            <td colspan="4" class="texto-suave">No hay categorías todavía.</td>
           </tr>
         {% endfor %}
       </tbody>
