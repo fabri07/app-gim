@@ -247,10 +247,21 @@ proyecto tenía CRUD completo de items para `RutinaPlantilla` y **nada** para
   suya. `agrupacion.py` expone `item_referencia` (el item de la semana más
   baja, que ya definía `orden` y `categoria_display`) para darle a la fila un
   pk estable.
-- **Riesgo conocido que esto NO arregla**: nadie setea `RutinaAsignada.activa
-  = False`, así que un alumno puede tener dos rutinas activas y "gana" la más
-  reciente por `Meta.ordering`. El detalle avisa en pantalla cuando pasa, para
-  que el entrenador no edite una rutina que el alumno no ve.
+- **Un alumno tiene UNA rutina activa, y la invariante vive en
+  `crear_desde_plantilla`**, no repetida en cada vista llamadora (mismo
+  criterio que `alumnos/signals.py::sincronizar_acceso_con_estado`): asignar
+  un plan nuevo archiva el anterior (`activa=False` + `fecha_fin`), nunca lo
+  borra — la rutina vieja y sus items son el historial del alumno. Antes nadie
+  ponía `activa=False` jamás y quedaban dos activas; ver `ISSUES.md`
+  `[2026-08-31]`. La migración `rutinas/0011` limpia los duplicados que el bug
+  ya había dejado en la base.
+- **`Meta.ordering` de `RutinaAsignada` lleva `-id` además de
+  `-fecha_inicio`, y no es decorativo**: las cinco consultas que resuelven "la
+  rutina del alumno" hacen `filter(activa=True).first()`, así que ese ordering
+  es lo que decide qué ve el alumno. Sin el desempate, dos rutinas que empiezan
+  el mismo día quedaban empatadas y un `ORDER BY` con empate no garantiza
+  ningún orden en Postgres. El detalle sigue avisando en pantalla si aparecen
+  dos activas (por ejemplo creadas desde `/admin/`), como red de seguridad.
 
 ## Comentarios en templates: `{# #}` es de UNA sola línea
 

@@ -15,6 +15,7 @@ flujo de asignación de punta a punta.
 """
 
 from datetime import date, timedelta
+from importlib import import_module
 from pathlib import Path
 
 from django.conf import settings
@@ -3132,4 +3133,211 @@ class ComentariosDeTemplateTests(SimpleTestCase):
             "Comentarios `{# #}` abiertos en una línea y cerrados en otra: "
             "Django los imprime en pantalla. Usá `{% comment %}`.\n"
             + "\n".join(culpables),
+        )
+
+
+class UnaSolaRutinaActivaTests(RutinasTestCase):
+    """Un alumno tiene UNA rutina activa, y la selección es determinista.
+
+    Antes del 2026-08-31 `RutinaAsignada.activa` era `default=True` y nadie la
+    ponía nunca en `False`: asignar un plan nuevo dejaba dos activas. Las cinco
+    consultas del repo hacen `filter(activa=True).first()`, así que la que veía
+    el alumno la decidía el `Meta.ordering`, que era solo `["-fecha_inicio"]`
+    -- sin desempate. Con la MISMA fecha de inicio (el caso típico: el
+    entrenador reasigna hoy) ganaba la VIEJA, y en Postgres el orden de un
+    empate no está garantizado, así que podía cambiar entre requests.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Plan A", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=1,
+        )
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.press_banca, semana=1, dia=1,
+            orden=1, series=3, repeticiones="10",
+        )
+
+    def _asignar(self, fecha=None):
+        return RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
+            fecha_inicio=fecha or timezone.localdate(),
+        )
+
+    def test_asignar_una_rutina_nueva_cierra_la_anterior(self):
+        vieja = self._asignar()
+        nueva = self._asignar()
+        vieja.refresh_from_db()
+        self.assertFalse(vieja.activa)
+        self.assertTrue(nueva.activa)
+        self.assertEqual(self.alumno.rutinas_asignadas.filter(activa=True).count(), 1)
+
+    def test_la_rutina_cerrada_queda_con_fecha_de_fin(self):
+        vieja = self._asignar()
+        self.assertIsNone(vieja.fecha_fin)
+        self._asignar()
+        vieja.refresh_from_db()
+        self.assertIsNotNone(vieja.fecha_fin)
+
+    def test_cerrar_no_borra_el_historial(self):
+        """La rutina vieja se archiva, no se elimina: es el historial del
+        alumno y sus items siguen ahí."""
+        vieja = self._asignar()
+        self._asignar()
+        vieja.refresh_from_db()
+        self.assertTrue(RutinaAsignada.objects.filter(pk=vieja.pk).exists())
+        self.assertEqual(vieja.items.count(), 1)
+
+    def test_no_toca_las_rutinas_de_otro_alumno(self):
+        otro = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Beto", apellido="Gómez"
+        )
+        suya = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=otro, plantilla=self.plantilla,
+            fecha_inicio=timezone.localdate(),
+        )
+        self._asignar()
+        suya.refresh_from_db()
+        self.assertTrue(suya.activa)
+
+    def test_con_la_misma_fecha_de_inicio_gana_la_mas_reciente(self):
+        """El desempate por `-id` del `Meta.ordering`. Sin él ganaba la vieja,
+        que es exactamente el caso de reasignar el mismo día."""
+        vieja = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno, nombre_snapshot="VIEJA",
+            objetivo_snapshot="F", fecha_inicio=date(2026, 8, 1),
+        )
+        nueva = RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno, nombre_snapshot="NUEVA",
+            objetivo_snapshot="F", fecha_inicio=date(2026, 8, 1),
+        )
+        elegida = self.alumno.rutinas_asignadas.filter(activa=True).first()
+        self.assertEqual(elegida.pk, nueva.pk)
+        self.assertGreater(nueva.pk, vieja.pk)
+
+    def test_el_orden_no_depende_de_como_se_pidan(self):
+        """En Postgres un `ORDER BY` con empate no garantiza ningún orden: el
+        desempate tiene que estar en el propio ordering, no en el azar."""
+        for _ in range(3):
+            RutinaAsignada.objects.create(
+                gimnasio=self.gimnasio, alumno=self.alumno, nombre_snapshot="X",
+                objetivo_snapshot="F", fecha_inicio=date(2026, 8, 1),
+            )
+        pks = list(
+            self.alumno.rutinas_asignadas.values_list("pk", flat=True)
+        )
+        self.assertEqual(pks, sorted(pks, reverse=True))
+
+
+class MigracionCerrarDuplicadasTests(RutinasTestCase):
+    """La migración de datos `rutinas/0011`, que limpia lo que el bug ya dejó
+    en producción.
+
+    Se ejercita la función directamente (no con `MigratorTestCase`, que el
+    proyecto no usa) pasándole un `apps` de mentira que devuelve el modelo
+    real: lo que importa verificar es el CRITERIO de selección, que es donde
+    puede equivocarse y archivar la rutina que el alumno está usando.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.otro = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Beto", apellido="Gómez"
+        )
+
+    def _crear(self, alumno, nombre, fecha, activa=True, fecha_fin=None):
+        return RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=alumno, nombre_snapshot=nombre,
+            objetivo_snapshot="Fuerza", fecha_inicio=fecha, activa=activa,
+            fecha_fin=fecha_fin,
+        )
+
+    def _correr(self):
+        # `import_module` y no un `from ... import`: el módulo arranca con un
+        # dígito (`0011_...`), así que no es un identificador válido.
+        migracion = import_module(
+            "rutinas.migrations.0011_cerrar_rutinas_activas_duplicadas"
+        )
+
+        class AppsFalso:
+            def get_model(self, app, modelo):
+                return RutinaAsignada
+
+        migracion.cerrar_duplicadas(AppsFalso(), None)
+
+    def test_deja_una_sola_activa_por_alumno(self):
+        self._crear(self.alumno, "vieja", date(2026, 8, 1))
+        self._crear(self.alumno, "nueva", date(2026, 8, 20))
+        self._correr()
+        activas = self.alumno.rutinas_asignadas.filter(activa=True)
+        self.assertEqual(activas.count(), 1)
+        self.assertEqual(activas.first().nombre_snapshot, "nueva")
+
+    def test_conserva_la_misma_que_ve_el_alumno_hoy(self):
+        """Con fechas iguales gana la de `id` mayor -- el mismo desempate que
+        el `Meta.ordering`, para que la migración no le cambie la rutina al
+        alumno respecto de lo que ya está viendo."""
+        self._crear(self.alumno, "primera", date(2026, 8, 1))
+        segunda = self._crear(self.alumno, "segunda", date(2026, 8, 1))
+        vista_antes = self.alumno.rutinas_asignadas.filter(activa=True).first()
+        self._correr()
+        activas = self.alumno.rutinas_asignadas.filter(activa=True)
+        self.assertEqual(activas.count(), 1)
+        self.assertEqual(activas.first().pk, segunda.pk)
+        self.assertEqual(activas.first().pk, vista_antes.pk)
+
+    def test_no_toca_a_un_alumno_con_una_sola_activa(self):
+        sola = self._crear(self.otro, "unica", date(2026, 8, 1))
+        self._crear(self.alumno, "a", date(2026, 8, 1))
+        self._crear(self.alumno, "b", date(2026, 8, 2))
+        self._correr()
+        sola.refresh_from_db()
+        self.assertTrue(sola.activa)
+        self.assertIsNone(sola.fecha_fin)
+
+    def test_no_borra_nada(self):
+        self._crear(self.alumno, "vieja", date(2026, 8, 1))
+        self._crear(self.alumno, "nueva", date(2026, 8, 20))
+        self._correr()
+        self.assertEqual(self.alumno.rutinas_asignadas.count(), 2)
+
+    def test_la_cerrada_recibe_como_fecha_fin_el_inicio_de_la_que_la_reemplazo(self):
+        vieja = self._crear(self.alumno, "vieja", date(2026, 8, 1))
+        self._crear(self.alumno, "nueva", date(2026, 8, 20))
+        self._correr()
+        vieja.refresh_from_db()
+        self.assertEqual(vieja.fecha_fin, date(2026, 8, 20))
+
+    def test_respeta_una_fecha_fin_ya_cargada(self):
+        vieja = self._crear(
+            self.alumno, "vieja", date(2026, 8, 1), fecha_fin=date(2026, 8, 10)
+        )
+        self._crear(self.alumno, "nueva", date(2026, 8, 20))
+        self._correr()
+        vieja.refresh_from_db()
+        self.assertEqual(vieja.fecha_fin, date(2026, 8, 10))
+        self.assertFalse(vieja.activa)
+
+    def test_no_mezcla_alumnos(self):
+        a1 = self._crear(self.alumno, "a1", date(2026, 8, 1))
+        self._crear(self.alumno, "a2", date(2026, 8, 20))
+        b1 = self._crear(self.otro, "b1", date(2026, 8, 5))
+        self._correr()
+        b1.refresh_from_db()
+        a1.refresh_from_db()
+        self.assertTrue(b1.activa)
+        self.assertFalse(a1.activa)
+
+    def test_es_idempotente(self):
+        self._crear(self.alumno, "vieja", date(2026, 8, 1))
+        self._crear(self.alumno, "nueva", date(2026, 8, 20))
+        self._correr()
+        self._correr()
+        self.assertEqual(
+            self.alumno.rutinas_asignadas.filter(activa=True).count(), 1
         )

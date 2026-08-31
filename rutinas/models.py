@@ -197,7 +197,14 @@ class RutinaAsignada(TenantOwnedModel):
     class Meta:
         verbose_name = "rutina asignada"
         verbose_name_plural = "rutinas asignadas"
-        ordering = ["-fecha_inicio"]
+        # El `-id` NO es decorativo: las cinco consultas del repo que resuelven
+        # "la rutina del alumno" hacen `filter(activa=True).first()`, así que
+        # este ordering es lo que decide qué ve el alumno. Con solo
+        # `-fecha_inicio`, dos rutinas que empiezan el MISMO día (el caso
+        # típico: el entrenador reasigna hoy) quedan empatadas, y un `ORDER BY`
+        # con empate no garantiza ningún orden en Postgres -- podía cambiar
+        # entre requests. Lo fija `UnaSolaRutinaActivaTests`.
+        ordering = ["-fecha_inicio", "-id"]
 
     def __str__(self):
         return f"{self.alumno} · {self.nombre_snapshot} desde {self.fecha_inicio}"
@@ -223,6 +230,21 @@ class RutinaAsignada(TenantOwnedModel):
             )
 
         with transaction.atomic():
+            # Cerrar lo que el alumno tuviera activo ANTES de crear la nueva.
+            # Un alumno tiene UNA rutina activa: es lo que asume todo el resto
+            # del código (las cinco consultas que resuelven "su rutina" hacen
+            # `filter(activa=True).first()`, en singular). La invariante vive
+            # acá, en el único camino por el que la app crea una asignación, y
+            # no repetida en cada vista llamadora -- mismo criterio que
+            # `alumnos/signals.py::sincronizar_acceso_con_estado`.
+            #
+            # Se ARCHIVA, no se borra: la rutina vieja y sus items son el
+            # historial del alumno. `fecha_fin` queda en el día del cambio.
+            cls.objects.filter(alumno=alumno, activa=True).update(
+                activa=False,
+                fecha_fin=timezone.localdate(),
+                modificado=timezone.now(),
+            )
             asignada = cls.objects.create(
                 gimnasio=gimnasio,
                 alumno=alumno,

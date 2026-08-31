@@ -20,6 +20,49 @@ del log.
 
 ---
 
+## [2026-08-31] Un alumno podía quedar con dos rutinas activas, y veía la vieja
+
+**Estado:** resuelto
+
+**Impacto:** `RutinaAsignada.activa` es `default=True` y **nadie la ponía nunca
+en `False`**. Asignarle un plan nuevo a un alumno que ya tenía uno dejaba los
+dos activos. Las cinco consultas del repo que resuelven "la rutina del alumno"
+hacen `filter(activa=True).first()`, así que cuál veía la decidía el
+`Meta.ordering`, que era solo `["-fecha_inicio"]`, **sin desempate**.
+
+Consecuencia concreta, y peor de lo que parecía: con la misma `fecha_inicio`
+—que es el caso típico, el entrenador reasigna **hoy**— ganaba la **VIEJA**.
+O sea: el entrenador asignaba el plan nuevo, lo veía bien en su panel, y el
+alumno seguía entrenando el anterior. En Postgres un `ORDER BY` con empate
+además no garantiza ningún orden, así que podía cambiar entre requests.
+
+Dos efectos secundarios: una rutina con `fecha_inicio` futura le ganaba a la
+vigente (el alumno veía un plan que todavía no había empezado, mostrado como
+"Semana 1 de 4"), y la métrica "rutinas activas" del dashboard contaba doble.
+
+**Resolución:** tres piezas.
+1. `RutinaAsignada.crear_desde_plantilla` archiva las activas anteriores del
+   alumno (`activa=False` + `fecha_fin`) dentro de la transacción que ya tenía.
+   La invariante vive **en el modelo**, que es el único camino por el que la
+   app crea una asignación — no repetida en cada vista llamadora, mismo
+   criterio que `alumnos/signals.py::sincronizar_acceso_con_estado`. **No borra
+   nada**: la rutina vieja y sus items son el historial del alumno.
+2. `Meta.ordering = ["-fecha_inicio", "-id"]`, para que el empate sea
+   determinista y gane la más reciente de verdad.
+3. Migración de datos `rutinas/0011`, porque el fix (1) solo vale de acá en
+   adelante: los duplicados que ya estaban en producción hay que cerrarlos o el
+   alumno sigue viendo el plan equivocado. Conserva por alumno la más reciente
+   por `(fecha_inicio, id)` — el mismo desempate del ordering nuevo, así que
+   **no le cambia la rutina a nadie respecto de lo que ya está viendo**.
+   Verificada aplicándola de verdad contra datos sucios, no solo por unit test.
+
+**Cómo se encontró:** escribiendo la doc de la feature de edición de rutinas se
+anotó como "riesgo conocido, fuera de alcance". Al investigarlo después
+apareció que el efecto real no era el que se había supuesto ("gana la más
+reciente"): con fechas iguales ganaba la vieja. **La suposición sobre el
+comportamiento de un bug conocido era incorrecta, y solo reproducirlo lo
+mostró.**
+
 ## [2026-08-31] El alumno veía un comentario del código en lugar del nombre de su ejercicio
 
 **Estado:** resuelto
