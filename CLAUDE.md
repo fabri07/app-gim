@@ -122,6 +122,24 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   de RPE no se fusiona con el nombre nuevo. Es consecuencia directa de que el
   RPE es una calificación por sesión/semana (lo que pidió el dueño del
   producto), no una opinión general y estable del ejercicio.
+  **`bloque` y `dia_nombre`** (2026-08-31, los trae el importador desde la
+  planilla del entrenador): `bloque` es el código de superserie ("A1", "B2" —
+  los ejercicios del mismo bloque se hacen uno atrás del otro) y `dia_nombre`
+  el título del día ("Tren superior · Core"). Están en los DOS modelos Item
+  (plantilla y snapshot) y `dia_nombre` va **denormalizado por item, no como
+  modelo `Dia`**: mismo patrón que `categoria_snapshot`, que ya repite un texto
+  en todos los items y se resuelve al leer con la regla "gana la semana más
+  baja" de `agrupacion.py`. Un modelo propio pedía migración de datos, FK en
+  `crear_desde_plantilla` y cambio de forma en `dias_disponibles`
+  (`tenants/views.py`) y en el agrupado del PDF, todo para una etiqueta. Costo
+  aceptado: en el alta manual el texto se retipea por ejercicio.
+  **`Meta.ordering` NO incluye `bloque`** — el importador ya asigna `orden` en
+  el orden del archivo, así que A1, A2, B1 salen agrupados solos, y meterlo
+  mandaría los items manuales (bloque vacío) al principio. Son cuatro los
+  caminos de escritura que hay que tocar juntos si se agrega otro campo así:
+  `crear_desde_plantilla`, `duplicar()`, `importaciones/services.py` (que lee
+  con `.get(..., "")`, porque una `Importacion` EN_REVISION creada antes del
+  deploy no tiene la clave en su JSON) y `RutinaPlantillaItemForm`.
   **Lista de ejercicios del día y PDF** (agregado después de Fase 6, y
   simplificado el 2026-08-24 a pedido de un cliente real): `rutinas/
   agrupacion.py::listar_ejercicios_del_dia()` es el único lugar que arma
@@ -132,10 +150,10 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   rediseño "tabla ancha por columna") como `rutinas/pdf.py::
   generar_pdf_rutina_asignada()` (fpdf2, Django-free a propósito, recorre
   todos los días). Hasta esa fecha la función dividía el resultado en
-  secciones por `grupo_muscular_snapshot`; un cliente real la encontró
+  secciones por `categoria_snapshot`; un cliente real la encontró
   confusa y se sacó esa subdivisión — ahora devuelve una lista PLANA
   (ordenada por `RutinaAsignadaItem.orden`), y cada ejercicio sigue
-  trayendo su propio `grupo_muscular_display` (se calcula igual que
+  trayendo su propio `categoria_display` (se calcula igual que
   antes) como subtítulo bajo el nombre, ya no como encabezado de
   sección. `RutinaAsignadaPdfView` (staff-only, botón "Descargar PDF" en
   `asignada_detail.html`) es el fallback en papel para cuando un alumno
@@ -505,12 +523,51 @@ plan original).
   `pagos/pago_list.html` con dos acciones secundarias. Acorta el nav de 10 a
   8 items y pone las dos formas de cargar datos en el mismo lugar en vez de
   dispersas.
-- **`parsing.py`** es Django-free a propósito (testeable con
-  `SimpleTestCase`, sin DB) — lee el `.xlsx` con `openpyxl`, resuelve celdas
-  combinadas, detecta columnas por alias (case/acentos-insensible) y arma
-  filas válidas/inválidas. Fila inválida = se salta y se lista con motivo,
-  nunca invalida la hoja entera (salvo que falte una columna REQUERIDA en
-  TODA la hoja, ahí se excluye esa hoja sola, no el archivo).
+- **`parsing/`** es un paquete Django-free a propósito (testeable con
+  `SimpleTestCase`, sin DB): `comun.py` (normalización, alias, detección de
+  columnas, dataclasses, celdas), `tabular.py` (los dos lectores de "un
+  encabezado, un registro por fila") y `ancha.py` (la matriz por semanas).
+  `__init__.py` es una **fachada sin lógica** salvo el despachador de layout:
+  la ruta `importaciones.parsing` **no se puede romper**, la importan seis
+  módulos incluidas dos migraciones históricas (`rutinas/0006`,
+  `ejercicios/0003`). Fila inválida = se salta y se lista con motivo, nunca
+  invalida la hoja entera (salvo que falte una columna REQUERIDA en TODA la
+  hoja, ahí se excluye esa hoja sola, no el archivo).
+- **Dos layouts, y el ORDEN de detección es lo más importante del diseño**
+  (2026-08-31, a raíz de que la planilla real del primer cliente pago daba 0
+  ejercicios; ver `ISSUES.md`). La **matriz ancha** — una fila por ejercicio y
+  las semanas a lo ancho, encabezado en dos filas, día en celda combinada a la
+  izquierda, código de bloque + nombre en columnas separadas — **se prueba
+  SIEMPRE antes** que la tabla larga. Al revés, una hoja ancha matchea igual el
+  layout largo (su fila de grupos tiene `EJERCICIOS`, la de subcampos tiene
+  `Series`/`Reps`/`Carga`) y produce filas plausibles con las columnas
+  corridas: basura silenciosa, peor que cero items. Al revés no puede pasar
+  porque `RE_SEMANA` exige el dígito y el `Semana` a secas del layout largo no
+  matchea. **Si tocás el despachador, no inviertas ese orden.**
+- **En la matriz ancha una fila de Excel produce hasta un item POR SEMANA**, y
+  eso cambia la cardinalidad de `FilaInvalida`: un `series` malo en la semana 2
+  no puede invalidar las otras tres, y el preview agrupa los motivos por fila
+  para no listar la misma cuatro veces.
+- **La fila de títulos no tiene que ser la primera.** `buscar_fila_encabezado`
+  mira las primeras `FILAS_BUSQUEDA_ENCABEZADO` (15) y se queda con la PRIMERA
+  que tenga todos los campos requeridos — no con "la que más detecta", que en
+  una matriz por semanas elegiría la fila de subcampos y correría todas las
+  columnas. Esto hizo que un archivo con un título arriba de la tabla, que
+  antes se rechazaba con un mensaje pidiendo borrar esa fila, **ahora se
+  importe bien**; los dos tests de biblioteca que fijaban el comportamiento
+  viejo se reescribieron, con el porqué en el docstring de cada clase.
+- **El staff elige qué hojas importar** (`plantillas/<pk>/hojas/`,
+  `SeleccionHojasView`) entre subir y previsualizar: el archivo real trae 7
+  hojas y 6 son auxiliares. La elección va en `resultado["hojas_elegidas"]`
+  (lista de nombres) — sin campo de modelo nuevo, sin estado nuevo y sin
+  reabrir el archivo. **El pareo hoja↔decisión es POR NOMBRE, no posicional**:
+  filtrando hojas, alinear por índice crea plantillas con el objetivo y el
+  nivel de otra hoja, en silencio.
+- **`plantillas/ejemplo.xlsx`** genera al vuelo un archivo de ejemplo listo
+  para llenar, con los encabezados y la hoja de ayuda derivados de
+  `ALIAS_PLANTILLA`. **No lo conviertas en un binario versionado**: se
+  desincronizaría del parser sin que nadie se entere. Hay un test que lo pasa
+  por el propio importador.
 - **`matching.py`**: matching difuso de nombres de ejercicio contra la
   biblioteca del gimnasio vía `rapidfuzz` (`PISO_SCORE=60`,
   `UMBRAL_AMBIGUO=87` — por debajo de 60 es "nuevo", 60-86 es "ambiguo",
@@ -540,7 +597,12 @@ plan original).
   una sola vez y `Ejercicio.objects.bulk_create()` inserta todo junto — 7
   queries para 200 ejercicios, las mismas que para 20, fijado por
   `ImportacionBibliotecaEscalaTests`. **No vuelvas a meter una query adentro
-  del loop de items** en ninguno de los dos flujos de confirmación.
+  del loop de items** en ninguno de los dos flujos de confirmación. El flujo de
+  PLANTILLAS tenía exactamente el mismo defecto y se corrigió el 2026-08-31
+  (139 → 57 queries con el archivo real): los ejercicios se resuelven todos de
+  una antes de tocar las plantillas, y `ImportacionPlantillasEscalaTests` fija
+  las dos propiedades por separado — el costo no crece con la cantidad de
+  FILAS, y no crece linealmente con la cantidad de EJERCICIOS.
 - **Los largos de campo se validan en el preview, no se descubren en el
   `INSERT`.** SQLite no valida el largo de un `varchar` y Postgres sí: dos
   links de 306 caracteres en el Excel de un cliente eran un `DataError` que
