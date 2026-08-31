@@ -186,6 +186,24 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
     )
 
 
+def hojas_elegidas(resultado):
+    """Las hojas que el staff eligió importar, o todas si no eligió.
+
+    La elección se guarda como una lista de NOMBRES en
+    `resultado["hojas_elegidas"]` -- ni un campo de modelo nuevo ni un estado
+    nuevo, y sin volver a abrir el archivo (la invariante que documenta
+    `importaciones/models.py`).
+
+    Se lee con `.get()`: una `Importacion` en EN_REVISION creada antes del
+    deploy de esta pantalla no tiene la clave, y ahí "no eligió" significa
+    "todas", que es exactamente lo que hacía antes.
+    """
+    elegidas = resultado.get("hojas_elegidas")
+    if elegidas is None:
+        return list(resultado["hojas"])
+    return [h for h in resultado["hojas"] if h["nombre_hoja"] in set(elegidas)]
+
+
 def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
     """Crea las `RutinaPlantilla`/`RutinaPlantillaItem`/`Ejercicio` reales a
     partir del preview persistido en `importacion.resultado` y las
@@ -211,12 +229,35 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
             raise ImportacionInvalida("Esta importación ya fue procesada.")
 
         resultado = importacion.resultado
-        decisiones_hojas = decisiones["hojas"]
-        if len(decisiones_hojas) != len(resultado["hojas"]):
+        hojas_a_procesar = hojas_elegidas(resultado)
+        # El pareo hoja<->decisión es POR NOMBRE, no posicional. Mientras el
+        # preview mostraba las N hojas del archivo en orden, alinear por índice
+        # funcionaba; desde que el staff elige qué hojas importar, la lista de
+        # decisiones ya no tiene por qué coincidir en largo ni en orden con
+        # `resultado["hojas"]`, y un desalineamiento acá crea plantillas con
+        # el objetivo y el nivel de OTRA hoja, en silencio. Los nombres de hoja
+        # son únicos dentro de un workbook, así que sirven de clave.
+        decisiones_por_hoja = {
+            d["nombre_hoja"]: d for d in decisiones["hojas"] if "nombre_hoja" in d
+        }
+        if len(decisiones_por_hoja) != len(decisiones["hojas"]):
+            raise ImportacionInvalida("Datos de confirmación incompletos.")
+
+        nombres_del_archivo = {h["nombre_hoja"] for h in resultado["hojas"]}
+        if not set(decisiones_por_hoja) <= nombres_del_archivo:
+            # Un POST armado a mano no puede inventar una hoja.
+            raise ImportacionInvalida("Datos de confirmación incompletos.")
+
+        faltantes = [
+            h["nombre_hoja"]
+            for h in hojas_a_procesar
+            if h["nombre_hoja"] not in decisiones_por_hoja
+        ]
+        if faltantes:
             # P. ej. checkboxes sin marcar en el form de confirmación
-            # (Tarea 9) simplemente no llegan en el POST -- sin este chequeo
-            # las hojas sobrantes se saltearían en silencio y la importación
-            # igual quedaría CONFIRMADA (ya no se podría reintentar).
+            # simplemente no llegan en el POST -- sin este chequeo las hojas
+            # sobrantes se saltearían en silencio y la importación igual
+            # quedaría CONFIRMADA (ya no se podría reintentar).
             raise ImportacionInvalida("Datos de confirmación incompletos.")
 
         ejercicios_por_nombre = {}  # nombre_normalizado -> Ejercicio, resuelto una vez
@@ -275,7 +316,8 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
             return ejercicio
 
         plantillas_creadas = []
-        for hoja, decision_hoja in zip(resultado["hojas"], decisiones_hojas):
+        for hoja in hojas_a_procesar:
+            decision_hoja = decisiones_por_hoja[hoja["nombre_hoja"]]
             if not decision_hoja["incluir"]:
                 continue
             if not hoja["items"]:

@@ -472,7 +472,7 @@ class ConfirmarImportacionPlantillasTests(TestCase):
 
     def _decisiones_completas(self, accion_sentadila="usar_existente"):
         return {
-            "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
+            "hojas": [{"nombre_hoja": "Hombres", "incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
             "ejercicios": {
                 "press de banca": {"accion": "crear_nuevo", "categoria_id": self.pecho.pk},
                 "sentadila": {
@@ -612,8 +612,8 @@ class ConfirmarImportacionPlantillasTests(TestCase):
         )
         decisiones = {
             "hojas": [
-                {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
-                {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
+                {"nombre_hoja": "Hombres", "incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
+                {"nombre_hoja": "Mujeres", "incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
             ],
             "ejercicios": {
                 "peso muerto": {"accion": "crear_nuevo", "categoria_id": self.piernas.pk},
@@ -649,8 +649,8 @@ class ConfirmarImportacionPlantillasTests(TestCase):
         ejercicios_antes = Ejercicio.objects.count()
         decisiones = {
             "hojas": [
-                {"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"},
-                {"incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
+                {"nombre_hoja": "Hombres", "incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"},
+                {"nombre_hoja": "Mujeres", "incluir": True, "objetivo": "Fuerza", "nivel": "principiante"},
             ],
             "ejercicios": {
                 "press de banca": {"accion": "crear_nuevo", "categoria_id": self.pecho.pk},
@@ -695,7 +695,7 @@ class ConfirmarImportacionPlantillasConCargaTests(TestCase):
             importacion=self.importacion,
             gimnasio=self.gimnasio,
             decisiones={
-                "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
+                "hojas": [{"nombre_hoja": "Hombres", "incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
                 "ejercicios": {
                     "sentadilla": {"accion": "crear_nuevo", "categoria_id": self.piernas.pk},
                 },
@@ -996,6 +996,19 @@ class ImportacionPlantillasViewsTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         importacion = Importacion.objects.get()
+        self.assertRedirects(
+            response, reverse("importaciones:plantillas_hojas", args=[importacion.pk])
+        )
+
+        # Paso nuevo: elegir qué hojas del archivo son planes.
+        response = self.client.get(response.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Hombres")
+
+        response = self.client.post(
+            reverse("importaciones:plantillas_hojas", args=[importacion.pk]),
+            {"hojas": ["Hombres"]},
+        )
         self.assertRedirects(
             response, reverse("importaciones:plantillas_preview", args=[importacion.pk])
         )
@@ -1586,7 +1599,7 @@ class HojaExcluidaPorColumnaFaltanteTests(TestCase):
             usuario=self.staff,
         )
         decisiones = {
-            "hojas": [{"incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
+            "hojas": [{"nombre_hoja": "Hombres", "incluir": True, "objetivo": "Hipertrofia", "nivel": "principiante"}],
             "ejercicios": {},
         }
         with self.assertRaises(ImportacionInvalida):
@@ -3228,3 +3241,132 @@ class FilaExcelReportadaTests(TestCase):
 
         self.assertEqual(len(invalidas), 1)
         self.assertEqual(invalidas[0]["fila_excel"], 6)
+
+
+class SeleccionDeHojasTests(TestCase):
+    """El archivo real del primer cliente pago trae 7 hojas y 6 son
+    auxiliares (`AUX` con 3206 filas, `Movilidad Articular` con 1020,
+    `Avatar`, `Logros`, `Carga de Datos`, `Plantilla - aux`).
+
+    Sin este paso el preview mostraba las 7 y el staff tenía que destildar 6
+    para llegar a la única que le importaba.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.piernas = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
+        self.usuario = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        wb = openpyxl.Workbook()
+        plan = wb.active
+        plan.title = "Plan agosto"
+        plan.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        plan.append([1, "Peso muerto", 4, "8-12"])
+        aux = wb.create_sheet("AUX")
+        aux.append(["Nombre", "Valor"])
+        aux.append(["Cumplimiento", "25%"])
+        self.importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+
+    def _url(self, nombre):
+        return reverse(f"importaciones:{nombre}", args=[self.importacion.pk])
+
+    def test_alumno_recibe_403(self):
+        alumno = User.objects.create_user("alumno-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.login(username="alumno-a", password="clave-123456")
+        self.assertEqual(self.client.get(self._url("plantillas_hojas")).status_code, 403)
+
+    def test_lista_todas_las_hojas_con_lo_que_detecto(self):
+        response = self.client.get(self._url("plantillas_hojas"))
+        self.assertContains(response, "Plan agosto")
+        self.assertContains(response, "AUX")
+        filas = {f["nombre_hoja"]: f for f in response.context["filas"]}
+        self.assertEqual(filas["Plan agosto"]["cantidad"], 1)
+        self.assertEqual(filas["AUX"]["cantidad"], 0)
+
+    def test_solo_vienen_pre_marcadas_las_hojas_con_ejercicios(self):
+        response = self.client.get(self._url("plantillas_hojas"))
+        filas = {f["nombre_hoja"]: f for f in response.context["filas"]}
+        self.assertTrue(filas["Plan agosto"]["marcada"])
+        self.assertFalse(filas["AUX"]["marcada"])
+
+    def test_la_eleccion_se_guarda_y_lleva_al_preview(self):
+        response = self.client.post(
+            self._url("plantillas_hojas"), {"hojas": ["Plan agosto"]}
+        )
+        self.assertRedirects(response, self._url("plantillas_preview"))
+        self.importacion.refresh_from_db()
+        self.assertEqual(self.importacion.resultado["hojas_elegidas"], ["Plan agosto"])
+
+    def test_el_preview_solo_muestra_las_hojas_elegidas(self):
+        self.client.post(self._url("plantillas_hojas"), {"hojas": ["Plan agosto"]})
+        response = self.client.get(self._url("plantillas_preview"))
+        nombres = [h["nombre_hoja"] for h, _ in response.context["hojas_con_form"]]
+        self.assertEqual(nombres, ["Plan agosto"])
+
+    def test_no_elegir_ninguna_no_avanza(self):
+        response = self.client.post(self._url("plantillas_hojas"), {})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "al menos una hoja")
+        self.importacion.refresh_from_db()
+        self.assertNotIn("hojas_elegidas", self.importacion.resultado)
+
+    def test_un_nombre_de_hoja_inventado_se_ignora(self):
+        """El POST viene del cliente: se intersecta contra los nombres reales
+        en vez de confiar en él, misma barrera que el re-fetch scopeado del
+        resto del importador."""
+        response = self.client.post(
+            self._url("plantillas_hojas"), {"hojas": ["Plan agosto", "Hoja Fantasma"]}
+        )
+        self.assertRedirects(response, self._url("plantillas_preview"))
+        self.importacion.refresh_from_db()
+        self.assertEqual(self.importacion.resultado["hojas_elegidas"], ["Plan agosto"])
+
+    def test_una_hoja_sin_ejercicios_no_se_puede_elegir(self):
+        response = self.client.post(self._url("plantillas_hojas"), {"hojas": ["AUX"]})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "al menos una hoja")
+
+    def test_una_importacion_vieja_sin_la_clave_sigue_funcionando(self):
+        """Una `Importacion` EN_REVISION creada antes del deploy de esta
+        pantalla no tiene `hojas_elegidas`: ahí "no eligió" significa "todas",
+        que es exactamente lo que hacía antes."""
+        self.assertNotIn("hojas_elegidas", self.importacion.resultado)
+        response = self.client.get(self._url("plantillas_preview"))
+        nombres = [h["nombre_hoja"] for h, _ in response.context["hojas_con_form"]]
+        self.assertEqual(nombres, ["Plan agosto", "AUX"])
+
+    def test_los_ejercicios_de_una_hoja_no_elegida_no_hay_que_clasificarlos(self):
+        wb = openpyxl.Workbook()
+        a = wb.active
+        a.title = "Plan A"
+        a.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        a.append([1, "Peso muerto", 4, "8"])
+        b = wb.create_sheet("Plan B")
+        b.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        b.append([1, "Remo con barra", 4, "8"])
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.usuario,
+        )
+        self.client.post(
+            reverse("importaciones:plantillas_hojas", args=[importacion.pk]),
+            {"hojas": ["Plan A"]},
+        )
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        pendientes = [
+            f["nombre_normalizado"] for f in response.context["ejercicio_formset"].initial
+        ]
+        self.assertIn("peso muerto", pendientes)
+        self.assertNotIn("remo con barra", pendientes)

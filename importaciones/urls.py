@@ -7,6 +7,7 @@ from importaciones.views import (
     DescartarImportacionView,
     PreviewBibliotecaView,
     PreviewPlantillasView,
+    SeleccionHojasView,
     SubirBibliotecaView,
     SubirPlantillasView,
 )
@@ -15,6 +16,7 @@ app_name = "importaciones"
 
 urlpatterns = [
     path("plantillas/subir/", SubirPlantillasView.as_view(), name="plantillas_subir"),
+    path("plantillas/<int:pk>/hojas/", SeleccionHojasView.as_view(), name="plantillas_hojas"),
     path("plantillas/<int:pk>/preview/", PreviewPlantillasView.as_view(), name="plantillas_preview"),
     path("plantillas/<int:pk>/descartar/", DescartarImportacionView.as_view(), name="plantillas_descartar"),
     path("biblioteca/subir/", SubirBibliotecaView.as_view(), name="biblioteca_subir"),
