@@ -470,6 +470,20 @@
     @apply text-sm text-red-600 -mt-2 mb-3;
   }
 
+  /* La `<ul class="errorlist">` que Django genera sola con `{{ form.as_p }}`
+     y compañía. Estuvo SIN DEFINIR hasta 2026-09-02: los errores salían en
+     negro, del mismo cuerpo que las ayudas grises, y arriba de la etiqueta
+     -- se leían como una instrucción más, así que un formulario rechazado
+     era indistinguible de uno guardado. Un cliente real reportó tres veces
+     "no me guarda" por esto. Es la red de seguridad de los ~20 templates que
+     todavía renderizan en bloque; los que renderizan campo por campo usan
+     `partials/campo_form.html`. `list-none` porque un bullet acá no aporta
+     nada, y el mismo rojo que `.config-error` para que un error se vea igual
+     en todo el sitio. */
+  .errorlist {
+    @apply list-none p-0 mb-2 text-sm text-red-600;
+  }
+
   /* Un campo renderizado a mano (etiqueta + control + ayuda + error) en vez
      de `{{ form.as_p }}`: el `as_p` de Django pone su `errorlist` sin
      estilo ARRIBA de la etiqueta, donde nadie lo lee como un error. Ver el

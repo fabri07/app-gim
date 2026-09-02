@@ -181,6 +181,12 @@
     {% endif %}
     {{ resoluciones_previas|json_script:"resoluciones-previas" }}
     {{ form.resoluciones }}
+    {% comment %}
+      `resoluciones` es un campo oculto que arma el JS al enviar: si su JSON
+      llega corrupto, el error es de CAMPO y sin esta línea no se veía nada
+      -- la pantalla volvía igual y las 748 filas no se importaban.
+    {% endcomment %}
+    {% for error in form.resoluciones.errors %}<p class="texto-error">{{ error }}</p>{% endfor %}
     {% for error in form.non_field_errors %}<p class="texto-error">{{ error }}</p>{% endfor %}
     <button type="submit" class="boton">Confirmar importación</button>
     <script>

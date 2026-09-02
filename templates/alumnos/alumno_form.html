@@ -4,53 +4,46 @@
 {% block content %}
 <div class="tarjeta">
   <h1>{% if object %}Editar alumno{% else %}Nuevo alumno{% endif %}</h1>
+  {% comment %}
+    Cada campo va por `partials/campo_form.html`, que muestra la etiqueta, el
+    control, la ayuda y EL ERROR. Antes eran 15 pares
+    `label_tag`/`campo` escritos a mano y ninguno mostraba errores: un alta
+    con el nombre vacío volvía con un 200 y la pantalla idéntica, sin que la
+    palabra "obligatorio" apareciera en el HTML.
+  {% endcomment %}
   <form method="post" novalidate>
     {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
 
     <div class="form-seccion">
       <h2>Datos personales</h2>
-      {{ form.nombre.label_tag }}
-      {{ form.nombre }}
-      {{ form.apellido.label_tag }}
-      {{ form.apellido }}
-      {{ form.sexo.label_tag }}
-      {{ form.sexo }}
-      {{ form.fecha_nacimiento.label_tag }}
-      {{ form.fecha_nacimiento }}
-      {{ form.email.label_tag }}
-      {{ form.email }}
-      {{ form.telefono.label_tag }}
-      {{ form.telefono }}
-      {{ form.estado.label_tag }}
-      {{ form.estado }}
+      {% include 'partials/campo_form.html' with campo=form.nombre %}
+      {% include 'partials/campo_form.html' with campo=form.apellido %}
+      {% include 'partials/campo_form.html' with campo=form.sexo %}
+      {% include 'partials/campo_form.html' with campo=form.fecha_nacimiento %}
+      {% include 'partials/campo_form.html' with campo=form.email %}
+      {% include 'partials/campo_form.html' with campo=form.telefono %}
+      {% include 'partials/campo_form.html' with campo=form.estado %}
     </div>
 
     <div class="form-seccion">
       <h2>Actividad física previa</h2>
-      {{ form.actividad_fisica_previa.label_tag }}
-      {{ form.actividad_fisica_previa }}
-      {{ form.frecuencia_actividad_previa.label_tag }}
-      {{ form.frecuencia_actividad_previa }}
-      {{ form.deportes_practica.label_tag }}
-      {{ form.deportes_practica }}
+      {% include 'partials/campo_form.html' with campo=form.actividad_fisica_previa %}
+      {% include 'partials/campo_form.html' with campo=form.frecuencia_actividad_previa %}
+      {% include 'partials/campo_form.html' with campo=form.deportes_practica %}
     </div>
 
     <div class="form-seccion">
       <h2>Salud</h2>
-      {{ form.tiene_discapacidad.label_tag }}
-      {{ form.tiene_discapacidad }}
-      {{ form.discapacidad_detalle.label_tag }}
-      {{ form.discapacidad_detalle }}
-      {{ form.tiene_enfermedad_cronica.label_tag }}
-      {{ form.tiene_enfermedad_cronica }}
-      {{ form.enfermedad_cronica_detalle.label_tag }}
-      {{ form.enfermedad_cronica_detalle }}
+      {% include 'partials/campo_form.html' with campo=form.tiene_discapacidad %}
+      {% include 'partials/campo_form.html' with campo=form.discapacidad_detalle %}
+      {% include 'partials/campo_form.html' with campo=form.tiene_enfermedad_cronica %}
+      {% include 'partials/campo_form.html' with campo=form.enfermedad_cronica_detalle %}
     </div>
 
     <div class="form-seccion">
       <h2>Notas</h2>
-      {{ form.observaciones.label_tag }}
-      {{ form.observaciones }}
+      {% include 'partials/campo_form.html' with campo=form.observaciones %}
     </div>
 
     <button type="submit" class="boton">Guardar</button>

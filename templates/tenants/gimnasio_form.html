@@ -21,6 +21,7 @@
   <div class="config-layout">
     <form method="post" enctype="multipart/form-data" novalidate hx-boost="false" class="tarjeta" id="form-gimnasio">
       {% csrf_token %}
+      {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
 
       <div class="form-seccion">
         <h2>Identidad</h2>
@@ -103,6 +104,7 @@
         <h2>Mensaje y contacto</h2>
         {{ form.texto_bienvenida.label_tag }}
         {{ form.texto_bienvenida }}
+        {% if form.texto_bienvenida.errors %}<p class="config-error">{{ form.texto_bienvenida.errors.0 }}</p>{% endif %}
         {{ form.contacto.label_tag }}
         {{ form.contacto }}
         <p class="texto-suave">

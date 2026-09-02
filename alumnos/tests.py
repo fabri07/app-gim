@@ -222,6 +222,28 @@ class AlumnoViewsTests(TestCase):
         nuevo.refresh_from_db()
         self.assertEqual(nuevo.apellido, "Alumno Editado")
 
+    def test_un_alta_invalida_muestra_el_error_en_pantalla(self):
+        """El alta de alumnos rechazaba en silencio: 15 campos renderizados a
+        mano y ni uno mostraba sus errores. Un POST con el nombre vacío volvía
+        200 con la pantalla IDÉNTICA -- la palabra "obligatorio" ni siquiera
+        aparecía en el HTML. Verificado así antes del fix."""
+        self.client.login(username="staff_a", password="clave12345")
+
+        response = self.client.post(
+            reverse("alumnos:crear"),
+            {"nombre": "", "apellido": "", "estado": Alumno.Estado.ACTIVO},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("nombre", response.context["form"].errors)
+        self.assertContains(response, "config-error")
+        self.assertContains(response, "Este campo es obligatorio")
+
+    def test_el_alta_marca_cuales_campos_son_obligatorios(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(reverse("alumnos:crear"))
+        self.assertContains(response, "campo-obligatorio")
+
     def test_staff_carga_la_ficha_de_inscripcion_ampliada(self):
         self.client.login(username="staff_a", password="clave12345")
         datos = {

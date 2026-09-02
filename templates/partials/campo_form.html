@@ -1,0 +1,24 @@
+{% comment %}
+Un campo de formulario completo: etiqueta (con `*` si es obligatorio), el
+control, su ayuda, y SUS ERRORES.
+
+    {% include 'partials/campo_form.html' with campo=form.nombre %}
+
+Existe para que el error no se pueda olvidar. Escribir a mano
+`{{ form.x.label_tag }}{{ form.x }}` y olvidar el `{% if form.x.errors %}`
+hace que el formulario rechace sin que se vea: el usuario aprieta Guardar, la
+pantalla vuelve igual, se va, y el dato no está. Pasó tres veces el mismo día
+(2026-09-02) -- ver `core.tests.ErroresDeFormularioVisiblesTests`, que barre
+todos los templates y falla si aparece un campo sin cubrir.
+
+El `*` es un refuerzo visual; el dato accesible va en el `.sr-only` de al
+lado, porque un lector de pantalla no infiere "obligatorio" de un asterisco.
+{% endcomment %}
+<div class="form-campo">
+  <label for="{{ campo.id_for_label }}">
+    {{ campo.label }}{% if campo.field.required %} <span class="campo-obligatorio" aria-hidden="true">*</span><span class="sr-only"> (obligatorio)</span>{% endif %}
+  </label>
+  {{ campo }}
+  {% if campo.help_text %}<p class="texto-suave">{{ campo.help_text }}</p>{% endif %}
+  {% for error in campo.errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+</div>

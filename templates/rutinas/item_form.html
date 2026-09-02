@@ -45,14 +45,7 @@ hx-boost="false" en los links de origen, el buscador cargaba sin CSS
     {% endif %}
     <p class="texto-suave">Los campos con <span class="campo-obligatorio">*</span> son obligatorios; el resto podés dejarlos vacíos.</p>
     {% for campo in form %}
-      <div class="form-campo">
-        <label for="{{ campo.id_for_label }}">
-          {{ campo.label }}{% if campo.field.required %} <span class="campo-obligatorio" aria-hidden="true">*</span><span class="sr-only"> (obligatorio)</span>{% endif %}
-        </label>
-        {{ campo }}
-        {% if campo.help_text %}<p class="texto-suave">{{ campo.help_text }}</p>{% endif %}
-        {% for error in campo.errors %}<p class="config-error">{{ error }}</p>{% endfor %}
-      </div>
+      {% include 'partials/campo_form.html' %}
     {% endfor %}
     <button type="submit" class="boton">Guardar</button>
     <a class="boton-secundario" href="{% url 'rutinas:plantilla_detalle' plantilla.pk %}">Cancelar</a>
