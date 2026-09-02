@@ -19,7 +19,13 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import CommandError, call_command
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.test import (
+    override_settings,
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    TransactionTestCase,
+)
 from django.urls import NoReverseMatch, resolve, reverse
 from django.utils import timezone
 from django.utils.http import urlencode
@@ -2691,3 +2697,212 @@ class StaffPasswordChangeViewTests(TestCase):
         self.assertTrue(response.context["form"].errors.get("old_password"))
         self.staff.refresh_from_db()
         self.assertTrue(self.staff.check_password("clave-vieja-123"))
+
+
+class SembrarDemoTests(TestCase):
+    """`manage.py sembrar_demo`: llenar una cuenta de PRUEBA para poder
+    mostrar la app. Lo que más importa acá no es lo que crea, sino que no
+    pueda correrse sobre un gimnasio real por accidente."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Prueba", slug="prueba")
+
+    def _sembrar(self, **kwargs):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        salida = StringIO()
+        call_command("sembrar_demo", gimnasio="prueba", stdout=salida, **kwargs)
+        return salida.getvalue()
+
+    def test_siembra_datos_en_todas_las_secciones(self):
+        from alumnos.models import Alumno
+        from pagos.models import PagoMensual
+        from rutinas.models import RutinaAsignada
+        from turnos.models import Reserva
+
+        self._sembrar(alumnos=6, meses=2)
+
+        self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 6)
+        self.assertTrue(RutinaAsignada.objects.for_gimnasio(self.gimnasio).exists())
+        self.assertTrue(PagoMensual.objects.for_gimnasio(self.gimnasio).exists())
+        self.assertTrue(Reserva.objects.for_gimnasio(self.gimnasio).exists())
+
+    def test_se_niega_a_sembrar_sobre_un_gimnasio_con_alumnos_reales(self):
+        """La única barrera entre "lleno la cuenta de prueba" y "le meto 24
+        alumnos falsos al gimnasio de un cliente que paga"."""
+        from django.core.management.base import CommandError
+
+        from alumnos.models import Alumno
+
+        Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Real", apellido="Cliente"
+        )
+
+        with self.assertRaises(CommandError) as error:
+            self._sembrar(alumnos=3)
+        self.assertIn("--confirmar", str(error.exception))
+        # Y no escribió NADA antes de negarse.
+        self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 1)
+
+    def test_con_confirmar_siembra_igual(self):
+        from alumnos.models import Alumno
+
+        Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Real", apellido="Cliente"
+        )
+        self._sembrar(alumnos=3, confirmar=True)
+        self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 4)
+
+    def test_borrar_saca_solo_los_de_demo(self):
+        """El alumno real tiene que sobrevivir al `--borrar`: si el marcador
+        no funcionara, este comando sería una forma de perder datos."""
+        from alumnos.models import Alumno
+
+        real = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Real", apellido="Cliente"
+        )
+        self._sembrar(alumnos=4, meses=1, confirmar=True)
+        self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 5)
+
+        self._sembrar(borrar=True)
+
+        quedan = list(Alumno.objects.for_gimnasio(self.gimnasio))
+        self.assertEqual(quedan, [real])
+
+    def test_no_toca_otros_gimnasios(self):
+        from alumnos.models import Alumno
+
+        otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        Alumno.objects.create(gimnasio=otro, nombre="Ajeno", apellido="X")
+
+        self._sembrar(alumnos=3)
+
+        self.assertEqual(Alumno.objects.for_gimnasio(otro).count(), 1)
+
+    def test_un_slug_inexistente_lista_los_que_hay(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError) as error:
+            call_command("sembrar_demo", gimnasio="no-existe", stdout=StringIO())
+        self.assertIn("prueba", str(error.exception))
+
+    def test_deja_planes_por_vencer_para_que_el_panel_tenga_contenido(self):
+        """La tarjeta del panel es lo primero que se ve en una captura: si la
+        siembra no dejara ningún plan por vencer, no habría nada que mostrar."""
+        from rutinas.models import RutinaAsignada
+
+        self._sembrar(alumnos=8, meses=1)
+
+        self.assertTrue(RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio))
+
+    def test_las_reservas_cubren_los_cinco_dias_habiles(self):
+        """La grilla de calor del panel es EL gráfico de la app. Con el bucle
+        anterior (5 días hacia atrás desde hoy dentro de cada semana), si hoy
+        era miércoles solo se sembraban lunes, martes y miércoles: jueves y
+        viernes quedaban en cero y la captura se leía como una app rota."""
+        from turnos.models import Reserva
+
+        self._sembrar(alumnos=10, meses=1)
+
+        dias = {
+            reserva.fecha.weekday()
+            for reserva in Reserva.objects.for_gimnasio(self.gimnasio)
+        }
+        self.assertEqual(dias, {0, 1, 2, 3, 4})
+
+    def test_no_siembra_reservas_de_fin_de_semana(self):
+        from turnos.models import Reserva
+
+        self._sembrar(alumnos=8, meses=1)
+
+        self.assertFalse(
+            Reserva.objects.for_gimnasio(self.gimnasio)
+            .filter(fecha__week_day__in=[1, 7])  # domingo y sábado en Django
+            .exists()
+        )
+
+    def test_el_silenciado_no_queda_pegado(self):
+        """`silenciado()` es un flag de módulo: si no se restaurara, el
+        proceso entero (incluido un servidor web) dejaría de mandar push
+        después de una siembra."""
+        from notificaciones import services
+
+        self._sembrar(alumnos=3, meses=1)
+
+        self.assertFalse(services._silenciado)
+
+    def test_es_reproducible(self):
+        """Semilla fija: rehacer una captura tiene que dar el mismo resultado."""
+        from alumnos.models import Alumno
+
+        self._sembrar(alumnos=5, meses=1)
+        primeros = list(
+            Alumno.objects.for_gimnasio(self.gimnasio)
+            .order_by("id").values_list("nombre", "apellido")
+        )
+        self._sembrar(borrar=True)
+        self._sembrar(alumnos=5, meses=1)
+        segundos = list(
+            Alumno.objects.for_gimnasio(self.gimnasio)
+            .order_by("id").values_list("nombre", "apellido")
+        )
+        self.assertEqual(primeros, segundos)
+
+
+class SembrarDemoSinPushTests(TransactionTestCase):
+    """Que sembrar NO dispare notificaciones push.
+
+    `TransactionTestCase` y no `TestCase` **a propósito**: los signals de
+    `notificaciones` mandan el push desde un `transaction.on_commit`, y un
+    `TestCase` envuelve cada test en una transacción que nunca commitea, así
+    que esos callbacks no corren NUNCA. Escrito con `TestCase`, este test
+    pasaba igual con el silenciado desactivado -- o sea, no probaba nada.
+
+    Lo que protege: sembrar crea cientos de reservas y cada una notifica al
+    staff. Sin silenciar, llenar el gimnasio de prueba le manda 300+
+    notificaciones al celular de quien corre el comando. Es un efecto hacia
+    afuera, no un detalle interno.
+    """
+
+    @override_settings(PUSH_ENABLED=True, VAPID_ADMIN_EMAIL="admin@ejemplo.com")
+    def test_sembrar_no_envia_ninguna_push(self):
+        """`PUSH_ENABLED=True` explícito: en la suite está apagado (bandera
+        `TESTING`), así que sin este override `_enviar` cortaba en ese chequeo
+        y el test pasaba aunque el silenciado no existiera."""
+        from io import StringIO
+        from unittest.mock import patch
+
+        from django.core.management import call_command
+
+        from notificaciones.models import SuscripcionPush
+
+        gimnasio = Gimnasio.objects.create(nombre="Prueba", slug="prueba-push")
+        staff = User.objects.create_user("staff-push", password="clave-123456")
+        Perfil.objects.create(
+            usuario=staff, gimnasio=gimnasio, rol=Perfil.Rol.STAFF
+        )
+        # Sin una suscripción real el test sería vacuo: `notificar_a_gimnasio`
+        # recorre las suscripciones y con cero nunca llega a `_enviar`.
+        SuscripcionPush.objects.create(
+            gimnasio=gimnasio, usuario=staff,
+            endpoint="https://push.example.com/abc", p256dh="k", auth="a",
+        )
+
+        # Se parchea `webpush`, el límite donde la notificación sale de
+        # verdad -- NO `_enviar`, que es donde vive el chequeo del silenciado:
+        # parcheándolo se reemplaza justo el código que se quiere probar y el
+        # test cuenta 71 llamadas aunque el silenciado funcione perfecto.
+        with patch("notificaciones.services.webpush") as webpush, patch(
+            "notificaciones.services._get_vapid", return_value=object()
+        ):
+            call_command(
+                "sembrar_demo", gimnasio="prueba-push", alumnos=4, meses=1,
+                stdout=StringIO(),
+            )
+
+        webpush.assert_not_called()

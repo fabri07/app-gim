@@ -287,6 +287,47 @@ proyecto tenía CRUD completo de items para `RutinaPlantilla` y **nada** para
   con publicación programada. Sin eso el aviso llegaba hasta 4 semanas antes y
   el día del relevo no llegaba nada.
 
+## Datos de demostración (`manage.py sembrar_demo`)
+
+Agregado el 2026-09-02: una cuenta vacía no muestra NADA de la app (los
+gráficos del panel, la tarjeta de planes por vencer y los botones de eliminar
+necesitan datos para existir en pantalla), así que una captura para promocionar
+el producto se veía como un formulario en blanco.
+
+    python manage.py sembrar_demo --gimnasio <slug> [--alumnos 24] [--meses 6]
+    python manage.py sembrar_demo --gimnasio <slug> --borrar
+
+- **`--gimnasio` es obligatorio y NO tiene default.** Además, el comando se
+  niega si el gimnasio ya tiene alumnos sin la marca de demo, salvo
+  `--confirmar`: es lo único que separa "lleno la cuenta de prueba" de "le meto
+  24 alumnos falsos al gimnasio de un cliente que paga".
+- Todo lo que crea queda marcado en `Alumno.observaciones` (`demo.MARCA`), y
+  `--borrar` saca exactamente eso. Hay un test de que un alumno REAL del mismo
+  gimnasio sobrevive al borrado.
+- **Silencia el push mientras siembra** (`notificaciones.services.silenciado()`,
+  un flag de proceso, NO `signal.disconnect()`). Cada `Reserva` notifica al
+  staff: sin esto, sembrar manda **cientos** de notificaciones al celular de
+  quien corre el comando. Medido: 71 con solo 4 alumnos.
+- **Lección de testing que costó cuatro intentos**, y que aplica a cualquier
+  test sobre push de este proyecto:
+  1. `TestCase` envuelve el test en una transacción que **nunca commitea**, así
+     que los `transaction.on_commit` de los signals no corren jamás → hace
+     falta `TransactionTestCase`.
+  2. Parchear `_enviar` reemplaza justo el código que se quiere probar (ahí
+     vive el chequeo del silenciado) → hay que parchear `webpush`, el límite
+     real de red.
+  3. `PUSH_ENABLED` está apagado en la suite por la bandera `TESTING` → hace
+     falta `override_settings(PUSH_ENABLED=True)` o `_enviar` corta antes.
+  Con cualquiera de las tres cosas mal, el test pasa igual **sin el fix**.
+- Las reservas se siembran recorriendo los días **de a uno** y filtrando por
+  día de semana. Una primera versión avanzaba 5 días desde hoy dentro de cada
+  semana: si hoy era miércoles, la grilla de calor mostraba jueves y viernes en
+  CERO, que en una captura se lee como que la app está rota.
+- La clave de `get_or_create` sobre `CategoriaEjercicio` usa
+  `normalizar_texto`, la misma que aplica el `save()` del modelo. Con un
+  `.lower()` a mano, "Tracción" se guardaba como "traccion" y la segunda
+  corrida reventaba contra la `UniqueConstraint`.
+
 ## Borrar: `core/borrado.py` + `BorrarConExplicacionView`
 
 Agregado el 2026-09-02 a pedido del dueño (eliminar plantillas, ejercicios y

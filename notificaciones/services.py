@@ -8,6 +8,7 @@ construye explícitamente un `Vapid01` con `from_pem`, que sí acepta el PEM
 completo tal como lo genera `vapid --gen`.
 """
 
+from contextlib import contextmanager
 import json
 import logging
 
@@ -35,7 +36,38 @@ def _icono_url(gimnasio) -> str:
     return reverse("notificaciones:pwa_icono", args=[gimnasio.slug, 192])
 
 
+#: Interruptor de proceso para operaciones en lote. Lo usa
+#: `manage.py sembrar_demo`: sembrar una cuenta de demostración crea cientos
+#: de reservas, y CADA reserva dispara un push al staff (ver
+#: `notificaciones/signals.py`). Sin esto, llenar el gimnasio de prueba le
+#: manda 300+ notificaciones al celular de quien lo corre.
+#:
+#: NO se implementa con `signal.disconnect()` -- ver CLAUDE.md: muta estado
+#: global y no es thread-safe. Acá el efecto es el mismo (no se envía nada)
+#: pero los receivers siguen conectados y el resto de la lógica corre igual.
+_silenciado = False
+
+
+@contextmanager
+def silenciado():
+    """Suprime el envío real de push dentro del bloque.
+
+    Cubre también los `transaction.on_commit` de los signals, SIEMPRE que el
+    bloque envuelva la transacción entera: los callbacks corren al cerrarse
+    el `atomic()` más externo, y ese cierre tiene que pasar acá adentro.
+    """
+    global _silenciado
+    anterior = _silenciado
+    _silenciado = True
+    try:
+        yield
+    finally:
+        _silenciado = anterior
+
+
 def _enviar(suscripcion, payload: dict) -> None:
+    if _silenciado:
+        return
     if not settings.PUSH_ENABLED:
         return
     try:
