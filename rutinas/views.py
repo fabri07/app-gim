@@ -154,11 +154,33 @@ class ItemPlantillaMixin(StaffRequiredMixin, TenantScopedMixin):
     def get_success_url(self):
         return reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
 
+    def get_form_kwargs(self):
+        # El form necesita la plantilla para calcular `orden` y heredar
+        # `dia_nombre`: `form.instance.rutina` recién se asigna en
+        # `form_valid`, o sea después de validar. Mismo patrón que
+        # `ItemAsignadaMixin`, que ya inyecta `asignada`.
+        kwargs = super().get_form_kwargs()
+        kwargs["plantilla"] = self.plantilla
+        return kwargs
+
 
 class RutinaPlantillaItemCreateView(ItemPlantillaMixin, CreateView):
     model = RutinaPlantillaItem
     form_class = RutinaPlantillaItemForm
     template_name = "rutinas/item_form.html"
+
+    def get_initial(self):
+        """Los casilleros llegan con el próximo valor razonable en vez de
+        vacíos: cargar cinco ejercicios seguidos del día 2 no debería obligar
+        a retipear el "2" cada vez. Es un default VISIBLE (se ve en el campo
+        y se puede cambiar), no una regla oculta."""
+        initial = super().get_initial()
+        ultimo = self.plantilla.items.order_by("-dia", "-orden").first()
+        if ultimo is None:
+            initial.update(dia=1, orden=1)
+        else:
+            initial.update(dia=ultimo.dia, orden=ultimo.orden + 1)
+        return initial
 
     def form_valid(self, form):
         form.instance.rutina = self.plantilla

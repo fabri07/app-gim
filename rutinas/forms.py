@@ -15,6 +15,7 @@ un `ModelForm`.
 """
 
 from django import forms
+from django.db.models import Max
 from django.utils import timezone
 
 from alumnos.models import Alumno
@@ -36,6 +37,29 @@ class RutinaPlantillaForm(TenantScopedModelForm):
 
 
 class RutinaPlantillaItemForm(TenantScopedModelForm):
+    """Agrega o edita UN ejercicio de una plantilla.
+
+    Recibe `plantilla` (lo inyecta `ItemPlantillaMixin.get_form_kwargs`)
+    porque dos de sus reglas dependen de lo que ya hay cargado en ese día, y
+    el `form.instance.rutina` recién se asigna en `form_valid`, después de
+    validar:
+
+    - **`orden` es opcional y se calcula al final del día** (`max + 1`).
+      Es un número administrativo que el sistema puede deducir; obligarlo a
+      tipearlo era la causa de que un cliente real guardara y la plantilla le
+      quedara vacía. Misma regla que `services.agregar_ejercicio_asignado`
+      para el otro flujo, y el mismo motivo para no renumerar insertando:
+      reordenar está fuera de alcance.
+    - **`dia_nombre` en blanco hereda el del día.** Está denormalizado por
+      item (ver el modelo), y dejar el nuevo como el único sin etiqueta rompe
+      la regla de lectura de `agrupacion.py` ("gana la semana más baja").
+
+    `series` y `repeticiones` siguen obligatorios a propósito: son la
+    prescripción del entrenamiento, no hay valor sensato que inventar, y un
+    item sin ellas le llega al alumno como una fila vacía en el portal y en
+    el PDF.
+    """
+
     class Meta:
         model = RutinaPlantillaItem
         fields = [
@@ -51,6 +75,65 @@ class RutinaPlantillaItemForm(TenantScopedModelForm):
             "descanso",
             "notas",
         ]
+        labels = {
+            "dia": "Día",
+            "dia_nombre": "Nombre del día",
+            "kilos": "Kilos",
+        }
+        help_texts = {
+            # El help_text del modelo dice "1..dias_por_semana": el nombre de
+            # un campo del código, que no significa nada para un dueño de
+            # gimnasio. Los `help_texts` del form pisan los del modelo.
+            "dia": "Día 1, 2, 3... de la rutina (no el día de la semana).",
+            "orden": "Posición dentro del día. Si lo dejás vacío, se agrega al final.",
+            "dia_nombre": 'Opcional. Por ejemplo: "Tren superior · Core".',
+        }
+
+    def __init__(self, *args, plantilla=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.plantilla = plantilla
+        self.fields["orden"].required = False
+
+    def _items_del_dia(self, dia):
+        """Items ya cargados en ese día de esta plantilla, excluyendo el que
+        se está editando (si no, editar sin tocar `orden` lo empujaría al
+        final una y otra vez)."""
+        if self.plantilla is None:
+            return RutinaPlantillaItem.objects.none()
+        queryset = self.plantilla.items.filter(dia=dia)
+        if self.instance.pk:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        return queryset
+
+    def clean(self):
+        cleaned_data = super().clean()
+        dia = cleaned_data.get("dia")
+        if dia is None:
+            # `dia` ya tiene su propio error; sin él no hay día contra el cual
+            # contar el orden ni del cual heredar el nombre.
+            return cleaned_data
+
+        del_dia = self._items_del_dia(dia)
+
+        if cleaned_data.get("orden") is None:
+            cleaned_data["orden"] = (
+                del_dia.aggregate(Max("orden"))["orden__max"] or 0
+            ) + 1
+
+        if not cleaned_data.get("dia_nombre"):
+            heredado = next(
+                (
+                    nombre
+                    for nombre in del_dia.order_by("semana", "orden").values_list(
+                        "dia_nombre", flat=True
+                    )
+                    if nombre
+                ),
+                "",
+            )
+            cleaned_data["dia_nombre"] = heredado
+
+        return cleaned_data
 
 
 class AsignarRutinaForm(forms.Form):

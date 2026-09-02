@@ -287,6 +287,34 @@ proyecto tenía CRUD completo de items para `RutinaPlantilla` y **nada** para
   con publicación programada. Sin eso el aviso llegaba hasta 4 semanas antes y
   el día del relevo no llegaba nada.
 
+## Un formulario que rechaza sin que se note es igual a uno que no guarda
+
+Dos bugs del mismo día (2026-09-02), reportados por el primer cliente pago
+como "no me guarda" cuando en realidad el form devolvía errores que él no
+podía ver:
+
+1. **`.errorlist` de Django no tiene ningún estilo en este proyecto.** Con
+   `{{ form.as_p }}`, "Este campo es obligatorio" sale en NEGRO, del mismo
+   cuerpo que las ayudas grises, y **arriba** de la etiqueta: se lee como una
+   instrucción más. Pasó en `rutinas/item_form.html`.
+2. **Un campo sin su `{% if form.<campo>.errors %}`** rompe el guardado del
+   formulario ENTERO en silencio (los tres links de redes en
+   `tenants/gimnasio_form.html`).
+
+**Regla:** al agregar un campo, agregá su línea de error en el mismo commit; y
+si una pantalla usa `form.as_p`, o le das estilo a `.errorlist` o renderizás
+campo por campo con `.form-campo`/`.config-error` (ver `item_form.html` como
+molde: etiqueta con `*` + `.sr-only` para los obligatorios, ayuda, y el error
+DEBAJO del campo).
+
+**Corolario sobre qué es obligatorio:** un campo que el sistema puede deducir
+no debería serlo. `RutinaPlantillaItem.orden` obligaba al entrenador a
+numerar a mano; hoy es opcional y se calcula `max + 1` dentro del día, la
+misma regla que `services.agregar_ejercicio_asignado` ya usaba para el flujo
+de rutinas asignadas. `series`/`repeticiones` siguen obligatorios a propósito:
+no hay valor sensato que inventar y un item sin ellas le llega al alumno como
+una fila vacía.
+
 ## Comentarios en templates: `{# #}` es de UNA sola línea
 
 `{# ... #}` solo es comentario para Django si abre y cierra en la **misma

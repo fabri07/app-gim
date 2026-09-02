@@ -470,6 +470,30 @@
     @apply text-sm text-red-600 -mt-2 mb-3;
   }
 
+  /* Un campo renderizado a mano (etiqueta + control + ayuda + error) en vez
+     de `{{ form.as_p }}`: el `as_p` de Django pone su `errorlist` sin
+     estilo ARRIBA de la etiqueta, donde nadie lo lee como un error. Ver el
+     comentario de `templates/rutinas/item_form.html`. */
+  .form-campo {
+    @apply mb-4;
+  }
+
+  /* El control ya trae `mb-3` del reset de inputs; acá la ayuda y el error
+     van pegados a SU campo, así que ese margen sobra y lo reemplaza el del
+     `.form-campo`. */
+  .form-campo input,
+  .form-campo select,
+  .form-campo textarea {
+    @apply mb-1;
+  }
+
+  /* El asterisco de "obligatorio". Es un refuerzo visual: el dato accesible
+     va en un `.sr-only` al lado, porque un lector de pantalla no puede
+     inferir "obligatorio" de un "*". */
+  .campo-obligatorio {
+    @apply text-red-600 font-semibold;
+  }
+
   /* Nota explicativa: lo que el usuario tiene que saber ANTES de completar
      el campo de al lado, no un error de lo que ya escribió. Se usa en "Mi
      gimnasio" (formato exacto de los links de redes) y en el portal del

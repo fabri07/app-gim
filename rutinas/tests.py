@@ -1150,6 +1150,200 @@ class RutinasViewsTests(TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertTrue(RutinaPlantillaItem.objects.filter(pk=self.item_b.pk).exists())
 
+    # --- Alta de items: qué puede quedar en blanco -----------------------
+    #
+    # Reporte real del primer cliente pago: armaba una plantilla desde cero,
+    # dejaba casilleros vacíos, guardaba, y la plantilla quedaba SIEMPRE
+    # vacía. El form devolvía "Este campo es obligatorio" para `dia` y
+    # `orden`, pero `.errorlist` no tenía ningún estilo en el proyecto, así
+    # que el mensaje salía en negro, del mismo tamaño que las ayudas grises y
+    # ARRIBA de la etiqueta: se leía como una instrucción más.
+    #
+    # `orden` es un número administrativo que el sistema puede deducir --
+    # `services.agregar_ejercicio_asignado` ya lo hacía así (`max + 1`) para
+    # el otro flujo. `series`/`repeticiones` siguen obligatorios: son la
+    # prescripción del entrenamiento y no hay valor sensato que inventar.
+
+    def test_orden_en_blanco_se_asigna_al_final_del_dia(self):
+        self.client.login(username="staff_a", password="clave12345")
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla_a, ejercicio=self.ejercicio_a,
+            semana=1, dia=1, orden=7, series=3, repeticiones="10",
+        )
+
+        response = self.client.post(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
+            {
+                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 1,
+                "orden": "", "series": 4, "repeticiones": "12",
+                "kilos": "", "descanso": "", "notas": "",
+                "bloque": "", "dia_nombre": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        creado = RutinaPlantillaItem.objects.filter(
+            rutina=self.plantilla_a, dia=1, repeticiones="12"
+        ).get()
+        self.assertEqual(creado.orden, 8)
+
+    def test_orden_en_blanco_en_un_dia_vacio_arranca_en_uno(self):
+        self.client.login(username="staff_a", password="clave12345")
+
+        response = self.client.post(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
+            {
+                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 5,
+                "orden": "", "series": 3, "repeticiones": "10",
+                "kilos": "", "descanso": "", "notas": "",
+                "bloque": "", "dia_nombre": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            RutinaPlantillaItem.objects.get(rutina=self.plantilla_a, dia=5).orden, 1
+        )
+
+    def test_el_orden_se_cuenta_por_dia_no_por_plantilla(self):
+        """Dos días distintos numeran desde 1 cada uno: `orden` es "orden
+        dentro del día" (ver el help_text del modelo), no un contador global.
+        Sin el filtro por día, el primer ejercicio del día 2 arrancaría en 8.
+        """
+        self.client.login(username="staff_a", password="clave12345")
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla_a, ejercicio=self.ejercicio_a,
+            semana=1, dia=1, orden=7, series=3, repeticiones="10",
+        )
+
+        self.client.post(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
+            {
+                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 2,
+                "orden": "", "series": 3, "repeticiones": "10",
+                "kilos": "", "descanso": "", "notas": "",
+                "bloque": "", "dia_nombre": "",
+            },
+        )
+
+        self.assertEqual(
+            RutinaPlantillaItem.objects.get(rutina=self.plantilla_a, dia=2).orden, 1
+        )
+
+    def test_series_y_repeticiones_siguen_siendo_obligatorias(self):
+        """Decisión de producto: son el contenido real del ejercicio. Un item
+        sin ellas le llegaría al alumno como una fila vacía, en el portal y
+        en el PDF."""
+        self.client.login(username="staff_a", password="clave12345")
+
+        response = self.client.post(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
+            {
+                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 1,
+                "orden": "", "series": "", "repeticiones": "",
+                "kilos": "", "descanso": "", "notas": "",
+                "bloque": "", "dia_nombre": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("series", response.context["form"].errors)
+        self.assertIn("repeticiones", response.context["form"].errors)
+
+    def test_el_form_llega_precargado_con_el_proximo_dia_y_orden(self):
+        """Que los casilleros nunca aparezcan vacíos es la mitad preventiva:
+        cargar cinco ejercicios seguidos del día 2 no debería obligar a
+        retipear el "2" cada vez."""
+        self.client.login(username="staff_a", password="clave12345")
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla_a, ejercicio=self.ejercicio_a,
+            semana=1, dia=3, orden=2, series=3, repeticiones="10",
+        )
+
+        response = self.client.get(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk])
+        )
+
+        initial = response.context["form"].initial
+        self.assertEqual(initial["dia"], 3)
+        self.assertEqual(initial["orden"], 3)
+
+    def test_el_form_de_una_plantilla_vacia_arranca_en_dia_uno(self):
+        self.client.login(username="staff_a", password="clave12345")
+        RutinaPlantillaItem.objects.filter(rutina=self.plantilla_a).delete()
+
+        response = self.client.get(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk])
+        )
+
+        initial = response.context["form"].initial
+        self.assertEqual(initial["dia"], 1)
+        self.assertEqual(initial["orden"], 1)
+
+    def test_dia_nombre_en_blanco_hereda_el_nombre_del_dia(self):
+        """Mismo criterio que `services.agregar_ejercicio_asignado`:
+        `dia_nombre` está denormalizado por item, y dejar el item nuevo como
+        el único sin etiqueta rompe la regla de lectura de `agrupacion.py`
+        ("gana la semana más baja")."""
+        self.client.login(username="staff_a", password="clave12345")
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla_a, ejercicio=self.ejercicio_a,
+            semana=1, dia=1, orden=1, series=3, repeticiones="10",
+            dia_nombre="Tren superior",
+        )
+
+        self.client.post(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
+            {
+                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 1,
+                "orden": "", "series": 3, "repeticiones": "15",
+                "kilos": "", "descanso": "", "notas": "",
+                "bloque": "", "dia_nombre": "",
+            },
+        )
+
+        creado = RutinaPlantillaItem.objects.get(
+            rutina=self.plantilla_a, dia=1, repeticiones="15"
+        )
+        self.assertEqual(creado.dia_nombre, "Tren superior")
+
+    def test_los_errores_del_form_de_item_se_ven_como_errores(self):
+        """`{{ form.as_p }}` pintaba "Este campo es obligatorio" en negro,
+        del mismo tamaño que las ayudas y arriba de la etiqueta -- se leía
+        como una instrucción, y por eso el cliente creía haber guardado."""
+        self.client.login(username="staff_a", password="clave12345")
+
+        response = self.client.post(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
+            {
+                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 1,
+                "orden": "", "series": "", "repeticiones": "",
+                "kilos": "", "descanso": "", "notas": "",
+                "bloque": "", "dia_nombre": "",
+            },
+        )
+
+        self.assertContains(response, "config-error")
+
+    def test_el_form_de_item_no_queda_boosteado(self):
+        """Los dos links que llevan acá ya tenían `hx-boost="false"` por el
+        CSS de Tom Select que vive en <head>; al form le faltaba. Con el swap
+        boosteado, el camino de ERROR (que vuelve a renderizar esta misma
+        pantalla) inicializaba TomSelect dos veces y dejaba el <select> crudo
+        visible al lado del buscador."""
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk])
+        )
+        self.assertContains(response, '<form method="post" novalidate hx-boost="false">')
+
+    def test_la_pantalla_de_item_no_filtra_lenguaje_de_programador(self):
+        self.client.login(username="staff_a", password="clave12345")
+        response = self.client.get(
+            reverse("rutinas:item_crear", args=[self.plantilla_a.pk])
+        )
+        self.assertNotContains(response, "dias_por_semana")
+
     def test_plantilla_detail_muestra_columna_semana(self):
         self.client.login(username="staff_a", password="clave12345")
         response = self.client.get(

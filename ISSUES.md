@@ -20,6 +20,60 @@ del log.
 
 ---
 
+## [2026-09-02] Armar una plantilla desde cero la dejaba siempre vacía
+
+**Estado:** resuelto
+
+**Impacto:** el primer cliente pago armaba una plantilla, agregaba ejercicios
+dejando casilleros vacíos, guardaba, y la plantilla quedaba **siempre vacía**.
+Reportó que fallaban "bloque o nombre del día", pero esos dos ya eran
+`blank=True` y guardaban bien. Reproducido campo por campo: lo que bloqueaba
+el guardado era **`dia` y `orden`**, obligatorios y sin ninguna marca que lo
+dijera, justo al lado de los opcionales.
+
+**Por qué no se daba cuenta de que fallaba — la parte importante.** El form SÍ
+devolvía "Este campo es obligatorio". Pero `{{ form.as_p }}` pinta la
+`<ul class="errorlist">` de Django **arriba de la etiqueta**, y esa clase
+**no tenía ningún estilo en el proyecto**: salía en negro, del mismo cuerpo
+que las ayudas grises. Se leía como una instrucción más. Es la misma familia
+que el bug de los links de redes del mismo día: el formulario falla y el
+usuario no tiene forma de notarlo.
+
+**Resolución:**
+
+- `orden` pasa a opcional y se calcula al final del día (`max + 1`), con la
+  MISMA regla que `services.agregar_ejercicio_asignado` ya usaba para el otro
+  flujo. `dia_nombre` en blanco hereda el del día, también como ese servicio.
+- El form llega precargado con el próximo `dia`/`orden` (default VISIBLE en el
+  campo, no una regla oculta): cargar cinco ejercicios seguidos del día 2 ya
+  no obliga a retipear el "2".
+- Render campo por campo en vez de `form.as_p`: el error va **debajo** del
+  campo que falló, en rojo (`.config-error`), y los obligatorios llevan `*`
+  más un `.sr-only` con la palabra, porque un lector de pantalla no infiere
+  "obligatorio" de un asterisco.
+- `series` y `repeticiones` siguen obligatorios (decisión de producto,
+  confirmada con el dueño): son la prescripción del entrenamiento, y un item
+  sin ellas le llega al alumno como una fila vacía en el portal y en el PDF.
+- La pantalla filtraba lenguaje de programador al usuario final: el
+  `help_text` del modelo decía `"1..dias_por_semana"`. Los `help_texts` del
+  form lo pisan; hay un test que falla si `dias_por_semana` vuelve a
+  aparecer en la pantalla.
+- **10ma aparición del gotcha de `hx-boost`**, variante nueva: los dos links
+  que llevan a esta pantalla ya tenían `hx-boost="false"` por el CSS de Tom
+  Select que vive en `<head>`, pero **al `<form>` le faltaba**. El camino de
+  ERROR vuelve a renderizar esta misma pantalla, y con el swap boosteado
+  TomSelect quedaba inicializado dos veces y el `<select>` crudo visible al
+  lado del buscador. Regla: en una pantalla que necesita `extra_style`, el
+  form que puede re-renderizarla también necesita `hx-boost="false"`, no
+  solo los links de entrada.
+
+**Regla general (segunda vez en el mismo día):** un formulario que rechaza sin
+que se vea que rechazó es indistinguible de uno que guarda. `.errorlist` sin
+estilo es exactamente eso. Si agregás una pantalla con `form.as_p`, o le das
+estilo a `.errorlist`, o renderizás campo por campo.
+
+---
+
 ## [2026-09-02] El fondo rechazaba fotos cuadradas y verticales que tenían resolución de sobra
 
 **Estado:** resuelto
