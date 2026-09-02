@@ -1,0 +1,73 @@
+# Llena (o vacía) una cuenta de PRUEBA con datos de demostración, para poder
+# mostrar la app en capturas y videos.
+#
+# Vive acá y no se corre desde la Shell de Render por el mismo motivo que
+# generar-pagos.yml: el plan free de Render no incluye Shell. Este workflow es
+# la única forma de correr un management command contra producción.
+#
+# SOLO manual (`workflow_dispatch`): no tiene `schedule` a propósito.
+
+name: Sembrar datos de demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      gimnasio:
+        description: "Slug del gimnasio de PRUEBA (nunca uno de un cliente)"
+        required: true
+        default: "gimnasio-verificacion-r2"
+      accion:
+        description: "Qué hacer"
+        required: true
+        default: "sembrar"
+        type: choice
+        options: [sembrar, borrar]
+      alumnos:
+        description: "Cuántos alumnos crear (solo al sembrar)"
+        required: false
+        default: "24"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sembrar-demo-production
+  cancel-in-progress: false
+
+jobs:
+  sembrar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # SHA pineado, no tag: un tag es mutable y puede reapuntarse a otro commit.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      # NUNCA se pasa `--confirmar`. El comando se niega solo si el gimnasio
+      # destino ya tiene alumnos que no son de demo; sin esa bandera, ni un
+      # slug tipeado mal puede meterle 24 alumnos falsos a un cliente que paga.
+      #
+      # Tampoco se pasan las VAPID_*: sin ellas `PUSH_ENABLED` queda en False,
+      # así que además del silenciado que ya hace el comando, no hay forma de
+      # que esto dispare una notificación. Dos candados para el mismo riesgo.
+      #
+      # URL POOLED (igual que generar-pagos): son conexiones cortas.
+      # DJANGO_DEBUG sí hace falta: `config/db.py` usa `ssl_require=not debug`
+      # para exigir TLS contra Neon.
+      - name: Sembrar o borrar
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_POOLED }}
+          DJANGO_DEBUG: "False"
+          GIMNASIO: ${{ inputs.gimnasio }}
+          ACCION: ${{ inputs.accion }}
+          ALUMNOS: ${{ inputs.alumnos }}
+        run: |
+          if [ "$ACCION" = "borrar" ]; then
+            python manage.py sembrar_demo --gimnasio "$GIMNASIO" --borrar
+          else
+            python manage.py sembrar_demo --gimnasio "$GIMNASIO" --alumnos "$ALUMNOS"
+          fi
