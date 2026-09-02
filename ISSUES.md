@@ -20,6 +20,44 @@ del log.
 
 ---
 
+## [2026-09-02] El fondo rechazaba fotos cuadradas y verticales que tenían resolución de sobra
+
+**Estado:** resuelto
+
+**Impacto:** el mismo cliente que reportó lo de las redes quiso usar su logo
+(1080×1075) como imagen de fondo y no podía. La regla era `ancho ≥ 1280 Y
+alto ≥ 720`, pensada para fotos apaisadas: su imagen tiene 1,16 M de píxeles,
+**más** que el mínimo de 921.600, y se rechazaba igual. Lo mismo le pasaba a
+cualquier foto vertical de celular, rechazada solo por la orientación.
+
+El pedido original fue "aceptar imágenes cuadradas grandes y recortarlas
+automáticamente". **El recorte ya existía**: `base.html` pinta el fondo con
+`background-size: cover; background-position: center`, así que el navegador ya
+recorta centrado al tamaño de cada pantalla, y el preview en vivo de «Mi
+gimnasio» usa el mismo `cover` (el dueño ve el recorte real antes de guardar).
+Lo único que sobraba era el número de la validación.
+
+**Resolución:** la resolución se mide ahora como **superficie + lado más
+corto**, no ancho y alto por separado — al menos los píxeles de una 1280×720
+(equivalente cuadrado: 960×960) y ningún lado por debajo de 720. El piso por
+lado no es redundante: una panorámica de 4000×250 supera la superficie pero
+con `cover` habría que estirarle el alto a la pantalla entera. Nada de lo que
+antes se aceptaba se rechaza ahora (hay un test que fija el 1280×720). Los
+mensajes de error dicen cuánto mide la imagen que subieron, que antes no.
+
+**Descartado a propósito: recortar del lado del servidor.** Habría que elegir
+una proporción fija (16:9), pero la pantalla del alumno no tiene proporción
+fija — un celular en vertical es casi 9:19. Guardar la imagen ya recortada
+hace que el `cover` del navegador la recorte otra vez encima y en mobile se
+pierda casi todo. Guardar el original y dejar recortar al navegador es mejor
+resultado y menos código.
+
+**Consecuencia visible:** en una pantalla ancha, una imagen cuadrada pierde la
+franja de arriba y la de abajo. El `help_text` ahora lo dice ("Se recorta sola
+y centrada para llenar la pantalla") y el preview lo muestra antes de guardar.
+
+---
+
 ## [2026-09-02] Los links de redes de un gimnasio no se guardaban, y el form no decía por qué
 
 **Estado:** resuelto

@@ -825,9 +825,21 @@ plan original).
   `tenants/forms.py`): tamaño máximo, formato (JPEG/PNG) y resolución
   mínima, mismos chequeos que ya tenía `clean_fondo_imagen` (Fase 4) —
   ambos comparten el helper `_validar_imagen()`, con sus propios
-  umbrales/mensajes por campo (el logo tiene un piso de resolución más
-  chico, 200×200, porque `notificaciones/icons.py` lo estira a un ícono
-  PWA de hasta 512×512 y un logo muy chico quedaría pixelado ahí).
+  umbrales por campo (el logo tiene un piso de resolución más chico,
+  200×200, porque `notificaciones/icons.py` lo estira a un ícono PWA de
+  hasta 512×512 y un logo muy chico quedaría pixelado ahí). **La
+  resolución se mide como superficie + lado más corto, no como ancho y
+  alto por separado** (2026-09-02): el fondo se pinta con
+  `background-size: cover`, así que el navegador ya lo recorta centrado a
+  cada pantalla y la FORMA de la imagen no importa — la regla vieja
+  (`ancho ≥ 1280 Y alto ≥ 720`) rechazaba una foto cuadrada de 1080×1075
+  con más píxeles que el mínimo, y una foto vertical de celular solo por
+  la orientación. El piso por lado sigue existiendo aparte porque una
+  panorámica de 4000×250 supera la superficie pero con `cover` hay que
+  estirarle el alto a la pantalla entera. **No recortes del lado del
+  servidor**: habría que fijar una proporción, y la pantalla del alumno no
+  tiene una (un celular en vertical es casi 9:19) — `cover` sobre el
+  original da mejor resultado en más dispositivos.
 - **HTMX**: `hx-boost="true"` en `<body>` (`base.html`) — convierte toda
   navegación por `<a>`/`<form>` normal en transiciones AJAX sin reescribir
   ninguna vista (siguen devolviendo la página completa; htmx solo evita el

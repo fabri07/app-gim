@@ -1576,6 +1576,66 @@ class GimnasioFormFondoImagenTests(SimpleTestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("fondo_imagen", form.errors)
 
+    def test_imagen_cuadrada_grande_pasa(self):
+        """Un cliente real quiso usar su logo (1080x1075) de fondo y la regla
+        vieja (`ancho >= 1280 Y alto >= 720`) lo rechazaba, aunque tiene MÁS
+        píxeles que el mínimo. El fondo se pinta con `background-size: cover`,
+        así que el navegador ya recorta centrado a la pantalla de cada
+        dispositivo: la forma de la imagen no importa, su resolución sí."""
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(1080, 1075))
+        form = GimnasioForm(data=self._datos_base(), files={"fondo_imagen": archivo})
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_imagen_vertical_grande_pasa(self):
+        """La misma foto de 1280x720 rotada (una foto de celular en vertical)
+        se rechazaba solo por la orientación. La regla nueva mira píxeles y
+        lado más corto, no ancho y alto por separado."""
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(720, 1280))
+        form = GimnasioForm(data=self._datos_base(), files={"fondo_imagen": archivo})
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_imagen_apaisada_en_el_minimo_de_siempre_sigue_pasando(self):
+        """1280x720 es el piso histórico: la regla nueva no puede excluir
+        nada de lo que hoy se acepta."""
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(1280, 720))
+        form = GimnasioForm(data=self._datos_base(), files={"fondo_imagen": archivo})
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_imagen_cuadrada_chica_se_rechaza(self):
+        """800x800 = 640.000 px, por debajo de los 921.600 de una 1280x720:
+        estirada a pantalla completa se ve pixelada. "Cuadrada" no es un pase
+        libre, lo que importa es la resolución."""
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(800, 800))
+        form = GimnasioForm(data=self._datos_base(), files={"fondo_imagen": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("fondo_imagen", form.errors)
+
+    def test_imagen_panoramica_con_un_lado_finito_se_rechaza(self):
+        """4000x250 supera el mínimo de píxeles totales pero con `cover` en
+        una pantalla normal hay que estirar 250px de alto a 900: el piso por
+        lado existe justamente para este caso."""
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(4000, 250))
+        form = GimnasioForm(data=self._datos_base(), files={"fondo_imagen": archivo})
+        self.assertFalse(form.is_valid())
+        self.assertIn("fondo_imagen", form.errors)
+
+    def test_el_logo_conserva_su_propio_piso_de_resolucion(self):
+        """El fondo se afloja, el logo NO: 200x200 le alcanza porque va chico
+        en la barra, pero como fondo esa misma imagen se vería pixelada. Los
+        dos umbrales son independientes y este test lo fija."""
+        archivo = _imagen_subida((0x1D, 0x6F, 0x56), size=(200, 200), nombre="logo.png")
+        form = GimnasioForm(
+            data=self._datos_base(fondo_tipo="color"), files={"logo": archivo}
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+        chico = _imagen_subida((0x1D, 0x6F, 0x56), size=(150, 150), nombre="logo.png")
+        form = GimnasioForm(
+            data=self._datos_base(fondo_tipo="color"), files={"logo": chico}
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("logo", form.errors)
+
     def test_formato_no_soportado_se_rechaza(self):
         archivo = _imagen_subida(
             (0x1D, 0x6F, 0x56), formato="GIF", content_type="image/gif", nombre="fondo.gif"

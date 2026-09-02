@@ -14,38 +14,66 @@ from PIL import Image
 from tenants.models import Gimnasio, Perfil
 
 _FONDO_IMAGEN_TAMANIO_MAXIMO = 5 * 1024 * 1024
-_FONDO_IMAGEN_ANCHO_MINIMO = 1280
-_FONDO_IMAGEN_ALTO_MINIMO = 720
+# El fondo se pinta con `background-size: cover` (`base.html`), o sea que el
+# navegador YA recorta la imagen centrada al tamaño de cada pantalla: la
+# FORMA de la imagen no importa, su resolución sí. Por eso el piso no es
+# "ancho >= 1280 Y alto >= 720" (que rechazaba una foto cuadrada de 1080x1075
+# con más píxeles que el mínimo, y una foto vertical de celular solo por la
+# orientación) sino superficie + lado más corto:
+#
+#   1. al menos tantos píxeles como una 1280x720, y
+#   2. ningún lado por debajo de 720 -- una panorámica de 4000x250 supera el
+#      punto 1 pero con `cover` hay que estirarle el alto a la pantalla entera.
+_FONDO_IMAGEN_RESOLUCION_REFERENCIA = (1280, 720)
+_FONDO_IMAGEN_LADO_MINIMO = 720
 _FONDO_IMAGEN_FORMATOS_VALIDOS = {"JPEG", "PNG"}
 
 # El logo es un asset más chico que el fondo: presupuesto de tamaño menor y
 # piso de resolución menor. El piso de 200x200 no es arbitrario --
 # notificaciones/icons.py::generar_icono estira el logo a un ícono PWA de
 # hasta 512x512 (ImageOps.pad); sin este mínimo un logo muy chico queda
-# pixelado ahí.
+# pixelado ahí. Expresado con los mismos dos knobs que el fondo, da
+# exactamente el criterio de siempre para cualquier forma de logo.
 _LOGO_TAMANIO_MAXIMO = 2 * 1024 * 1024
-_LOGO_ANCHO_MINIMO = 200
-_LOGO_ALTO_MINIMO = 200
+_LOGO_RESOLUCION_REFERENCIA = (200, 200)
+_LOGO_LADO_MINIMO = 200
 _LOGO_FORMATOS_VALIDOS = {"JPEG", "PNG"}
+
+
+def _lado_cuadrado_equivalente(resolucion_referencia):
+    """Lado de la imagen CUADRADA que tiene la misma superficie que
+    `resolucion_referencia`, redondeado a la decena de abajo: "960×960" le
+    dice más a un dueño de gimnasio que "921.600 píxeles". Lo usan el mensaje
+    de error y el `help_text`, que tienen que decir el mismo número.
+    """
+    ancho, alto = resolucion_referencia
+    return int((ancho * alto) ** 0.5) // 10 * 10
 
 
 def _validar_imagen(
     archivo,
     *,
-    ancho_minimo,
-    alto_minimo,
+    resolucion_referencia,
+    lado_minimo,
     tamanio_maximo_bytes,
     formatos_validos,
+    etiqueta,
     mensaje_tamanio,
-    mensaje_dimension,
 ):
     """Valida un archivo de imagen recién subido: tamaño máximo, que Pillow
-    pueda abrirlo, formato permitido y dimensión mínima -- lógica compartida
+    pueda abrirlo, formato permitido y resolución mínima -- lógica compartida
     por `clean_fondo_imagen` y `clean_logo`, cada uno con sus propios
-    umbrales y mensajes. Devuelve el archivo con el puntero al principio
-    (PIL lo consume al leer, y el form todavía necesita el archivo completo
-    para guardarlo en el storage) si pasa todas las validaciones, o levanta
+    umbrales. Devuelve el archivo con el puntero al principio (PIL lo consume
+    al leer, y el form todavía necesita el archivo completo para guardarlo en
+    el storage) si pasa todas las validaciones, o levanta
     `forms.ValidationError` en la primera que falle.
+
+    La resolución se mide como superficie + lado más corto, no como ancho y
+    alto por separado: así el criterio no depende de la ORIENTACIÓN de la
+    imagen (ver el comentario de `_FONDO_IMAGEN_RESOLUCION_REFERENCIA`).
+    `etiqueta` es el sujeto de los mensajes de error ("La imagen" / "El
+    logo"), que se arman acá para que digan cuánto mide la imagen que
+    subieron -- sin eso el dueño no tiene forma de saber qué le falta.
     """
     if archivo.size > tamanio_maximo_bytes:
         raise forms.ValidationError(mensaje_tamanio)
@@ -62,8 +90,25 @@ def _validar_imagen(
         # "JPEG o PNG".
         formatos_legibles = " o ".join(sorted(formatos_validos))
         raise forms.ValidationError(f"Solo se aceptan imágenes {formatos_legibles}.")
-    if ancho < ancho_minimo or alto < alto_minimo:
-        raise forms.ValidationError(mensaje_dimension)
+    if min(ancho, alto) < lado_minimo:
+        raise forms.ValidationError(
+            f"{etiqueta} mide {ancho}×{alto}px y ningún lado puede ser menor "
+            f"a {lado_minimo}px."
+        )
+    referencia_ancho, referencia_alto = resolucion_referencia
+    if ancho * alto < referencia_ancho * referencia_alto:
+        mensaje = (
+            f"{etiqueta} mide {ancho}×{alto}px y es muy chica. Necesita al "
+            f"menos la superficie de una imagen de "
+            f"{referencia_ancho}×{referencia_alto}px"
+        )
+        if referencia_ancho != referencia_alto:
+            # Con una referencia ya cuadrada la aclaración sobraría.
+            lado = _lado_cuadrado_equivalente(resolucion_referencia)
+            mensaje += f" — una cuadrada de {lado}×{lado}px también sirve."
+        else:
+            mensaje += "."
+        raise forms.ValidationError(mensaje)
     archivo.seek(0)
     return archivo
 
@@ -128,12 +173,21 @@ class GimnasioForm(forms.ModelForm):
         # -- una sola fuente de verdad para las dos puntas.
         self.fields["logo"].help_text = (
             f"JPEG o PNG, hasta {_LOGO_TAMANIO_MAXIMO // (1024 * 1024)} MB, "
-            f"mínimo {_LOGO_ANCHO_MINIMO}×{_LOGO_ALTO_MINIMO}px. "
+            f"mínimo {_LOGO_RESOLUCION_REFERENCIA[0]}×{_LOGO_RESOLUCION_REFERENCIA[1]}px. "
             "Fondo transparente se ve mejor."
         )
+        # El fondo se recorta solo (`background-size: cover`), así que la
+        # ayuda tiene que hablar de resolución, no de forma: sin la aclaración
+        # de la foto cuadrada, el dueño con un logo de 1080x1075 supone que le
+        # falta ancho y no lo intenta.
+        _fondo_ref = "×".join(str(n) for n in _FONDO_IMAGEN_RESOLUCION_REFERENCIA)
+        _fondo_lado = _lado_cuadrado_equivalente(_FONDO_IMAGEN_RESOLUCION_REFERENCIA)
         self.fields["fondo_imagen"].help_text = (
-            f"JPEG o PNG, hasta {_FONDO_IMAGEN_TAMANIO_MAXIMO // (1024 * 1024)} MB, "
-            f"mínimo {_FONDO_IMAGEN_ANCHO_MINIMO}×{_FONDO_IMAGEN_ALTO_MINIMO}px."
+            f"JPEG o PNG, hasta {_FONDO_IMAGEN_TAMANIO_MAXIMO // (1024 * 1024)} MB. "
+            f"Al menos la superficie de una foto de {_fondo_ref}px "
+            f"(una cuadrada de {_fondo_lado}×{_fondo_lado}px también sirve), "
+            f"y ningún lado menor a {_FONDO_IMAGEN_LADO_MINIMO}px. "
+            "Se recorta sola y centrada para llenar la pantalla."
         )
 
     def clean_fondo_imagen(self):
@@ -144,15 +198,12 @@ class GimnasioForm(forms.ModelForm):
             return archivo
         return _validar_imagen(
             archivo,
-            ancho_minimo=_FONDO_IMAGEN_ANCHO_MINIMO,
-            alto_minimo=_FONDO_IMAGEN_ALTO_MINIMO,
+            resolucion_referencia=_FONDO_IMAGEN_RESOLUCION_REFERENCIA,
+            lado_minimo=_FONDO_IMAGEN_LADO_MINIMO,
             tamanio_maximo_bytes=_FONDO_IMAGEN_TAMANIO_MAXIMO,
             formatos_validos=_FONDO_IMAGEN_FORMATOS_VALIDOS,
+            etiqueta="La imagen",
             mensaje_tamanio="La imagen no puede pesar más de 5 MB.",
-            mensaje_dimension=(
-                f"La imagen debe medir al menos "
-                f"{_FONDO_IMAGEN_ANCHO_MINIMO}×{_FONDO_IMAGEN_ALTO_MINIMO}px."
-            ),
         )
 
     def clean_logo(self):
@@ -163,15 +214,12 @@ class GimnasioForm(forms.ModelForm):
             return archivo
         return _validar_imagen(
             archivo,
-            ancho_minimo=_LOGO_ANCHO_MINIMO,
-            alto_minimo=_LOGO_ALTO_MINIMO,
+            resolucion_referencia=_LOGO_RESOLUCION_REFERENCIA,
+            lado_minimo=_LOGO_LADO_MINIMO,
             tamanio_maximo_bytes=_LOGO_TAMANIO_MAXIMO,
             formatos_validos=_LOGO_FORMATOS_VALIDOS,
+            etiqueta="El logo",
             mensaje_tamanio="El logo no puede pesar más de 2 MB.",
-            mensaje_dimension=(
-                f"El logo debe medir al menos "
-                f"{_LOGO_ANCHO_MINIMO}×{_LOGO_ALTO_MINIMO}px."
-            ),
         )
 
     def clean(self):
