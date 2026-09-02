@@ -287,6 +287,61 @@ proyecto tenía CRUD completo de items para `RutinaPlantilla` y **nada** para
   con publicación programada. Sin eso el aviso llegaba hasta 4 semanas antes y
   el día del relevo no llegaba nada.
 
+## Borrar: `core/borrado.py` + `BorrarConExplicacionView`
+
+Agregado el 2026-09-02 a pedido del dueño (eliminar plantillas, ejercicios y
+alumnos). Un `DeleteView` pelado acá es una fábrica de 500: casi todo el
+historial cuelga con `on_delete=PROTECT`, así que el borrado revienta con
+`ProtectedError` justo en los casos más comunes.
+
+**Regla de producto:** borrar de verdad lo que NO tiene historial (cargado por
+error, pruebas — el caso real), y cuando no se puede, decirlo en castellano y
+ofrecer la salida que ya existe. **Nunca borrar historial de cobros en
+cascada**: `PagoMensual` es el registro de lo que el gimnasio facturó.
+
+- `core/borrado.py` lee el MODELO (`_meta.related_objects`), no una lista
+  escrita a mano: si aparece una FK nueva, entra sola en el aviso.
+- El chequeo del GET **no reemplaza** al `try/except ProtectedError` del POST:
+  el cron de pagos genera filas solo, así que el preview puede quedar viejo.
+  Hay un test que postea igual sobre un alumno bloqueado.
+- Plantilla: borrado limpio. `RutinaAsignada` es un snapshot **sin FK viva**,
+  así que ninguna rutina ya entregada se toca —
+  `test_borrar_una_plantilla_no_toca_la_rutina_ya_asignada_del_alumno` fija esa
+  garantía, que es lo único que hace seguro el botón.
+- Ejercicio en uso → bloqueado, ofrece destildar `activo`. Alumno con pagos o
+  rutinas → bloqueado, ofrece «Inactivar alumno».
+- **Con confirmación a propósito.** El precedente de POST-sin-confirmar es
+  `rutinas:item_eliminar`, un ejercicio suelto; acá se borra un alumno o un
+  plan entero.
+
+## Aviso de plan por vencer (`RutinaAsignada.por_vencer_de`)
+
+Un plan dura 4 semanas y nada le recordaba al staff que se terminaba: si nadie
+miraba, el alumno llegaba al día 29 sin plan. `DIAS_AVISO_PLAN = 7` (constante,
+no un campo configurable — nadie lo pidió, y avisar antes lo vuelve ruido).
+
+- **La ventana se compara contra `fecha_inicio`, no contra
+  `fecha_fin_prevista`**, que es una property: "termina dentro de N días" es
+  "arrancó hace entre 28-N y 28 días". Con la property habría que traer todo a
+  memoria.
+- **El borde inferior INCLUYE el plan que termina hoy** (`dias_para_vencer ==
+  0`): es el más urgente, no el que ya pasó. Los dos bordes (0 y 8 días) tienen
+  test.
+- **Deja de avisar solo** cuando ya hay un plan siguiente cargado
+  (`proxima_de`) o el alumno no está activo: es un recordatorio de tarea
+  pendiente, y uno que no desaparece al hacerla se vuelve ruido que el staff
+  aprende a ignorar.
+- Filtra por `vigente_de` — sigue siendo la única autoridad sobre qué plan ve
+  el alumno; sin eso, un plan viejo no archivado daría un aviso fantasma.
+- Se ve en los tres lugares que pidió el dueño: tarjeta `.aviso-urgente` arriba
+  del dashboard (el único donde el staff se entera sin ir a buscarlo), badge
+  `.badge--urgente` en el listado, y el botón «Asignar plan siguiente» en
+  `.boton-urgente` en la ficha. **Ámbar y no rojo**: rojo es "algo se rompió",
+  esto es "hay algo para hacer esta semana".
+- El listado usa un **set de ids calculado una vez**, no una property por fila;
+  hay un test que compara dos tamaños de conjunto y falla si el costo crece con
+  la cantidad de alumnos.
+
 ## Un formulario que rechaza sin que se note es igual a uno que no guarda
 
 Dos bugs del mismo día (2026-09-02), reportados por el primer cliente pago

@@ -48,8 +48,18 @@ class AlumnoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         return queryset
 
     def get_context_data(self, **kwargs):
+        from rutinas.models import RutinaAsignada
+
         context = super().get_context_data(**kwargs)
         context["estado_actual"] = self.estado_actual
+        # Un set de ids y no una consulta por fila: el template marca al
+        # alumno con `a.pk in alumnos_por_vencer`, que en Django es una
+        # búsqueda en memoria. Con una property en el modelo serían dos
+        # queries por alumno del listado.
+        context["alumnos_por_vencer"] = {
+            rutina.alumno_id
+            for rutina in RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)
+        }
         return context
 
 

@@ -182,6 +182,13 @@ class RutinaAsignada(TenantOwnedModel):
     rutinas asignadas), no solo a través de un padre.
     """
 
+    #: Cuántos días antes de que se termine un plan hay que avisarle al staff.
+    #: "Una semana antes", pedido del dueño. Es una constante y no un campo
+    #: configurable a propósito: nadie pidió que cada gimnasio lo ajuste, y un
+    #: setting más es un setting más que mantener (YAGNI). Avisar mucho antes
+    #: convierte el aviso en ruido y el staff deja de mirarlo.
+    DIAS_AVISO_PLAN = 7
+
     alumno = models.ForeignKey(
         "alumnos.Alumno",
         on_delete=models.PROTECT,
@@ -285,6 +292,66 @@ class RutinaAsignada(TenantOwnedModel):
             .order_by("fecha_inicio", "id")
             .first()
         )
+
+    @classmethod
+    def por_vencer_de(cls, *, gimnasio, dias=None):
+        """Planes VIGENTES de `gimnasio` que se terminan dentro de `dias`, y
+        a cuyo alumno todavía no se le cargó el siguiente.
+
+        Es un recordatorio de tarea pendiente, no una métrica: por eso deja de
+        aparecer sola en cuanto el plan siguiente existe (si no, el staff
+        aprende a ignorar el aviso), y por eso excluye a los alumnos que no
+        están activos (una baja no genera trabajo).
+
+        La ventana se compara contra `fecha_inicio`, no contra una propiedad
+        calculada: `fecha_fin_prevista` es `fecha_inicio + 4 semanas`, así que
+        "termina dentro de N días" es "arrancó hace entre 28-N y 28 días". Con
+        la propiedad habría que traer todo a memoria; así lo resuelve la base.
+
+        El borde inferior INCLUYE el plan que se terminó hoy
+        (`fecha_fin_prevista == hoy`, o sea 28 días exactos): es el más
+        urgente, no el que ya pasó.
+        """
+        from alumnos.models import Alumno
+
+        dias = cls.DIAS_AVISO_PLAN if dias is None else dias
+        hoy = timezone.localdate()
+        ciclo = timedelta(weeks=SEMANAS_POR_CICLO)
+        # Arrancó hace entre (ciclo - dias) y ciclo: le quedan entre `dias` y 0.
+        desde = hoy - ciclo
+        hasta = hoy - ciclo + timedelta(days=dias)
+
+        candidatas = (
+            cls.objects.for_gimnasio(gimnasio)
+            .filter(
+                activa=True,
+                fecha_inicio__gte=desde,
+                fecha_inicio__lte=hasta,
+                alumno__estado=Alumno.Estado.ACTIVO,
+            )
+            .select_related("alumno")
+            .order_by("fecha_inicio", "id")
+        )
+        # `vigente_de` es la única autoridad sobre "qué plan ve el alumno" (ver
+        # su docstring): sin este filtro, un plan viejo no archivado de un
+        # alumno que ya tiene otro en curso generaría un aviso fantasma.
+        return [
+            rutina
+            for rutina in candidatas
+            if cls.vigente_de(alumno=rutina.alumno) == rutina
+            and cls.proxima_de(alumno=rutina.alumno) is None
+        ]
+
+    @property
+    def dias_para_vencer(self):
+        """Días que le faltan al ciclo. 0 = se termina hoy; negativo = ya
+        pasó. Lo usa la UI para decir "le quedan 3 días"."""
+        return (self.fecha_fin_prevista - timezone.localdate()).days
+
+    @property
+    def por_vencer(self) -> bool:
+        """Para pintar el botón de la ficha en color de alerta."""
+        return 0 <= self.dias_para_vencer <= self.DIAS_AVISO_PLAN
 
     @property
     def fecha_fin_prevista(self):

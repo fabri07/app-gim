@@ -3873,3 +3873,188 @@ class AsignarConPlanVigenteTests(RutinasTestCase):
         with CaptureQueriesContext(connection) as muchos:
             self.client.get(reverse("rutinas:asignar"))
         self.assertLess(len(muchos), 25)
+
+
+class PlanPorVencerTests(RutinasTestCase):
+    """Aviso de "plan por vencer" (pedido del dueño, 2026-09-02).
+
+    Un plan dura 4 semanas y hoy nada le recuerda al staff que se está
+    terminando: si nadie mira, el alumno llega al día 29 sin plan nuevo.
+    `RutinaAsignada.por_vencer_de(gimnasio)` devuelve los alumnos cuyo plan
+    VIGENTE termina dentro de los próximos `DIAS_AVISO_PLAN` días.
+
+    Los dos bordes importan y tienen test cada uno: un plan que termina hoy
+    todavía cuenta (hay que reemplazarlo YA), y uno al que le faltan 8 días
+    no, porque avisar demasiado pronto convierte el aviso en ruido y el staff
+    deja de mirarlo.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.plantilla = self.crear_plantilla_con_items()[0]
+        self.gimnasio_b = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        self.alumno_b = Alumno.objects.create(
+            gimnasio=self.gimnasio_b, nombre="Beto", apellido="Ruiz"
+        )
+        self.plantilla_b = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio_b, nombre="Plan B", objetivo="fuerza",
+            dias_por_semana=3,
+        )
+
+    def _asignar(self, alumno, dias_desde_el_inicio):
+        return RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio,
+            alumno=alumno,
+            plantilla=self.plantilla,
+            fecha_inicio=timezone.localdate() - timedelta(days=dias_desde_el_inicio),
+        )
+
+    def test_un_plan_que_termina_en_menos_de_una_semana_aparece(self):
+        # 28 días de ciclo: arrancado hace 24, le quedan 4.
+        self._asignar(self.alumno, 24)
+        por_vencer = RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)
+        self.assertEqual([r.alumno for r in por_vencer], [self.alumno])
+
+    def test_un_plan_recien_empezado_no_aparece(self):
+        self._asignar(self.alumno, 2)
+        self.assertEqual(list(RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)), [])
+
+    def test_el_plan_que_termina_hoy_todavia_aparece(self):
+        """Borde inferior: `fecha_fin_prevista` es el primer día NO cubierto,
+        así que un plan arrancado hace 28 días se terminó justo hoy y es el
+        más urgente de todos -- excluirlo sería perder al que más importa."""
+        self._asignar(self.alumno, 28)
+        self.assertEqual(
+            [r.alumno for r in RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)],
+            [self.alumno],
+        )
+
+    def test_a_ocho_dias_todavia_no_aparece(self):
+        """Borde superior: el dueño pidió "una semana antes". A los 8 días no
+        avisa; a los 7 sí (lo cubre el primer test)."""
+        self._asignar(self.alumno, 20)  # quedan 8
+        self.assertEqual(list(RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)), [])
+
+    def test_si_ya_hay_un_plan_siguiente_cargado_deja_de_avisar(self):
+        """El aviso es un recordatorio de una tarea pendiente: una vez hecha,
+        tiene que desaparecer sola o el staff aprende a ignorarlo."""
+        self._asignar(self.alumno, 24)
+        RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            plantilla=self.plantilla,
+            fecha_inicio=timezone.localdate() + timedelta(days=4),
+        )
+        self.assertEqual(list(RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)), [])
+
+    def test_no_se_filtran_alumnos_de_otro_gimnasio(self):
+        RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio_b,
+            alumno=self.alumno_b,
+            plantilla=self.plantilla_b,
+            fecha_inicio=timezone.localdate() - timedelta(days=24),
+        )
+        self.assertEqual(list(RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)), [])
+
+    def test_un_alumno_inactivo_no_aparece(self):
+        """Dar de baja a un alumno tiene que sacarlo del aviso: si no, el
+        staff ve una tarea que no existe."""
+        self._asignar(self.alumno, 24)
+        self.alumno.estado = Alumno.Estado.INACTIVO
+        self.alumno.save()
+        self.assertEqual(list(RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)), [])
+
+
+class PlanPorVencerEnPantallaTests(RutinasTestCase):
+    """El aviso tiene que verse en los TRES lugares que pidió el dueño:
+    panel de inicio, listado de alumnos y ficha. El panel es el que hace la
+    diferencia -- es el único donde el staff se entera sin ir a buscarlo."""
+
+    def setUp(self):
+        super().setUp()
+        self.plantilla = self.crear_plantilla_con_items()[0]
+        usuario = User.objects.create_user("staff", password="clave-123456")
+        Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff", password="clave-123456")
+
+    def _plan_que_vence_en(self, dias):
+        return RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio,
+            alumno=self.alumno,
+            plantilla=self.plantilla,
+            fecha_inicio=timezone.localdate() - timedelta(days=28 - dias),
+        )
+
+    def test_el_panel_de_inicio_muestra_el_aviso(self):
+        self._plan_que_vence_en(3)
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "Planes que se terminan")
+        self.assertContains(response, "Asignar plan siguiente")
+        self.assertContains(response, "aviso-urgente")
+
+    def test_el_texto_de_dias_esta_bien_conjugado(self):
+        """`pluralize` sin argumentos agrega "s" y daba "le quedaS 3 días".
+        El verbo pluraliza con "n", el sustantivo con "s"."""
+        self._plan_que_vence_en(3)
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "le quedan 3 días")
+        self.assertNotContains(response, "le quedas")
+
+    def test_el_plan_que_termina_hoy_lo_dice_asi_y_no_en_dias(self):
+        """"le quedan 0 días" es peor que "se le termina hoy"."""
+        self._plan_que_vence_en(0)
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "se le termina hoy")
+        self.assertNotContains(response, "0 días")
+
+    def test_el_panel_no_muestra_nada_si_no_hay_planes_por_vencer(self):
+        self._plan_que_vence_en(20)
+        self.assertNotContains(self.client.get(reverse("home")), "Planes que se terminan")
+
+    def test_el_listado_de_alumnos_marca_la_fila(self):
+        self._plan_que_vence_en(3)
+        response = self.client.get(reverse("alumnos:listado"))
+        self.assertContains(response, "Plan por vencer")
+        self.assertContains(response, "badge--urgente")
+
+    def test_la_ficha_pinta_el_boton_en_color_de_urgencia(self):
+        self._plan_que_vence_en(3)
+        response = self.client.get(reverse("alumnos:detalle", args=[self.alumno.pk]))
+        self.assertContains(response, "boton-urgente")
+        self.assertContains(response, "Asignar plan siguiente")
+
+    def test_la_ficha_de_un_plan_recien_empezado_usa_el_boton_normal(self):
+        self._plan_que_vence_en(25)
+        response = self.client.get(reverse("alumnos:detalle", args=[self.alumno.pk]))
+        self.assertNotContains(response, "boton-urgente")
+        self.assertContains(response, "Asignar rutina")
+
+    def test_el_costo_del_listado_no_crece_con_la_cantidad_de_alumnos(self):
+        """El aviso del listado sale de UN set de ids calculado una vez. Si
+        alguien lo cambia por una property del modelo, el costo pasa a crecer
+        con la cantidad de alumnos en pantalla.
+
+        Compara dos tamaños de conjunto en vez de fijar un `assertNumQueries`
+        con un número mágico: ese número se rompe con cualquier cambio interno
+        de Django, y lo que importa acá es la PENDIENTE, no el valor.
+        """
+        self._plan_que_vence_en(3)
+
+        with CaptureQueriesContext(connection) as con_pocos:
+            self.client.get(reverse("alumnos:listado"))
+
+        for i in range(15):
+            Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=f"Alu{i}", apellido="Test"
+            )
+
+        with CaptureQueriesContext(connection) as con_muchos:
+            self.client.get(reverse("alumnos:listado"))
+
+        self.assertEqual(
+            len(con_muchos), len(con_pocos),
+            "El listado hace queries de más al crecer la cantidad de alumnos: "
+            f"{len(con_pocos)} -> {len(con_muchos)}",
+        )

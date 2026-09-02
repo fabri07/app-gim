@@ -180,6 +180,11 @@ class HomeView(LoginRequiredMixin, TemplateView):
             )
             .distinct()
             .count(),
+            # Planes que se terminan esta semana. Va en el dashboard porque
+            # es lo único que el staff ve sin ir a buscarlo: si el aviso
+            # viviera solo en la ficha de cada alumno, habría que sospechar
+            # primero para encontrarlo.
+            "planes_por_vencer": RutinaAsignada.por_vencer_de(gimnasio=gimnasio),
             # Solo broadcasts en el dashboard del staff: las personales son de
             # un alumno puntual, no del panel de gestión (Parte B).
             "ultimas_novedades": Novedad.objects.for_gimnasio(gimnasio)

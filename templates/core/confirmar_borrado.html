@@ -11,7 +11,7 @@
       cuál es la salida que ya existe (dar de baja, desactivar), en vez del
       `ProtectedError` que tiraría un DeleteView pelado.
     {% endcomment %}
-    <p class="texto-error">No se puede eliminar: tiene {{ bloqueos }} asociados.</p>
+    <p class="texto-error">No se puede eliminar: tiene {{ bloqueos }}.</p>
     {% if alternativa %}<p>{{ alternativa }}</p>{% endif %}
     <a class="boton" href="{{ url_cancelar }}">Volver</a>
   {% else %}

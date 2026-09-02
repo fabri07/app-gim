@@ -75,8 +75,9 @@ class BorrarConExplicacionView(DetailView):
             bloqueos = frase(bloqueos_de_borrado(self.object))
             messages.error(
                 request,
-                f"No se puede eliminar: tiene {bloqueos} asociados. "
-                + self.alternativa,
+                # Sin "asociados" al final: no concuerda ni en singular
+                # ("1 rutina asignada asociados") ni con géneros mezclados.
+                f"No se puede eliminar: tiene {bloqueos}. " + self.alternativa,
             )
             return redirect(request.path)
         messages.success(request, self.get_mensaje_exito())

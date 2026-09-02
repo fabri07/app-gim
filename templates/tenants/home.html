@@ -7,6 +7,43 @@
 {% if perfil.rol == "staff" %}
   <h1>{{ perfil.gimnasio.nombre }}</h1>
 
+  {% comment %}
+    Va ARRIBA de las métricas a propósito: es lo único de este panel que
+    pide una acción con fecha. Las métricas informan; esto es una tarea que
+    vence. Desaparece sola en cuanto el plan siguiente está cargado (ver
+    `RutinaAsignada.por_vencer_de`), así que no se vuelve ruido permanente.
+  {% endcomment %}
+  {% if planes_por_vencer %}
+    <div class="tarjeta aviso-urgente">
+      <h2>Planes que se terminan</h2>
+      <p class="texto-suave">
+        {{ planes_por_vencer|length }} alumno{{ planes_por_vencer|pluralize }} necesita{{ planes_por_vencer|pluralize:",n" }}
+        un plan nuevo. Cargalo antes de que se le termine el actual.
+      </p>
+      <ul class="lista-planes-por-vencer">
+        {% for rutina in planes_por_vencer %}
+          <li>
+            <span>
+              <strong>{{ rutina.alumno.nombre }} {{ rutina.alumno.apellido }}</strong>
+              <span class="texto-suave">
+                {% if rutina.dias_para_vencer == 0 %}
+                  se le termina hoy
+                {% else %}
+                  {% comment %}
+                    `pluralize:",n"`: el default agrega "s" y daría "le
+                    quedas". El verbo va a "quedan", el sustantivo a "días".
+                  {% endcomment %}
+                  le queda{{ rutina.dias_para_vencer|pluralize:",n" }} {{ rutina.dias_para_vencer }} día{{ rutina.dias_para_vencer|pluralize }}
+                {% endif %}
+              </span>
+            </span>
+            <a class="boton-urgente" href="{% url 'rutinas:asignar' %}?alumno={{ rutina.alumno.pk }}">Asignar plan siguiente</a>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
   <div class="dashboard-grid">
     <div class="metrica">
       <span class="metrica__valor">{{ alumnos_activos_count }}</span>

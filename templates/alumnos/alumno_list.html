@@ -53,6 +53,9 @@
               {% else %}
                 <span class="badge badge--riesgo">Inactivo</span>
               {% endif %}
+              {% if a.pk in alumnos_por_vencer %}
+                <span class="badge badge--urgente">Plan por vencer</span>
+              {% endif %}
             </td>
             <td>
               {% if a.email %}{{ a.email }}{% endif %}

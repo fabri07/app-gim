@@ -504,6 +504,34 @@
   /* El asterisco de "obligatorio". Es un refuerzo visual: el dato accesible
      va en un `.sr-only` al lado, porque un lector de pantalla no puede
      inferir "obligatorio" de un "*". */
+  /* Aviso de tarea que vence (planes por terminarse). Ámbar y no rojo: rojo
+     es "algo se rompió" (`.config-error`, `.badge--riesgo`), y esto es "hay
+     algo para hacer esta semana". El borde izquierdo grueso lo separa de las
+     tarjetas informativas sin cambiarle el fondo a toda la pantalla. */
+  .aviso-urgente {
+    @apply border-l-4 border-l-amber-500 bg-amber-50;
+  }
+
+  .lista-planes-por-vencer {
+    @apply list-none p-0 mt-3 flex flex-col gap-2;
+  }
+
+  .lista-planes-por-vencer li {
+    @apply flex flex-wrap items-center justify-between gap-2 border-t
+      border-amber-200 pt-2 first:border-t-0 first:pt-0;
+  }
+
+  /* Mismo molde que `.boton`, en ámbar: es el MISMO destino que "Asignar
+     rutina", pintado para que se note que hay una fecha de por medio. */
+  .boton-urgente {
+    @apply inline-block rounded-md bg-amber-600 px-4 py-2 text-sm font-medium
+      text-white no-underline hover:bg-amber-700;
+  }
+
+  .badge--urgente {
+    @apply bg-amber-100 text-amber-900;
+  }
+
   .campo-obligatorio {
     @apply text-red-600 font-semibold;
   }

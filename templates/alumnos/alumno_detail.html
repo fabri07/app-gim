@@ -80,7 +80,23 @@
           queryset por estado ACTIVO, así que el `?alumno=` apuntaría a un pk
           fuera del queryset y el select saldría vacío sin explicación.
         {% endcomment %}
-        <a class="boton" href="{% url 'rutinas:asignar' %}?alumno={{ alumno.pk }}">Asignar rutina</a>
+        {% comment %}
+          Mismo botón, en color de urgencia cuando al plan vigente le queda
+          una semana o menos (`RutinaAsignada.por_vencer`). El texto también
+          cambia: "Asignar rutina" no dice que haya algo que hacer HOY.
+        {% endcomment %}
+        {% if rutina_actual.por_vencer and not rutina_proxima %}
+          <a class="boton-urgente" href="{% url 'rutinas:asignar' %}?alumno={{ alumno.pk }}">
+            Asignar plan siguiente
+            {% if rutina_actual.dias_para_vencer == 0 %}
+              · se termina hoy
+            {% else %}
+              · quedan {{ rutina_actual.dias_para_vencer }} día{{ rutina_actual.dias_para_vencer|pluralize }}
+            {% endif %}
+          </a>
+        {% else %}
+          <a class="boton" href="{% url 'rutinas:asignar' %}?alumno={{ alumno.pk }}">Asignar rutina</a>
+        {% endif %}
       {% endif %}
     </div>
 
