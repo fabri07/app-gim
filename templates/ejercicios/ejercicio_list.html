@@ -26,15 +26,43 @@
         {% endfor %}
       </select>
     </div>
+    <div>
+      <label for="video">Video</label>
+      <select name="video" id="video" onchange="this.form.submit()">
+        <option value="" {% if not video_actual %}selected{% endif %}>Todos</option>
+        <option value="sin" {% if video_actual == "sin" %}selected{% endif %}>Sin video</option>
+        <option value="con" {% if video_actual == "con" %}selected{% endif %}>Con video</option>
+      </select>
+    </div>
     <button type="submit" class="boton-secundario">Filtrar</button>
   </form>
 
-  {% if categoria_actual or q_actual %}
+  {% comment %}
+    El conteo es sobre la BIBLIOTECA ENTERA, no sobre lo filtrado: si cambiara
+    con el filtro, buscar un ejercicio que sí tiene video diría "0 sin video" y
+    parecería que está todo cargado. El dato importa porque el video viaja al
+    snapshot de la rutina: un ejercicio sin link le llega al alumno como una
+    fila sin nada que mirar.
+  {% endcomment %}
+  {% if sin_video_count %}
+    <p class="campo-ayuda">
+      <strong>{{ sin_video_count }}</strong> de {{ sin_video_count|add:con_video_count }}
+      ejercicios no tienen video cargado, así que a tus alumnos les van a
+      aparecer sin nada para mirar.
+      <a href="?video=sin">Ver cuáles son</a>.
+    </p>
+  {% elif con_video_count %}
+    <p class="texto-suave">Los {{ con_video_count }} ejercicios tienen video cargado.</p>
+  {% endif %}
+
+  {% if categoria_actual or q_actual or video_actual %}
     <p class="texto-suave">
       Mostrando solo:
       {% if q_actual %}<strong>"{{ q_actual }}"</strong>{% endif %}
       {% if categoria_actual and q_actual %}&middot;{% endif %}
       {% if categoria_actual %}<strong>{{ categoria_actual.nombre }}</strong>{% endif %}
+      {% if video_actual and q_actual or video_actual and categoria_actual %}&middot;{% endif %}
+      {% if video_actual == "sin" %}<strong>sin video</strong>{% elif video_actual == "con" %}<strong>con video</strong>{% endif %}
       &middot; <a href="{% url 'ejercicios:listado' %}">quitar filtro</a>
     </p>
   {% endif %}

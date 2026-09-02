@@ -8,7 +8,7 @@ referencian con `on_delete=PROTECT` (ver docstring de `Ejercicio`).
 
 from django.contrib import messages
 from django.urls import reverse, reverse_lazy
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.views.generic import CreateView, ListView, UpdateView
 
 from core.mixins import TenantScopedMixin
@@ -40,6 +40,15 @@ class EjercicioListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         self.q = self.request.GET.get("q", "").strip()
         if self.q:
             queryset = queryset.filter(nombre__icontains=self.q)
+        # Filtro por video. Un valor inesperado no filtra nada en vez de
+        # romper: el parámetro viene de la URL y puede editarse a mano.
+        self.video_actual = self.request.GET.get("video", "").strip()
+        if self.video_actual == "sin":
+            queryset = queryset.filter(url_video="")
+        elif self.video_actual == "con":
+            queryset = queryset.exclude(url_video="")
+        else:
+            self.video_actual = ""
         return queryset
 
     def get_context_data(self, **kwargs):
@@ -52,6 +61,20 @@ class EjercicioListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         )
         context["categoria_actual"] = self.categoria_actual
         context["q_actual"] = self.q
+        context["video_actual"] = self.video_actual
+        # Sobre la BIBLIOTECA entera, no sobre el queryset filtrado: si el
+        # conteo cambiara al filtrar, buscar un ejercicio que sí tiene video
+        # diría "0 sin video" y parecería que está todo cargado.
+        #
+        # Una sola query con `Count(filter=...)`, no dos: este listado ya trae
+        # la biblioteca completa de un gimnasio (748 ejercicios en el caso
+        # real) y no es lugar para sumar consultas.
+        totales = Ejercicio.objects.for_gimnasio(self.gimnasio).aggregate(
+            sin_video=Count("pk", filter=Q(url_video="")),
+            con_video=Count("pk", filter=~Q(url_video="")),
+        )
+        context["sin_video_count"] = totales["sin_video"]
+        context["con_video_count"] = totales["con_video"]
         return context
 
 

@@ -926,3 +926,70 @@ class ColumnaEstadoConstanteTests(TestCase):
         response = self.client.get(reverse("ejercicios:listado"))
         self.assertNotContains(response, "Grupo muscular")
         self.assertContains(response, "Categoría")
+
+
+class EjerciciosSinVideoTests(TestCase):
+    """El listado dice cuántos ejercicios no tienen video y deja filtrarlos.
+
+    Surgió de una pregunta del dueño ("¿los alumnos ven el video?") que no se
+    podía responder sin abrir la biblioteca ejercicio por ejercicio. El dato
+    importa porque el video viaja al snapshot de la rutina: un ejercicio sin
+    link le llega al alumno como una fila sin nada que mirar.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        usuario = User.objects.create_user("staff", password="clave-123456")
+        Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff", password="clave-123456")
+        self.categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Core"
+        )
+        self.con_video = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Plancha", categoria=self.categoria,
+            url_video="https://youtu.be/abc",
+        )
+        self.sin_video = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Puente", categoria=self.categoria,
+        )
+
+    def test_el_listado_informa_cuantos_no_tienen_video(self):
+        response = self.client.get(reverse("ejercicios:listado"))
+        self.assertEqual(response.context["sin_video_count"], 1)
+        self.assertEqual(response.context["con_video_count"], 1)
+
+    def test_el_conteo_no_depende_del_filtro_aplicado(self):
+        """El aviso es sobre la BIBLIOTECA entera: si cambiara al filtrar,
+        buscar "Plancha" diría "0 sin video" y parecería que está todo bien."""
+        response = self.client.get(reverse("ejercicios:listado"), {"q": "Plancha"})
+        self.assertEqual(len(response.context["ejercicios"]), 1)
+        self.assertEqual(response.context["sin_video_count"], 1)
+
+    def test_se_pueden_listar_solo_los_que_no_tienen_video(self):
+        response = self.client.get(reverse("ejercicios:listado"), {"video": "sin"})
+        self.assertEqual(list(response.context["ejercicios"]), [self.sin_video])
+
+    def test_se_pueden_listar_solo_los_que_si_tienen(self):
+        response = self.client.get(reverse("ejercicios:listado"), {"video": "con"})
+        self.assertEqual(list(response.context["ejercicios"]), [self.con_video])
+
+    def test_un_valor_raro_en_el_filtro_no_rompe_ni_filtra(self):
+        response = self.client.get(reverse("ejercicios:listado"), {"video": "cualquiera"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["ejercicios"]), 2)
+
+    def test_el_conteo_no_mira_otros_gimnasios(self):
+        otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        Ejercicio.objects.create(
+            gimnasio=otro, nombre="Ajeno",
+            categoria=CategoriaEjercicio.objects.create(gimnasio=otro, nombre="X"),
+        )
+        response = self.client.get(reverse("ejercicios:listado"))
+        self.assertEqual(response.context["sin_video_count"], 1)
+
+    def test_la_fila_muestra_el_video_o_avisa_que_falta(self):
+        response = self.client.get(reverse("ejercicios:listado"))
+        self.assertContains(response, "https://youtu.be/abc")
+        self.assertContains(response, "Sin video")
