@@ -96,6 +96,22 @@ class GimnasioForm(forms.ModelForm):
         widgets = {
             "fondo_tipo": forms.RadioSelect,
             "fondo_doodle": forms.RadioSelect,
+            # Los tres links son `URLField`: "@migimnasio" o un teléfono
+            # suelto no validan. El placeholder muestra la forma exacta
+            # mientras se tipea, antes de que aparezca el error -- el dueño
+            # de un gimnasio no tiene por qué saber qué es una URL.
+            "contacto": forms.TextInput(
+                attrs={"placeholder": "Ej: 11 2345-6789 · hola@migimnasio.com"}
+            ),
+            "link_instagram": forms.URLInput(
+                attrs={"placeholder": "https://www.instagram.com/migimnasio"}
+            ),
+            "link_whatsapp": forms.URLInput(
+                attrs={"placeholder": "https://wa.me/5491123456789"}
+            ),
+            "link_facebook": forms.URLInput(
+                attrs={"placeholder": "https://www.facebook.com/migimnasio"}
+            ),
         }
 
     def __init__(self, *args, **kwargs):

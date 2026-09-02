@@ -105,18 +105,41 @@
         {{ form.texto_bienvenida }}
         {{ form.contacto.label_tag }}
         {{ form.contacto }}
+        <p class="texto-suave">
+          Teléfono, email o dirección. Se muestra como texto debajo del
+          mensaje de bienvenida: no es un botón, el alumno no puede hacerle clic.
+        </p>
+        {% if form.contacto.errors %}<p class="config-error">{{ form.contacto.errors.0 }}</p>{% endif %}
+
+        <p class="campo-ayuda">
+          <strong>Los tres links tienen que ser la dirección completa</strong>,
+          empezando con <code>https://</code>. No sirve poner tu usuario
+          (<code>@migimnasio</code>) ni un número de teléfono suelto: el link
+          no se guarda y los botones no le aparecen al alumno.
+          Lo más fácil es abrir tu perfil en el navegador y copiar la
+          dirección de la barra de arriba.
+        </p>
         <div class="config-fila">
           <div>
             {{ form.link_instagram.label_tag }}
             {{ form.link_instagram }}
+            <p class="texto-suave">Ej: <code>https://www.instagram.com/migimnasio</code></p>
+            {% if form.link_instagram.errors %}<p class="config-error">{{ form.link_instagram.errors.0 }}</p>{% endif %}
           </div>
           <div>
             {{ form.link_whatsapp.label_tag }}
             {{ form.link_whatsapp }}
+            <p class="texto-suave">
+              Ej: <code>https://wa.me/5491123456789</code> — código de país (54),
+              un 9, y tu número sin el 0 ni el 15.
+            </p>
+            {% if form.link_whatsapp.errors %}<p class="config-error">{{ form.link_whatsapp.errors.0 }}</p>{% endif %}
           </div>
           <div>
             {{ form.link_facebook.label_tag }}
             {{ form.link_facebook }}
+            <p class="texto-suave">Ej: <code>https://www.facebook.com/migimnasio</code></p>
+            {% if form.link_facebook.errors %}<p class="config-error">{{ form.link_facebook.errors.0 }}</p>{% endif %}
           </div>
         </div>
       </div>

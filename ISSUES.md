@@ -20,6 +20,72 @@ del log.
 
 ---
 
+## [2026-09-02] Los links de redes de un gimnasio no se guardaban, y el form no decía por qué
+
+**Estado:** resuelto
+
+**Impacto:** el primer cliente pago cargó sus tres links de redes en «Mi
+gimnasio» y no le aparecieron los botones en el portal del alumno. Verificado
+contra producción sin entrar al panel: su landing pública (`/g/vida-plena/`,
+que lee los MISMOS tres campos) tampoco mostraba ningún botón — o sea, los
+links nunca llegaron a la base.
+
+Causa: `link_instagram`/`link_whatsapp`/`link_facebook` son `URLField`, y eran
+**los únicos tres campos del formulario que no renderizaban sus errores**
+(`gimnasio_form.html` los mostraba para nombre, logo, paleta, tipografía,
+fondo y día de vencimiento, pero no para estos). Un `@migimnasio` o un teléfono
+suelto no valida como URL → el `ModelForm` queda inválido → **no se guarda
+NADA** (ni las redes, ni el fondo, ni el logo del mismo submit) → la página
+vuelve idéntica y sin un solo mensaje. El usuario no tiene forma de saber que
+falló.
+
+Django 5.2 acepta `instagram.com/x` sin esquema (`URLField.assume_scheme`, hoy
+`"http"` con `RemovedInDjango60Warning`), así que el modo de falla no es
+"falta el https" sino `@usuario`, un número pelado, o cualquier cosa con un
+espacio.
+
+**Resolución:** los tres campos muestran su error como el resto (test de
+regresión: `test_un_link_de_red_mal_escrito_muestra_el_error_en_pantalla`,
+verificado que falla sin el fix), más la mitad preventiva — un aviso arriba
+de la fila explicando que va la dirección completa, un ejemplo bajo cada
+campo (el de WhatsApp incluye el formato del número: 54 + 9 + sin 0 ni 15) y
+placeholders en los inputs.
+
+**Regla general:** en un `ModelForm` con muchos campos, uno solo sin su
+`{% if form.<campo>.errors %}` rompe el guardado del formulario **entero** en
+silencio. Al agregar un campo, agregá su línea de error en el mismo commit.
+
+---
+
+## [2026-09-02] Un alumno no puede conectar Google Calendar durante la beta, y el error de Google no lo explica
+
+**Estado:** aceptado (mitigado con un aviso; se cierra cuando Google verifique la app)
+
+**Impacto:** la integración está bien diseñada — cada alumno conecta **su
+propia** cuenta, con scope `calendar.app.created` (no ve su calendario
+personal, solo el secundario "Turnos de {gimnasio}" que crea la app). Pero el
+consent screen sigue en modo **"Testing"** (ver `[2026-08-24]`), así que solo
+las cuentas dadas de alta a mano como *Test users* pueden autorizar; el resto
+recibe un `Error 403: access_denied` crudo de Google. El alumno lo lee como un
+problema de su cuenta o de la app.
+
+**Resolución / próximo paso:** aviso en la tarjeta de Google Calendar de «Mis
+turnos» (`turnos/mis_turnos.html`), visible solo mientras NO esté conectado,
+que explica el límite antes del click y apunta al deep-link «Agregar a Google
+Calendar» de cada turno, que funciona siempre y no necesita OAuth. **Cuando el
+consent screen pase a "In production" hay que borrar ese `<p class=
+"campo-ayuda">`** — el propio template lo dice en un comentario, y hay dos
+tests en `PortalCalendarUITests` que lo fijan.
+
+También quedó documentado el otro hallazgo de la misma consulta: **el logo no
+sirve como imagen de fondo por resolución**, no por un bug. El logo tiene piso
+de 200×200 (va chico, en la barra) y el fondo de 1280×720 (se estira a
+pantalla completa). El del cliente mide 1080×1075 → lo rechaza. El mensaje de
+error de ese campo SÍ se mostraba; lo que probablemente lo tapó es que el
+mismo submit traía un link inválido (entrada anterior).
+
+---
+
 ## [2026-08-31] La rutina del alumno se elige por fecha, no por el flag `activa`
 
 **Estado:** resuelto

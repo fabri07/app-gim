@@ -476,6 +476,23 @@ class PortalCalendarUITests(TestCase):
         response = self.client.get(reverse("turnos:mis_turnos"))
         self.assertContains(response, "Conectar mi Google Calendar")
 
+    def test_avisa_que_la_beta_limita_quien_puede_conectar(self):
+        """El consent screen del proyecto está en modo "Testing" de Google:
+        solo las cuentas dadas de alta a mano como Test users pueden
+        autorizar, el resto recibe un `Error 403: access_denied` sin
+        explicación. El aviso tiene que estar ANTES del click, y solo
+        mientras haya algo que conectar (no cuando ya está conectado)."""
+        response = self.client.get(reverse("turnos:mis_turnos"))
+        self.assertContains(response, "Mientras la app está en beta")
+
+    def test_el_aviso_de_beta_desaparece_cuando_ya_esta_conectado(self):
+        GoogleCalendarCredential.objects.create(
+            alumno=self.alumno, refresh_token="r",
+            google_calendar_id="cal_abc", google_calendar_summary="Turnos de Alfa",
+        )
+        response = self.client.get(reverse("turnos:mis_turnos"))
+        self.assertNotContains(response, "Mientras la app está en beta")
+
     def test_boton_conectar_desactiva_hx_boost(self):
         # Conectar redirige cross-origin a Google; con hx-boost activo htmx
         # intercepta el <a> y no puede seguir ese 302 -> el botón no haría nada.

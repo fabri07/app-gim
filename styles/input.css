@@ -440,6 +440,23 @@
     @apply text-sm text-red-600 -mt-2 mb-3;
   }
 
+  /* Nota explicativa: lo que el usuario tiene que saber ANTES de completar
+     el campo de al lado, no un error de lo que ya escribió. Se usa en "Mi
+     gimnasio" (formato exacto de los links de redes) y en el portal del
+     alumno (Google Calendar limitado durante la beta). */
+  .campo-ayuda {
+    @apply text-sm text-gray-600 rounded-lg border border-gray-200 bg-gray-50
+      px-3 py-2.5 mb-3;
+  }
+
+  /* `break-all`: una URL de ejemplo no tiene espacios donde cortar, y la
+     grilla de `.config-fila` la deja en una columna angosta en mobile. */
+  .campo-ayuda code,
+  .texto-suave code {
+    @apply font-mono text-[0.85em] rounded bg-gray-200/70 px-1 py-0.5
+      text-gray-800 break-all;
+  }
+
   /* Selector de fondo (Fondo personalizable): 3 modos como píldoras -- radio
      real oculto, el estado marcado se ve con :has() sobre el label. */
   .selector-fondo-tipo {

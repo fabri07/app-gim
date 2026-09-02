@@ -1209,6 +1209,46 @@ class GimnasioUpdateViewTests(TestCase):
         self.assertEqual(self.gimnasio.paleta, "oceano")
         self.assertEqual(self.gimnasio.texto_bienvenida, "¡Bienvenido!")
 
+    def test_un_link_de_red_mal_escrito_muestra_el_error_en_pantalla(self):
+        """Los tres campos de redes eran los únicos del form que no
+        renderizaban sus errores: un "@usuario" o un teléfono suelto no
+        validan como URL, así que el form volvía sin guardar NADA (ni las
+        redes ni el fondo ni el logo) y sin decir por qué. Reportado por un
+        cliente real: cargó las redes, no le aparecieron en el portal del
+        alumno, y no vio ningún mensaje.
+        """
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Gimnasio Central",
+                "paleta": "bosque",
+                "tipografia": "plus_jakarta",
+                "fondo_tipo": "color",
+                "texto_bienvenida": "",
+                "contacto": "",
+                "link_instagram": "@gimnasiocentral",
+                "link_whatsapp": "",
+                "link_facebook": "",
+                "dia_vencimiento_pago": 10,
+            },
+        )
+        # Sin redirect: el form es inválido y se vuelve a renderizar.
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Introduzca una URL válida")
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.link_instagram, "")
+
+    def test_el_form_explica_el_formato_de_los_links_antes_de_escribirlos(self):
+        """El aviso y los placeholders son la mitad preventiva del fix de
+        arriba: el dueño de un gimnasio no tiene por qué saber qué es una
+        URL, y descubrirlo recién por un error es tarde."""
+        self.client.login(username="dueno", password="clave-123456")
+        response = self.client.get(reverse("gimnasio_editar"))
+        self.assertContains(response, "https://wa.me/5491123456789")
+        self.assertContains(response, "https://www.instagram.com/migimnasio")
+        self.assertContains(response, "dirección completa")
+
     def test_los_colores_actualizados_se_reflejan_en_el_home(self):
         self.gimnasio.paleta = Gimnasio.Paleta.OCEANO
         self.gimnasio.save()

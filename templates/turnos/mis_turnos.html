@@ -24,6 +24,23 @@
       {% else %}
         <p>Conectá tu Google Calendar y tus turnos se van a agendar solos.</p>
         {% comment %}
+          El consent screen del proyecto en Google Cloud está en modo
+          "Testing": solo las cuentas cargadas a mano en la lista de Test
+          users pueden autorizar, el resto recibe un `Error 403:
+          access_denied` de Google y no entiende por qué. Este aviso lo
+          explica ANTES del click. Cuando la app pase a "In production" hay
+          que borrarlo (ver ISSUES.md, verificación de Google).
+        {% endcomment %}
+        <p class="campo-ayuda">
+          <strong>Mientras la app está en beta, esto no está disponible para
+          todos.</strong> Google todavía no habilitó la aplicación de forma
+          pública, así que solo funciona con cuentas autorizadas una por una.
+          Si al conectar te aparece un error de Google, es esto y no un
+          problema de tu cuenta: hablalo con tu gimnasio. Mientras tanto podés
+          usar el link «Agregar a Google Calendar» de cada turno en la lista
+          de abajo, que funciona siempre.
+        </p>
+        {% comment %}
           hx-boost="false": conectar redirige a accounts.google.com (cross-origin);
           htmx no puede seguir ese 302 por XHR, así que dejamos que el navegador
           haga la navegación dura. Mismo criterio que los forms de upload.
