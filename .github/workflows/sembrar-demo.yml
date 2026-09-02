@@ -26,6 +26,21 @@ on:
         description: "Cuántos alumnos crear (solo al sembrar)"
         required: false
         default: "24"
+      confirmar:
+        # El comando se niega si el gimnasio destino ya tiene alumnos que no
+        # son de demo. Eso pasa en una cuenta de prueba donde se cargó algún
+        # alumno a mano, así que hace falta una salida -- pero como casilla
+        # aparte, en "no" por default: apuntarle a un gimnasio real exige DOS
+        # actos deliberados (tipear su slug Y destildar esta protección), no
+        # uno solo.
+        description: "El gimnasio ya tiene alumnos cargados a mano y quiero sembrar igual"
+        required: true
+        default: "no"
+        type: choice
+        # Entrecomillados: en YAML un `no` pelado es el booleano `false`, así
+        # que la opción se renderizaría como "false" y el default "no" no
+        # matchearía ninguna opción de la lista.
+        options: ["no", "si"]
 
 permissions:
   contents: read
@@ -47,13 +62,14 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
 
-      # NUNCA se pasa `--confirmar`. El comando se niega solo si el gimnasio
-      # destino ya tiene alumnos que no son de demo; sin esa bandera, ni un
-      # slug tipeado mal puede meterle 24 alumnos falsos a un cliente que paga.
+      # `--confirmar` solo si la casilla del formulario dice "si", y esa casilla
+      # arranca en "no". El comando ya se niega cuando el gimnasio destino
+      # tiene alumnos que no son de demo; apuntarle a un cliente real exige
+      # entonces DOS actos deliberados, no un slug tipeado mal.
       #
-      # Tampoco se pasan las VAPID_*: sin ellas `PUSH_ENABLED` queda en False,
-      # así que además del silenciado que ya hace el comando, no hay forma de
-      # que esto dispare una notificación. Dos candados para el mismo riesgo.
+      # No se pasan las VAPID_*: sin ellas `PUSH_ENABLED` queda en False, así
+      # que además del silenciado que ya hace el comando, no hay forma de que
+      # esto dispare una notificación. Ese candado NO tiene escape.
       #
       # URL POOLED (igual que generar-pagos): son conexiones cortas.
       # DJANGO_DEBUG sí hace falta: `config/db.py` usa `ssl_require=not debug`
@@ -65,9 +81,15 @@ jobs:
           GIMNASIO: ${{ inputs.gimnasio }}
           ACCION: ${{ inputs.accion }}
           ALUMNOS: ${{ inputs.alumnos }}
+          CONFIRMAR: ${{ inputs.confirmar }}
         run: |
           if [ "$ACCION" = "borrar" ]; then
             python manage.py sembrar_demo --gimnasio "$GIMNASIO" --borrar
-          else
-            python manage.py sembrar_demo --gimnasio "$GIMNASIO" --alumnos "$ALUMNOS"
+            exit 0
           fi
+          extra=""
+          if [ "$CONFIRMAR" = "si" ]; then
+            echo "::warning::Sembrando con --confirmar sobre «$GIMNASIO»: tiene alumnos cargados a mano."
+            extra="--confirmar"
+          fi
+          python manage.py sembrar_demo --gimnasio "$GIMNASIO" --alumnos "$ALUMNOS" $extra
