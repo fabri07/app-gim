@@ -1202,16 +1202,31 @@ form). No se agregó a la nav de staff a propósito — ya tiene 8 ítems tras
 el esfuerzo de bajarlo de 10 (ver importador de Excel), mismo criterio que
 mantuvo afuera el importador.
 
-**Redes sociales del portal del alumno** (`home.html`, rama alumno):
-existían como links de texto sueltos separados por "·"; ahora son botones
-(`.redes-sociales`, clase nueva en `styles/input.css`, mismo patrón `flex
-flex-wrap gap-3` que `.landing__botones`) con el mismo tratamiento visual
-que ya usa `landing.html` para los mismos 3 links (WhatsApp con `.boton`,
-Instagram/Facebook con `.boton-secundario`) — no se creó una clase
-compartida entre los dos templates porque cada una pertenece a un bloque
-BEM distinto (`.landing__botones` vs `.redes-sociales`), y el proyecto ya
-tiene precedente de duplicar en vez de compartir estilos entre bloques
-(ver `.auth-hero--gimnasio`/`.landing` más arriba).
+**Redes sociales** (`templates/partials/redes_sociales.html`): botones
+circulares con el logo SVG de cada red, en el portal del alumno (`home.html`,
+al pie, **arriba de la política de privacidad**) y en la tarjeta de contacto
+de la landing (`landing.html`). Pasaron por tres formas: links de texto
+sueltos → botones con el nombre escrito → íconos (2026-09-02, el dueño
+encontró "desabrida" la versión con el nombre). Cuatro decisiones que
+conviene no deshacer sin querer:
+
+- **Un solo partial para los dos templates.** Antes cada uno tenía su copia
+  y divergieron. La duplicación de estilos entre bloques BEM sigue siendo
+  aceptable en este proyecto (ver `.auth-hero--gimnasio`), pero duplicar
+  markup con SVG de 40 líneas no.
+- **El color es `--color-primario` del gimnasio, NO el oficial de cada
+  marca.** El glifo ya identifica la red; el verde/azul/degradé rompería la
+  paleta curada (`Gimnasio.PALETAS` existe justamente para que ninguna
+  combinación quede ilegible).
+- **El nombre vive en `aria-label` + `title`.** Es lo único que un lector de
+  pantalla puede anunciar de un `<svg>`; sin eso son tres links vacíos. Los
+  tests fijan los tres `aria-label`.
+- **El CTA del hero de la landing sigue siendo texto** ("Escribinos por
+  WhatsApp"): el hero persuade y tiene que decir qué hacer con palabras. Los
+  íconos son el cierre de la página, no la llamada a la acción. Hay un test
+  que lo fija.
+
+Los botones miden 44×44 (mínimo táctil cómodo) aunque el glifo sea de 20px.
 
 ## PWA instalable + Web Push (app `notificaciones`, más allá del ROADMAP original)
 

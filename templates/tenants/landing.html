@@ -92,17 +92,12 @@
       <div class="landing__contacto tarjeta">
         <h2>Sumate</h2>
         <p class="texto-suave">Contanos qué buscás y te ayudamos a arrancar.</p>
-        <div class="landing__botones">
-          {% if gimnasio.link_whatsapp %}
-            <a class="boton" href="{{ gimnasio.link_whatsapp }}" target="_blank" rel="noopener">WhatsApp</a>
-          {% endif %}
-          {% if gimnasio.link_instagram %}
-            <a class="boton-secundario" href="{{ gimnasio.link_instagram }}" target="_blank" rel="noopener">Instagram</a>
-          {% endif %}
-          {% if gimnasio.link_facebook %}
-            <a class="boton-secundario" href="{{ gimnasio.link_facebook }}" target="_blank" rel="noopener">Facebook</a>
-          {% endif %}
-        </div>
+        {% comment %}
+          El CTA primario del hero ("Escribinos por WhatsApp") sigue siendo
+          texto a propósito: el hero persuade y tiene que decir qué hacer con
+          palabras. Estos íconos son el cierre de la tarjeta de contacto.
+        {% endcomment %}
+        {% include 'partials/redes_sociales.html' with gimnasio=gimnasio %}
         {% if gimnasio.contacto %}
           <p class="texto-suave landing__contacto-texto">{{ gimnasio.contacto }}</p>
         {% endif %}

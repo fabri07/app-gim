@@ -875,15 +875,49 @@ class HomeViewAlumnoTests(TestCase):
         self.assertContains(response, self.gimnasio.link_instagram)
         self.assertContains(response, self.gimnasio.link_whatsapp)
         self.assertContains(response, self.gimnasio.link_facebook)
-        self.assertContains(response, "Facebook")
-        # Botones, no links de texto sueltos -- mismo tratamiento que
-        # landing.html (WhatsApp .boton, el resto .boton-secundario).
-        self.assertContains(
-            response, f'<a class="boton" href="{self.gimnasio.link_whatsapp}"'
-        )
-        self.assertContains(
-            response, f'<a class="boton-secundario" href="{self.gimnasio.link_instagram}"'
-        )
+        # Íconos, no botones con el nombre escrito. Antes este test fijaba
+        # `<a class="boton" href=...>WhatsApp</a>`: el dueño del producto lo
+        # encontró "desabrido" y pidió los logos de cada red, que la gente
+        # reconoce sin leer. El nombre sobrevive en `aria-label`, que es lo
+        # único que un lector de pantalla puede anunciar de un <svg>.
+        self.assertContains(response, 'aria-label="WhatsApp"')
+        self.assertContains(response, 'aria-label="Instagram"')
+        self.assertContains(response, 'aria-label="Facebook"')
+        self.assertContains(response, "redes-sociales__boton")
+        self.assertNotContains(response, f'>WhatsApp</a>')
+
+    def test_las_redes_del_alumno_van_al_pie_arriba_de_privacidad(self):
+        """Pedido explícito: al final de la página, no dentro de la tarjeta
+        de bienvenida. Ahí abajo cierran la pantalla, que es donde uno los
+        busca."""
+        self.gimnasio.link_instagram = "https://instagram.com/gimnasioalfa"
+        self.gimnasio.save()
+        self._crear_alumno_con_login(username="pie-redes", nombre="Sol", apellido="Rey")
+
+        self.client.login(username="pie-redes", password="clave-123456")
+        contenido = self.client.get(reverse("home")).content.decode()
+
+        posicion_redes = contenido.index("redes-sociales__boton")
+        posicion_privacidad = contenido.index(reverse("politica_privacidad"))
+        posicion_bienvenida = contenido.index("Hola")
+        self.assertLess(posicion_redes, posicion_privacidad)
+        self.assertLess(posicion_bienvenida, posicion_redes)
+
+    def test_solo_se_muestran_las_redes_que_el_gimnasio_cargo(self):
+        """Un gimnasio con Instagram pero sin Facebook no debe mostrar un
+        botón que no lleva a ningún lado."""
+        self.gimnasio.link_instagram = "https://instagram.com/gimnasioalfa"
+        self.gimnasio.link_whatsapp = ""
+        self.gimnasio.link_facebook = ""
+        self.gimnasio.save()
+        self._crear_alumno_con_login(username="una-red", nombre="Ale", apellido="Gil")
+
+        self.client.login(username="una-red", password="clave-123456")
+        response = self.client.get(reverse("home"))
+
+        self.assertContains(response, 'aria-label="Instagram"')
+        self.assertNotContains(response, 'aria-label="Facebook"')
+        self.assertNotContains(response, 'aria-label="WhatsApp"')
 
     def test_alumno_ve_link_a_politica_de_privacidad(self):
         self._crear_alumno_con_login(
@@ -943,6 +977,22 @@ class GimnasioLandingViewTests(TestCase):
         self.assertContains(response, "https://wa.me/5491112345678")
         self.assertContains(response, "https://instagram.com/gimnasiocentral")
         self.assertContains(response, reverse("login_gimnasio", args=["central"]))
+
+    def test_las_redes_de_la_landing_tambien_son_iconos(self):
+        """Mismo tratamiento que el portal del alumno: los dos consumen el
+        partial `partials/redes_sociales.html`, así que no pueden divergir."""
+        response = self.client.get(reverse("landing_gimnasio", args=["central"]))
+        self.assertContains(response, 'aria-label="WhatsApp"')
+        self.assertContains(response, 'aria-label="Instagram"')
+        self.assertContains(response, "redes-sociales__boton")
+
+    def test_el_cta_del_hero_sigue_siendo_texto(self):
+        """El hero es la superficie de persuasión de la landing: su CTA
+        primario dice qué hacer con palabras ("Escribinos por WhatsApp") y
+        NO se reemplaza por un ícono. Los íconos son el cierre de la página,
+        no la llamada a la acción."""
+        response = self.client.get(reverse("landing_gimnasio", args=["central"]))
+        self.assertContains(response, "Escribinos por WhatsApp")
 
     def test_link_de_login_no_queda_boosteado(self):
         """El <style> de extra_style (fondo imagen/doodle del gimnasio

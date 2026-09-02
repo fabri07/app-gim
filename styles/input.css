@@ -335,11 +335,41 @@
     @apply flex flex-wrap gap-2 mt-3;
   }
 
-  /* Redes sociales del gimnasio en el portal del alumno -- mismo patrón que
-     .landing__botones (WhatsApp con .boton, el resto .boton-secundario),
-     pero con su propio nombre porque no forma parte del bloque "landing". */
+  /* Redes sociales del gimnasio (`partials/redes_sociales.html`), en el
+     portal del alumno y en la landing pública. Botones circulares con el
+     logo de cada red en vez de su nombre escrito: el glifo se reconoce sin
+     leer. El color es el del gimnasio, no el de cada marca -- ver el
+     comentario del partial. */
   .redes-sociales {
-    @apply flex flex-wrap gap-3 mt-3;
+    @apply flex flex-wrap items-center gap-3 mt-3 mb-3;
+  }
+
+  /* 44px es el mínimo táctil cómodo en mobile, que es donde el alumno usa
+     esto -- por eso el círculo no se achica aunque el ícono sea de 20px. */
+  .redes-sociales__boton {
+    @apply inline-flex items-center justify-center h-11 w-11 rounded-full
+      bg-[var(--color-primario)] text-white no-underline
+      transition-transform duration-150;
+  }
+
+  .redes-sociales__boton:hover {
+    @apply scale-110;
+  }
+
+  /* `block`: un <svg> inline hereda el line-height del botón y queda unos
+     píxeles desalineado hacia abajo respecto del centro del círculo. */
+  .redes-sociales__boton svg {
+    @apply block h-5 w-5;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .redes-sociales__boton {
+      @apply transition-none;
+    }
+
+    .redes-sociales__boton:hover {
+      @apply scale-100;
+    }
   }
 
   /* Resumen de semanas (día del alumno, rediseño agrupado por grupo
@@ -758,10 +788,6 @@
 
   .landing__contacto {
     @apply text-left;
-  }
-
-  .landing__botones {
-    @apply flex flex-wrap gap-3 mb-3;
   }
 
   .landing__contacto-texto {
