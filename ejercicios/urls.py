@@ -11,6 +11,7 @@ from ejercicios.views import (
     CategoriaListView,
     CategoriaUpdateView,
     EjercicioCreateView,
+    EjercicioDeleteView,
     EjercicioListView,
     EjercicioUpdateView,
 )
@@ -21,6 +22,7 @@ urlpatterns = [
     path("", EjercicioListView.as_view(), name="listado"),
     path("nuevo/", EjercicioCreateView.as_view(), name="crear"),
     path("<int:pk>/editar/", EjercicioUpdateView.as_view(), name="editar"),
+    path("<int:pk>/eliminar/", EjercicioDeleteView.as_view(), name="eliminar"),
     path("categorias/", CategoriaListView.as_view(), name="categorias_listado"),
     path("categorias/nueva/", CategoriaCreateView.as_view(), name="categorias_crear"),
     path(

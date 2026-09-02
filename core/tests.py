@@ -10,12 +10,14 @@ se prueba es el mixin de vista de forma aislada, sin pasar por urls.py.
 """
 
 import re
+from datetime import date
 from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.urls import reverse
 from django.views.generic import ListView
 
 from alumnos.models import Alumno
@@ -144,3 +146,245 @@ class ErroresDeFormularioVisiblesTests(SimpleTestCase):
             "`.errorlist` está en input.css pero no en app.css: falta correr "
             "`npm run build:css` y commitear el resultado.",
         )
+
+
+class BorradoTests(TestCase):
+    """`core.borrado`: qué impide borrar y qué se lleva puesto.
+
+    Decisión de producto (2026-09-02): el botón Eliminar borra de verdad lo
+    que no tiene historial (cargado por error, pruebas), y cuando NO se puede
+    lo explica en castellano en vez de tirar un `ProtectedError`. Nunca borra
+    historial de cobros en cascada.
+    """
+
+    def setUp(self):
+        from ejercicios.models import CategoriaEjercicio, Ejercicio
+        from rutinas.models import RutinaPlantilla, RutinaPlantillaItem
+
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz"
+        )
+        self.categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Core"
+        )
+        self.ejercicio = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Plancha", categoria=self.categoria
+        )
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Plan", objetivo="fuerza",
+            dias_por_semana=3,
+        )
+        self._RutinaPlantillaItem = RutinaPlantillaItem
+
+    def test_un_alumno_sin_historial_se_puede_borrar(self):
+        from core.borrado import bloqueos_de_borrado
+
+        self.assertEqual(bloqueos_de_borrado(self.alumno), [])
+
+    def test_un_alumno_con_pagos_queda_bloqueado(self):
+        from core.borrado import bloqueos_de_borrado, frase
+        from pagos.models import PagoMensual
+
+        PagoMensual.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno, mes=1, anio=2026, monto=100
+        )
+
+        bloqueos = bloqueos_de_borrado(self.alumno)
+        self.assertEqual(len(bloqueos), 1)
+        self.assertEqual(bloqueos[0][1], 1)
+        self.assertIn("pago", frase(bloqueos))
+
+    def test_un_ejercicio_usado_en_una_plantilla_queda_bloqueado(self):
+        from core.borrado import bloqueos_de_borrado
+
+        self.assertEqual(bloqueos_de_borrado(self.ejercicio), [])
+        self._RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.ejercicio,
+            semana=1, dia=1, orden=1, series=3, repeticiones="10",
+        )
+        self.assertNotEqual(bloqueos_de_borrado(self.ejercicio), [])
+
+    def test_una_plantilla_con_ejercicios_se_puede_borrar_y_los_arrastra(self):
+        """`RutinaAsignada` es un snapshot SIN FK viva a la plantilla, así que
+        borrarla no toca ninguna rutina ya entregada a un alumno. Lo único
+        que cuelga son sus propios items, en CASCADE."""
+        from core.borrado import arrastres_de_borrado, bloqueos_de_borrado
+
+        self._RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.ejercicio,
+            semana=1, dia=1, orden=1, series=3, repeticiones="10",
+        )
+        self.assertEqual(bloqueos_de_borrado(self.plantilla), [])
+        self.assertEqual(
+            [cantidad for _, cantidad in arrastres_de_borrado(self.plantilla)], [1]
+        )
+
+    def test_borrar_una_plantilla_no_toca_la_rutina_ya_asignada_del_alumno(self):
+        """La garantía que hace seguro este botón: si borrar la plantilla le
+        sacara la rutina al alumno, sería un desastre silencioso."""
+        from rutinas.models import RutinaAsignada
+
+        self._RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.ejercicio,
+            semana=1, dia=1, orden=1, series=3, repeticiones="10",
+        )
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
+            fecha_inicio=date(2026, 1, 1),
+        )
+        cuantos = asignada.items.count()
+
+        self.plantilla.delete()
+
+        asignada.refresh_from_db()
+        self.assertEqual(asignada.items.count(), cuantos)
+
+    def test_frase_arma_una_enumeracion_legible(self):
+        from core.borrado import frase
+
+        self.assertEqual(frase([]), "")
+        self.assertEqual(frase([("pagos", 8)]), "8 pagos")
+        self.assertEqual(
+            frase([("pagos", 8), ("rutinas", 2)]), "8 pagos y 2 rutinas"
+        )
+        self.assertEqual(
+            frase([("pagos", 8), ("rutinas", 2), ("reservas", 3)]),
+            "8 pagos, 2 rutinas y 3 reservas",
+        )
+
+
+class BorrarConExplicacionViewTests(TestCase):
+    """Las tres pantallas de borrado (plantilla, ejercicio, alumno) sobre
+    `core.views.BorrarConExplicacionView`."""
+
+    def setUp(self):
+        from ejercicios.models import CategoriaEjercicio, Ejercicio
+        from rutinas.models import RutinaPlantilla
+
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.otro = Gimnasio.objects.create(nombre="B", slug="b")
+        usuario = User.objects.create_user("staff", password="clave-123456")
+        Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff", password="clave-123456")
+
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz"
+        )
+        self.categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Core"
+        )
+        self.ejercicio = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Plancha", categoria=self.categoria
+        )
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Plan", objetivo="fuerza",
+            dias_por_semana=3,
+        )
+        self.alumno_ajeno = Alumno.objects.create(
+            gimnasio=self.otro, nombre="Otro", apellido="Gimnasio"
+        )
+
+    def test_borra_una_plantilla(self):
+        from rutinas.models import RutinaPlantilla
+
+        response = self.client.post(
+            reverse("rutinas:plantilla_eliminar", args=[self.plantilla.pk])
+        )
+        self.assertRedirects(response, reverse("rutinas:plantilla_listado"))
+        self.assertFalse(RutinaPlantilla.objects.filter(pk=self.plantilla.pk).exists())
+
+    def test_borra_un_alumno_sin_historial(self):
+        response = self.client.post(
+            reverse("alumnos:eliminar", args=[self.alumno.pk])
+        )
+        self.assertRedirects(response, reverse("alumnos:listado"))
+        self.assertFalse(Alumno.objects.filter(pk=self.alumno.pk).exists())
+
+    def test_un_alumno_con_pagos_no_se_borra_y_se_explica(self):
+        """El caso que hace segura esta feature: los pagos son el registro de
+        lo que el gimnasio facturó. El botón no puede destruirlo."""
+        from pagos.models import PagoMensual
+
+        PagoMensual.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno, mes=1, anio=2026, monto=100
+        )
+        url = reverse("alumnos:eliminar", args=[self.alumno.pk])
+
+        respuesta_get = self.client.get(url)
+        self.assertContains(respuesta_get, "No se puede eliminar")
+        self.assertContains(respuesta_get, "Inactivar alumno")
+        # Sin botón de borrar: la pantalla no ofrece una acción imposible.
+        self.assertNotContains(respuesta_get, "Sí, eliminar")
+
+        # Y aunque se postee igual (el GET puede haber quedado viejo: el cron
+        # de pagos genera filas solo), el alumno sigue ahí.
+        self.client.post(url)
+        self.assertTrue(Alumno.objects.filter(pk=self.alumno.pk).exists())
+
+    def test_un_ejercicio_usado_en_una_plantilla_no_se_borra_y_se_explica(self):
+        from ejercicios.models import Ejercicio
+        from rutinas.models import RutinaPlantillaItem
+
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.ejercicio,
+            semana=1, dia=1, orden=1, series=3, repeticiones="10",
+        )
+        url = reverse("ejercicios:eliminar", args=[self.ejercicio.pk])
+
+        self.assertContains(self.client.get(url), "No se puede eliminar")
+        self.client.post(url)
+        self.assertTrue(Ejercicio.objects.filter(pk=self.ejercicio.pk).exists())
+
+    def test_la_confirmacion_avisa_lo_que_se_arrastra(self):
+        """Borrar una plantilla se lleva sus ejercicios; la pantalla lo dice
+        antes, no después."""
+        from rutinas.models import RutinaPlantillaItem
+
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.ejercicio,
+            semana=1, dia=1, orden=1, series=3, repeticiones="10",
+        )
+        response = self.client.get(
+            reverse("rutinas:plantilla_eliminar", args=[self.plantilla.pk])
+        )
+        self.assertContains(response, "Se van a eliminar también")
+
+    def test_no_se_puede_borrar_un_registro_de_otro_gimnasio(self):
+        """El aislamiento por tenant tiene que valer también para el borrado:
+        sin esto, adivinar un pk borraría datos de otro gimnasio."""
+        url = reverse("alumnos:eliminar", args=[self.alumno_ajeno.pk])
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.post(url).status_code, 404)
+        self.assertTrue(Alumno.objects.filter(pk=self.alumno_ajeno.pk).exists())
+
+    def test_las_tres_pantallas_ofrecen_el_boton_de_eliminar(self):
+        """Sin el link, la feature existe pero nadie llega. Cada pantalla es
+        el único camino a su borrado."""
+        casos = [
+            (reverse("alumnos:detalle", args=[self.alumno.pk]),
+             reverse("alumnos:eliminar", args=[self.alumno.pk])),
+            (reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk]),
+             reverse("rutinas:plantilla_eliminar", args=[self.plantilla.pk])),
+            (reverse("ejercicios:listado"),
+             reverse("ejercicios:eliminar", args=[self.ejercicio.pk])),
+        ]
+        for pantalla, destino in casos:
+            with self.subTest(pantalla=pantalla):
+                self.assertContains(self.client.get(pantalla), destino)
+
+    def test_un_alumno_no_puede_entrar_a_las_pantallas_de_borrado(self):
+        alumno_user = User.objects.create_user("alu", password="clave-123456")
+        Perfil.objects.create(
+            usuario=alumno_user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.login(username="alu", password="clave-123456")
+        for url in (
+            reverse("alumnos:eliminar", args=[self.alumno.pk]),
+            reverse("ejercicios:eliminar", args=[self.ejercicio.pk]),
+            reverse("rutinas:plantilla_eliminar", args=[self.plantilla.pk]),
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.post(url).status_code, 403)

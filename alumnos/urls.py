@@ -9,6 +9,7 @@ from django.urls import path
 from alumnos.views import (
     AccesoListView,
     AlumnoCreateView,
+    AlumnoDeleteView,
     AlumnoDetailView,
     AlumnoListView,
     AlumnoToggleEstadoView,
@@ -29,6 +30,7 @@ urlpatterns = [
     path("<int:pk>/", AlumnoDetailView.as_view(), name="detalle"),
     path("<int:pk>/editar/", AlumnoUpdateView.as_view(), name="editar"),
     path("<int:pk>/activar/", AlumnoToggleEstadoView.as_view(), name="activar"),
+    path("<int:pk>/eliminar/", AlumnoDeleteView.as_view(), name="eliminar"),
     path("<int:pk>/acceso/crear/", CrearAccesoView.as_view(), name="acceso_crear"),
     path(
         "<int:pk>/acceso/regenerar/",

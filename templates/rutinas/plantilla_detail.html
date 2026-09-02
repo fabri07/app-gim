@@ -14,6 +14,7 @@
       </form>
       <a class="boton" href="{% url 'rutinas:asignar' %}?plantilla={{ plantilla.pk }}">Asignar a un alumno</a>
       <a class="boton-secundario" href="{% url 'rutinas:plantilla_listado' %}">Volver al listado</a>
+      <a class="boton-peligro" href="{% url 'rutinas:plantilla_eliminar' plantilla.pk %}">Eliminar</a>
     </div>
   </div>
 

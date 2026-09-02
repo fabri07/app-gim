@@ -25,6 +25,7 @@ from django.views.generic import CreateView, DetailView, FormView, ListView, Upd
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
+from core.views import BorrarConExplicacionView
 from rutinas import progreso, services
 from rutinas.agrupacion import listar_ejercicios_del_dia
 from rutinas.forms import (
@@ -162,6 +163,27 @@ class ItemPlantillaMixin(StaffRequiredMixin, TenantScopedMixin):
         kwargs = super().get_form_kwargs()
         kwargs["plantilla"] = self.plantilla
         return kwargs
+
+
+class RutinaPlantillaDeleteView(
+    StaffRequiredMixin, TenantScopedMixin, BorrarConExplicacionView
+):
+    """Borrar una plantilla es SEGURO y no necesita advertencia sobre los
+    alumnos: `RutinaAsignada` es un snapshot sin FK viva a la plantilla, así
+    que ninguna rutina ya entregada se toca. Lo único que cuelga son sus
+    propios items, en CASCADE -- y eso sí se avisa. Hay un test que fija la
+    garantía (`test_borrar_una_plantilla_no_toca_la_rutina_ya_asignada`)."""
+
+    model = RutinaPlantilla
+
+    def get_titulo(self):
+        return f"Eliminar la plantilla «{self.object.nombre}»"
+
+    def get_mensaje_exito(self):
+        return "Plantilla eliminada."
+
+    def get_url_exito(self):
+        return reverse("rutinas:plantilla_listado")
 
 
 class RutinaPlantillaItemCreateView(ItemPlantillaMixin, CreateView):

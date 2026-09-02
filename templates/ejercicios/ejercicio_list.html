@@ -68,7 +68,11 @@
                 <span class="texto-suave">Sin video</span>
               {% endif %}
             </td>
-            <td><a href="{% url 'ejercicios:editar' e.pk %}">Editar</a></td>
+            <td>
+                <a href="{% url 'ejercicios:editar' e.pk %}">Editar</a>
+                &middot;
+                <a href="{% url 'ejercicios:eliminar' e.pk %}">Eliminar</a>
+              </td>
           </tr>
         {% empty %}
           <tr>

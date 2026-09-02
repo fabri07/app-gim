@@ -19,6 +19,7 @@ from rutinas.views import (
     RutinaAsignadaPdfView,
     RutinaMiDiaDetailView,
     RutinaPlantillaCreateView,
+    RutinaPlantillaDeleteView,
     RutinaPlantillaDetailView,
     RutinaPlantillaDuplicarView,
     RutinaPlantillaItemCreateView,
@@ -38,6 +39,11 @@ urlpatterns = [
         "<int:pk>/editar/",
         RutinaPlantillaUpdateView.as_view(),
         name="plantilla_editar",
+    ),
+    path(
+        "<int:pk>/eliminar/",
+        RutinaPlantillaDeleteView.as_view(),
+        name="plantilla_eliminar",
     ),
     path(
         "<int:pk>/duplicar/",

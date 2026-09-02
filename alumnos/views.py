@@ -27,6 +27,7 @@ from django.views.generic import CreateView, DetailView, ListView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
+from core.views import BorrarConExplicacionView
 from tenants.mixins import StaffRequiredMixin
 from alumnos import identidad
 from alumnos import services as servicios
@@ -122,6 +123,33 @@ class AlumnoDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView):
         # anteriores.
         context["rutinas_del_alumno"] = self.object.rutinas_asignadas.all()[:10]
         return context
+
+
+class AlumnoDeleteView(
+    StaffRequiredMixin, TenantScopedMixin, BorrarConExplicacionView
+):
+    """Sirve para el alumno cargado por error o de prueba. Uno con historial
+    queda bloqueado por `PagoMensual` y `RutinaAsignada` (`PROTECT`) -- y eso
+    es deliberado: los pagos son el registro de lo que el gimnasio facturó, y
+    borrarlos para deshacerse de una ficha sería destruir contabilidad. Para
+    ese caso ya existe la baja, que además le corta el acceso al portal (ver
+    `alumnos/signals.py::sincronizar_acceso_con_estado`)."""
+
+    model = Alumno
+    alternativa = (
+        "Para sacarlo del día a día sin perder su historial de cobros, usá "
+        "«Inactivar alumno» en su ficha: deja de contar como activo y pierde "
+        "el acceso al portal."
+    )
+
+    def get_titulo(self):
+        return f"Eliminar a {self.object.nombre} {self.object.apellido}"
+
+    def get_mensaje_exito(self):
+        return "Alumno eliminado."
+
+    def get_url_exito(self):
+        return reverse("alumnos:listado")
 
 
 class AlumnoToggleEstadoView(

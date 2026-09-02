@@ -7,11 +7,12 @@ referencian con `on_delete=PROTECT` (ver docstring de `Ejercicio`).
 """
 
 from django.contrib import messages
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.db.models import Count
 from django.views.generic import CreateView, ListView, UpdateView
 
 from core.mixins import TenantScopedMixin
+from core.views import BorrarConExplicacionView
 from tenants.mixins import StaffRequiredMixin
 from ejercicios.forms import CategoriaEjercicioForm, EjercicioForm
 from ejercicios.models import CategoriaEjercicio, Ejercicio
@@ -76,6 +77,30 @@ class EjercicioUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
         response = super().form_valid(form)
         messages.success(self.request, "Ejercicio actualizado correctamente.")
         return response
+
+
+class EjercicioDeleteView(
+    StaffRequiredMixin, TenantScopedMixin, BorrarConExplicacionView
+):
+    """`RutinaPlantillaItem.ejercicio` es `PROTECT`: un ejercicio que ya está
+    en una plantilla no se borra, y no debería -- borrarlo dejaría la
+    plantilla incompleta. La salida es `activo=False`, que lo saca de los
+    desplegables sin tocar lo ya armado."""
+
+    model = Ejercicio
+    alternativa = (
+        "Si ya no lo usás, editalo y destildá «Activo»: deja de aparecer al "
+        "armar rutinas y las plantillas que lo usan siguen intactas."
+    )
+
+    def get_titulo(self):
+        return f"Eliminar el ejercicio «{self.object.nombre}»"
+
+    def get_mensaje_exito(self):
+        return "Ejercicio eliminado."
+
+    def get_url_exito(self):
+        return reverse("ejercicios:listado")
 
 
 class CategoriaListView(StaffRequiredMixin, TenantScopedMixin, ListView):

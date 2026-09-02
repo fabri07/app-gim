@@ -8,6 +8,7 @@
     <h1>{{ alumno.nombre }} {{ alumno.apellido }}</h1>
     <div>
       <a class="boton-secundario" href="{% url 'alumnos:editar' alumno.pk %}">Editar</a>
+      <a class="boton-peligro" href="{% url 'alumnos:eliminar' alumno.pk %}">Eliminar</a>
       <a class="boton-secundario" href="{% url 'alumnos:listado' %}">Volver al listado</a>
     </div>
   </div>
