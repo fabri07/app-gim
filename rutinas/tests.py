@@ -1344,6 +1344,27 @@ class RutinasViewsTests(TestCase):
         )
         self.assertNotContains(response, "dias_por_semana")
 
+    def test_plantilla_detail_muestra_el_video_de_cada_ejercicio(self):
+        """El dueño preguntó por qué no veía el video en la plantilla. El
+        alumno SÍ lo recibe (`crear_desde_plantilla` copia `url_video` al
+        snapshot), pero esta pantalla no lo mostraba, así que no había forma
+        de detectar antes de asignar qué ejercicios iban a llegar sin
+        video."""
+        self.client.login(username="staff_a", password="clave12345")
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla_a, ejercicio=self.ejercicio_a,
+            semana=1, dia=1, orden=1, series=3, repeticiones="10",
+        )
+
+        response = self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[self.plantilla_a.pk])
+        )
+
+        if self.ejercicio_a.url_video:
+            self.assertContains(response, self.ejercicio_a.url_video)
+        else:
+            self.assertContains(response, "Sin video")
+
     def test_plantilla_detail_muestra_columna_semana(self):
         self.client.login(username="staff_a", password="clave12345")
         response = self.client.get(
@@ -3947,6 +3968,60 @@ class PlanPorVencerTests(RutinasTestCase):
         )
         self.assertEqual(list(RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)), [])
 
+    def test_un_plan_ya_vencido_sigue_apareciendo(self):
+        """El aviso desaparecía JUSTO cuando el problema se materializaba: un
+        plan que llegaba al día 28 un sábado y no se reemplazaba el fin de
+        semana, el lunes ya no figuraba en ningún lado. El alumno que HOY
+        está sin plan es el caso más urgente, no el que hay que ocultar.
+
+        No hace falta un piso de fecha: `por_vencer_de` ya se limita al plan
+        VIGENTE de cada alumno y a alumnos ACTIVOS, así que la lista es "los
+        que necesitan plan", no un histórico que crece."""
+        self._asignar(self.alumno, 31)  # venció hace 3 días
+        por_vencer = RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)
+        self.assertEqual([r.alumno for r in por_vencer], [self.alumno])
+        self.assertEqual(por_vencer[0].dias_para_vencer, -3)
+
+    def test_los_mas_urgentes_van_primero(self):
+        """El staff mira la lista de arriba hacia abajo: el que ya está sin
+        plan tiene que estar antes que el que tiene 6 días."""
+        otro = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Beto", apellido="Sosa"
+        )
+        self._asignar(self.alumno, 22)   # le quedan 6
+        self._asignar(otro, 31)          # venció hace 3
+
+        por_vencer = RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)
+        self.assertEqual([r.alumno for r in por_vencer], [otro, self.alumno])
+
+    def test_el_costo_no_crece_con_la_cantidad_de_planes(self):
+        """`por_vencer_de` hacía DOS queries por candidato (`vigente_de` y
+        `proxima_de` dentro del list-comprehension): 2 candidatos = 5
+        queries, 22 candidatos = 45. Es el patrón que CLAUDE.md prohíbe y que
+        ya causó un 502 en producción con el importador. Ahora las dos
+        condiciones son `~Exists(...)` y el costo es fijo."""
+        for i in range(2):
+            alumno = Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=f"P{i}", apellido="X"
+            )
+            self._asignar(alumno, 25)
+        with CaptureQueriesContext(connection) as con_pocos:
+            RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)
+
+        for i in range(20):
+            alumno = Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=f"M{i}", apellido="X"
+            )
+            self._asignar(alumno, 25)
+        with CaptureQueriesContext(connection) as con_muchos:
+            RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)
+
+        self.assertEqual(
+            len(con_muchos), len(con_pocos),
+            f"El costo crece con la cantidad de planes: "
+            f"{len(con_pocos)} -> {len(con_muchos)} queries",
+        )
+
     def test_no_se_filtran_alumnos_de_otro_gimnasio(self):
         RutinaAsignada.crear_desde_plantilla(
             gimnasio=self.gimnasio_b,
@@ -4013,6 +4088,21 @@ class PlanPorVencerEnPantallaTests(RutinasTestCase):
         self._plan_que_vence_en(20)
         self.assertNotContains(self.client.get(reverse("home")), "Planes que se terminan")
 
+    def test_el_panel_topea_la_lista_y_dice_cuantos_faltan(self):
+        """Sin tope, un gimnasio que asignó todos los planes el mismo día
+        empuja las métricas varias pantallas hacia abajo."""
+        for i in range(12):
+            alumno = Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=f"Alu{i}", apellido="Test"
+            )
+            RutinaAsignada.crear_desde_plantilla(
+                gimnasio=self.gimnasio, alumno=alumno, plantilla=self.plantilla,
+                fecha_inicio=timezone.localdate() - timedelta(days=25),
+            )
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "Asignar plan siguiente", count=10)
+        self.assertContains(response, "y 2 más")
+
     def test_el_listado_de_alumnos_marca_la_fila(self):
         self._plan_que_vence_en(3)
         response = self.client.get(reverse("alumnos:listado"))
@@ -4024,6 +4114,15 @@ class PlanPorVencerEnPantallaTests(RutinasTestCase):
         response = self.client.get(reverse("alumnos:detalle", args=[self.alumno.pk]))
         self.assertContains(response, "boton-urgente")
         self.assertContains(response, "Asignar plan siguiente")
+
+    def test_la_ficha_conjuga_bien_con_un_solo_dia(self):
+        """Mismo bug que se arregló en `home.html` y que acá quedó sin
+        arreglar: `pluralize` sin argumentos daba "quedan 1 día". Ocurre el
+        día 27 de todos los ciclos."""
+        self._plan_que_vence_en(1)
+        response = self.client.get(reverse("alumnos:detalle", args=[self.alumno.pk]))
+        self.assertContains(response, "queda 1 día")
+        self.assertNotContains(response, "quedan 1 día")
 
     def test_la_ficha_de_un_plan_recien_empezado_usa_el_boton_normal(self):
         self._plan_que_vence_en(25)
@@ -4045,9 +4144,20 @@ class PlanPorVencerEnPantallaTests(RutinasTestCase):
         with CaptureQueriesContext(connection) as con_pocos:
             self.client.get(reverse("alumnos:listado"))
 
+        # Con plan POR VENCER, no alumnos pelados: lo que encarece el
+        # listado es la cantidad de CANDIDATOS de `por_vencer_de`. La
+        # versión anterior de este test creaba 15 alumnos sin rutina, así
+        # que el conjunto de candidatos no crecía y pasaba aunque hubiera
+        # dos queries por candidato -- afirmaba una garantía que no daba.
         for i in range(15):
-            Alumno.objects.create(
+            alumno = Alumno.objects.create(
                 gimnasio=self.gimnasio, nombre=f"Alu{i}", apellido="Test"
+            )
+            RutinaAsignada.crear_desde_plantilla(
+                gimnasio=self.gimnasio,
+                alumno=alumno,
+                plantilla=self.plantilla,
+                fecha_inicio=timezone.localdate() - timedelta(days=25),
             )
 
         with CaptureQueriesContext(connection) as con_muchos:

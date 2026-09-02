@@ -324,23 +324,34 @@ no un campo configurable — nadie lo pidió, y avisar antes lo vuelve ruido).
   `fecha_fin_prevista`**, que es una property: "termina dentro de N días" es
   "arrancó hace entre 28-N y 28 días". Con la property habría que traer todo a
   memoria.
-- **El borde inferior INCLUYE el plan que termina hoy** (`dias_para_vencer ==
-  0`): es el más urgente, no el que ya pasó. Los dos bordes (0 y 8 días) tienen
-  test.
-- **Deja de avisar solo** cuando ya hay un plan siguiente cargado
-  (`proxima_de`) o el alumno no está activo: es un recordatorio de tarea
-  pendiente, y uno que no desaparece al hacerla se vuelve ruido que el staff
-  aprende a ignorar.
-- Filtra por `vigente_de` — sigue siendo la única autoridad sobre qué plan ve
-  el alumno; sin eso, un plan viejo no archivado daría un aviso fantasma.
+- **NO tiene piso: un plan ya vencido sigue apareciendo.** Lo encontró un
+  `/code-review`, y era el agujero más serio: el aviso desaparecía justo cuando
+  el problema se materializaba. Un plan que llega al día 28 un sábado y no se
+  reemplaza el fin de semana, el lunes ya no figuraba en ningún lado — y el
+  alumno que HOY está sin plan es el caso más urgente. La lista igual no crece
+  sola: se acota al plan VIGENTE de cada alumno, a alumnos ACTIVOS y a los que
+  no tienen ya un siguiente cargado.
+- **Deja de avisar solo** cuando ya hay un plan siguiente cargado o el alumno
+  no está activo: es un recordatorio de tarea pendiente, y uno que no
+  desaparece al hacerla se vuelve ruido que el staff aprende a ignorar.
+- **Costo fijo: 1 query, no 2 por candidato.** La primera versión llamaba a
+  `vigente_de`/`proxima_de` dentro de un list-comprehension — 22 candidatos
+  daban **45 queries**, en el dashboard Y en el listado. Es el patrón que este
+  archivo prohíbe y que ya causó un 502 con el importador. Las dos condiciones
+  son `Exists(...)`: "es el vigente" ⇔ no existe otro plan activo ya empezado
+  que gane el orden `-fecha_inicio, -id`; "no hay siguiente" ⇔ no existe uno
+  activo con fecha futura. **Si tocás `vigente_de`, el `Exists` tiene que
+  seguirlo**: es la misma regla escrita en Python y en SQL.
 - Se ve en los tres lugares que pidió el dueño: tarjeta `.aviso-urgente` arriba
-  del dashboard (el único donde el staff se entera sin ir a buscarlo), badge
-  `.badge--urgente` en el listado, y el botón «Asignar plan siguiente» en
-  `.boton-urgente` en la ficha. **Ámbar y no rojo**: rojo es "algo se rompió",
-  esto es "hay algo para hacer esta semana".
-- El listado usa un **set de ids calculado una vez**, no una property por fila;
-  hay un test que compara dos tamaños de conjunto y falla si el costo crece con
-  la cantidad de alumnos.
+  del dashboard (el único donde el staff se entera sin ir a buscarlo, topeada a
+  10 + "y N más"), badge `.badge--urgente` en el listado, y el botón «Asignar
+  plan siguiente» en `.boton-urgente` en la ficha. **Ámbar y no rojo**: rojo es
+  "algo se rompió", esto es "hay algo para hacer esta semana".
+- **Lección del review sobre los tests de costo:** el test que decía cubrir
+  esto creaba 15 alumnos SIN rutina, así que el conjunto de candidatos no
+  crecía y pasaba con el N+1 presente. Un test de escala tiene que hacer crecer
+  **lo que de verdad multiplica el costo**, no cualquier cosa que se le
+  parezca.
 
 ## Un formulario que rechaza sin que se note es igual a uno que no guarda
 

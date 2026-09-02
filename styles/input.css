@@ -504,6 +504,10 @@
   /* El asterisco de "obligatorio". Es un refuerzo visual: el dato accesible
      va en un `.sr-only` al lado, porque un lector de pantalla no puede
      inferir "obligatorio" de un "*". */
+  .campo-obligatorio {
+    @apply text-red-600 font-semibold;
+  }
+
   /* Aviso de tarea que vence (planes por terminarse). Ámbar y no rojo: rojo
      es "algo se rompió" (`.config-error`, `.badge--riesgo`), y esto es "hay
      algo para hacer esta semana". El borde izquierdo grueso lo separa de las
@@ -521,19 +525,21 @@
       border-amber-200 pt-2 first:border-t-0 first:pt-0;
   }
 
-  /* Mismo molde que `.boton`, en ámbar: es el MISMO destino que "Asignar
-     rutina", pintado para que se note que hay una fecha de por medio. */
+  /* Mismo molde que `.boton` (inline-flex + rounded-full), en ámbar: en la
+     ficha convive con "Ver rutina"/"Descargar PDF" dentro del mismo
+     `.acciones-lista`, así que con `inline-block rounded-md` salía con
+     esquinas cuadradas y otra alineación vertical entre dos píldoras. */
   .boton-urgente {
-    @apply inline-block rounded-md bg-amber-600 px-4 py-2 text-sm font-medium
-      text-white no-underline hover:bg-amber-700;
+    @apply inline-flex items-center justify-center rounded-full bg-amber-600
+      px-4 py-2 text-sm font-medium text-white no-underline
+      hover:opacity-90 transition cursor-pointer border-none;
   }
 
+  /* NO reusa `.badge--alerta` (bg-amber-100/text-amber-800): compite con el
+     badge de estado del alumno en la MISMA celda del listado, así que tiene
+     que distinguirse de un vistazo. Fondo lleno y no un tinte. */
   .badge--urgente {
-    @apply bg-amber-100 text-amber-900;
-  }
-
-  .campo-obligatorio {
-    @apply text-red-600 font-semibold;
+    @apply bg-amber-500 text-white font-semibold;
   }
 
   /* Nota explicativa: lo que el usuario tiene que saber ANTES de completar

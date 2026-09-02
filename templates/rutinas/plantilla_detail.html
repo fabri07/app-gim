@@ -62,7 +62,21 @@
               <td>{{ item.dia }}{% if item.dia_nombre %}<br><span class="texto-suave text-xs">{{ item.dia_nombre }}</span>{% endif %}</td>
               <td>{% if item.bloque %}<span class="badge">{{ item.bloque }}</span>{% else %}<span class="texto-suave">—</span>{% endif %}</td>
               <td>{{ item.orden }}</td>
-              <td>{{ item.ejercicio.nombre }}</td>
+              <td>
+              {{ item.ejercicio.nombre }}
+              {% comment %}
+                El video no es un dato de la plantilla sino del `Ejercicio`
+                de la biblioteca: al asignar, `crear_desde_plantilla` lo
+                copia al snapshot y el alumno lo ve en su día. Se muestra
+                acá para que el staff pueda detectar ANTES de asignar qué
+                ejercicios van a llegarle sin video.
+              {% endcomment %}
+              {% if item.ejercicio.url_video %}
+                <br><a href="{{ item.ejercicio.url_video }}" target="_blank" rel="noopener" class="text-xs">Ver video</a>
+              {% else %}
+                <br><span class="texto-suave text-xs">Sin video</span>
+              {% endif %}
+            </td>
               <td>{{ item.series }}</td>
               <td>{{ item.repeticiones }}</td>
               <td>{{ item.kilos|default:"—" }}</td>

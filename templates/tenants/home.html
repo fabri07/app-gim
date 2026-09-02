@@ -20,14 +20,23 @@
         {{ planes_por_vencer|length }} alumno{{ planes_por_vencer|pluralize }} necesita{{ planes_por_vencer|pluralize:",n" }}
         un plan nuevo. Cargalo antes de que se le termine el actual.
       </p>
+      {% comment %}
+        Tope de 10: un gimnasio que asignó todos los planes el mismo día (lo
+        normal después de una importación) empujaría las métricas varias
+        pantallas hacia abajo. Mismo criterio que `ultimas_novedades[:5]`.
+        Como la lista viene ordenada por urgencia, los 10 primeros son los
+        que de verdad importan.
+      {% endcomment %}
       <ul class="lista-planes-por-vencer">
-        {% for rutina in planes_por_vencer %}
+        {% for rutina in planes_por_vencer|slice:":10" %}
           <li>
             <span>
               <strong>{{ rutina.alumno.nombre }} {{ rutina.alumno.apellido }}</strong>
               <span class="texto-suave">
                 {% if rutina.dias_para_vencer == 0 %}
                   se le termina hoy
+                {% elif rutina.dias_para_vencer < 0 %}
+                  <strong>ya se le terminó</strong>
                 {% else %}
                   {% comment %}
                     `pluralize:",n"`: el default agrega "s" y daría "le
@@ -41,6 +50,12 @@
           </li>
         {% endfor %}
       </ul>
+      {% if planes_por_vencer|length > 10 %}
+        <p class="texto-suave">
+          y {{ planes_por_vencer|length|add:"-10" }} más &middot;
+          <a href="{% url 'alumnos:listado' %}">ver todos los alumnos</a>
+        </p>
+      {% endif %}
     </div>
   {% endif %}
 

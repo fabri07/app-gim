@@ -88,10 +88,17 @@
         {% if rutina_actual.por_vencer and not rutina_proxima %}
           <a class="boton-urgente" href="{% url 'rutinas:asignar' %}?alumno={{ alumno.pk }}">
             Asignar plan siguiente
+            {% comment %}
+              `pluralize:",n"` en el verbo: el default agrega "s" y daba
+              "quedan 1 día" el día 27 de todos los ciclos. Mismo bug que ya
+              se había corregido en home.html y que acá quedó sin corregir.
+            {% endcomment %}
             {% if rutina_actual.dias_para_vencer == 0 %}
               · se termina hoy
+            {% elif rutina_actual.dias_para_vencer < 0 %}
+              · ya se terminó
             {% else %}
-              · quedan {{ rutina_actual.dias_para_vencer }} día{{ rutina_actual.dias_para_vencer|pluralize }}
+              · queda{{ rutina_actual.dias_para_vencer|pluralize:",n" }} {{ rutina_actual.dias_para_vencer }} día{{ rutina_actual.dias_para_vencer|pluralize }}
             {% endif %}
           </a>
         {% else %}

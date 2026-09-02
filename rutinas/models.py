@@ -27,6 +27,7 @@ from datetime import timedelta
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from core.models import TenantOwnedModel, TimeStampedModel
@@ -295,52 +296,71 @@ class RutinaAsignada(TenantOwnedModel):
 
     @classmethod
     def por_vencer_de(cls, *, gimnasio, dias=None):
-        """Planes VIGENTES de `gimnasio` que se terminan dentro de `dias`, y
-        a cuyo alumno todavía no se le cargó el siguiente.
+        """Alumnos activos de `gimnasio` que necesitan un plan nuevo: el que
+        tienen vigente se termina dentro de `dias`, **o ya se terminó**.
 
-        Es un recordatorio de tarea pendiente, no una métrica: por eso deja de
-        aparecer sola en cuanto el plan siguiente existe (si no, el staff
-        aprende a ignorar el aviso), y por eso excluye a los alumnos que no
-        están activos (una baja no genera trabajo).
+        Incluir los ya vencidos no es un detalle. Sin eso el aviso
+        desaparecía justo cuando el problema se materializaba: un plan que
+        llega al día 28 un sábado y no se reemplaza el fin de semana, el
+        lunes ya no figura en ningún lado -- y el alumno que HOY está sin
+        plan es el caso más urgente, no el que hay que ocultar.
 
-        La ventana se compara contra `fecha_inicio`, no contra una propiedad
-        calculada: `fecha_fin_prevista` es `fecha_inicio + 4 semanas`, así que
-        "termina dentro de N días" es "arrancó hace entre 28-N y 28 días". Con
-        la propiedad habría que traer todo a memoria; así lo resuelve la base.
+        No hace falta un piso de fecha para que la lista no crezca sola: se
+        limita al plan VIGENTE de cada alumno, a alumnos ACTIVOS, y a los que
+        no tienen ya un plan siguiente cargado. Es "quiénes necesitan plan",
+        no un histórico.
 
-        El borde inferior INCLUYE el plan que se terminó hoy
-        (`fecha_fin_prevista == hoy`, o sea 28 días exactos): es el más
-        urgente, no el que ya pasó.
+        **Costo fijo, sin queries dentro de un loop.** La versión anterior
+        llamaba a `vigente_de` y `proxima_de` por cada candidato (2 queries
+        cada uno: 22 candidatos = 45 queries, en el dashboard Y en el listado
+        de alumnos). Las dos condiciones se expresan en SQL:
+
+        - "es el plan vigente" ⇔ no existe OTRO plan activo del mismo alumno,
+          ya empezado, que gane el orden de `vigente_de`
+          (`-fecha_inicio, -id`).
+        - "no hay plan siguiente" ⇔ no existe uno activo con `fecha_inicio`
+          futura.
+
+        Si tocás `vigente_de`, el `Exists` de acá abajo tiene que seguirlo:
+        son la misma regla escrita dos veces, una en Python y otra en SQL.
         """
         from alumnos.models import Alumno
 
         dias = cls.DIAS_AVISO_PLAN if dias is None else dias
         hoy = timezone.localdate()
-        ciclo = timedelta(weeks=SEMANAS_POR_CICLO)
-        # Arrancó hace entre (ciclo - dias) y ciclo: le quedan entre `dias` y 0.
-        desde = hoy - ciclo
-        hasta = hoy - ciclo + timedelta(days=dias)
+        # `fecha_inicio <= hoy - (28 - dias)` ⇔ le quedan `dias` o menos
+        # (incluido negativo: ya venció).
+        arranco_antes_de = hoy - timedelta(weeks=SEMANAS_POR_CICLO) + timedelta(days=dias)
 
-        candidatas = (
+        gana_el_orden = cls.objects.filter(
+            alumno=OuterRef("alumno"),
+            activa=True,
+            fecha_inicio__lte=hoy,
+        ).filter(
+            Q(fecha_inicio__gt=OuterRef("fecha_inicio"))
+            | Q(fecha_inicio=OuterRef("fecha_inicio"), id__gt=OuterRef("id"))
+        )
+        hay_plan_siguiente = cls.objects.filter(
+            alumno=OuterRef("alumno"), activa=True, fecha_inicio__gt=hoy
+        )
+
+        return list(
             cls.objects.for_gimnasio(gimnasio)
             .filter(
                 activa=True,
-                fecha_inicio__gte=desde,
-                fecha_inicio__lte=hasta,
+                fecha_inicio__lte=arranco_antes_de,
                 alumno__estado=Alumno.Estado.ACTIVO,
             )
+            .annotate(
+                _lo_pisa_otro=Exists(gana_el_orden),
+                _ya_tiene_siguiente=Exists(hay_plan_siguiente),
+            )
+            .filter(_lo_pisa_otro=False, _ya_tiene_siguiente=False)
             .select_related("alumno")
+            # Más urgente primero: el staff lee de arriba hacia abajo, y el
+            # que ya está sin plan tiene que ir antes que el que tiene 6 días.
             .order_by("fecha_inicio", "id")
         )
-        # `vigente_de` es la única autoridad sobre "qué plan ve el alumno" (ver
-        # su docstring): sin este filtro, un plan viejo no archivado de un
-        # alumno que ya tiene otro en curso generaría un aviso fantasma.
-        return [
-            rutina
-            for rutina in candidatas
-            if cls.vigente_de(alumno=rutina.alumno) == rutina
-            and cls.proxima_de(alumno=rutina.alumno) is None
-        ]
 
     @property
     def dias_para_vencer(self):
@@ -350,8 +370,13 @@ class RutinaAsignada(TenantOwnedModel):
 
     @property
     def por_vencer(self) -> bool:
-        """Para pintar el botón de la ficha en color de alerta."""
-        return 0 <= self.dias_para_vencer <= self.DIAS_AVISO_PLAN
+        """Para pintar el botón de la ficha en color de alerta.
+
+        Sin piso: un plan que YA venció es el caso más urgente, no uno que
+        deje de avisar. Mismo criterio que `por_vencer_de` -- ver su
+        docstring.
+        """
+        return self.dias_para_vencer <= self.DIAS_AVISO_PLAN
 
     @property
     def fecha_fin_prevista(self):
