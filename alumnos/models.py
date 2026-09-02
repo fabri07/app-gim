@@ -55,6 +55,11 @@ class Alumno(TenantOwnedModel):
     estado = models.CharField(
         max_length=10, choices=Estado.choices, default=Estado.ACTIVO
     )
+    #: Cuándo pasó a INACTIVO. Lo estampa `alumnos/signals.py::
+    #: registrar_fecha_de_baja`, no una vista. Sin este campo, "bajas por mes"
+    #: no es derivable: `modificado` cambia con cualquier edición, así que
+    #: contar bajas por ahí daría un número inventado.
+    fecha_baja = models.DateField(null=True, blank=True, editable=False)
     # Ficha de inscripción ampliada (cargada por el staff el día del alta):
     # todos blank=True a propósito -- no todo alumno cuenta todo el detalle
     # en el momento, y los alumnos ya existentes no tienen esta info.

@@ -17,6 +17,8 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection
+from django.utils import timezone
+from datetime import date
 from django.test import Client, SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -1223,3 +1225,68 @@ class DobleSubmitAccesoTests(TestCase):
         texto = response.content.decode()
         self.assertIn("ya tiene un acceso creado", texto)
         self.assertNotIn("Probá con el otro", texto)
+
+
+class FechaBajaTests(TestCase):
+    """`Alumno.fecha_baja`: cuándo se dio de baja a un alumno.
+
+    Existe porque sin esto "bajas por mes" NO es derivable: el cambio de
+    `estado` no dejaba ninguna marca temporal, y `modificado` cambia con
+    cualquier edición, así que contar bajas por ahí daría un número inventado.
+    Con el campo, el panel puede mostrar altas VS bajas, que es lo que dice si
+    el gimnasio crece o solo reemplaza.
+
+    Se estampa en un `pre_save` y no en las vistas por el mismo motivo que
+    `sincronizar_acceso_con_estado`: `estado` se escribe desde tres lugares y
+    cualquier `alumno.save()` futuro es un cuarto.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz"
+        )
+
+    def test_un_alumno_activo_no_tiene_fecha_de_baja(self):
+        self.assertIsNone(self.alumno.fecha_baja)
+
+    def test_darlo_de_baja_estampa_la_fecha(self):
+        self.alumno.estado = Alumno.Estado.INACTIVO
+        self.alumno.save()
+
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.fecha_baja, timezone.localdate())
+
+    def test_reactivarlo_limpia_la_fecha(self):
+        """Un alumno que vuelve no puede seguir contando como baja: el
+        gráfico de altas vs bajas lo contaría dos veces."""
+        self.alumno.estado = Alumno.Estado.INACTIVO
+        self.alumno.save()
+        self.alumno.estado = Alumno.Estado.ACTIVO
+        self.alumno.save()
+
+        self.alumno.refresh_from_db()
+        self.assertIsNone(self.alumno.fecha_baja)
+
+    def test_editar_otro_campo_no_pisa_la_fecha_de_baja(self):
+        """Si cada `save()` reestampara la fecha, corregirle el teléfono a un
+        alumno dado de baja hace un año lo movería al mes actual."""
+        self.alumno.estado = Alumno.Estado.INACTIVO
+        self.alumno.save()
+        Alumno.objects.filter(pk=self.alumno.pk).update(
+            fecha_baja=date(2026, 1, 15)
+        )
+
+        alumno = Alumno.objects.get(pk=self.alumno.pk)
+        alumno.telefono = "1122334455"
+        alumno.save()
+
+        alumno.refresh_from_db()
+        self.assertEqual(alumno.fecha_baja, date(2026, 1, 15))
+
+    def test_un_alumno_creado_ya_inactivo_tambien_la_lleva(self):
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Baja", apellido="Directa",
+            estado=Alumno.Estado.INACTIVO,
+        )
+        self.assertEqual(alumno.fecha_baja, timezone.localdate())

@@ -4082,7 +4082,10 @@ class PlanPorVencerEnPantallaTests(RutinasTestCase):
         self._plan_que_vence_en(0)
         response = self.client.get(reverse("home"))
         self.assertContains(response, "se le termina hoy")
-        self.assertNotContains(response, "0 días")
+        # La frase COMPLETA, no "0 días" suelto: ese substring aparece dentro
+        # de "Últimos 30 días" del gráfico de asistencia diaria, y el test
+        # fallaba por una colisión que no tenía nada que ver con lo que mide.
+        self.assertNotContains(response, "le quedan 0 días")
 
     def test_el_panel_no_muestra_nada_si_no_hay_planes_por_vencer(self):
         self._plan_que_vence_en(20)

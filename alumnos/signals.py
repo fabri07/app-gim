@@ -10,7 +10,7 @@ sin acoplar el flujo de auth al dominio de alumnos.
 
 from django.contrib.auth.signals import user_logged_in
 from django.core.exceptions import ObjectDoesNotExist
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -44,6 +44,48 @@ def registrar_primera_activacion(sender, request, user, **kwargs):
     if alumno.fecha_activacion is None:
         alumno.fecha_activacion = timezone.now()
         alumno.save(update_fields=["fecha_activacion"])
+
+
+@receiver(pre_save, sender="alumnos.Alumno")
+def registrar_fecha_de_baja(sender, instance, raw=False, **kwargs):
+    """Estampa (o limpia) `Alumno.fecha_baja` al cambiar `estado`.
+
+    En `pre_save` y no en `post_save` para que el valor viaje en el MISMO
+    UPDATE: con un `post_save` habría que hacer un segundo `save()`, que
+    volvería a disparar las señales.
+
+    Solo actúa en la TRANSICIÓN, no en cada guardado: si reestampara siempre,
+    corregirle el teléfono a alguien dado de baja hace un año lo movería al mes
+    actual y el gráfico de bajas mentiría. Reactivar limpia la fecha, o el
+    alumno que vuelve seguiría contando como baja para siempre.
+
+    Vive en una señal por el mismo motivo que `sincronizar_acceso_con_estado`:
+    `estado` se escribe desde tres lugares distintos y cualquier
+    `alumno.save()` futuro es un cuarto.
+
+    **Mismo límite conocido:** `pre_save` no se dispara con `QuerySet.update()`
+    ni `bulk_update()`.
+    """
+    if raw:
+        return
+
+    inactivo = instance.estado == instance.Estado.INACTIVO
+
+    if instance.pk is None:
+        # Alta directa en estado inactivo: hay baja, aunque no haya transición.
+        instance.fecha_baja = timezone.localdate() if inactivo else None
+        return
+
+    estaba_inactivo = (
+        sender.objects.filter(pk=instance.pk)
+        .values_list("estado", flat=True)
+        .first()
+        == instance.Estado.INACTIVO
+    )
+    if inactivo and not estaba_inactivo:
+        instance.fecha_baja = timezone.localdate()
+    elif not inactivo and estaba_inactivo:
+        instance.fecha_baja = None
 
 
 @receiver(post_save, sender="alumnos.Alumno")

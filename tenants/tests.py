@@ -6,7 +6,7 @@ patrón de ~/gestor-pedidos/core/tests.py — en Fase 0 todavía no existe ning�
 TenantOwnedModel concreto para ejercitarlos.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from io import BytesIO, StringIO
 from unittest.mock import patch
 from xml.etree import ElementTree
@@ -42,6 +42,11 @@ from tenants import paisaje_matching, suplantacion
 from tenants.context_processors import tour_onboarding_disponible
 from tenants.forms import GimnasioForm
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
+from decimal import Decimal
+
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+from tenants import analitica
 from tenants.models import Gimnasio, Perfil, RegistroSuplantacion
 
 
@@ -2836,6 +2841,51 @@ class SembrarDemoTests(TestCase):
 
         self.assertFalse(services._silenciado)
 
+    def test_los_ejercicios_sembrados_traen_video(self):
+        """Sin video, las capturas muestran "Sin video" en cada fila y la app
+        se ve incompleta. Son BÚSQUEDAS de YouTube, no videos elegidos a
+        dedo: linkear uno puntual sin verificar que muestra ese ejercicio con
+        buena técnica es lo que no se hace en una biblioteca real."""
+        from ejercicios.models import Ejercicio
+
+        self._sembrar(alumnos=3, meses=1)
+
+        ejercicios = Ejercicio.objects.for_gimnasio(self.gimnasio)
+        self.assertTrue(ejercicios.exists())
+        self.assertFalse(ejercicios.filter(url_video="").exists())
+
+    def test_no_pisa_el_video_que_ya_tenia_un_ejercicio(self):
+        """Un ejercicio con video cargado por el entrenador no se toca."""
+        from ejercicios.models import CategoriaEjercicio, Ejercicio
+
+        categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
+        propio = Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Sentadilla con barra",
+            categoria=categoria, url_video="https://videos.mios/sentadilla",
+        )
+
+        self._sembrar(alumnos=3, meses=1)
+
+        propio.refresh_from_db()
+        self.assertEqual(propio.url_video, "https://videos.mios/sentadilla")
+
+    def test_las_altas_se_reparten_en_el_tiempo(self):
+        """Sin repartirlas, los 24 alumnos caen todos en el mes actual y el
+        gráfico de altas es una sola columna gigante: en una captura se lee
+        como un dato inventado."""
+        from tenants import analitica
+
+        self._sembrar(alumnos=12, meses=6)
+
+        filas = analitica.altas_y_bajas_por_mes(self.gimnasio, meses=8)
+        meses_con_altas = [f for f in filas if f["altas"]]
+        self.assertGreater(
+            len(meses_con_altas), 1,
+            "Todas las altas cayeron en el mismo mes",
+        )
+
     def test_es_reproducible(self):
         """Semilla fija: rehacer una captura tiene que dar el mismo resultado."""
         from alumnos.models import Alumno
@@ -2906,3 +2956,200 @@ class SembrarDemoSinPushTests(TransactionTestCase):
             )
 
         webpush.assert_not_called()
+
+
+class IndicadoresTemporalesTests(TestCase):
+    """`tenants/analitica.py`: los indicadores que responden "¿cómo viene esto
+    en el tiempo?". El panel era todo agregado histórico, así que no había
+    forma de ver si el gimnasio crece o se vacía."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        self.hoy = date(2026, 9, 15)  # martes
+
+    def _alumno(self, nombre, creado=None, gimnasio=None):
+        from alumnos.models import Alumno
+
+        alumno = Alumno.objects.create(
+            gimnasio=gimnasio or self.gimnasio, nombre=nombre, apellido="X"
+        )
+        if creado:
+            # `auto_now_add` no se puede setear al crear.
+            Alumno.objects.filter(pk=alumno.pk).update(
+                creado=timezone.make_aware(
+                    datetime.combine(creado, datetime.min.time())
+                )
+            )
+            # `refresh_from_db` NO es opcional: `update()` no toca la instancia
+            # en memoria, así que un `save()` posterior (por ejemplo para dar
+            # de baja al alumno) le reescribía `creado` con el valor viejo y el
+            # alta se contaba en el mes equivocado.
+            alumno.refresh_from_db()
+        return alumno
+
+    def _reserva(self, alumno, fecha, hora=time(19, 0)):
+        from turnos.models import Reserva
+
+        return Reserva.objects.create(
+            gimnasio=alumno.gimnasio, alumno=alumno, fecha=fecha, hora_inicio=hora
+        )
+
+    # --- Altas y bajas ---------------------------------------------------
+
+    def test_altas_y_bajas_devuelve_una_fila_por_mes_aunque_este_vacio(self):
+        """Un gráfico que se saltea los meses sin movimiento miente sobre la
+        tendencia: dos meses separados por un hueco se ven contiguos."""
+        filas = analitica.altas_y_bajas_por_mes(
+            self.gimnasio, meses=6, hoy=self.hoy
+        )
+        self.assertEqual(len(filas), 6)
+        self.assertEqual([f["altas"] for f in filas], [0] * 6)
+        self.assertEqual(filas[-1]["etiqueta"], "sep 26")
+
+    def test_cuenta_altas_en_su_mes(self):
+        self._alumno("Ana", creado=date(2026, 7, 10))
+        self._alumno("Beto", creado=date(2026, 7, 20))
+        self._alumno("Caro", creado=date(2026, 9, 1))
+
+        filas = analitica.altas_y_bajas_por_mes(
+            self.gimnasio, meses=3, hoy=self.hoy
+        )
+        por_mes = {f["etiqueta"]: f["altas"] for f in filas}
+        self.assertEqual(por_mes["jul 26"], 2)
+        self.assertEqual(por_mes["ago 26"], 0)
+        self.assertEqual(por_mes["sep 26"], 1)
+
+    def test_cuenta_bajas_y_calcula_el_neto(self):
+        from alumnos.models import Alumno
+
+        self._alumno("Ana", creado=date(2026, 9, 2))
+        self._alumno("Beto", creado=date(2026, 9, 3))
+        se_va = self._alumno("Caro", creado=date(2026, 7, 1))
+        se_va.estado = Alumno.Estado.INACTIVO
+        se_va.save()
+        Alumno.objects.filter(pk=se_va.pk).update(fecha_baja=date(2026, 9, 10))
+
+        filas = analitica.altas_y_bajas_por_mes(
+            self.gimnasio, meses=3, hoy=self.hoy
+        )
+        septiembre = [f for f in filas if f["etiqueta"] == "sep 26"][0]
+        self.assertEqual(septiembre["altas"], 2)
+        self.assertEqual(septiembre["bajas"], 1)
+        self.assertEqual(septiembre["neto"], 1)
+
+    def test_no_mezcla_alumnos_de_otro_gimnasio(self):
+        self._alumno("Ajeno", creado=date(2026, 9, 1), gimnasio=self.otro)
+
+        filas = analitica.altas_y_bajas_por_mes(
+            self.gimnasio, meses=2, hoy=self.hoy
+        )
+        self.assertEqual(sum(f["altas"] for f in filas), 0)
+
+    # --- Asistencia ------------------------------------------------------
+
+    def test_asistencia_por_semana_agrupa_por_lunes(self):
+        alumno = self._alumno("Ana")
+        self._reserva(alumno, date(2026, 9, 14))  # lunes
+        self._reserva(alumno, date(2026, 9, 15), hora=time(20, 0))  # martes
+        self._reserva(alumno, date(2026, 9, 8))   # semana anterior
+
+        filas = analitica.asistencia_por_semana(
+            self.gimnasio, semanas=3, hoy=self.hoy
+        )
+        self.assertEqual(len(filas), 3)
+        self.assertEqual(filas[-1]["total"], 2)
+        self.assertEqual(filas[-2]["total"], 1)
+
+    def test_asistencia_diaria_incluye_los_dias_sin_reservas(self):
+        alumno = self._alumno("Ana")
+        self._reserva(alumno, self.hoy)
+
+        filas = analitica.asistencia_diaria(self.gimnasio, dias=5, hoy=self.hoy)
+        self.assertEqual(len(filas), 5)
+        self.assertEqual([f["total"] for f in filas], [0, 0, 0, 0, 1])
+
+    # --- Ingresos --------------------------------------------------------
+
+    def test_ingresos_solo_cuentan_lo_pagado(self):
+        """Pendiente y vencido son expectativa, no ingreso: sumarlos haría que
+        el gráfico muestre plata que el gimnasio no tiene."""
+        from pagos.models import PagoMensual
+
+        alumno = self._alumno("Ana")
+        PagoMensual.objects.create(
+            gimnasio=self.gimnasio, alumno=alumno, mes=9, anio=2026,
+            monto=Decimal("30000"), estado=PagoMensual.Estado.PAGADO,
+        )
+        otro = self._alumno("Beto")
+        PagoMensual.objects.create(
+            gimnasio=self.gimnasio, alumno=otro, mes=9, anio=2026,
+            monto=Decimal("30000"), estado=PagoMensual.Estado.PENDIENTE,
+        )
+
+        filas = analitica.ingresos_por_mes(self.gimnasio, meses=2, hoy=self.hoy)
+        self.assertEqual(filas[-1]["total"], 30000.0)
+
+    # --- Tarjetas del momento --------------------------------------------
+
+    def test_indicadores_del_momento(self):
+        alumno = self._alumno("Ana", creado=date(2026, 9, 3))
+        self._alumno("Beto", creado=date(2026, 8, 5))
+        self._reserva(alumno, self.hoy)
+        self._reserva(alumno, date(2026, 9, 14), hora=time(8, 0))  # lunes
+        self._reserva(alumno, date(2026, 9, 7), hora=time(8, 0))   # semana pasada
+
+        datos = analitica.indicadores_del_momento(self.gimnasio, hoy=self.hoy)
+
+        self.assertEqual(datos["asistentes_hoy"], 1)
+        self.assertEqual(datos["asistentes_semana"], 2)
+        self.assertEqual(datos["altas_del_mes"], 1)
+        self.assertEqual(datos["altas_mes_anterior"], 1)
+        self.assertEqual(datos["altas_diferencia"], 0)
+
+    def test_cobranza_sin_cuotas_emitidas_no_es_cero_por_ciento(self):
+        """"0% cobrado" en un mes sin cuotas emitidas es alarmante y falso."""
+        datos = analitica.indicadores_del_momento(self.gimnasio, hoy=self.hoy)
+        self.assertIsNone(datos["cobranza_porcentaje"])
+
+    def test_cobranza_calcula_el_porcentaje(self):
+        from pagos.models import PagoMensual
+
+        for i, estado in enumerate(
+            [PagoMensual.Estado.PAGADO, PagoMensual.Estado.PAGADO,
+             PagoMensual.Estado.PENDIENTE, PagoMensual.Estado.VENCIDO]
+        ):
+            PagoMensual.objects.create(
+                gimnasio=self.gimnasio, alumno=self._alumno(f"A{i}"),
+                mes=9, anio=2026, monto=Decimal("1000"), estado=estado,
+            )
+
+        datos = analitica.indicadores_del_momento(self.gimnasio, hoy=self.hoy)
+        self.assertEqual(datos["cobranza_porcentaje"], 50)
+
+    # --- Costo -----------------------------------------------------------
+
+    def test_el_costo_no_crece_con_la_cantidad_de_datos(self):
+        """Cada indicador es UNA consulta agregada. Si alguien lo cambia por un
+        bucle por mes/semana, esto falla -- es el mismo N+1 que ya se pagó dos
+        veces en este proyecto."""
+        alumno = self._alumno("Ana")
+        for n in range(3):
+            self._reserva(alumno, self.hoy - timedelta(days=n))
+
+        with CaptureQueriesContext(connection) as con_pocos:
+            analitica.altas_y_bajas_por_mes(self.gimnasio, hoy=self.hoy)
+            analitica.asistencia_por_semana(self.gimnasio, hoy=self.hoy)
+            analitica.asistencia_diaria(self.gimnasio, hoy=self.hoy)
+            analitica.ingresos_por_mes(self.gimnasio, hoy=self.hoy)
+
+        for n in range(3, 60):
+            self._reserva(alumno, self.hoy - timedelta(days=n))
+
+        with CaptureQueriesContext(connection) as con_muchos:
+            analitica.altas_y_bajas_por_mes(self.gimnasio, hoy=self.hoy)
+            analitica.asistencia_por_semana(self.gimnasio, hoy=self.hoy)
+            analitica.asistencia_diaria(self.gimnasio, hoy=self.hoy)
+            analitica.ingresos_por_mes(self.gimnasio, hoy=self.hoy)
+
+        self.assertEqual(len(con_muchos), len(con_pocos))

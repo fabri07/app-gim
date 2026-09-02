@@ -76,6 +76,46 @@
       <span class="metrica__valor">{{ alumnos_con_rutina_count }}</span>
       <span class="metrica__etiqueta">Alumnos con plan vigente</span>
     </div>
+    <div class="metrica">
+      <span class="metrica__valor">{{ asistentes_hoy }}</span>
+      <span class="metrica__etiqueta">Asistentes hoy</span>
+    </div>
+    <div class="metrica">
+      <span class="metrica__valor">{{ asistentes_semana }}</span>
+      <span class="metrica__etiqueta">Asistentes esta semana</span>
+    </div>
+    <div class="metrica">
+      <span class="metrica__valor">{{ altas_del_mes }}</span>
+      <span class="metrica__etiqueta">
+        Altas del mes
+        {% comment %}
+          La comparación contra el mes anterior es la mitad útil del número:
+          "4 altas" no dice nada sin saber si el mes pasado fueron 1 o 12.
+        {% endcomment %}
+        {% if altas_diferencia > 0 %}
+          <span class="metrica__delta metrica__delta--sube">+{{ altas_diferencia }} vs. {{ etiqueta_mes_anterior }}</span>
+        {% elif altas_diferencia < 0 %}
+          <span class="metrica__delta metrica__delta--baja">{{ altas_diferencia }} vs. {{ etiqueta_mes_anterior }}</span>
+        {% else %}
+          <span class="metrica__delta">igual que {{ etiqueta_mes_anterior }}</span>
+        {% endif %}
+      </span>
+    </div>
+    <div class="metrica">
+      {% comment %}
+        `None` (no 0) cuando no hay cuotas emitidas: "0% cobrado" en un mes
+        sin cuotas es alarmante y falso.
+      {% endcomment %}
+      <span class="metrica__valor">
+        {% if cobranza_porcentaje is None %}—{% else %}{{ cobranza_porcentaje }}%{% endif %}
+      </span>
+      <span class="metrica__etiqueta">
+        Cobrado este mes
+        {% if cobranza_emitidos %}
+          <span class="metrica__delta">{{ cobranza_pagados }} de {{ cobranza_emitidos }} cuotas</span>
+        {% endif %}
+      </span>
+    </div>
   </div>
 
   <div class="tarjeta">
@@ -163,6 +203,110 @@
     {% else %}
       <p class="texto-suave">Todavía no hay reservas registradas.</p>
     {% endif %}
+  </div>
+
+  {% comment %}
+    Los tres gráficos temporales van ANTES de los de composición (género,
+    RPE): responden "¿cómo venimos?", que es la pregunta con la que alguien
+    entra al panel. Los de composición responden "¿cómo estamos formados?",
+    que se mira después.
+  {% endcomment %}
+  <div class="tarjeta">
+    <h2>Ingresos cobrados por mes</h2>
+    <p class="texto-suave">
+      Solo cuotas efectivamente pagadas, agrupadas por el mes al que
+      corresponden. Pendiente y vencido son expectativa, no ingreso.
+    </p>
+    <div class="grafico-contenedor">
+      <canvas id="grafico-ingresos"></canvas>
+    </div>
+    <details class="tabla-detalle">
+      <summary>Ver como tabla</summary>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Mes</th><th>Cobrado</th></tr></thead>
+          <tbody>
+            {% for fila in ingresos_mensuales %}
+              <tr><td>{{ fila.etiqueta }}</td><td>$ {{ fila.total|floatformat:0 }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Altas y bajas de alumnos</h2>
+    <p class="texto-suave">
+      Últimos 12 meses. La línea muestra el neto: si queda por debajo de cero,
+      el gimnasio pierde más alumnos de los que suma.
+    </p>
+    <div class="grafico-contenedor">
+      <canvas id="grafico-altas-bajas"></canvas>
+    </div>
+    <details class="tabla-detalle">
+      <summary>Ver como tabla</summary>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Mes</th><th>Altas</th><th>Bajas</th><th>Neto</th></tr></thead>
+          <tbody>
+            {% for fila in altas_y_bajas %}
+              <tr>
+                <td>{{ fila.etiqueta }}</td><td>{{ fila.altas }}</td>
+                <td>{{ fila.bajas }}</td><td>{{ fila.neto }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Asistencia por semana</h2>
+    <p class="texto-suave">
+      Reservas por semana en los últimos 3 meses — la tendencia que la grilla
+      de horarios no puede mostrar, porque esa agrupa todo el historial.
+      <strong>La última semana está en curso</strong>, así que siempre se ve
+      más baja: no es una caída.
+    </p>
+    <div class="grafico-contenedor">
+      <canvas id="grafico-asistencia-semanal"></canvas>
+    </div>
+    <details class="tabla-detalle">
+      <summary>Ver como tabla</summary>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Semana del</th><th>Reservas</th></tr></thead>
+          <tbody>
+            {% for fila in asistencia_semanal %}
+              <tr><td>{{ fila.etiqueta }}</td><td>{{ fila.total }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <div class="tarjeta">
+    <h2>Asistencia día a día</h2>
+    <p class="texto-suave">Últimos 30 días. Acá se ven los feriados y los bajones puntuales.</p>
+    <div class="grafico-contenedor">
+      <canvas id="grafico-asistencia-diaria"></canvas>
+    </div>
+    <details class="tabla-detalle">
+      <summary>Ver como tabla</summary>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Día</th><th>Reservas</th></tr></thead>
+          <tbody>
+            {% for fila in asistencia_diaria %}
+              <tr><td>{{ fila.etiqueta }}</td><td>{{ fila.total }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
   </div>
 
   <div class="tarjeta">
@@ -294,6 +438,10 @@
     {% endif %}
   </div>
 
+  {{ ingresos_mensuales|json_script:"ingresos-data" }}
+  {{ altas_y_bajas|json_script:"altas-bajas-data" }}
+  {{ asistencia_semanal|json_script:"asistencia-semanal-data" }}
+  {{ asistencia_diaria|json_script:"asistencia-diaria-data" }}
   {{ genero_stats|json_script:"genero-data" }}
   {{ rpe_por_ejercicio|json_script:"rpe-data" }}
   {{ ejercicios_mas_asignados|json_script:"ejercicios-data" }}
@@ -301,6 +449,131 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
   <script>
     (function () {
+      // Paleta: el azul del tema para la serie principal, y solo para
+      // "altas vs bajas" se suma un segundo color, porque ahí las dos series
+      // significan cosas opuestas. El resto son de una sola serie, donde un
+      // segundo color no aportaría información (ver skill dataviz).
+      var AZUL = "#2a78d6";
+      var ROJO = "#d64545";
+      var GRIS = "#6b7280";
+
+      function lineaSimple(id, datos, color) {
+        var el = document.getElementById(id);
+        if (!el || !datos.length) return;
+        new Chart(el, {
+          type: "line",
+          data: {
+            labels: datos.map(function (d) { return d.etiqueta; }),
+            datasets: [{
+              data: datos.map(function (d) { return d.total; }),
+              borderColor: color,
+              backgroundColor: color,
+              tension: 0.3,
+              pointRadius: 2,
+              fill: false,
+            }],
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+            maintainAspectRatio: false,
+          },
+        });
+      }
+
+      var ingresosData = JSON.parse(document.getElementById("ingresos-data").textContent);
+      var elIngresos = document.getElementById("grafico-ingresos");
+      if (elIngresos && ingresosData.length) {
+        new Chart(elIngresos, {
+          type: "bar",
+          data: {
+            labels: ingresosData.map(function (d) { return d.etiqueta; }),
+            datasets: [{
+              data: ingresosData.map(function (d) { return d.total; }),
+              backgroundColor: AZUL,
+              borderRadius: 4,
+              maxBarThickness: 32,
+            }],
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  callback: function (v) { return "$ " + v.toLocaleString("es-AR"); },
+                },
+              },
+            },
+            maintainAspectRatio: false,
+          },
+        });
+      }
+
+      var altasBajasData = JSON.parse(document.getElementById("altas-bajas-data").textContent);
+      var elAltasBajas = document.getElementById("grafico-altas-bajas");
+      if (elAltasBajas && altasBajasData.length) {
+        new Chart(elAltasBajas, {
+          type: "bar",
+          data: {
+            labels: altasBajasData.map(function (d) { return d.etiqueta; }),
+            datasets: [
+              {
+                label: "Altas",
+                data: altasBajasData.map(function (d) { return d.altas; }),
+                backgroundColor: AZUL,
+                borderRadius: 4,
+              },
+              {
+                // Las bajas van NEGATIVAS: dibujadas hacia abajo desde el
+                // cero, la comparación con las altas se lee sin cuentas.
+                label: "Bajas",
+                data: altasBajasData.map(function (d) { return -d.bajas; }),
+                backgroundColor: ROJO,
+                borderRadius: 4,
+              },
+              {
+                label: "Neto",
+                type: "line",
+                data: altasBajasData.map(function (d) { return d.neto; }),
+                borderColor: GRIS,
+                backgroundColor: GRIS,
+                tension: 0.3,
+                pointRadius: 2,
+                fill: false,
+              },
+            ],
+          },
+          options: {
+            plugins: {
+              legend: { position: "bottom" },
+              tooltip: {
+                callbacks: {
+                  // Sin esto el tooltip de bajas muestra "-3", que es un
+                  // artefacto del dibujo, no el dato.
+                  label: function (ctx) {
+                    return ctx.dataset.label + ": " + Math.abs(ctx.parsed.y);
+                  },
+                },
+              },
+            },
+            scales: { y: { ticks: { precision: 0 } } },
+            maintainAspectRatio: false,
+          },
+        });
+      }
+
+      lineaSimple(
+        "grafico-asistencia-semanal",
+        JSON.parse(document.getElementById("asistencia-semanal-data").textContent),
+        AZUL
+      );
+      lineaSimple(
+        "grafico-asistencia-diaria",
+        JSON.parse(document.getElementById("asistencia-diaria-data").textContent),
+        AZUL
+      );
+
       var generoData = JSON.parse(document.getElementById("genero-data").textContent);
       var elGenero = document.getElementById("grafico-genero");
       if (elGenero && generoData.length) {

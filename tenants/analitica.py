@@ -8,8 +8,16 @@ consulta 3 apps distintas (turnos, alumnos, rutinas) y se testea mejor sola,
 sin pasar por toda la vista.
 """
 
-from django.db.models import Count
-from django.db.models.functions import ExtractHour, ExtractWeekDay
+from datetime import timedelta
+
+from django.db.models import Count, Sum
+from django.db.models.functions import (
+    ExtractHour,
+    ExtractWeekDay,
+    TruncMonth,
+    TruncWeek,
+)
+from django.utils import timezone
 
 from core.catalogos import orden_con_bucket_vacio
 
@@ -228,3 +236,228 @@ def ejercicios_mas_asignados_por_genero(gimnasio, limite=_TOP_N_EJERCICIOS_MAS_A
         }
         for nombre in nombres_en_orden
     ]
+
+
+# ---------------------------------------------------------------------------
+# Indicadores temporales (2026-09-02)
+#
+# Lo que el dashboard NO tenía: todo era agregado histórico, así que no había
+# forma de ver si el gimnasio crece o se vacía. Estas funciones responden
+# "¿cómo viene esto en el tiempo?".
+#
+# Todas resuelven con UNA consulta agregada (`TruncMonth`/`TruncWeek`/
+# `TruncDate` + `annotate`), nunca con un bucle por período: el panel ya carga
+# varias métricas y este archivo es justo donde un N+1 se paga dos veces.
+# ---------------------------------------------------------------------------
+
+#: Ventanas por default. Doce meses muestra la estacionalidad completa (el
+#: verano de un gimnasio no se parece a julio); doce semanas es lo que se lee
+#: cómodo en un gráfico angosto sin superponer etiquetas.
+_MESES_DE_HISTORIAL = 12
+_SEMANAS_DE_HISTORIAL = 12
+_DIAS_DE_HISTORIAL = 30
+
+
+def _primer_dia_del_mes(fecha):
+    return fecha.replace(day=1)
+
+
+def _meses_hacia_atras(hasta, cantidad):
+    """Lista de primeros-de-mes, del más viejo al más nuevo, terminando en el
+    mes de `hasta`. Se arma en Python y no con un `generate_series` de
+    Postgres para que los meses SIN datos aparezcan igual: un gráfico que se
+    saltea los meses vacíos miente sobre la tendencia."""
+    meses = []
+    mes = _primer_dia_del_mes(hasta)
+    for _ in range(cantidad):
+        meses.append(mes)
+        mes = _primer_dia_del_mes(mes - timedelta(days=1))
+    return list(reversed(meses))
+
+
+def altas_y_bajas_por_mes(gimnasio, *, meses=_MESES_DE_HISTORIAL, hoy=None):
+    """Alumnos que entraron y que se fueron, mes a mes.
+
+    Las bajas dependen de `Alumno.fecha_baja`, que se estampa en la
+    transición a INACTIVO (ver `alumnos/signals.py`). Antes de que ese campo
+    existiera esto no era calculable: `modificado` cambia con cualquier
+    edición.
+
+    Devuelve una fila por mes INCLUSO si no hubo movimiento, para que la
+    tendencia no mienta.
+    """
+    from alumnos.models import Alumno
+
+    hoy = hoy or timezone.localdate()
+    ventana = _meses_hacia_atras(hoy, meses)
+    desde = ventana[0]
+
+    base = Alumno.objects.for_gimnasio(gimnasio)
+    altas = {
+        fila["mes"].date() if hasattr(fila["mes"], "date") else fila["mes"]: fila["total"]
+        for fila in base.filter(creado__date__gte=desde)
+        .annotate(mes=TruncMonth("creado"))
+        .values("mes")
+        .annotate(total=Count("id"))
+    }
+    bajas = {
+        fila["mes"]: fila["total"]
+        for fila in base.filter(fecha_baja__gte=desde)
+        .annotate(mes=TruncMonth("fecha_baja"))
+        .values("mes")
+        .annotate(total=Count("id"))
+    }
+    return [
+        {
+            "mes": mes,
+            "etiqueta": _etiqueta_mes(mes),
+            "altas": altas.get(mes, 0),
+            "bajas": bajas.get(mes, 0),
+            "neto": altas.get(mes, 0) - bajas.get(mes, 0),
+        }
+        for mes in ventana
+    ]
+
+
+_MESES_CORTOS = [
+    "ene", "feb", "mar", "abr", "may", "jun",
+    "jul", "ago", "sep", "oct", "nov", "dic",
+]
+
+
+def _etiqueta_mes(mes):
+    return f"{_MESES_CORTOS[mes.month - 1]} {str(mes.year)[2:]}"
+
+
+def asistencia_por_semana(gimnasio, *, semanas=_SEMANAS_DE_HISTORIAL, hoy=None):
+    """Reservas por semana, de la más vieja a la más nueva.
+
+    Es la evolución que la grilla de calor no puede mostrar: esa agrupa TODO
+    el historial por día y hora, o sea el patrón recurrente, no la tendencia.
+    """
+    from turnos.models import Reserva
+
+    hoy = hoy or timezone.localdate()
+    # Lunes de la semana actual, hacia atrás.
+    lunes_actual = hoy - timedelta(days=hoy.weekday())
+    ventana = [lunes_actual - timedelta(weeks=n) for n in reversed(range(semanas))]
+
+    por_semana = {
+        fila["semana"].date() if hasattr(fila["semana"], "date") else fila["semana"]: fila["total"]
+        for fila in Reserva.objects.for_gimnasio(gimnasio)
+        .filter(fecha__gte=ventana[0])
+        .annotate(semana=TruncWeek("fecha"))
+        .values("semana")
+        .annotate(total=Count("id"))
+    }
+    return [
+        {
+            "semana": lunes,
+            "etiqueta": f"{lunes.day:02d}/{lunes.month:02d}",
+            "total": por_semana.get(lunes, 0),
+        }
+        for lunes in ventana
+    ]
+
+
+def asistencia_diaria(gimnasio, *, dias=_DIAS_DE_HISTORIAL, hoy=None):
+    """Reservas por día. El detalle fino donde se ven los feriados y los
+    bajones que una suma semanal esconde."""
+    from turnos.models import Reserva
+
+    hoy = hoy or timezone.localdate()
+    ventana = [hoy - timedelta(days=n) for n in reversed(range(dias))]
+
+    por_dia = {
+        fila["fecha"]: fila["total"]
+        for fila in Reserva.objects.for_gimnasio(gimnasio)
+        .filter(fecha__gte=ventana[0], fecha__lte=hoy)
+        .values("fecha")
+        .annotate(total=Count("id"))
+    }
+    return [
+        {
+            "fecha": fecha,
+            "etiqueta": f"{fecha.day:02d}/{fecha.month:02d}",
+            "total": por_dia.get(fecha, 0),
+        }
+        for fecha in ventana
+    ]
+
+
+def ingresos_por_mes(gimnasio, *, meses=_MESES_DE_HISTORIAL, hoy=None):
+    """Plata efectivamente cobrada por mes.
+
+    Se agrupa por el mes de la CUOTA (`anio`/`mes`), no por `fecha_pago`: al
+    dueño le importa cuánto facturó cada mes, no cuándo entró el dinero de una
+    cuota atrasada. Solo cuenta `PAGADO`: pendiente y vencido son expectativa,
+    no ingreso.
+    """
+    from pagos.models import PagoMensual
+
+    hoy = hoy or timezone.localdate()
+    ventana = _meses_hacia_atras(hoy, meses)
+
+    cobrado = {
+        (fila["anio"], fila["mes"]): fila["total"] or 0
+        for fila in PagoMensual.objects.for_gimnasio(gimnasio)
+        .filter(estado=PagoMensual.Estado.PAGADO)
+        .values("anio", "mes")
+        .annotate(total=Sum("monto"))
+    }
+    return [
+        {
+            "mes": mes,
+            "etiqueta": _etiqueta_mes(mes),
+            "total": float(cobrado.get((mes.year, mes.month), 0)),
+        }
+        for mes in ventana
+    ]
+
+
+def indicadores_del_momento(gimnasio, *, hoy=None):
+    """Los números "de hoy": asistentes de hoy y de esta semana, altas del mes
+    contra el mes anterior, y qué porcentaje de la cuota del mes está cobrado.
+
+    Van como tarjetas y no como gráfico porque responden "¿cómo venimos?" de
+    un vistazo, que es lo primero que mira alguien al entrar al panel.
+    """
+    from alumnos.models import Alumno
+    from pagos.models import PagoMensual
+    from turnos.models import Reserva
+
+    hoy = hoy or timezone.localdate()
+    lunes = hoy - timedelta(days=hoy.weekday())
+    inicio_mes = _primer_dia_del_mes(hoy)
+    inicio_mes_anterior = _primer_dia_del_mes(inicio_mes - timedelta(days=1))
+
+    reservas = Reserva.objects.for_gimnasio(gimnasio)
+    alumnos = Alumno.objects.for_gimnasio(gimnasio)
+
+    altas_mes = alumnos.filter(creado__date__gte=inicio_mes).count()
+    altas_mes_anterior = alumnos.filter(
+        creado__date__gte=inicio_mes_anterior, creado__date__lt=inicio_mes
+    ).count()
+
+    # Cobranza del mes EN CURSO: qué proporción de lo emitido ya entró. Es la
+    # pregunta que un dueño se hace todos los meses y que hoy había que
+    # contar a ojo en la tabla de pagos.
+    del_mes = PagoMensual.objects.for_gimnasio(gimnasio).filter(
+        anio=hoy.year, mes=hoy.month
+    )
+    emitidos = del_mes.count()
+    pagados = del_mes.filter(estado=PagoMensual.Estado.PAGADO).count()
+
+    return {
+        "asistentes_hoy": reservas.filter(fecha=hoy).count(),
+        "asistentes_semana": reservas.filter(fecha__gte=lunes, fecha__lte=hoy).count(),
+        "altas_del_mes": altas_mes,
+        "altas_mes_anterior": altas_mes_anterior,
+        "altas_diferencia": altas_mes - altas_mes_anterior,
+        "etiqueta_mes_anterior": _etiqueta_mes(inicio_mes_anterior),
+        "cobranza_emitidos": emitidos,
+        "cobranza_pagados": pagados,
+        # `None` y no 0 cuando no hay cuotas emitidas: "0% cobrado" en un mes
+        # sin cuotas es alarmante y falso.
+        "cobranza_porcentaje": round(pagados * 100 / emitidos) if emitidos else None,
+    }

@@ -287,6 +287,38 @@ proyecto tenía CRUD completo de items para `RutinaPlantilla` y **nada** para
   con publicación programada. Sin eso el aviso llegaba hasta 4 semanas antes y
   el día del relevo no llegaba nada.
 
+## Indicadores temporales del panel (2026-09-02)
+
+El dashboard era todo agregado histórico (grilla de calor, género, RPE): no
+había forma de ver si el gimnasio crece o se vacía. `tenants/analitica.py`
+suma cinco funciones que responden "¿cómo venimos?".
+
+- **`altas_y_bajas_por_mes`** depende de **`Alumno.fecha_baja`**, campo nuevo
+  que estampa `alumnos/signals.py::registrar_fecha_de_baja` en la TRANSICIÓN
+  a INACTIVO. Antes esto no era calculable: `modificado` cambia con cualquier
+  edición, así que contar bajas por ahí daba un número inventado. La señal
+  actúa solo en la transición (si reestampara siempre, corregirle el teléfono
+  a alguien dado de baja hace un año lo movería al mes actual) y limpia la
+  fecha al reactivar. Va en `pre_save` para que el valor viaje en el mismo
+  UPDATE.
+- **`ingresos_por_mes`** agrupa por el mes de la CUOTA (`anio`/`mes`), no por
+  `fecha_pago`: al dueño le importa cuánto facturó cada mes, no cuándo entró
+  el dinero de una cuota atrasada. Solo `PAGADO` — pendiente y vencido son
+  expectativa, no ingreso.
+- **Todas devuelven una fila por período aunque esté vacío.** Un gráfico que
+  se saltea los meses sin movimiento hace que dos meses separados por un
+  hueco se vean contiguos: miente sobre la tendencia.
+- **`cobranza_porcentaje` es `None`, no 0, cuando no hay cuotas emitidas.**
+  "0% cobrado" en un mes sin cuotas es alarmante y falso.
+- **Cada indicador es UNA consulta agregada** (`TruncMonth`/`TruncWeek`),
+  nunca un bucle por período; hay un test que compara dos tamaños de conjunto.
+  Este archivo es justo donde un N+1 se paga dos veces (panel + listado).
+- El gráfico de altas dibuja las **bajas en negativo**: comparadas contra las
+  altas desde el cero se leen sin hacer cuentas. El tooltip devuelve el valor
+  absoluto, o mostraría "-3", que es un artefacto del dibujo.
+- **La última semana del gráfico semanal está en curso** y siempre se ve más
+  baja; el copy lo aclara para que no se lea como una caída.
+
 ## Datos de demostración (`manage.py sembrar_demo`)
 
 Agregado el 2026-09-02: una cuenta vacía no muestra NADA de la app (los

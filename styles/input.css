@@ -280,6 +280,22 @@
     @apply text-sm text-gray-500;
   }
 
+  /* La comparación contra el período anterior, debajo de la etiqueta. Es la
+     mitad útil de un número: "4 altas" no dice nada sin saber si el mes
+     pasado fueron 1 o 12. Verde/rojo solo cuando hay dirección; sin cambio
+     queda en gris, porque "igual" no es ni bueno ni malo. */
+  .metrica__delta {
+    @apply block text-xs text-gray-400 mt-0.5;
+  }
+
+  .metrica__delta--sube {
+    @apply text-green-700;
+  }
+
+  .metrica__delta--baja {
+    @apply text-red-600;
+  }
+
   /* Estado (activo/pagado/visible vs. riesgo) */
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs

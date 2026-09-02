@@ -16,13 +16,17 @@ lo que le permite a `borrar_demo` sacar exactamente esto y nada más.
 """
 
 import random
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from urllib.parse import quote_plus
 
 from django.db import transaction
 from django.utils import timezone
 
 MARCA = "[demo]"
+
+#: Búsqueda de YouTube, no un video puntual -- ver `_EJERCICIOS`.
+_VIDEO_BASE = "https://www.youtube.com/results?search_query="
 
 _NOMBRES = [
     ("Sofía", "F"), ("Martina", "F"), ("Valentina", "F"), ("Camila", "F"),
@@ -47,19 +51,26 @@ _FRANJAS = [
     (time(17, 0), 3), (time(18, 0), 6), (time(19, 0), 7), (time(20, 0), 5),
 ]
 
+#: (nombre, categoría, video). El video es una BÚSQUEDA de YouTube por el
+#: nombre del ejercicio, no un video puntual elegido a dedo. Es deliberado:
+#: son datos de demostración, y linkear un video concreto sin que nadie haya
+#: verificado que muestra ESE ejercicio con buena técnica es justo lo que no
+#: se hace en la biblioteca de un gimnasio real -- el que se lastima es una
+#: persona. Una búsqueda siempre lleva a algo pertinente, y en una captura de
+#: pantalla el botón "Ver video" se ve igual.
 _EJERCICIOS = [
-    ("Sentadilla con barra", "Piernas"),
-    ("Peso muerto", "Cadena posterior"),
-    ("Press de banca", "Empuje"),
-    ("Dominadas", "Tracción"),
-    ("Remo con barra", "Tracción"),
-    ("Press militar", "Empuje"),
-    ("Zancadas", "Piernas"),
-    ("Plancha", "Core"),
-    ("Hip thrust", "Cadena posterior"),
-    ("Fondos en paralelas", "Empuje"),
-    ("Curl de bíceps", "Accesorios"),
-    ("Elevaciones laterales", "Accesorios"),
+    ("Sentadilla con barra", "Piernas", "sentadilla con barra tecnica"),
+    ("Peso muerto", "Cadena posterior", "peso muerto tecnica"),
+    ("Press de banca", "Empuje", "press de banca tecnica"),
+    ("Dominadas", "Tracción", "dominadas tecnica"),
+    ("Remo con barra", "Tracción", "remo con barra tecnica"),
+    ("Press militar", "Empuje", "press militar tecnica"),
+    ("Zancadas", "Piernas", "zancadas tecnica"),
+    ("Plancha", "Core", "plancha abdominal tecnica"),
+    ("Hip thrust", "Cadena posterior", "hip thrust tecnica"),
+    ("Fondos en paralelas", "Empuje", "fondos en paralelas tecnica"),
+    ("Curl de bíceps", "Accesorios", "curl de biceps tecnica"),
+    ("Elevaciones laterales", "Accesorios", "elevaciones laterales tecnica"),
 ]
 
 _NOVEDADES = [
@@ -104,7 +115,7 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
         # encontraba en la corrida siguiente: el `get_or_create` intentaba
         # insertar de nuevo y reventaba contra la UniqueConstraint.
         categorias = {}
-        for _, nombre_categoria in _EJERCICIOS:
+        for _, nombre_categoria, _video in _EJERCICIOS:
             if nombre_categoria not in categorias:
                 categorias[nombre_categoria], _ = CategoriaEjercicio.objects.get_or_create(
                     gimnasio=gimnasio,
@@ -112,11 +123,20 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                     defaults={"nombre": nombre_categoria},
                 )
         ejercicios = []
-        for nombre, nombre_categoria in _EJERCICIOS:
-            ejercicio, _ = Ejercicio.objects.get_or_create(
+        for nombre, nombre_categoria, busqueda in _EJERCICIOS:
+            ejercicio, creado_ej = Ejercicio.objects.get_or_create(
                 gimnasio=gimnasio, nombre=nombre,
-                defaults={"categoria": categorias[nombre_categoria]},
+                defaults={
+                    "categoria": categorias[nombre_categoria],
+                    "url_video": _VIDEO_BASE + quote_plus(busqueda),
+                },
             )
+            # Un ejercicio preexistente al que le falta el video lo recibe;
+            # uno que ya tiene el suyo NO se pisa (puede haberlo cargado el
+            # entrenador).
+            if not creado_ej and not ejercicio.url_video:
+                ejercicio.url_video = _VIDEO_BASE + quote_plus(busqueda)
+                ejercicio.save(update_fields=["url_video", "modificado"])
             ejercicios.append(ejercicio)
         resumen["ejercicios"] = len(ejercicios)
 
@@ -181,6 +201,26 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                 observaciones=MARCA,
             )
             alumnos.append(alumno)
+
+        # `creado` se reparte hacia atrás en la ventana de historial: sin
+        # esto los 24 alumnos caen todos en el mes actual y el gráfico de
+        # altas es una sola columna gigante, que en una captura se lee como
+        # un dato falso. `update()` porque `auto_now_add` no se puede setear
+        # al crear; se hace en UNA query para todos los del mismo mes.
+        for i, alumno in enumerate(alumnos):
+            antiguedad = azar.randint(0, max(meses - 1, 0) * 30 + 25)
+            Alumno.objects.filter(pk=alumno.pk).update(
+                creado=timezone.make_aware(
+                    datetime.combine(hoy - timedelta(days=antiguedad), datetime.min.time())
+                )
+            )
+            # Las bajas también se reparten: el signal las estampó todas hoy,
+            # y doce meses de bajas concentradas en uno solo miente igual que
+            # las altas.
+            if alumno.estado == Alumno.Estado.INACTIVO:
+                Alumno.objects.filter(pk=alumno.pk).update(
+                    fecha_baja=hoy - timedelta(days=azar.randint(0, antiguedad))
+                )
         resumen["alumnos"] = len(alumnos)
 
         activos = [a for a in alumnos if a.estado == Alumno.Estado.ACTIVO]

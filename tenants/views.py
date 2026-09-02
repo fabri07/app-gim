@@ -192,6 +192,13 @@ class HomeView(LoginRequiredMixin, TemplateView):
             .filter(alumno__isnull=True)[:5],
             # Analítica (subproyecto 4): asistencia, género, RPE por
             # ejercicio, ejercicios más asignados (general y por género).
+            # Indicadores temporales (2026-09-02): el panel era todo agregado
+            # histórico, así que no mostraba si el gimnasio crece o se vacía.
+            **analitica.indicadores_del_momento(gimnasio),
+            "altas_y_bajas": analitica.altas_y_bajas_por_mes(gimnasio),
+            "asistencia_semanal": analitica.asistencia_por_semana(gimnasio),
+            "asistencia_diaria": analitica.asistencia_diaria(gimnasio),
+            "ingresos_mensuales": analitica.ingresos_por_mes(gimnasio),
             "asistencia": analitica.asistencia_por_dia_y_hora(gimnasio),
             "genero_stats": analitica.distribucion_por_genero(gimnasio),
             "rpe_por_ejercicio": analitica.rpe_por_ejercicio(gimnasio),
