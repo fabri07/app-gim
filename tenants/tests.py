@@ -1078,6 +1078,33 @@ class GimnasioLoginViewTests(TestCase):
             usuario=self.alumno_otro, gimnasio=self.otro_gimnasio, rol=Perfil.Rol.ALUMNO
         )
 
+    def test_el_login_del_gimnasio_muestra_sus_redes_sociales(self):
+        """Es la pantalla donde cae el alumno al cerrar sesión, y era la
+        única superficie con estética de gimnasio (logo, colores, nombre,
+        bienvenida) donde las redes NO aparecían. Mismo partial que el
+        portal y la landing."""
+        self.gimnasio.link_whatsapp = "https://wa.me/5491112345678"
+        self.gimnasio.link_instagram = "https://instagram.com/central"
+        self.gimnasio.save()
+
+        response = self.client.get(reverse("login_gimnasio", args=["central"]))
+
+        self.assertContains(response, "redes-sociales__boton")
+        self.assertContains(response, 'aria-label="WhatsApp"')
+        self.assertContains(response, 'aria-label="Instagram"')
+        self.assertNotContains(response, 'aria-label="Facebook"')
+
+    def test_el_login_generico_no_muestra_redes_de_ningun_gimnasio(self):
+        """Sin slug no hay gimnasio en contexto: mostrar las redes de
+        alguien ahí sería filtrar un tenant en una pantalla que no le
+        pertenece a nadie."""
+        self.gimnasio.link_whatsapp = "https://wa.me/5491112345678"
+        self.gimnasio.save()
+
+        response = self.client.get(reverse("login"))
+
+        self.assertNotContains(response, "redes-sociales__boton")
+
     def test_anonimo_puede_ver_login_con_estetica_del_gimnasio(self):
         response = self.client.get(reverse("login_gimnasio", args=["central"]))
         self.assertEqual(response.status_code, 200)

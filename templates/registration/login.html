@@ -69,6 +69,18 @@
       <h1 class="auth-hero__titulo">{{ gimnasio.nombre }}</h1>
       <p class="auth-hero__subtitulo">{{ gimnasio.texto_bienvenida|default:"Ingresá con tu usuario y contraseña." }}</p>
       {% comment %}
+        Va DENTRO de la rama `{% if gimnasio %}`: en el login genérico no hay
+        tenant en contexto, y mostrar las redes de alguien ahí sería filtrar
+        un gimnasio en una pantalla que no le pertenece a ninguno.
+
+        No necesita hx-boost="false" pese al gotcha del <head> que afecta a
+        todos los demás links de esta página: htmx solo boostea un <a> si es
+        link LOCAL y su target es "" o "_self" (htmx 2.0.3, `shouldBoost`),
+        y el partial los emite cross-origin y con target="_blank" -- fallan
+        las dos condiciones.
+      {% endcomment %}
+      {% include 'partials/redes_sociales.html' with gimnasio=gimnasio %}
+      {% comment %}
         hx-boost="false": mismo motivo que el link "Iniciar sesión" de
         landing.html -- el <style> de extra_style (fondo imagen/doodle)
         vive en <head>, que hx-boost no swapea, así que sin esto el fondo
