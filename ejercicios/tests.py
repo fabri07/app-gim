@@ -992,4 +992,51 @@ class EjerciciosSinVideoTests(TestCase):
     def test_la_fila_muestra_el_video_o_avisa_que_falta(self):
         response = self.client.get(reverse("ejercicios:listado"))
         self.assertContains(response, "https://youtu.be/abc")
-        self.assertContains(response, "Sin video")
+        # Anclado al markup de la CELDA. Un `assertContains("Sin video")`
+        # suelto matchea el `<option>Sin video</option>` del filtro, que se
+        # renderiza siempre: el test pasaba aunque se borrara el `{% else %}`
+        # de la fila.
+        self.assertContains(response, '<span class="texto-suave">Sin video</span>')
+
+    def test_el_conteo_ignora_los_ejercicios_inactivos(self):
+        """Un ejercicio desactivado no entra en ninguna rutina
+        (`rutinas/forms.py` filtra `activo=True`), así que no puede llegarle a
+        un alumno sin video. Contarlo infla el aviso justo para el gimnasio
+        que siguió el consejo de `EjercicioDeleteView` -- "si ya no lo usás,
+        destildá Activo" -- y lo deja avisando para siempre sobre ejercicios
+        que sacó de circulación."""
+        Ejercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Retirado",
+            categoria=self.categoria, activo=False,
+        )
+        response = self.client.get(reverse("ejercicios:listado"))
+        self.assertEqual(response.context["sin_video_count"], 1)
+
+    def test_el_link_del_aviso_conserva_los_filtros_puestos(self):
+        """Sin esto, buscar "Plancha" y hacer clic en "Ver cuáles son" vacía
+        la búsqueda sin decir nada."""
+        response = self.client.get(
+            reverse("ejercicios:listado"), {"q": "Pue", "categoria": self.categoria.pk}
+        )
+        self.assertContains(response, "q=Pue")
+        self.assertContains(response, f"categoria={self.categoria.pk}")
+
+    def test_el_estado_vacio_distingue_filtro_de_biblioteca_vacia(self):
+        """Con el filtro nuevo esto pasa a ser alcanzable en un clic: en una
+        biblioteca donde TODOS tienen video, elegir "Sin video" mostraba a la
+        vez "todos tienen video cargado" y "No hay ejercicios cargados
+        todavía"."""
+        self.sin_video.url_video = "https://youtu.be/def"
+        self.sin_video.save()
+
+        response = self.client.get(reverse("ejercicios:listado"), {"video": "sin"})
+        self.assertNotContains(response, "No hay ejercicios cargados todavía")
+        self.assertContains(response, "Ningún ejercicio coincide")
+
+    def test_concuerda_en_singular(self):
+        """"Los 1 ejercicios tienen video" -- el caso de un gimnasio recién
+        dado de alta que carga su primer ejercicio."""
+        self.sin_video.delete()
+        response = self.client.get(reverse("ejercicios:listado"))
+        self.assertNotContains(response, "Los 1 ejercicios")
+        self.assertContains(response, "El único ejercicio tiene video")

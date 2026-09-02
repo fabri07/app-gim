@@ -66,10 +66,19 @@ class EjercicioListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         # conteo cambiara al filtrar, buscar un ejercicio que sí tiene video
         # diría "0 sin video" y parecería que está todo cargado.
         #
+        # Solo los ACTIVOS: `rutinas/forms.py` ofrece únicamente
+        # `activo=True` al armar una rutina, así que un ejercicio desactivado
+        # sin video no puede llegarle a ningún alumno. Contarlo infla el aviso
+        # justo para el gimnasio que siguió el consejo de
+        # `EjercicioDeleteView` ("si ya no lo usás, destildá Activo") y lo deja
+        # avisando para siempre sobre ejercicios que sacó de circulación.
+        #
         # Una sola query con `Count(filter=...)`, no dos: este listado ya trae
         # la biblioteca completa de un gimnasio (748 ejercicios en el caso
         # real) y no es lugar para sumar consultas.
-        totales = Ejercicio.objects.for_gimnasio(self.gimnasio).aggregate(
+        totales = Ejercicio.objects.for_gimnasio(self.gimnasio).filter(
+            activo=True
+        ).aggregate(
             sin_video=Count("pk", filter=Q(url_video="")),
             con_video=Count("pk", filter=~Q(url_video="")),
         )

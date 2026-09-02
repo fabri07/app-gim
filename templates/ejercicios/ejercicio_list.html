@@ -47,12 +47,21 @@
   {% if sin_video_count %}
     <p class="campo-ayuda">
       <strong>{{ sin_video_count }}</strong> de {{ sin_video_count|add:con_video_count }}
-      ejercicios no tienen video cargado, así que a tus alumnos les van a
-      aparecer sin nada para mirar.
-      <a href="?video=sin">Ver cuáles son</a>.
+      ejercicios activos no tienen video cargado, así que a tus alumnos les van
+      a aparecer sin nada para mirar.
+      {% comment %}
+        El link arrastra los filtros puestos: armado desde cero vaciaba la
+        búsqueda del staff sin avisar. Los ejercicios DESACTIVADOS sin video
+        aparecen igual en el resultado (el filtro es sobre toda la
+        biblioteca), y se distinguen por su badge "Inactivo" -- mostrar de más
+        es preferible a esconder algo que el staff podría querer reactivar.
+      {% endcomment %}
+      <a href="?video=sin{% if q_actual %}&amp;q={{ q_actual|urlencode }}{% endif %}{% if categoria_actual %}&amp;categoria={{ categoria_actual.pk }}{% endif %}">Ver cuáles son</a>.
     </p>
+  {% elif con_video_count == 1 %}
+    <p class="texto-suave">El único ejercicio tiene video cargado.</p>
   {% elif con_video_count %}
-    <p class="texto-suave">Los {{ con_video_count }} ejercicios tienen video cargado.</p>
+    <p class="texto-suave">Los {{ con_video_count }} ejercicios activos tienen video cargado.</p>
   {% endif %}
 
   {% if categoria_actual or q_actual or video_actual %}
@@ -104,7 +113,21 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="4" class="texto-suave">No hay ejercicios cargados todavía.</td>
+            {% comment %}
+              Distingue "la biblioteca está vacía" de "el filtro no devolvió
+              nada": con el filtro de video, la segunda situación se alcanza
+              en un clic (elegir "Sin video" en una biblioteca donde todos lo
+              tienen) y decía "No hay ejercicios cargados todavía" al lado de
+              un aviso que decía justo lo contrario.
+            {% endcomment %}
+            <td colspan="4" class="texto-suave">
+              {% if q_actual or categoria_actual or video_actual %}
+                Ningún ejercicio coincide con el filtro.
+                <a href="{% url 'ejercicios:listado' %}">Ver todos</a>.
+              {% else %}
+                No hay ejercicios cargados todavía.
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
