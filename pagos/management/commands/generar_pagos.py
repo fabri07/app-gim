@@ -23,7 +23,14 @@ class Command(BaseCommand):
     )
 
     def handle(self, *args, **options):
-        ahora = timezone.now()
+        # `localtime()` y NO `now()`: `now()` es UTC y `TIME_ZONE` es
+        # `America/Argentina/Buenos_Aires`, así que entre las 21:00 y las
+        # 23:59 la fecha UTC ya es la de mañana. Corrido a mano el último día
+        # del mes por la noche, esto emitía las cuotas del mes SIGUIENTE con
+        # `dia=1`. La corrida agendada (06:30 UTC = 03:30 local) cae fuera de
+        # esa ventana, pero la corrida manual es justo la que se hace cuando
+        # algo ya salió mal.
+        ahora = timezone.localtime()
         mes, anio, dia = ahora.month, ahora.year, ahora.day
 
         creados = generar_pagos_pendientes(mes, anio)

@@ -7,6 +7,7 @@ TenantOwnedModel concreto para ejercitarlos.
 """
 
 from datetime import date, datetime, time, timedelta
+from datetime import timezone as dt_timezone
 from io import BytesIO, StringIO
 from unittest.mock import patch
 from xml.etree import ElementTree
@@ -442,6 +443,71 @@ class AlumnoRequiredMixinTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(view.alumno)
+
+
+class HomeViewStaffFechaLocalTests(TestCase):
+    """El panel del staff se arma con la fecha LOCAL, no la UTC.
+
+    `_metricas_dashboard` calculaba `hoy` con `timezone.now().date()`. Entre
+    las 21:00 y las 23:59 de Argentina esa fecha ya es la de mañana, y eso se
+    veía en dos números del panel:
+
+    1. «Pagos del mes» filtra por `mes`/`anio`. El último día del mes, después
+       de las 21:00, el panel pasaba a mostrar las cuotas del mes SIGUIENTE
+       —normalmente ninguna, porque el cron todavía no las generó— y el dueño
+       veía su facturación del mes en cero.
+    2. «Alumnos con rutina» contaba planes que arrancan mañana, mientras el
+       portal del alumno (que usa `RutinaAsignada.vigente_de`, con fecha
+       local) seguía diciendo que no tenía rutina.
+
+    El reloj se congela para que esto se pruebe siempre, y en el último día
+    de un mes, que es cuando la primera consecuencia es visible.
+    """
+
+    # 2026-06-01 01:00 UTC == 2026-05-31 22:00 en Buenos Aires: último día del
+    # mes en hora local, primer día del mes siguiente en UTC.
+    MOMENTO = datetime(2026, 6, 1, 1, 0, tzinfo=dt_timezone.utc)
+
+    def setUp(self):
+        from alumnos.models import Alumno
+
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        staff = User.objects.create_user("staff-fecha", password="clave-123456")
+        Perfil.objects.create(
+            usuario=staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gómez"
+        )
+        self.client.force_login(staff)
+
+    def test_pagos_del_mes_son_los_del_mes_local(self):
+        from pagos.models import PagoMensual
+
+        pago = PagoMensual.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            mes=5, anio=2026, monto=10000,
+        )
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            response = self.client.get(reverse("home"))
+
+        self.assertEqual(list(response.context["pagos_del_mes"]), [pago])
+
+    def test_no_cuenta_como_activo_un_plan_que_arranca_manana(self):
+        from rutinas.models import RutinaAsignada
+
+        RutinaAsignada.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            nombre_snapshot="Plan de junio",
+            fecha_inicio=date(2026, 6, 1),
+            activa=True,
+        )
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.context["alumnos_con_rutina_count"], 0)
 
 
 class HomeViewAlumnoTests(TestCase):

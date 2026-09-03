@@ -153,7 +153,15 @@ class HomeView(LoginRequiredMixin, TemplateView):
         from rutinas.models import RutinaAsignada
         from tenants import analitica
 
-        hoy = timezone.now().date()
+        # `localdate()` y NO `now().date()`: `now()` es UTC y `TIME_ZONE` es
+        # `America/Argentina/Buenos_Aires`, así que entre las 21:00 y las
+        # 23:59 la fecha UTC ya es la de mañana. Con el corte en UTC, el
+        # último día del mes después de las 21:00 «Pagos del mes» mostraba las
+        # cuotas del mes SIGUIENTE (ninguna: el cron todavía no las generó) y
+        # «Alumnos con rutina» contaba planes que arrancan mañana, mientras el
+        # portal del alumno —que usa `vigente_de`, con fecha local— decía que
+        # no tenía rutina.
+        hoy = timezone.localdate()
 
         return {
             "alumnos_activos_count": Alumno.objects.for_gimnasio(gimnasio)

@@ -8,7 +8,7 @@ modela el dato.
 """
 
 from django.db import models
-from django.utils.timezone import now
+from django.utils import timezone
 
 from core.models import TenantOwnedModel, TenantQuerySet, TimeStampedModel, validar_gimnasio_de
 
@@ -32,7 +32,11 @@ class NovedadQuerySet(TenantQuerySet):
         pantalla del alumno lo conecta Fase 2/3; acá solo queda disponible el
         método para que ese código no tenga que reinventar la condición.
         """
-        hoy = now().date()
+        # `localdate()` y NO `now().date()`: `now()` es UTC y `TIME_ZONE` es
+        # `America/Argentina/Buenos_Aires`, así que entre las 21:00 y las
+        # 23:59 la fecha UTC ya es la de mañana. Con el corte en UTC, una
+        # novedad programada para MAÑANA se listaba como visible esta noche.
+        hoy = timezone.localdate()
         return self.filter(activa=True, fecha_publicacion__lte=hoy).filter(
             models.Q(visible_hasta__isnull=True) | models.Q(visible_hasta__gte=hoy)
         )
@@ -47,8 +51,15 @@ class NovedadQuerySet(TenantQuerySet):
 
 def _hoy():
     # Función a nivel de módulo (no lambda): las migraciones de Django
-    # necesitan poder serializar el default por su import path.
-    return now().date()
+    # necesitan poder serializar el default por su import path. Por eso el
+    # nombre y la ruta no se tocan aunque cambie el cuerpo.
+    #
+    # `localdate()` y NO `now().date()`: con el default en UTC, una novedad
+    # publicada a las 22:00 nacía fechada para MAÑANA, y
+    # `notificaciones/signals.py` la tomaba por "programada a futuro" (compara
+    # contra `localdate()`) y no mandaba el push. El alumno la veía igual en el
+    # portal, sin haber recibido el aviso.
+    return timezone.localdate()
 
 
 class Novedad(TenantOwnedModel):
@@ -57,9 +68,10 @@ class Novedad(TenantOwnedModel):
     `fecha_publicacion` es editable (no `auto_now_add`) porque el staff debe
     poder programar una novedad a futuro o dejar constancia de que se
     publicó en una fecha pasada (backdating). El default usa
-    `timezone.now().date()` en vez del `date.today()` de stdlib para respetar
+    `timezone.localdate()` en vez del `date.today()` de stdlib para respetar
     la zona horaria configurada en el proyecto (USE_TZ), en linea con el
-    resto del código (que evita "now"/"today" naive).
+    resto del código (que evita "now"/"today" naive y no usa la fecha UTC,
+    que de noche adelanta un día — ver `_hoy`).
 
     `visible_hasta` nulo significa "sin fecha de vencimiento". Cuando tiene
     valor y ya pasó, la novedad deja de listarse para alumnos (Fase 2), pero

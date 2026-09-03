@@ -7,7 +7,8 @@ Sigue el mismo criterio que `tenants/tests.py`: `django.test.TestCase` plano,
 sin pytest ni factories (el proyecto es chico, KISS/YAGNI).
 """
 
-from datetime import date
+from datetime import date, datetime
+from datetime import timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -150,6 +151,39 @@ class GenerarPagosPendientesTests(TestCase):
 
         self.assertEqual(creados_segunda_vez, 0)
         self.assertEqual(PagoMensual.objects.filter(mes=7, anio=2026).count(), 3)
+
+
+class GenerarPagosFechaLocalTests(TestCase):
+    """El cron deriva mes/año/día de la fecha LOCAL, no de la UTC.
+
+    `TIME_ZONE` es `America/Argentina/Buenos_Aires` (UTC-3): entre las 21:00 y
+    las 23:59 la fecha UTC ya es la de mañana. Corrido a mano el último día
+    del mes por la noche, el comando generaba las cuotas del mes SIGUIENTE con
+    `dia=1`, o sea un mes entero de cuotas emitidas antes de tiempo.
+
+    El horario agendado (06:30 UTC = 03:30 local) cae fuera de esa ventana,
+    así que esto no afectó a ninguna corrida automática; el riesgo era la
+    corrida manual, que es justo la que se hace cuando algo salió mal.
+    """
+
+    # 2026-06-01 01:00 UTC == 2026-05-31 22:00 en Buenos Aires.
+    MOMENTO = datetime(2026, 6, 1, 1, 0, tzinfo=dt_timezone.utc)
+
+    def test_usa_el_mes_local_y_no_el_utc(self):
+        from io import StringIO
+        from unittest.mock import patch
+
+        from django.core.management import call_command
+
+        gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        Alumno.objects.create(gimnasio=gimnasio, nombre="Ana", apellido="Gómez")
+
+        salida = StringIO()
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            call_command("generar_pagos", stdout=salida)
+
+        self.assertTrue(PagoMensual.objects.filter(mes=5, anio=2026).exists())
+        self.assertFalse(PagoMensual.objects.filter(mes=6, anio=2026).exists())
 
 
 class MarcarVencidosTests(TestCase):

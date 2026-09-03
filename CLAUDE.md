@@ -475,6 +475,47 @@ de rutinas asignadas. `series`/`repeticiones` siguen obligatorios a propósito:
 no hay valor sensato que inventar y un item sin ellas le llega al alumno como
 una fila vacía.
 
+## Fechas: `timezone.localdate()`, nunca `timezone.now().date()`
+
+`TIME_ZONE` es `America/Argentina/Buenos_Aires` (UTC-3), así que **entre las
+21:00 y las 23:59 la fecha UTC ya es la de mañana**. Cualquier "hoy" del
+dominio (qué se muestra, qué venció, de qué mes es una cuota) va con
+`timezone.localdate()`; `timezone.now()` queda solo para timestamps y
+duraciones, donde el instante es lo que importa.
+
+No es teórico: llegó a producción en cuatro lugares a la vez (2026-09-02),
+todos con la misma línea mal escrita y consecuencias distintas.
+
+- **`novedades/models.py`** era el peor, porque combinaba dos: el default de
+  `fecha_publicacion` fechaba en UTC, así que una novedad publicada a las
+  22:00 nacía fechada para MAÑANA — y `notificaciones/signals.py` la tomaba
+  por "programada a futuro" (ese sí compara contra `localdate()`) y **no
+  mandaba el push**, que recién salía con el cron del día siguiente. Al alumno
+  le aparecía igual en el portal, porque `visibles()` también cortaba en UTC:
+  veía la novedad sin haber recibido el aviso. Ese mismo corte hacía visible
+  esta noche una novedad programada para mañana.
+- **`tenants/views.py::_metricas_dashboard`**: el último día del mes después
+  de las 21:00, «Pagos del mes» mostraba las cuotas del mes SIGUIENTE
+  (ninguna, el cron no las generó todavía) y el dueño veía su facturación en
+  cero. «Alumnos con rutina» contaba planes que arrancan mañana, mientras el
+  portal del alumno decía que no tenía rutina.
+- **`pagos/management/commands/generar_pagos.py`**: corrido a mano el último
+  día del mes por la noche, emitía las cuotas del mes siguiente con `dia=1`.
+  La corrida agendada (06:30 UTC = 03:30 local) cae fuera de la ventana, así
+  que nunca lo disparó sola — pero la corrida manual es la que se hace cuando
+  algo ya salió mal.
+- **Los tests tienen la misma trampa, y es peor porque no falla siempre.**
+  `HomeViewAlumnoTests` armaba su "hoy" en UTC contra un `vigente_de` local:
+  fallaba **solo entre las 21:00 y las 23:59**, sin relación con lo que
+  estuvieras tocando. Un test de esto se escribe **congelando el reloj**
+  (`patch("django.utils.timezone.now", ...)`) en un momento de esa ventana, y
+  con una fecha LEJANA a hoy: con una cercana, el test compara contra la fecha
+  real y pasa o falla por el motivo equivocado (pasó al escribir estos).
+- **Ojo con el objetivo del patch**: `from django.utils.timezone import now`
+  liga la función al importar, así que parchear `django.utils.timezone.now` no
+  la alcanza. Por eso el código usa `from django.utils import timezone` y
+  llama `timezone.localdate()` — resuelto en cada llamada, y testeable.
+
 ## Comentarios en templates: `{# #}` es de UNA sola línea
 
 `{# ... #}` solo es comentario para Django si abre y cierra en la **misma

@@ -11,14 +11,16 @@ Fase 5 agrega el modelo `NovedadLeida` (Feature B: read-receipts) — tests de
 creación, unicidad y cascade delete.
 """
 
-from datetime import timedelta
+from datetime import date, datetime, timedelta
+from datetime import timezone as dt_timezone
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase
 from django.urls import reverse
-from django.utils.timezone import now
+from django.utils import timezone
 
 from alumnos.models import Alumno
 from novedades.models import Novedad, NovedadLeida
@@ -40,7 +42,7 @@ class NovedadModelTests(TestCase):
 
         self.assertEqual(str(novedad), "Cerrado el feriado")
         self.assertTrue(novedad.activa)
-        self.assertEqual(novedad.fecha_publicacion, now().date())
+        self.assertEqual(novedad.fecha_publicacion, timezone.localdate())
         self.assertIsNone(novedad.visible_hasta)
 
 
@@ -51,7 +53,7 @@ class NovedadVisiblesTests(TestCase):
         self.gimnasio = Gimnasio.objects.create(
             nombre="Gimnasio de Prueba", slug="gimnasio-de-prueba"
         )
-        self.hoy = now().date()
+        self.hoy = timezone.localdate()
 
     def test_visibles_devuelve_solo_la_activa_publicada_y_no_vencida(self):
         vigente = Novedad.objects.create(
@@ -226,7 +228,7 @@ class NovedadViewsStaffTests(TestCase):
             usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
         )
         self.client.login(username="staff-1", password="clave-123456")
-        self.hoy = now().date()
+        self.hoy = timezone.localdate()
 
     def test_listado_muestra_las_novedades_del_gimnasio(self):
         novedad = Novedad.objects.create(
@@ -357,7 +359,7 @@ class NovedadListadoVisibleAhoraTests(TestCase):
             usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
         )
         self.client.login(username="staff-1", password="clave-123456")
-        self.hoy = now().date()
+        self.hoy = timezone.localdate()
 
     def test_ids_visibles_coincide_con_novedadqueryset_visibles(self):
         vigente = Novedad.objects.create(
@@ -616,8 +618,8 @@ class NovedadMarcarLeidaViewTests(TestCase):
             gimnasio=self.gimnasio,
             titulo="Vencida",
             mensaje="Contenido.",
-            fecha_publicacion=now().date() - timedelta(days=10),
-            visible_hasta=now().date() - timedelta(days=1),
+            fecha_publicacion=timezone.localdate() - timedelta(days=10),
+            visible_hasta=timezone.localdate() - timedelta(days=1),
         )
         self.client.login(username="alumno-1", password="clave-123456")
 
@@ -777,3 +779,60 @@ class NovedadLecturasViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+
+class NovedadFechaLocalTests(TestCase):
+    """La fecha de una novedad es la LOCAL, no la UTC.
+
+    `TIME_ZONE` es `America/Argentina/Buenos_Aires` (UTC-3), así que entre las
+    21:00 y las 23:59 la fecha UTC ya es la de mañana. Con el default y el
+    filtro calculados en UTC, una novedad publicada a las 22:00 nacía fechada
+    para MAÑANA, y eso tenía tres consecuencias distintas:
+
+    1. `notificaciones/signals.py::notificar_novedad_publicada` la trataba
+       como publicación programada a futuro (compara contra `localdate()`) y
+       NO mandaba el push. Lo levantaba el cron recién al día siguiente.
+    2. Al alumno le aparecía igual en el portal, porque `visibles()` comparaba
+       en UTC contra sí misma: veía la novedad sin haber recibido el aviso.
+    3. El staff la veía fechada un día después del que la publicó.
+
+    El reloj se congela a las 22:00 locales para que esto se pruebe siempre y
+    no solo si la suite corre de noche.
+    """
+
+    # 2026-05-10 01:00 UTC == 2026-05-09 22:00 en Buenos Aires. La fecha es
+    # deliberadamente lejana a "hoy": si el congelado del reloj no tomara
+    # efecto, el test compararía contra la fecha real y pasaría o fallaría por
+    # el motivo equivocado (el día que se escribió esto, la fecha UTC real era
+    # justamente la del caso).
+    MOMENTO = datetime(2026, 5, 10, 1, 0, tzinfo=dt_timezone.utc)
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+
+    def test_una_novedad_publicada_de_noche_se_fecha_hoy_y_no_manana(self):
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            novedad = Novedad.objects.create(
+                gimnasio=self.gimnasio, titulo="Aviso", mensaje="x"
+            )
+            self.assertEqual(novedad.fecha_publicacion, date(2026, 5, 9))
+            # La condición exacta que usa el signal del push para decidir si
+            # es "programada a futuro": si da True, el aviso no sale.
+            self.assertFalse(novedad.fecha_publicacion > timezone.localdate())
+
+    def test_visibles_usa_la_fecha_local(self):
+        """Una novedad programada para mañana no se ve hoy, y la fecha de
+        corte tiene que ser la local: en UTC, a las 22:00 «mañana» ya es
+        «hoy» y la novedad se filtraba como visible antes de tiempo."""
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            manana = Novedad.objects.create(
+                gimnasio=self.gimnasio, titulo="Mañana", mensaje="x",
+                fecha_publicacion=date(2026, 5, 10),
+            )
+            hoy = Novedad.objects.create(
+                gimnasio=self.gimnasio, titulo="Hoy", mensaje="x",
+                fecha_publicacion=date(2026, 5, 9),
+            )
+            visibles = list(Novedad.objects.for_gimnasio(self.gimnasio).visibles())
+        self.assertIn(hoy, visibles)
+        self.assertNotIn(manana, visibles)
