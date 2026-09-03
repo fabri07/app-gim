@@ -445,11 +445,19 @@ class AlumnoRequiredMixinTests(TestCase):
 
 
 class HomeViewAlumnoTests(TestCase):
-    """Portal del alumno (Fase 3): rutina activa, cuota del mes, novedades."""
+    """Portal del alumno (Fase 3): rutina activa, cuota del mes, novedades.
+
+    `localdate()` y NO `timezone.now().date()`: `now()` es UTC, y el código
+    que decide qué rutina ve el alumno (`RutinaAsignada.vigente_de`) usa la
+    fecha LOCAL. Entre las 21:00 y las 23:59 de Argentina las dos difieren en
+    un día, así que la rutina que estos tests crean "para hoy" quedaba
+    programada para mañana y el portal contestaba «Todavía no tenés una rutina
+    asignada». Fallaban solo en esa ventana de tres horas.
+    """
 
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio Alfa", slug="alfa")
-        self.hoy = timezone.now().date()
+        self.hoy = timezone.localdate()
 
     def _crear_alumno_con_login(self, *, username, nombre, apellido):
         user = User.objects.create_user(username, password="clave-123456")
