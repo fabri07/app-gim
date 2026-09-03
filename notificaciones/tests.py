@@ -498,3 +498,159 @@ class IconoGimnasioViewTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/png")
+
+
+def _logo_png(fondo, contenido=None, size=(400, 400), mode="RGB"):
+    """PNG cuadrado de color `fondo` con, opcionalmente, un bloque de color
+    `contenido` de 100x100 px en el centro. Devuelve los bytes."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    imagen = Image.new(mode, size, fondo)
+    if contenido is not None:
+        dibujo = ImageDraw.Draw(imagen)
+        cx, cy = size[0] // 2, size[1] // 2
+        dibujo.rectangle((cx - 50, cy - 50, cx + 49, cy + 49), fill=contenido)
+    buffer = io.BytesIO()
+    imagen.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _asignar_logo(gimnasio, contenido, nombre="logo.png"):
+    from django.core.files.base import ContentFile
+
+    gimnasio.logo.save(nombre, ContentFile(contenido), save=True)
+    return gimnasio
+
+
+def _pixel(png_bytes, xy):
+    import io
+
+    from PIL import Image
+
+    return Image.open(io.BytesIO(png_bytes)).convert("RGB").getpixel(xy)
+
+
+AZUL = (10, 40, 200)
+BLANCO = (255, 255, 255)
+
+
+class IconoLienzoTests(TestCase):
+    """El ícono se pinta sobre el color de fondo del PROPIO logo, no sobre el
+    fondo de la paleta: en el splash de Android el ícono flota sobre
+    `background_color`, y si el logo trae su propio fondo opaco de otro color
+    se ve un cuadrado que desentona (reporte real, 2026-09-03)."""
+
+    def setUp(self):
+        self.gimnasio = _crear_gimnasio()
+
+    def test_logo_opaco_el_lienzo_es_su_color_de_borde(self):
+        from notificaciones.icons import color_lienzo
+
+        _asignar_logo(self.gimnasio, _logo_png(AZUL, BLANCO))
+        self.assertEqual(color_lienzo(self.gimnasio), "#0a28c8")
+
+    def test_logo_transparente_el_lienzo_es_el_fondo_de_la_paleta(self):
+        from notificaciones.icons import color_lienzo
+
+        _asignar_logo(
+            self.gimnasio, _logo_png((0, 0, 0, 0), (200, 30, 30, 255), mode="RGBA")
+        )
+        self.assertEqual(color_lienzo(self.gimnasio), self.gimnasio.color_fondo_css)
+
+    def test_sin_logo_el_lienzo_es_el_primario_del_placeholder(self):
+        from notificaciones.icons import color_lienzo
+
+        self.assertEqual(color_lienzo(self.gimnasio), self.gimnasio.color_primario_css)
+
+    def test_el_icono_rellena_con_el_color_del_logo_y_recorta_los_margenes(self):
+        from notificaciones.icons import generar_icono
+
+        _asignar_logo(self.gimnasio, _logo_png(AZUL, BLANCO))
+        png = generar_icono(self.gimnasio, 192)
+        # Esquina: el relleno es el azul del logo, no el crema de la paleta.
+        self.assertEqual(_pixel(png, (2, 2)), AZUL)
+        # El bloque blanco (100 px de un logo de 400) sin recorte ocuparía 48 px
+        # al centro; con los márgenes recortados ocupa casi todo el ícono.
+        self.assertEqual(_pixel(png, (96, 96)), BLANCO)
+        self.assertEqual(_pixel(png, (15, 96)), BLANCO)
+
+    def test_la_variante_maskable_deja_la_zona_segura_del_20_por_ciento(self):
+        from notificaciones.icons import generar_icono
+
+        _asignar_logo(self.gimnasio, _logo_png(AZUL, BLANCO))
+        png = generar_icono(self.gimnasio, 192, maskable=True)
+        self.assertEqual(_pixel(png, (96, 96)), BLANCO)
+        self.assertEqual(_pixel(png, (15, 96)), AZUL)
+        self.assertEqual(_pixel(png, (25, 96)), BLANCO)
+
+    def test_logo_transparente_se_pinta_sobre_el_fondo_de_la_paleta(self):
+        from notificaciones.icons import generar_icono
+
+        _asignar_logo(
+            self.gimnasio, _logo_png((0, 0, 0, 0), (200, 30, 30, 255), mode="RGBA")
+        )
+        png = generar_icono(self.gimnasio, 192)
+        fondo = self.gimnasio.color_fondo_css.lstrip("#")
+        esperado = tuple(int(fondo[i : i + 2], 16) for i in (0, 2, 4))
+        self.assertEqual(_pixel(png, (2, 2)), esperado)
+        self.assertEqual(_pixel(png, (96, 96)), (200, 30, 30))
+
+
+class IconoVersionadoTests(TestCase):
+    """El navegador guarda el ícono al instalar y solo lo vuelve a pedir si
+    la URL del manifest cambia: con una URL fija, cambiar el logo del gimnasio
+    no cambiaba el ícono instalado (reporte real, 2026-09-03)."""
+
+    def setUp(self):
+        self.gimnasio = _crear_gimnasio()
+
+    def _manifest(self):
+        return self.client.get(
+            reverse("notificaciones:pwa_manifest", args=[self.gimnasio.slug])
+        )
+
+    def test_la_url_del_icono_cambia_cuando_cambia_el_gimnasio(self):
+        antes = self._manifest().json()["icons"][0]["src"]
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            modificado=timezone.now() + timedelta(days=1)
+        )
+        despues = self._manifest().json()["icons"][0]["src"]
+        self.assertNotEqual(antes, despues)
+        self.assertIn("?v=", antes)
+
+    def test_el_manifest_no_se_cachea_y_el_icono_versionado_si(self):
+        manifest = self._manifest()
+        self.assertEqual(manifest["Cache-Control"], "no-cache")
+        icono = self.client.get(manifest.json()["icons"][0]["src"])
+        self.assertEqual(icono.status_code, 200)
+        self.assertIn("immutable", icono["Cache-Control"])
+
+    def test_el_manifest_declara_iconos_maskable_y_any_por_separado(self):
+        iconos = self._manifest().json()["icons"]
+        propositos = {i["purpose"] for i in iconos}
+        self.assertEqual(propositos, {"any", "maskable"})
+        for icono in iconos:
+            self.assertEqual(self.client.get(icono["src"]).status_code, 200)
+
+    def test_background_color_es_el_lienzo_del_icono(self):
+        # Sin logo: el placeholder es una baldosa del color primario, así que
+        # el splash tiene que ser de ese mismo color.
+        self.assertEqual(
+            self._manifest().json()["background_color"], self.gimnasio.color_primario_css
+        )
+        _asignar_logo(self.gimnasio, _logo_png(AZUL, BLANCO))
+        self.assertEqual(self._manifest().json()["background_color"], "#0a28c8")
+
+    def test_el_icono_de_apple_va_en_el_head_versionado(self):
+        _, user = _crear_alumno_con_perfil(self.gimnasio, "ana")
+        self.client.force_login(user)
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, 'rel="apple-touch-icon"')
+        self.assertContains(response, "icono-192.png?v=")
+
+    def test_el_icono_del_push_va_versionado(self):
+        from notificaciones.services import _icono_url
+
+        self.assertIn("?v=", _icono_url(self.gimnasio))

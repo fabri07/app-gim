@@ -1,4 +1,4 @@
-{% load static %}<!doctype html>
+{% load static notificaciones_tags %}<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
@@ -9,6 +9,12 @@
   {% if user.is_authenticated and user.perfil.gimnasio %}
     {% with gimnasio=user.perfil.gimnasio %}
       <link rel="manifest" href="{% url 'notificaciones:pwa_manifest' gimnasio.slug %}">
+      {% comment %}
+        iOS no lee los íconos del manifest para "Agregar a inicio": sin este
+        link, Safari usa una captura de la página como ícono. Versionado por
+        el mismo motivo que el manifest (ver icons.icono_pwa_url).
+      {% endcomment %}
+      <link rel="apple-touch-icon" href="{% icono_pwa_url gimnasio 192 %}">
       <meta name="theme-color" content="{{ gimnasio.color_primario_css }}">
       {% if gimnasio.tipografia_google_param %}
         <link rel="preconnect" href="https://fonts.googleapis.com">

@@ -13,7 +13,13 @@ from django.http import (
 from django.urls import reverse
 from django.views import View
 
-from notificaciones.icons import TAMANOS_PERMITIDOS, generar_icono
+from notificaciones.icons import (
+    TAMANOS_PERMITIDOS,
+    color_lienzo,
+    generar_icono,
+    icono_pwa_url,
+    version_icono,
+)
 from notificaciones.models import SuscripcionPush
 from tenants import suplantacion
 from tenants.views import gimnasio_activo_o_404
@@ -22,25 +28,51 @@ from tenants.views import gimnasio_activo_o_404
 class IconoGimnasioView(View):
     """PNG del ícono del gimnasio para el manifest, cacheado. Pública (sin
     login): un ícono de app no es dato sensible, y el manifest se pide antes
-    de loguearse."""
+    de loguearse.
+
+    La URL lleva `?v=<versión>` (ver `icons.icono_pwa_url`); el valor no se
+    valida a propósito -- siempre se sirve el ícono actual -- pero permite
+    que la respuesta sea `immutable`: cambiar el logo cambia la URL del
+    manifest, y una URL nueva nunca choca con un cache viejo."""
+
+    maskable = False
 
     def get(self, request, slug, size):
         if size not in TAMANOS_PERMITIDOS:
             raise Http404
         gimnasio = gimnasio_activo_o_404(slug)
-        clave = f"pwa-icono-{gimnasio.pk}-{size}-{gimnasio.modificado.timestamp()}"
+        variante = "maskable" if self.maskable else "any"
+        clave = f"pwa-icono-{gimnasio.pk}-{size}-{variante}-{version_icono(gimnasio)}"
         png = cache.get(clave)
         if png is None:
-            png = generar_icono(gimnasio, size)
+            png = generar_icono(gimnasio, size, maskable=self.maskable)
             cache.set(clave, png, timeout=60 * 60 * 24)
         response = HttpResponse(png, content_type="image/png")
-        response["Cache-Control"] = "public, max-age=86400"
+        response["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
+
+
+def _color_lienzo_cacheado(gimnasio) -> str:
+    """`color_lienzo` abre el logo (en producción, desde R2); el manifest se
+    pide poco pero no hace falta bajar el archivo cada vez."""
+    clave = f"pwa-lienzo-{gimnasio.pk}-{version_icono(gimnasio)}"
+    color = cache.get(clave)
+    if color is None:
+        color = color_lienzo(gimnasio)
+        cache.set(clave, color, timeout=60 * 60 * 24)
+    return color
 
 
 class ManifestView(View):
     """Manifest dinámico por gimnasio -- blanco-etiquetado (nombre, colores,
-    ícono propios de cada tenant)."""
+    ícono propios de cada tenant).
+
+    `background_color` es el lienzo del ícono (no el fondo de la paleta):
+    Android pinta el splash con ese color y pone el ícono encima, así que
+    los dos tienen que ser el mismo o se ve un cuadrado que desentona.
+    `Cache-Control: no-cache` para que la verificación periódica de
+    actualización del navegador vea el manifest nuevo (y con él la URL
+    versionada del ícono) en vez de una copia vieja."""
 
     def get(self, request, slug):
         gimnasio = gimnasio_activo_o_404(slug)
@@ -51,19 +83,22 @@ class ManifestView(View):
             "id": f"/g/{gimnasio.slug}/",
             "scope": "/",
             "display": "standalone",
-            "background_color": gimnasio.color_fondo_css,
+            "background_color": _color_lienzo_cacheado(gimnasio),
             "theme_color": gimnasio.color_primario_css,
             "icons": [
                 {
-                    "src": reverse("notificaciones:pwa_icono", args=[gimnasio.slug, s]),
+                    "src": icono_pwa_url(gimnasio, s, maskable=maskable),
                     "sizes": f"{s}x{s}",
                     "type": "image/png",
-                    "purpose": "any",
+                    "purpose": "maskable" if maskable else "any",
                 }
+                for maskable in (False, True)
                 for s in TAMANOS_PERMITIDOS
             ],
         }
-        return JsonResponse(data, content_type="application/manifest+json")
+        response = JsonResponse(data, content_type="application/manifest+json")
+        response["Cache-Control"] = "no-cache"
+        return response
 
 
 class ServiceWorkerView(View):

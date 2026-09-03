@@ -1399,11 +1399,11 @@ igual.
 `CLAUDE.md`) se tomaron varias simplificaciones de MVP en vez de resolverlas
 de punta a punta. Cada una es independiente:
 
-1. **Íconos del manifest sin `purpose: maskable`.** El logo de cada
-   gimnasio es blanco-etiquetado y no hay garantía de que tenga la zona de
-   seguridad (80% central) que exige un ícono maskable — declararlo así
-   igual podría recortar mal un logo real. Se dejó solo `purpose: "any"`.
-   Si algún launcher de Android empieza a verse mal, revisar acá primero.
+1. ~~**Íconos del manifest sin `purpose: maskable`.**~~ **Resuelto el
+   2026-09-03** (ver la entrada de esa fecha): como el ícono ahora se compone
+   sobre un lienzo uniforme del color de fondo del propio logo, la zona
+   segura del 80% se garantiza al generarlo, y el manifest declara las dos
+   variantes (`any` y `maskable`) por separado.
 2. **Placeholder de ícono sin logo usa la fuente default de Pillow**
    (`ImageFont.load_default`), no una tipografía cuidada — un gimnasio sin
    logo subido ve iniciales con una fuente genérica en vez de algo
@@ -1606,6 +1606,58 @@ los de `resolver_grupo_muscular` (matcheaba contra un catálogo que ya no
 existe). Se descartan por migración las importaciones de biblioteca que
 quedaron en `en_revision` con el `resultado` del formato viejo: su preview
 habría dado 500 tras el deploy, y en producción había al menos dos.
+
+## [2026-09-03] El ícono de la PWA instalada no cambiaba al cambiar el logo, y el splash desentonaba
+
+**Estado:** resuelto
+
+**Impacto:** reporte de un gimnasio: quien instalaba la app en el celular
+se quedaba para siempre con el logo de la primera vez, aunque el dueño
+subiera uno nuevo. Y en la pantalla de apertura (el splash de Android) el
+logo se veía chico, dentro de un cuadrado de otro color que desentonaba
+con el resto de la pantalla.
+
+**Causas, dos distintas:**
+
+1. **URL fija del ícono.** El manifest apuntaba a `/g/<slug>/icono-192.png`
+   sin ninguna versión, y la vista respondía con `max-age=86400`. El
+   navegador guarda el ícono al instalar y en su verificación periódica
+   solo lo vuelve a bajar si la URL del manifest CAMBIA — y no cambiaba
+   nunca. El cache server-side (clave con `gimnasio.modificado`) sí se
+   invalidaba, pero eso no le llega al teléfono. Además el manifest no
+   llevaba `Cache-Control`, así que la verificación podía leer una copia
+   vieja del propio manifest. Y no había `apple-touch-icon`: iOS no lee
+   los íconos del manifest para "Agregar a inicio".
+2. **Lienzo equivocado.** `generar_icono` encajaba el logo con
+   `ImageOps.pad` rellenando con el `fondo` de la paleta, y el manifest
+   usaba ese mismo color como `background_color`. Con un logo de fondo
+   transparente eso queda bien; con un JPEG o un PNG de fondo opaco
+   (blanco, o del color de la marca) el rectángulo del logo tiene un
+   color y todo lo que lo rodea otro. Encima, un logo con márgenes propios
+   llegaba al ícono ocupando la mitad del cuadrado, y Android ya lo
+   achica en el splash.
+
+**Resolución:**
+
+- `icons.icono_pwa_url` arma la URL con `?v=<modificado en ms>`; la usan
+  el manifest, el `apple-touch-icon` nuevo de `base.html` (templatetag
+  `icono_pwa_url`) y el `icon` de los push. La vista del ícono ignora el
+  valor y responde `immutable`; el manifest responde `no-cache`.
+- `icons.color_lienzo` toma el color más común del BORDE del logo (el que
+  toca el relleno) cuando el borde es opaco, el `fondo` de la paleta cuando
+  es transparente, y el `primario` cuando no hay logo (la baldosa del
+  placeholder ya era de ese color, y el splash no). Ese color es a la vez
+  el relleno del ícono y el `background_color` del manifest.
+- Se recortan los márgenes uniformes del logo antes de encajarlo, y se
+  suma la variante `icono-<size>-maskable.png` (marca en el 80% central)
+  declarada con `purpose: maskable` — cierra el riesgo (1) de la entrada
+  del 2026-08-19.
+
+**Límite de plataforma, no de código:** iOS nunca actualiza el ícono de una
+app ya agregada a inicio. Los alumnos con iPhone que ya la tenían instalada
+tienen que borrarla y agregarla de nuevo; en Android el navegador la
+actualiza solo en su próxima verificación (hasta unos días después de
+abrir la app), y reinstalar también lo fuerza.
 
 ## [2026-08-27] Confirmar la biblioteca de 748 ejercicios daba 502 (worker timeout)
 

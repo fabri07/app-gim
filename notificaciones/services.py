@@ -17,6 +17,7 @@ from django.urls import reverse
 from py_vapid import Vapid01
 from pywebpush import WebPushException, webpush
 
+from notificaciones.icons import icono_pwa_url
 from notificaciones.models import RecordatorioEnviado, SuscripcionPush
 from tenants.models import Perfil
 
@@ -33,7 +34,7 @@ def _get_vapid():
 
 
 def _icono_url(gimnasio) -> str:
-    return reverse("notificaciones:pwa_icono", args=[gimnasio.slug, 192])
+    return icono_pwa_url(gimnasio, 192)
 
 
 #: Interruptor de proceso para operaciones en lote. Lo usa

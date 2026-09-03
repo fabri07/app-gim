@@ -17,6 +17,11 @@ urlpatterns = [
         IconoGimnasioView.as_view(),
         name="pwa_icono",
     ),
+    path(
+        "g/<slug:slug>/icono-<int:size>-maskable.png",
+        IconoGimnasioView.as_view(maskable=True),
+        name="pwa_icono_maskable",
+    ),
     path("push/suscribir/", SuscripcionPushCreateView.as_view(), name="push_suscribir"),
     path(
         "push/desuscribir/", SuscripcionPushDeleteView.as_view(), name="push_desuscribir"

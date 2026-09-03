@@ -1492,6 +1492,21 @@ notifications.
   expira en 1h (`AWS_QUERYSTRING_EXPIRE`), no apta para `icons[].src` de un
   manifest, por eso el ícono se sirve siempre a través de esta vista propia,
   nunca apuntando directo a `gimnasio.logo.url`.
+  **La URL del ícono va versionada** (`icons.icono_pwa_url`, `?v=<modificado
+  en ms>`) en el manifest, en el `apple-touch-icon` de `base.html`
+  (templatetag `icono_pwa_url`) y en el `icon` de los push: el teléfono
+  guarda el ícono al instalar y solo lo vuelve a pedir si la URL del
+  manifest cambia — con URL fija, cambiar el logo no cambiaba nada (ver
+  `ISSUES.md` `[2026-09-03]`). Por eso el ícono responde `immutable` y el
+  manifest `no-cache`. **El lienzo del ícono es el color de fondo del PROPIO
+  logo** (`icons.color_lienzo`: borde opaco → ese color; borde transparente
+  → `fondo` de la paleta; sin logo → `primario`, el de la baldosa del
+  placeholder) y el manifest usa ese mismo valor como `background_color`,
+  para que en el splash de Android el ícono no flote en un cuadrado de otro
+  color. Los márgenes uniformes se recortan antes de encajar, y hay una
+  variante `icono-<size>-maskable.png` (marca en el 80% central) declarada
+  con `purpose: maskable` aparte del `any`. iOS no actualiza el ícono de una
+  app ya agregada a inicio: eso es de la plataforma, se reinstala.
 - **`/sw.js` se sirve en la RAÍZ del dominio** (`ServiceWorkerView`, no vía
   `{% static %}`): WhiteNoise con `CompressedManifestStaticFilesStorage`
   hashea nombres de archivo en producción, lo que rompería la URL estable
