@@ -43,12 +43,19 @@ class AccesoYaExiste(Exception):
 
 
 @transaction.atomic
-def crear_acceso(alumno, tipo, identificador):
+def crear_acceso(alumno, tipo, identificador, *, password=None):
     """Crea el login del alumno y devuelve la contraseña en claro.
 
     Es la ÚNICA vez que la contraseña existe en texto plano: quien llama tiene
     que mostrarla en el momento. Después queda solo el hash, así que no se
     puede recuperar — ni el staff ni nadie.
+
+    `password` existe SOLO para la siembra de datos de demostración
+    (`tenants/demo.py`), que necesita una contraseña conocida y compartida
+    para poder mostrar el portal del alumno en un segundo dispositivo. **No lo
+    uses desde una vista**: la regla de producto es que el staff nunca elige
+    la contraseña de un alumno (ver el docstring del módulo). Con `None` —los
+    tres callers reales— la genera la app, como siempre.
 
     Levanta `ValidationError` si el identificador no es válido, e
     `IdentificadorEnUso` si ya está tomado. En los dos casos no queda nada
@@ -76,7 +83,7 @@ def crear_acceso(alumno, tipo, identificador):
     if User.objects.filter(username=username).exists():
         raise IdentificadorEnUso(username)
 
-    password = generar_password()
+    password = password or generar_password()
     try:
         usuario = User.objects.create_user(
             username=username,

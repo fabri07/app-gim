@@ -329,6 +329,27 @@ el producto se veía como un formulario en blanco.
     python manage.py sembrar_demo --gimnasio <slug> [--alumnos 24] [--meses 6]
     python manage.py sembrar_demo --gimnasio <slug> --borrar
 
+- **Cada alumno sembrado nace con acceso** (`User`+`Perfil`) y contraseña
+  compartida `demo.PASSWORD_DEMO`. Sin eso, la ficha decía «Sin acceso
+  todavía» y no había botón «Entrar como»: no se podía mostrar el portal del
+  alumno sin crear los accesos de a uno. La contraseña fija es aceptable
+  SOLO porque el comando se niega a correr sobre un gimnasio con alumnos
+  reales; se pasa vía el parámetro `password=` de
+  `alumnos.services.crear_acceso`, que existe **únicamente para esto** —
+  desde una vista la contraseña la sigue eligiendo siempre la app.
+- **El email de demo va namespaceado por slug** (`nombre.apellido@<slug>.
+  ejemplo.com`, `demo._email_demo`). `User.username` es único GLOBAL y
+  `semilla` es fija, así que con un dominio compartido el segundo gimnasio de
+  prueba choca contra el primero en el alumno #1. Por la misma razón el par
+  (nombre, apellido) lleva sufijo a partir del alumno 25: las dos listas
+  tienen 24 entradas y `24*7 % 24 == 0`, así que se repiten juntas.
+- **`--borrar` tiene que sacar tres cosas más que los alumnos**: los `User`
+  (anotados ANTES del `delete()`, porque `Alumno.perfil` es `SET_NULL` y
+  después no hay forma de saber cuáles eran; si quedan, son logins huérfanos
+  que funcionan y no aparecen en ningún panel), sus `Perfil` (van en cascada)
+  y los `RegistroSuplantacion`, cuyo FK al alumno es `PROTECT` — sin eso
+  `--borrar` revienta con `ProtectedError` justo para quien usó «Entrar
+  como», que es para lo que se siembran los accesos.
 - **`--gimnasio` es obligatorio y NO tiene default.** Además, el comando se
   niega si el gimnasio ya tiene alumnos sin la marca de demo, salvo
   `--confirmar`: es lo único que separa "lleno la cuenta de prueba" de "le meto

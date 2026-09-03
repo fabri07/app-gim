@@ -2904,6 +2904,172 @@ class SembrarDemoTests(TestCase):
         self.assertEqual(primeros, segundos)
 
 
+class SembrarDemoAccesosTests(TestCase):
+    """Los alumnos de demo nacen con acceso creado.
+
+    Sin esto, la ficha de cada alumno sembrado mostraba «Sin acceso todavía» y
+    el botón «Entrar como» no existía: no había forma de ver el portal del
+    alumno sin crear los accesos a mano, uno por uno.
+
+    La contraseña es FIJA y conocida (`demo.PASSWORD_DEMO`) a propósito, para
+    poder mostrar el portal en un segundo dispositivo durante una demo. Es
+    aceptable únicamente porque el comando se niega a correr sobre un gimnasio
+    con alumnos reales sin `--confirmar`.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Prueba", slug="prueba")
+
+    def _sembrar(self, **kwargs):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        salida = StringIO()
+        call_command("sembrar_demo", gimnasio="prueba", stdout=salida, **kwargs)
+        return salida.getvalue()
+
+    def test_cada_alumno_sembrado_queda_con_acceso(self):
+        from alumnos.models import Alumno
+
+        self._sembrar(alumnos=6, meses=1)
+
+        alumnos = Alumno.objects.for_gimnasio(self.gimnasio)
+        self.assertEqual(alumnos.filter(perfil__isnull=True).count(), 0)
+
+    def test_un_alumno_activo_puede_entrar_con_la_password_de_demo(self):
+        """Lo que de verdad importa: que el acceso sirva. Un `Perfil` creado
+        con una contraseña que no anda se ve igual en el panel y no sirve para
+        nada."""
+        from alumnos.models import Alumno
+
+        from tenants import demo
+
+        salida = self._sembrar(alumnos=6, meses=1)
+
+        alumno = (
+            Alumno.objects.for_gimnasio(self.gimnasio)
+            .filter(estado=Alumno.Estado.ACTIVO)
+            .first()
+        )
+        self.assertTrue(
+            self.client.login(
+                username=alumno.perfil.usuario.username,
+                password=demo.PASSWORD_DEMO,
+            )
+        )
+        # La contraseña no se guarda en ningún lado: si el comando no la
+        # imprime, no hay forma de saberla.
+        self.assertIn(demo.PASSWORD_DEMO, salida)
+
+    def test_el_acceso_de_un_alumno_dado_de_baja_nace_apagado(self):
+        """1 de cada 8 alumnos se siembra INACTIVO. Su acceso tiene que nacer
+        desactivado (lo hace el signal que sincroniza `Alumno.estado` con
+        `User.is_active`), o la baja sería solo cosmética."""
+        from alumnos.models import Alumno
+
+        self._sembrar(alumnos=16, meses=1)
+
+        inactivos = Alumno.objects.for_gimnasio(self.gimnasio).filter(
+            estado=Alumno.Estado.INACTIVO
+        )
+        self.assertTrue(inactivos.exists(), "La siembra no dejó ningún inactivo")
+        for alumno in inactivos:
+            self.assertFalse(alumno.perfil.usuario.is_active)
+
+    def test_borrar_no_deja_ningun_usuario_de_demo_vivo(self):
+        """El agujero que abre crear accesos: si `--borrar` sacara solo los
+        alumnos, quedarían `User` huérfanos que PUEDEN loguearse y no aparecen
+        en ningún panel del gimnasio."""
+        antes = set(User.objects.values_list("pk", flat=True))
+
+        self._sembrar(alumnos=5, meses=1)
+        self.assertGreater(User.objects.exclude(pk__in=antes).count(), 0)
+
+        self._sembrar(borrar=True)
+
+        self.assertEqual(set(User.objects.values_list("pk", flat=True)), antes)
+        self.assertEqual(
+            Perfil.objects.filter(gimnasio=self.gimnasio).count(), 0
+        )
+
+    def test_borrar_no_toca_el_acceso_de_un_alumno_real(self):
+        """El mismo resguardo que ya tenía `--borrar` sobre los alumnos, pero
+        para los accesos: perder el login de un alumno que paga sería peor que
+        perder la fila."""
+        from alumnos.models import Alumno
+        from alumnos.services import crear_acceso
+
+        real = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Real", apellido="Cliente"
+        )
+        crear_acceso(real, "email", "real@cliente.com")
+        real.refresh_from_db()
+        usuario_real = real.perfil.usuario.pk
+
+        self._sembrar(alumnos=4, meses=1, confirmar=True)
+        self._sembrar(borrar=True)
+
+        real.refresh_from_db()
+        self.assertIsNotNone(real.perfil)
+        self.assertTrue(User.objects.filter(pk=usuario_real).exists())
+
+    def test_entrar_como_funciona_y_despues_se_puede_borrar(self):
+        """El caso que motivó la feature, de punta a punta.
+
+        La segunda mitad no es decorativa: `RegistroSuplantacion.alumno` es
+        `PROTECT` (el rastro de auditoría no se borra por cascada), así que
+        suplantar a un alumno de demo dejaba a `--borrar` reventando con
+        `ProtectedError`. Antes de esta feature no podía pasar, porque un
+        alumno de demo no tenía acceso y no se lo podía suplantar.
+        """
+        from alumnos.models import Alumno
+
+        staff = User.objects.create_user("dueno-demo", password="clave-123456")
+        Perfil.objects.create(
+            usuario=staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self._sembrar(alumnos=4, meses=1)
+        alumno = (
+            Alumno.objects.for_gimnasio(self.gimnasio)
+            .filter(estado=Alumno.Estado.ACTIVO)
+            .first()
+        )
+
+        self.client.force_login(staff)
+        response = self.client.post(reverse("suplantar", args=[alumno.pk]))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            int(self.client.session["_auth_user_id"]), alumno.perfil.usuario.pk
+        )
+
+        self.client.logout()
+        self._sembrar(borrar=True)
+        self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 0)
+
+    def test_dos_gimnasios_de_prueba_no_chocan_por_username(self):
+        """`User.username` es único GLOBAL y la semilla es fija, así que sin
+        namespacear el identificador por gimnasio el segundo `sembrar_demo`
+        reventaba con `IdentificadorEnUso` en el primer alumno."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        from alumnos.models import Alumno
+
+        otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
+
+        self._sembrar(alumnos=4, meses=1)
+        call_command(
+            "sembrar_demo", gimnasio="otro", alumnos=4, meses=1,
+            stdout=StringIO(),
+        )
+
+        self.assertEqual(
+            Alumno.objects.for_gimnasio(otro).filter(perfil__isnull=True).count(), 0
+        )
+
+
 class SembrarDemoSinPushTests(TransactionTestCase):
     """Que sembrar NO dispare notificaciones push.
 

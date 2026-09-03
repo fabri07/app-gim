@@ -25,6 +25,47 @@ from django.utils import timezone
 
 MARCA = "[demo]"
 
+#: Contraseña compartida por todos los alumnos de demo. Es fija y conocida a
+#: propósito: durante una demostración hay que poder abrir el portal del alumno
+#: en un segundo dispositivo, y una contraseña al azar por alumno lo impide (no
+#: se guarda en ningún lado, ver `alumnos/services.py`). Es aceptable SOLO
+#: porque el comando se niega a correr sobre un gimnasio con alumnos reales sin
+#: `--confirmar`. Nunca la reuses fuera de la siembra.
+PASSWORD_DEMO = "demo1234"
+
+
+_ACENTOS = str.maketrans("áéíóúñ", "aeioun")
+
+
+def _email_demo(nombre, apellido, dominio):
+    """`sofia.gonzalez@<slug>.ejemplo.com`, sin acentos.
+
+    Es a la vez el email que se ve en la ficha y el usuario con el que el
+    alumno de demo inicia sesión, así que la ficha y el panel de accesos
+    muestran el mismo dato.
+    """
+    local = f"{nombre}.{apellido}".lower().translate(_ACENTOS)
+    return f"{local}@{dominio}"
+
+
+def _dominio_demo(gimnasio):
+    """Dominio de los emails de demo, namespaceado por gimnasio.
+
+    `User.username` es único GLOBAL y `semilla` es fija, así que con un dominio
+    compartido el segundo gimnasio de prueba que se siembre choca contra el
+    primero en el alumno #1. El slug lo separa.
+
+    Se lo pasa por un filtro porque el dominio termina dentro de un email que
+    `validate_email` tiene que aceptar: un slug con `_` (posible desde /admin/,
+    aunque `slugify` no lo genere) o con guiones en las puntas daría un email
+    inválido y volteraría la siembra entera.
+    """
+    etiqueta = "".join(
+        c if c.isalnum() else "-" for c in (gimnasio.slug or "").lower()
+    ).strip("-")
+    return f"{etiqueta or 'demo'}.ejemplo.com"
+
+
 #: Búsqueda de YouTube, no un video puntual -- ver `_EJERCICIOS`.
 _VIDEO_BASE = "https://www.youtube.com/results?search_query="
 
@@ -90,6 +131,7 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
     resultado, así que una captura de pantalla se puede rehacer igual.
     """
     from alumnos.models import Alumno
+    from alumnos.services import IdentificadorEnUso, crear_acceso
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.parsing import normalizar_texto
     from novedades.models import Novedad
@@ -180,17 +222,28 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
             )
 
         # --- Alumnos -----------------------------------------------------
+        dominio = _dominio_demo(gimnasio)
         alumnos = []
+        accesos = 0
+        usados = set()
         for i in range(cantidad_alumnos):
             nombre, genero = _NOMBRES[i % len(_NOMBRES)]
             apellido = _APELLIDOS[(i * 7) % len(_APELLIDOS)]
+            # Las dos listas tienen 24 entradas y 24*7 % 24 == 0, así que a
+            # partir del alumno 25 el par (nombre, apellido) se repite. El
+            # sufijo lo desempata: sin él, `--alumnos 30` chocaba contra el
+            # UNIQUE de `auth_user.username` en el alumno 25.
+            email = _email_demo(nombre, apellido, dominio)
+            if email in usados:
+                email = _email_demo(f"{nombre}{i}", apellido, dominio)
+            usados.add(email)
             # 1 de cada 8 inactivo: el panel tiene que mostrar que el filtro
             # de estado hace algo.
             inactivo = i % 8 == 7
             alumno = Alumno.objects.create(
                 gimnasio=gimnasio,
                 nombre=nombre, apellido=apellido,
-                email=f"{nombre.lower()}.{apellido.lower()}@ejemplo.com".replace("í", "i").replace("á", "a").replace("é", "e").replace("ó", "o").replace("ú", "u"),
+                email=email,
                 telefono=f"11{azar.randint(20000000, 69999999)}",
                 fecha_nacimiento=date(
                     hoy.year - azar.randint(18, 55), azar.randint(1, 12), azar.randint(1, 28)
@@ -201,6 +254,27 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                 observaciones=MARCA,
             )
             alumnos.append(alumno)
+            # El acceso se crea acá y no en un bucle aparte para que el
+            # `alumno.save()` de `crear_acceso` (el que dispara el signal que
+            # apaga el `User` de un alumno dado de baja) corra ANTES de que
+            # el bloque siguiente reescriba `creado` y `fecha_baja`.
+            #
+            # Sí, es una query por fila, que es justo lo que este proyecto
+            # prohíbe en los procesos en lote. Acá se acepta: la regla existe
+            # por el timeout de 30 s de gunicorn y esto es un comando de
+            # consola sobre 24 filas. Un `bulk_create` de `User` se saltearía
+            # el signal y duplicaría la lógica de `crear_acceso`, que es el
+            # único lugar donde vive el alta de un acceso.
+            try:
+                crear_acceso(alumno, "email", email, password=PASSWORD_DEMO)
+                accesos += 1
+            except IdentificadorEnUso:
+                # El identificador ya está tomado en la plataforma: pasa al
+                # sembrar dos veces el mismo gimnasio sin `--borrar` en el
+                # medio. El alumno queda sin acceso (igual que antes de esta
+                # feature) en vez de voltear la siembra entera.
+                pass
+        resumen["accesos"] = accesos
 
         # `creado` se reparte hacia atrás en la ventana de historial: sin
         # esto los 24 alumnos caen todos en el mes actual y el gráfico de
@@ -338,18 +412,30 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
 
 
 def borrar_demo(*, gimnasio):
-    """Saca exactamente lo que sembró `sembrar_demo` (los alumnos marcados y
-    todo lo que cuelga de ellos). No toca ejercicios, plantillas ni novedades:
-    son inofensivos y puede haberlos editado alguien."""
+    """Saca exactamente lo que sembró `sembrar_demo` (los alumnos marcados,
+    sus accesos y todo lo que cuelga de ellos). No toca ejercicios, plantillas
+    ni novedades: son inofensivos y puede haberlos editado alguien."""
+    from django.contrib.auth import get_user_model
+
     from alumnos.models import Alumno
     from novedades.models import NovedadLeida
     from pagos.models import PagoMensual
     from rutinas.models import RutinaAsignada, RutinaAsignadaDiaCompletado
+    from tenants.models import RegistroSuplantacion
     from turnos.models import Reserva
 
     with transaction.atomic():
         alumnos = Alumno.objects.for_gimnasio(gimnasio).filter(observaciones=MARCA)
         borrados = alumnos.count()
+        # Los `User` se anotan ANTES de borrar los alumnos: `Alumno.perfil` es
+        # `SET_NULL`, así que después del `delete()` no queda forma de saber
+        # cuáles eran. Sin esto quedarían usuarios huérfanos que PUEDEN
+        # loguearse y no aparecen en ningún panel del gimnasio.
+        usuarios = list(
+            alumnos.filter(perfil__isnull=False).values_list(
+                "perfil__usuario_id", flat=True
+            )
+        )
         RutinaAsignadaDiaCompletado.objects.filter(
             rutina_asignada__alumno__in=alumnos
         ).delete()
@@ -358,5 +444,13 @@ def borrar_demo(*, gimnasio):
         PagoMensual.objects.filter(alumno__in=alumnos).delete()
         Reserva.objects.filter(alumno__in=alumnos).delete()
         NovedadLeida.objects.filter(alumno__in=alumnos).delete()
+        # `RegistroSuplantacion.alumno` es PROTECT: el rastro de auditoría no
+        # se borra por cascada a propósito. Acá hay que sacarlo a mano, o
+        # `--borrar` revienta con `ProtectedError` justo para quien usó
+        # «Entrar como», que es para lo que se siembran los accesos. Se pierde
+        # la auditoría de un alumno inventado que se está borrando igual.
+        RegistroSuplantacion.objects.filter(alumno__in=alumnos).delete()
         alumnos.delete()
+        # El `Perfil` se va en cascada con el `User` (su FK es CASCADE).
+        get_user_model().objects.filter(pk__in=usuarios).delete()
     return borrados

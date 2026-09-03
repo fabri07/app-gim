@@ -17,7 +17,7 @@ cliente que paga".
 from django.core.management.base import BaseCommand, CommandError
 
 from notificaciones import services as notificaciones
-from tenants.demo import MARCA, borrar_demo, sembrar_demo
+from tenants.demo import MARCA, PASSWORD_DEMO, borrar_demo, sembrar_demo
 from tenants.models import Gimnasio
 
 
@@ -62,8 +62,8 @@ class Command(BaseCommand):
             borrados = borrar_demo(gimnasio=gimnasio)
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Borrados {borrados} alumnos de demo (y sus pagos, rutinas "
-                    f"y reservas) de «{gimnasio.nombre}»."
+                    f"Borrados {borrados} alumnos de demo (y sus accesos, "
+                    f"pagos, rutinas y reservas) de «{gimnasio.nombre}»."
                 )
             )
             return
@@ -95,8 +95,25 @@ class Command(BaseCommand):
             self.stdout.write(f"  {clave}: {valor}")
         self.stdout.write(
             self.style.SUCCESS(
-                f"Listo. Entrá a «{gimnasio.nombre}» y mirá el panel de inicio.\n"
-                f"Para deshacerlo: manage.py sembrar_demo --gimnasio "
-                f"{gimnasio.slug} --borrar"
+                f"Listo. Entrá a «{gimnasio.nombre}» y mirá el panel de inicio."
             )
+        )
+        if resumen.get("accesos"):
+            # El resumen son conteos; el usuario de ejemplo se consulta acá
+            # para no meterle un string a esa estructura.
+            ejemplo = (
+                Alumno.objects.for_gimnasio(gimnasio)
+                .filter(observaciones=MARCA, perfil__isnull=False)
+                .values_list("perfil__usuario__username", flat=True)
+                .first()
+            )
+            self.stdout.write(
+                f"\nLos alumnos de demo entran con su email y la contraseña "
+                f"«{PASSWORD_DEMO}» (por ejemplo: {ejemplo}).\n"
+                f"Desde la ficha de cualquiera de ellos también podés usar "
+                f"«Entrar como» sin escribir la contraseña."
+            )
+        self.stdout.write(
+            f"Para deshacerlo: manage.py sembrar_demo --gimnasio "
+            f"{gimnasio.slug} --borrar"
         )
