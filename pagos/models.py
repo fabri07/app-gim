@@ -1,7 +1,7 @@
 """
-Modelo de dominio: pagos mensuales de cada alumno.
+Modelo de dominio: la cuota de cada alumno.
 
-`PagoMensual` es un `TenantOwnedModel`: hereda `gimnasio` (aislamiento por
+`Cuota` es un `TenantOwnedModel`: hereda `gimnasio` (aislamiento por
 fila) y los timestamps de auditoría. Se FK-ea a `alumnos.Alumno` por string
 ("alumnos.Alumno") en vez de importar la clase, para no acoplar el orden de
 carga de apps entre `pagos` y `alumnos` (Django resuelve el string una vez
@@ -12,7 +12,7 @@ integración financiera real. Los pendientes se **autogeneran por cron** al
 inicio de cada mes (una fila por alumno activo por mes calendario) y el mismo
 cron pasa `pendiente -> vencido` cuando el mes ya pasó. El dueño únicamente
 **confirma** un pago existente (marca pagado, sube comprobante); nunca crea
-un `PagoMensual` a mano. Esa autogeneración vive acá (funciones de módulo,
+un `Cuota` a mano. Esa autogeneración vive acá (funciones de módulo,
 no una capa de "servicios" separada: el proyecto es chico y no lo justifica).
 """
 
@@ -47,8 +47,13 @@ class MedioCobro(TenantOwnedModel):
         return self.alias
 
 
-class PagoMensual(TenantOwnedModel):
-    """La cuota de un alumno para un mes/año calendario puntual.
+class Cuota(TenantOwnedModel):
+    """La cuota de un alumno para un período puntual.
+
+    Se llamaba `PagoMensual` hasta la migración a ciclos: el nombre mentía
+    porque el período dejó de ser el mes calendario. `related_name` sigue
+    siendo `pagos` a propósito -- cambiarlo obliga a tocar cuatro archivos y
+    sus tests sin ganar nada, y "los pagos del alumno" se lee bien.
 
     `unique_together` en Meta garantiza una sola fila por
     (gimnasio, alumno, mes, año): coincide con "se autogeneran... para cada
@@ -93,8 +98,8 @@ class PagoMensual(TenantOwnedModel):
     observaciones = models.TextField(blank=True)
 
     class Meta:
-        verbose_name = "pago mensual"
-        verbose_name_plural = "pagos mensuales"
+        verbose_name = "cuota"
+        verbose_name_plural = "cuotas"
         unique_together = ("gimnasio", "alumno", "mes", "anio")
         ordering = ["-anio", "-mes"]
 
@@ -108,7 +113,7 @@ class PagoMensual(TenantOwnedModel):
 
 
 def generar_pagos_pendientes(mes, anio):
-    """Crea un `PagoMensual` PENDIENTE para cada alumno activo de cada
+    """Crea un `Cuota` PENDIENTE para cada alumno activo de cada
     gimnasio activo, para el mes/año dados, si todavía no existe.
 
     Es idempotente: usa `get_or_create` sobre las mismas columnas del
@@ -131,12 +136,12 @@ def generar_pagos_pendientes(mes, anio):
         gimnasio__activo=True,
     )
     for alumno in alumnos_activos:
-        _, fue_creado = PagoMensual.objects.get_or_create(
+        _, fue_creado = Cuota.objects.get_or_create(
             gimnasio=alumno.gimnasio,
             alumno=alumno,
             mes=mes,
             anio=anio,
-            defaults={"monto": 0, "estado": PagoMensual.Estado.PENDIENTE},
+            defaults={"monto": 0, "estado": Cuota.Estado.PENDIENTE},
         )
         if fue_creado:
             creados += 1
@@ -144,7 +149,7 @@ def generar_pagos_pendientes(mes, anio):
 
 
 def marcar_vencidos(mes, anio, dia):
-    """Pasa a VENCIDO todo `PagoMensual` PENDIENTE cuyo mes/año sea
+    """Pasa a VENCIDO todo `Cuota` PENDIENTE cuyo mes/año sea
     estrictamente anterior al mes/año dado (un pago de un mes que ya
     cerró), o que sea del mismo mes/año pero ya se pasó el
     `Gimnasio.dia_vencimiento_pago` de ESE gimnasio (join vía FK -- cada
@@ -157,17 +162,17 @@ def marcar_vencidos(mes, anio, dia):
     del staff hasta el mes siguiente.
 
     `dia` es el día del mes de la fecha en que corre esto (no un campo de
-    `PagoMensual`, que no tiene día) -- lo pasa el caller
+    `Cuota`, que no tiene día) -- lo pasa el caller
     (`manage.py generar_pagos`) para no atar esta función a `timezone.now()`
     y poder testearla con fechas fijas.
 
     Devuelve la cantidad de filas actualizadas (int).
     """
-    pendientes_vencidos = PagoMensual.objects.filter(
-        estado=PagoMensual.Estado.PENDIENTE
+    pendientes_vencidos = Cuota.objects.filter(
+        estado=Cuota.Estado.PENDIENTE
     ).filter(
         models.Q(anio__lt=anio)
         | models.Q(anio=anio, mes__lt=mes)
         | models.Q(anio=anio, mes=mes, gimnasio__dia_vencimiento_pago__lt=dia)
     )
-    return pendientes_vencidos.update(estado=PagoMensual.Estado.VENCIDO)
+    return pendientes_vencidos.update(estado=Cuota.Estado.VENCIDO)

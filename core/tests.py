@@ -184,16 +184,18 @@ class BorradoTests(TestCase):
 
     def test_un_alumno_con_pagos_queda_bloqueado(self):
         from core.borrado import bloqueos_de_borrado, frase
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
 
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio, alumno=self.alumno, mes=1, anio=2026, monto=100
         )
 
         bloqueos = bloqueos_de_borrado(self.alumno)
         self.assertEqual(len(bloqueos), 1)
         self.assertEqual(bloqueos[0][1], 1)
-        self.assertIn("pago", frase(bloqueos))
+        # "cuota"/"cuotas" es el `verbose_name` del modelo, que `frase()` lee de
+        # `_meta` -- se renombró junto con `PagoMensual` -> `Cuota`.
+        self.assertIn("cuota", frase(bloqueos))
 
     def test_un_ejercicio_usado_en_una_plantilla_queda_bloqueado(self):
         from core.borrado import bloqueos_de_borrado
@@ -306,9 +308,9 @@ class BorrarConExplicacionViewTests(TestCase):
     def test_un_alumno_con_pagos_no_se_borra_y_se_explica(self):
         """El caso que hace segura esta feature: los pagos son el registro de
         lo que el gimnasio facturó. El botón no puede destruirlo."""
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
 
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio, alumno=self.alumno, mes=1, anio=2026, monto=100
         )
         url = reverse("alumnos:eliminar", args=[self.alumno.pk])

@@ -329,27 +329,27 @@ class AlumnoViewsTests(TestCase):
 
     # 6. La ficha muestra los pagos y la rutina propios, no los de otro alumno.
     def test_ficha_muestra_pagos_y_rutina_propios_sin_filtrar_de_otro_alumno(self):
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
         from rutinas.models import RutinaAsignada
 
-        pago_propio = PagoMensual.objects.create(
+        pago_propio = Cuota.objects.create(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
             mes=1,
             anio=2026,
             monto=1000,
-            estado=PagoMensual.Estado.PAGADO,
+            estado=Cuota.Estado.PAGADO,
         )
         otro_alumno = Alumno.objects.create(
             gimnasio=self.gimnasio_a, nombre="Otro", apellido="Alumno"
         )
-        pago_ajeno = PagoMensual.objects.create(
+        pago_ajeno = Cuota.objects.create(
             gimnasio=self.gimnasio_a,
             alumno=otro_alumno,
             mes=2,
             anio=2026,
             monto=2000,
-            estado=PagoMensual.Estado.PENDIENTE,
+            estado=Cuota.Estado.PENDIENTE,
         )
         rutina_propia = RutinaAsignada.objects.create(
             gimnasio=self.gimnasio_a,

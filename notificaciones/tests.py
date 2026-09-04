@@ -16,7 +16,7 @@ from django.utils import timezone
 
 from alumnos.models import Alumno
 from novedades.models import Novedad
-from pagos.models import PagoMensual
+from pagos.models import Cuota
 from rutinas.models import RutinaAsignada, RutinaPlantilla
 from tenants.models import Gimnasio, Perfil
 from turnos.models import Reserva
@@ -314,14 +314,14 @@ class EnviarRecordatoriosCommandTests(TestCase):
         self.gimnasio_b.dia_vencimiento_pago = 25  # a 15 días: no notifica
         self.gimnasio_b.save(update_fields=["dia_vencimiento_pago"])
 
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
             mes=hoy.month,
             anio=hoy.year,
             monto=10000,
         )
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio_b,
             alumno=self.alumno_b,
             mes=hoy.month,
@@ -349,7 +349,7 @@ class EnviarRecordatoriosCommandTests(TestCase):
         self.gimnasio_a.dia_vencimiento_pago = 12  # a 2 días: notifica
         self.gimnasio_a.save(update_fields=["dia_vencimiento_pago"])
 
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
             mes=hoy.month,
@@ -385,7 +385,7 @@ class EnviarRecordatoriosCommandTests(TestCase):
         alumno_sin_perfil = Alumno.objects.create(
             gimnasio=self.gimnasio_a, nombre="Sin", apellido="Perfil"
         )
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio_a,
             alumno=alumno_sin_perfil,
             mes=hoy.month,

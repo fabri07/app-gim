@@ -124,13 +124,21 @@ jobs:
           ESENCIALES="$(Q "select count(*) from information_schema.tables
             where table_schema='public' and table_name in (
               'auth_user','tenants_gimnasio','tenants_perfil','alumnos_alumno',
-              'rutinas_rutinaasignada','pagos_pagomensual','turnos_reserva',
-              'novedades_novedad','importaciones_importacion','django_migrations')")"
+              'rutinas_rutinaasignada','turnos_reserva',
+              'novedades_novedad','importaciones_importacion','django_migrations',
+              -- La tabla de cuotas se llamó 'pagos_pagomensual' hasta la
+              -- migración a ciclos y 'pagos_cuota' después. Se aceptan las dos
+              -- para poder verificar un dump ANTERIOR al rename (workflow_dispatch
+              -- con un objeto viejo): en cualquier dump existe exactamente una,
+              -- nunca las dos, así que el total sigue siendo 10.
+              'pagos_pagomensual','pagos_cuota')")"
           MIGRACIONES="$(Q "select count(*) from django_migrations")"
           USUARIOS="$(Q "select count(*) from auth_user")"
           echo "tablas_esenciales=$ESENCIALES migraciones=$MIGRACIONES usuarios=$USUARIOS"
-          # Se nombran las 10 tablas esenciales en vez de exigir un total >= N:
+          # Se nombran las tablas esenciales en vez de exigir un total >= N:
           # un umbral numérico pasa igual si falta justo la tabla que importa.
+          # Son 10 aunque la lista tenga 11 nombres: los dos de la tabla de
+          # cuotas son mutuamente excluyentes (ver el comentario de arriba).
           test "$ESENCIALES" -eq 10
           # django_migrations poblada = el esquema se restauró completo. No se
           # pinea el nombre de la última migración: cambia en cada feature y

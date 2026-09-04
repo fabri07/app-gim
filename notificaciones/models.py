@@ -6,7 +6,7 @@ natural de un envío masivo (broadcast de novedad, aviso a todo el staff) es
 "todas las suscripciones de MI gimnasio", no "las de este usuario".
 `RecordatorioEnviado` es el mecanismo de dedup para los eventos que dispara
 el cron (`enviar_recordatorios`) -- modelo satélite acá, sin tocar el
-esquema de Novedad/PagoMensual/Reserva, mismo patrón que
+esquema de Novedad/Cuota/Reserva, mismo patrón que
 `calendario.ReservaCalendarEvent`.
 """
 
@@ -66,7 +66,7 @@ class SuscripcionPush(TenantOwnedModel):
 class RecordatorioEnviado(TenantOwnedModel):
     """Marca "ya se envió este recordatorio" para los eventos disparados por
     el cron (`enviar_recordatorios`, cada ~15 min), que necesita ser
-    idempotente sin agregar campos "ya notificado" a Novedad/PagoMensual/
+    idempotente sin agregar campos "ya notificado" a Novedad/Cuota/
     Reserva.
     """
 

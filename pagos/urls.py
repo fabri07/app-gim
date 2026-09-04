@@ -12,13 +12,13 @@ from pagos.views import (
     MedioCobroCreateView,
     MedioCobroListView,
     MedioCobroUpdateView,
-    PagoMensualListView,
+    CuotaListView,
 )
 
 app_name = "pagos"
 
 urlpatterns = [
-    path("", PagoMensualListView.as_view(), name="listado"),
+    path("", CuotaListView.as_view(), name="listado"),
     path("medios/", MedioCobroListView.as_view(), name="medios_listado"),
     path("medios/nuevo/", MedioCobroCreateView.as_view(), name="medios_crear"),
     path("medios/<int:pk>/editar/", MedioCobroUpdateView.as_view(), name="medios_editar"),

@@ -135,7 +135,7 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.parsing import normalizar_texto
     from novedades.models import Novedad
-    from pagos.models import PagoMensual
+    from pagos.models import Cuota
     from rutinas.models import (
         RutinaAsignada,
         RutinaAsignadaDiaCompletado,
@@ -356,19 +356,19 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                 if desplazamiento == 0:
                     # El mes en curso: mezcla realista, es lo que se ve en el panel.
                     estado = azar.choices(
-                        [PagoMensual.Estado.PAGADO, PagoMensual.Estado.PENDIENTE,
-                         PagoMensual.Estado.VENCIDO],
+                        [Cuota.Estado.PAGADO, Cuota.Estado.PENDIENTE,
+                         Cuota.Estado.VENCIDO],
                         weights=[6, 3, 1],
                     )[0]
                 else:
-                    estado = PagoMensual.Estado.PAGADO
-                PagoMensual.objects.create(
+                    estado = Cuota.Estado.PAGADO
+                Cuota.objects.create(
                     gimnasio=gimnasio, alumno=alumno, mes=mes, anio=anio,
                     monto=Decimal("28000"),
                     estado=estado,
                     fecha_pago=hoy - timedelta(days=desplazamiento * 30)
-                    if estado == PagoMensual.Estado.PAGADO else None,
-                    medio_pago_texto="Transferencia" if estado == PagoMensual.Estado.PAGADO else "",
+                    if estado == Cuota.Estado.PAGADO else None,
+                    medio_pago_texto="Transferencia" if estado == Cuota.Estado.PAGADO else "",
                 )
                 pagos += 1
         resumen["pagos"] = pagos
@@ -419,7 +419,7 @@ def borrar_demo(*, gimnasio):
 
     from alumnos.models import Alumno
     from novedades.models import NovedadLeida
-    from pagos.models import PagoMensual
+    from pagos.models import Cuota
     from rutinas.models import RutinaAsignada, RutinaAsignadaDiaCompletado
     from tenants.models import RegistroSuplantacion
     from turnos.models import Reserva
@@ -441,7 +441,7 @@ def borrar_demo(*, gimnasio):
         ).delete()
         # PROTECT en pagos y rutinas: hay que sacarlos antes que el alumno.
         RutinaAsignada.objects.filter(alumno__in=alumnos).delete()
-        PagoMensual.objects.filter(alumno__in=alumnos).delete()
+        Cuota.objects.filter(alumno__in=alumnos).delete()
         Reserva.objects.filter(alumno__in=alumnos).delete()
         NovedadLeida.objects.filter(alumno__in=alumnos).delete()
         # `RegistroSuplantacion.alumno` es PROTECT: el rastro de auditoría no

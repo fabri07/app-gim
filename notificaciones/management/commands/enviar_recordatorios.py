@@ -24,7 +24,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         from novedades.models import Novedad
         from rutinas.models import RutinaAsignada
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
         from turnos.models import Reserva
         from turnos.services import _ahora_local
         from notificaciones import services
@@ -47,8 +47,8 @@ class Command(BaseCommand):
             rutinas_iniciadas += 1
 
         pagos_por_vencer = 0
-        for pago in PagoMensual.objects.filter(
-            estado=PagoMensual.Estado.PENDIENTE, mes=hoy.month, anio=hoy.year
+        for pago in Cuota.objects.filter(
+            estado=Cuota.Estado.PENDIENTE, mes=hoy.month, anio=hoy.year
         ).select_related("gimnasio", "alumno"):
             dias_restantes = pago.gimnasio.dia_vencimiento_pago - hoy.day
             if 0 <= dias_restantes <= DIAS_AVISO_PAGO:
@@ -56,8 +56,8 @@ class Command(BaseCommand):
                 pagos_por_vencer += 1
 
         pagos_vencidos = 0
-        for pago in PagoMensual.objects.filter(
-            estado=PagoMensual.Estado.VENCIDO, modificado__date=hoy
+        for pago in Cuota.objects.filter(
+            estado=Cuota.Estado.VENCIDO, modificado__date=hoy
         ).select_related("gimnasio", "alumno"):
             services.notificar_pago_vencido(pago)
             pagos_vencidos += 1

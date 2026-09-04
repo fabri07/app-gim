@@ -74,12 +74,12 @@ INSTALLED_APPS = [
     #   alumnos    -> Alumno (sin dependencias de dominio)
     #   rutinas    -> RutinaPlantilla/Item, RutinaAsignada/Item (FK a ejercicios y alumnos)
     #   importaciones -> Importacion (FK a gymnastasio, usuario)
-    #   pagos      -> PagoMensual (FK a alumnos)
+    #   pagos      -> Cuota (FK a alumnos)
     #   novedades  -> Novedad (sin dependencias de dominio)
     #   turnos     -> ConfiguracionTurnos/HorarioAtencion/CupoExcepcion/Reserva (FK a alumnos)
     #   calendario -> integración opcional con Google Calendar (FK a alumnos/turnos)
     #   notificaciones -> manifest/SW/push (FK a Gimnasio/Perfil, lee
-    #                     Novedad/RutinaAsignada/Reserva/PagoMensual) -- depende
+    #                     Novedad/RutinaAsignada/Reserva/Cuota) -- depende
     #                     de todo el dominio, va última
     'core',
     'tenants',
@@ -282,7 +282,7 @@ if R2_ENABLED and not TESTING:
     AWS_S3_REGION_NAME = "auto"
     AWS_S3_ADDRESSING_STYLE = "virtual"
     AWS_DEFAULT_ACL = None
-    # `Gimnasio.logo`/`PagoMensual.comprobante` no tienen namespacing por
+    # `Gimnasio.logo`/`Cuota.comprobante` no tienen namespacing por
     # gimnasio en el nombre de archivo -- S3Storage sobreescribe por default
     # ante una colisión de nombre (a diferencia de FileSystemStorage, que
     # auto-renombra). Sin esto, dos gimnasios subiendo un "logo.png" pisarían

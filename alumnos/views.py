@@ -139,7 +139,7 @@ class AlumnoDeleteView(
     StaffRequiredMixin, TenantScopedMixin, BorrarConExplicacionView
 ):
     """Sirve para el alumno cargado por error o de prueba. Uno con historial
-    queda bloqueado por `PagoMensual` y `RutinaAsignada` (`PROTECT`) -- y eso
+    queda bloqueado por `Cuota` y `RutinaAsignada` (`PROTECT`) -- y eso
     es deliberado: los pagos son el registro de lo que el gimnasio facturó, y
     borrarlos para deshacerse de una ficha sería destruir contabilidad. Para
     ese caso ya existe la baja, que además le corta el acceso al portal (ver

@@ -21,7 +21,7 @@ def validar_gimnasio_de(gimnasio, **relaciones):
     `TenantScopedModelForm` ya cierra este hueco para los datos que pasan por
     un form de staff, pero no para accesos directos (admin, shell, imports) a
     un modelo con más de una FK a entidades tenant-owned -- p.ej.
-    `Reserva.alumno`, `PagoMensual.alumno`, `NovedadLeida.alumno`/`novedad`.
+    `Reserva.alumno`, `Cuota.alumno`, `NovedadLeida.alumno`/`novedad`.
     Instancias `None` se ignoran (los validadores de "campo requerido" ya
     cubren ese caso).
     """

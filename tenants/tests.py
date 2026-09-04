@@ -37,7 +37,7 @@ from alumnos.identidad import TIPO_EMAIL
 from alumnos.models import Alumno
 from alumnos.services import crear_acceso
 from novedades.models import Novedad, NovedadLeida
-from pagos.models import MedioCobro, PagoMensual
+from pagos.models import MedioCobro, Cuota
 from rutinas.models import RutinaAsignada, RutinaAsignadaItem
 from tenants import paisaje_matching, suplantacion
 from tenants.context_processors import tour_onboarding_disponible
@@ -482,9 +482,9 @@ class HomeViewStaffFechaLocalTests(TestCase):
         self.client.force_login(staff)
 
     def test_pagos_del_mes_son_los_del_mes_local(self):
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
 
-        pago = PagoMensual.objects.create(
+        pago = Cuota.objects.create(
             gimnasio=self.gimnasio, alumno=self.alumno,
             mes=5, anio=2026, monto=10000,
         )
@@ -561,13 +561,13 @@ class HomeViewAlumnoTests(TestCase):
             descanso="60s",
             notas="Controlar la técnica",
         )
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio,
             alumno=alumno,
             mes=self.hoy.month,
             anio=self.hoy.year,
             monto=10000,
-            estado=PagoMensual.Estado.PAGADO,
+            estado=Cuota.Estado.PAGADO,
         )
         Novedad.objects.create(
             gimnasio=self.gimnasio,
@@ -844,13 +844,13 @@ class HomeViewAlumnoTests(TestCase):
         _user, _perfil, alumno = self._crear_alumno_con_login(
             username="hugo", nombre="Hugo", apellido="Peralta"
         )
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio,
             alumno=alumno,
             mes=self.hoy.month,
             anio=self.hoy.year,
             monto=15000,
-            estado=PagoMensual.Estado.PENDIENTE,
+            estado=Cuota.Estado.PENDIENTE,
         )
         MedioCobro.objects.create(
             gimnasio=self.gimnasio,
@@ -886,13 +886,13 @@ class HomeViewAlumnoTests(TestCase):
         _user, _perfil, alumno = self._crear_alumno_con_login(
             username="ines", nombre="Inés", apellido="Marín"
         )
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio,
             alumno=alumno,
             mes=self.hoy.month,
             anio=self.hoy.year,
             monto=15000,
-            estado=PagoMensual.Estado.PAGADO,
+            estado=Cuota.Estado.PAGADO,
         )
         MedioCobro.objects.create(
             gimnasio=self.gimnasio,
@@ -2797,7 +2797,7 @@ class SembrarDemoTests(TestCase):
 
     def test_siembra_datos_en_todas_las_secciones(self):
         from alumnos.models import Alumno
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
         from rutinas.models import RutinaAsignada
         from turnos.models import Reserva
 
@@ -2805,7 +2805,7 @@ class SembrarDemoTests(TestCase):
 
         self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 6)
         self.assertTrue(RutinaAsignada.objects.for_gimnasio(self.gimnasio).exists())
-        self.assertTrue(PagoMensual.objects.for_gimnasio(self.gimnasio).exists())
+        self.assertTrue(Cuota.objects.for_gimnasio(self.gimnasio).exists())
         self.assertTrue(Reserva.objects.for_gimnasio(self.gimnasio).exists())
 
     def test_se_niega_a_sembrar_sobre_un_gimnasio_con_alumnos_reales(self):
@@ -3314,17 +3314,17 @@ class IndicadoresTemporalesTests(TestCase):
     def test_ingresos_solo_cuentan_lo_pagado(self):
         """Pendiente y vencido son expectativa, no ingreso: sumarlos haría que
         el gráfico muestre plata que el gimnasio no tiene."""
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
 
         alumno = self._alumno("Ana")
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio, alumno=alumno, mes=9, anio=2026,
-            monto=Decimal("30000"), estado=PagoMensual.Estado.PAGADO,
+            monto=Decimal("30000"), estado=Cuota.Estado.PAGADO,
         )
         otro = self._alumno("Beto")
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio, alumno=otro, mes=9, anio=2026,
-            monto=Decimal("30000"), estado=PagoMensual.Estado.PENDIENTE,
+            monto=Decimal("30000"), estado=Cuota.Estado.PENDIENTE,
         )
 
         filas = analitica.ingresos_por_mes(self.gimnasio, meses=2, hoy=self.hoy)
@@ -3353,13 +3353,13 @@ class IndicadoresTemporalesTests(TestCase):
         self.assertIsNone(datos["cobranza_porcentaje"])
 
     def test_cobranza_calcula_el_porcentaje(self):
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
 
         for i, estado in enumerate(
-            [PagoMensual.Estado.PAGADO, PagoMensual.Estado.PAGADO,
-             PagoMensual.Estado.PENDIENTE, PagoMensual.Estado.VENCIDO]
+            [Cuota.Estado.PAGADO, Cuota.Estado.PAGADO,
+             Cuota.Estado.PENDIENTE, Cuota.Estado.VENCIDO]
         ):
-            PagoMensual.objects.create(
+            Cuota.objects.create(
                 gimnasio=self.gimnasio, alumno=self._alumno(f"A{i}"),
                 mes=9, anio=2026, monto=Decimal("1000"), estado=estado,
             )

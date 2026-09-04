@@ -1,5 +1,5 @@
 """
-Tests de Fase 1 para `PagoMensual`: creación básica, unicidad por
+Tests de Fase 1 para `Cuota`: creación básica, unicidad por
 (gimnasio, alumno, mes, año), autogeneración mensual, vencimiento de
 pendientes atrasados y aislamiento por tenant.
 
@@ -20,13 +20,13 @@ from django.test import TestCase
 from django.urls import reverse
 
 from alumnos.models import Alumno
-from pagos.models import PagoMensual, MedioCobro, generar_pagos_pendientes, marcar_vencidos
+from pagos.models import Cuota, MedioCobro, generar_pagos_pendientes, marcar_vencidos
 from tenants.models import Gimnasio, Perfil
 
 User = get_user_model()
 
 
-class PagoMensualModelTests(TestCase):
+class CuotaModelTests(TestCase):
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
         self.alumno = Alumno.objects.create(
@@ -34,18 +34,18 @@ class PagoMensualModelTests(TestCase):
         )
 
     def test_crea_pago_y_str(self):
-        pago = PagoMensual.objects.create(
+        pago = Cuota.objects.create(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
             mes=3,
             anio=2026,
             monto=Decimal("15000.00"),
         )
-        self.assertEqual(pago.estado, PagoMensual.Estado.PENDIENTE)
+        self.assertEqual(pago.estado, Cuota.Estado.PENDIENTE)
         self.assertEqual(str(pago), "Perez, Juan - 03/2026")
 
     def test_unique_together_gimnasio_alumno_mes_anio(self):
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
             mes=3,
@@ -54,7 +54,7 @@ class PagoMensualModelTests(TestCase):
         )
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                PagoMensual.objects.create(
+                Cuota.objects.create(
                     gimnasio=self.gimnasio,
                     alumno=self.alumno,
                     mes=3,
@@ -67,14 +67,14 @@ class PagoMensualModelTests(TestCase):
         otro_alumno = Alumno.objects.create(
             gimnasio=otro_gimnasio, nombre="Ana", apellido="Gomez"
         )
-        pago_propio = PagoMensual.objects.create(
+        pago_propio = Cuota.objects.create(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
             mes=3,
             anio=2026,
             monto=Decimal("15000.00"),
         )
-        PagoMensual.objects.create(
+        Cuota.objects.create(
             gimnasio=otro_gimnasio,
             alumno=otro_alumno,
             mes=3,
@@ -82,7 +82,7 @@ class PagoMensualModelTests(TestCase):
             monto=Decimal("15000.00"),
         )
 
-        pagos_del_gimnasio = PagoMensual.objects.for_gimnasio(self.gimnasio)
+        pagos_del_gimnasio = Cuota.objects.for_gimnasio(self.gimnasio)
 
         self.assertEqual(list(pagos_del_gimnasio), [pago_propio])
 
@@ -91,7 +91,7 @@ class PagoMensualModelTests(TestCase):
         alumno_de_otro = Alumno.objects.create(
             gimnasio=otro_gimnasio, nombre="Ana", apellido="Gomez"
         )
-        pago = PagoMensual(
+        pago = Cuota(
             gimnasio=self.gimnasio,
             alumno=alumno_de_otro,
             mes=3,
@@ -138,11 +138,11 @@ class GenerarPagosPendientesTests(TestCase):
 
         self.assertEqual(creados, 3)
         self.assertEqual(
-            PagoMensual.objects.filter(gimnasio=self.gimnasio, mes=7, anio=2026).count(),
+            Cuota.objects.filter(gimnasio=self.gimnasio, mes=7, anio=2026).count(),
             2,
         )
         self.assertFalse(
-            PagoMensual.objects.filter(alumno=self.inactivo, mes=7, anio=2026).exists()
+            Cuota.objects.filter(alumno=self.inactivo, mes=7, anio=2026).exists()
         )
 
     def test_es_idempotente(self):
@@ -150,7 +150,7 @@ class GenerarPagosPendientesTests(TestCase):
         creados_segunda_vez = generar_pagos_pendientes(mes=7, anio=2026)
 
         self.assertEqual(creados_segunda_vez, 0)
-        self.assertEqual(PagoMensual.objects.filter(mes=7, anio=2026).count(), 3)
+        self.assertEqual(Cuota.objects.filter(mes=7, anio=2026).count(), 3)
 
 
 class GenerarPagosFechaLocalTests(TestCase):
@@ -182,8 +182,8 @@ class GenerarPagosFechaLocalTests(TestCase):
         with patch("django.utils.timezone.now", return_value=self.MOMENTO):
             call_command("generar_pagos", stdout=salida)
 
-        self.assertTrue(PagoMensual.objects.filter(mes=5, anio=2026).exists())
-        self.assertFalse(PagoMensual.objects.filter(mes=6, anio=2026).exists())
+        self.assertTrue(Cuota.objects.filter(mes=5, anio=2026).exists())
+        self.assertFalse(Cuota.objects.filter(mes=6, anio=2026).exists())
 
 
 class MarcarVencidosTests(TestCase):
@@ -194,7 +194,7 @@ class MarcarVencidosTests(TestCase):
         )
 
     def _crear_pendiente(self, mes, anio):
-        return PagoMensual.objects.create(
+        return Cuota.objects.create(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
             mes=mes,
@@ -209,7 +209,7 @@ class MarcarVencidosTests(TestCase):
 
         pago_pasado.refresh_from_db()
         self.assertEqual(actualizados, 1)
-        self.assertEqual(pago_pasado.estado, PagoMensual.Estado.VENCIDO)
+        self.assertEqual(pago_pasado.estado, Cuota.Estado.VENCIDO)
 
     def test_pendiente_de_mes_actual_antes_del_dia_limite_no_cambia(self):
         """`self.gimnasio` usa el default de `dia_vencimiento_pago` (10)."""
@@ -221,8 +221,8 @@ class MarcarVencidosTests(TestCase):
         pago_actual.refresh_from_db()
         pago_futuro.refresh_from_db()
         self.assertEqual(actualizados, 0)
-        self.assertEqual(pago_actual.estado, PagoMensual.Estado.PENDIENTE)
-        self.assertEqual(pago_futuro.estado, PagoMensual.Estado.PENDIENTE)
+        self.assertEqual(pago_actual.estado, Cuota.Estado.PENDIENTE)
+        self.assertEqual(pago_futuro.estado, Cuota.Estado.PENDIENTE)
 
     def test_pendiente_de_mes_actual_pasado_el_dia_limite_pasa_a_vencido(self):
         """Regresión: antes de este chequeo, `dia_vencimiento_pago` era
@@ -235,7 +235,7 @@ class MarcarVencidosTests(TestCase):
 
         pago_actual.refresh_from_db()
         self.assertEqual(actualizados, 1)
-        self.assertEqual(pago_actual.estado, PagoMensual.Estado.VENCIDO)
+        self.assertEqual(pago_actual.estado, Cuota.Estado.VENCIDO)
 
     def test_dia_limite_se_evalua_por_gimnasio(self):
         """El día límite es un dato de `Gimnasio`, no un valor global --
@@ -248,7 +248,7 @@ class MarcarVencidosTests(TestCase):
             gimnasio=gimnasio_estricto, nombre="Ana", apellido="Gomez",
         )
         pago_flexible = self._crear_pendiente(mes=7, anio=2026)  # día límite 10
-        pago_estricto = PagoMensual.objects.create(
+        pago_estricto = Cuota.objects.create(
             gimnasio=gimnasio_estricto,
             alumno=alumno_estricto,
             mes=7,
@@ -261,8 +261,8 @@ class MarcarVencidosTests(TestCase):
         pago_flexible.refresh_from_db()
         pago_estricto.refresh_from_db()
         self.assertEqual(actualizados, 1)
-        self.assertEqual(pago_flexible.estado, PagoMensual.Estado.PENDIENTE)
-        self.assertEqual(pago_estricto.estado, PagoMensual.Estado.VENCIDO)
+        self.assertEqual(pago_flexible.estado, Cuota.Estado.PENDIENTE)
+        self.assertEqual(pago_estricto.estado, Cuota.Estado.VENCIDO)
 
     def test_pendiente_de_anio_pasado_pasa_a_vencido(self):
         pago_pasado = self._crear_pendiente(mes=12, anio=2025)
@@ -271,13 +271,13 @@ class MarcarVencidosTests(TestCase):
 
         pago_pasado.refresh_from_db()
         self.assertEqual(actualizados, 1)
-        self.assertEqual(pago_pasado.estado, PagoMensual.Estado.VENCIDO)
+        self.assertEqual(pago_pasado.estado, Cuota.Estado.VENCIDO)
 
 
-class PagoMensualViewTests(TestCase):
+class CuotaViewTests(TestCase):
     """Tests de Fase 2 para las vistas de gestión de pagos: acceso por rol,
     aislamiento de tenant y el flujo de confirmación (que es la única
-    escritura que el staff puede hacer sobre un `PagoMensual` existente).
+    escritura que el staff puede hacer sobre un `Cuota` existente).
 
     `pagos.urls` todavía no está incluido en `config/urls.py` (lo integra
     quien reúna las apps de dominio), así que estas pruebas activan un
@@ -306,22 +306,22 @@ class PagoMensualViewTests(TestCase):
             usuario=self.alumno_user, gimnasio=self.gimnasio_a, rol=Perfil.Rol.ALUMNO
         )
 
-        self.pago_pendiente_a = PagoMensual.objects.create(
+        self.pago_pendiente_a = Cuota.objects.create(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
             mes=3,
             anio=2026,
             monto=Decimal("0"),
         )
-        self.pago_pagado_a = PagoMensual.objects.create(
+        self.pago_pagado_a = Cuota.objects.create(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
             mes=4,
             anio=2026,
             monto=Decimal("15000.00"),
-            estado=PagoMensual.Estado.PAGADO,
+            estado=Cuota.Estado.PAGADO,
         )
-        self.pago_b = PagoMensual.objects.create(
+        self.pago_b = Cuota.objects.create(
             gimnasio=self.gimnasio_b,
             alumno=self.alumno_b,
             mes=3,
@@ -367,13 +367,13 @@ class PagoMensualViewTests(TestCase):
 
     def test_filtro_deudores_incluye_pendiente_y_vencido(self):
         self.client.login(username="staff-a", password="clave-123456")
-        pago_vencido = PagoMensual.objects.create(
+        pago_vencido = Cuota.objects.create(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
             mes=5,
             anio=2026,
             monto=Decimal("0"),
-            estado=PagoMensual.Estado.VENCIDO,
+            estado=Cuota.Estado.VENCIDO,
         )
 
         response = self.client.get(reverse("pagos:listado"), {"estado": "deudores"})
@@ -407,7 +407,7 @@ class PagoMensualViewTests(TestCase):
 
         self.assertRedirects(response, reverse("pagos:listado"))
         self.pago_pendiente_a.refresh_from_db()
-        self.assertEqual(self.pago_pendiente_a.estado, PagoMensual.Estado.PAGADO)
+        self.assertEqual(self.pago_pendiente_a.estado, Cuota.Estado.PAGADO)
         self.assertEqual(self.pago_pendiente_a.monto, Decimal("15000.00"))
         self.assertEqual(self.pago_pendiente_a.fecha_pago, date(2026, 3, 5))
         self.assertEqual(self.pago_pendiente_a.medio_pago_texto, "Efectivo")
@@ -449,7 +449,7 @@ class MedioCobroModelTests(TestCase):
 class MedioCobroViewTests(TestCase):
     """Tests de Task 11 para las vistas de gestión de medios de cobro:
     acceso por rol, aislamiento de tenant y el stampeo server-side de
-    `gimnasio` al crear (mismo criterio que `PagoMensualViewTests`)."""
+    `gimnasio` al crear (mismo criterio que `CuotaViewTests`)."""
 
     def setUp(self):
         self.gimnasio_a = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
@@ -596,21 +596,21 @@ class AlumnoComprobanteUpdateViewTests(TestCase):
         self.alumno_a.perfil = self.perfil_a
         self.alumno_a.save()
 
-        self.pago_propio = PagoMensual.objects.create(
+        self.pago_propio = Cuota.objects.create(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
             mes=3,
             anio=2026,
             monto=Decimal("15000.00"),
         )
-        self.pago_de_otro_alumno = PagoMensual.objects.create(
+        self.pago_de_otro_alumno = Cuota.objects.create(
             gimnasio=self.gimnasio_a,
             alumno=self.otro_alumno_a,
             mes=3,
             anio=2026,
             monto=Decimal("15000.00"),
         )
-        self.pago_de_otro_gimnasio = PagoMensual.objects.create(
+        self.pago_de_otro_gimnasio = Cuota.objects.create(
             gimnasio=self.gimnasio_b,
             alumno=self.alumno_b,
             mes=3,
@@ -641,10 +641,10 @@ class AlumnoComprobanteUpdateViewTests(TestCase):
         self.assertRedirects(response, reverse("home"))
         self.pago_propio.refresh_from_db()
         self.assertTrue(self.pago_propio.comprobante)
-        self.assertEqual(self.pago_propio.estado, PagoMensual.Estado.PENDIENTE)
+        self.assertEqual(self.pago_propio.estado, Cuota.Estado.PENDIENTE)
 
     def test_sube_comprobante_a_pago_vencido(self):
-        self.pago_propio.estado = PagoMensual.Estado.VENCIDO
+        self.pago_propio.estado = Cuota.Estado.VENCIDO
         self.pago_propio.save(update_fields=["estado"])
 
         response = self.client.post(
@@ -655,7 +655,7 @@ class AlumnoComprobanteUpdateViewTests(TestCase):
         self.assertRedirects(response, reverse("home"))
         self.pago_propio.refresh_from_db()
         self.assertTrue(self.pago_propio.comprobante)
-        self.assertEqual(self.pago_propio.estado, PagoMensual.Estado.VENCIDO)
+        self.assertEqual(self.pago_propio.estado, Cuota.Estado.VENCIDO)
 
     def test_rechaza_archivo_que_no_es_jpg_ni_png(self):
         response = self.client.post(
@@ -686,7 +686,7 @@ class AlumnoComprobanteUpdateViewTests(TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_404_en_pago_ya_pagado(self):
-        self.pago_propio.estado = PagoMensual.Estado.PAGADO
+        self.pago_propio.estado = Cuota.Estado.PAGADO
         self.pago_propio.save(update_fields=["estado"])
 
         response = self.client.get(

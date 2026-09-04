@@ -149,7 +149,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
     def _metricas_dashboard(gimnasio):
         from alumnos.models import Alumno
         from novedades.models import Novedad
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
         from rutinas.models import RutinaAsignada
         from tenants import analitica
 
@@ -168,10 +168,10 @@ class HomeView(LoginRequiredMixin, TemplateView):
             .filter(estado=Alumno.Estado.ACTIVO)
             .count(),
             "alumnos_pago_pendiente_count": Alumno.objects.for_gimnasio(gimnasio)
-            .filter(pagos__estado=PagoMensual.Estado.PENDIENTE)
+            .filter(pagos__estado=Cuota.Estado.PENDIENTE)
             .distinct()
             .count(),
-            "pagos_del_mes": PagoMensual.objects.for_gimnasio(gimnasio).filter(
+            "pagos_del_mes": Cuota.objects.for_gimnasio(gimnasio).filter(
                 mes=hoy.month, anio=hoy.year
             ),
             # Alumnos ACTIVOS con un plan vigente, no filas de rutina: desde

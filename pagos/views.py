@@ -1,7 +1,7 @@
 """Vistas de gestión (Fase 2 §6) de pagos mensuales de un gimnasio.
 
 Solo staff (`StaffRequiredMixin`) y siempre acotado al gimnasio del usuario
-(`TenantScopedMixin`). No hay vista de creación: los `PagoMensual` PENDIENTE
+(`TenantScopedMixin`). No hay vista de creación: los `Cuota` PENDIENTE
 ya existen, autogenerados por el cron de Fase 1 (`generar_pagos_pendientes`).
 La única acción de escritura del staff es confirmar un pago existente
 (`ConfirmarPagoView`), operando siempre sobre un pk ya acotado al tenant por
@@ -18,11 +18,11 @@ from django.views.generic import CreateView, ListView, UpdateView
 from core.mixins import TenantScopedMixin
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from pagos.forms import AlumnoComprobanteForm, ConfirmarPagoForm, MedioCobroForm
-from pagos.models import MedioCobro, PagoMensual
+from pagos.models import MedioCobro, Cuota
 
 
-class PagoMensualListView(StaffRequiredMixin, TenantScopedMixin, ListView):
-    model = PagoMensual
+class CuotaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
+    model = Cuota
     template_name = "pagos/pago_list.html"
     context_object_name = "pagos"
 
@@ -38,7 +38,7 @@ class PagoMensualListView(StaffRequiredMixin, TenantScopedMixin, ListView):
             queryset = queryset.filter(anio=self.anio)
         if self.estado == "deudores":
             queryset = queryset.filter(
-                estado__in=[PagoMensual.Estado.PENDIENTE, PagoMensual.Estado.VENCIDO]
+                estado__in=[Cuota.Estado.PENDIENTE, Cuota.Estado.VENCIDO]
             )
         elif self.estado:
             queryset = queryset.filter(estado=self.estado)
@@ -50,18 +50,18 @@ class PagoMensualListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         context["mes_actual"] = self.mes
         context["anio_actual"] = self.anio
         context["estado_actual"] = self.estado
-        context["estados"] = PagoMensual.Estado.choices
+        context["estados"] = Cuota.Estado.choices
         return context
 
 
 class ConfirmarPagoView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
-    model = PagoMensual
+    model = Cuota
     form_class = ConfirmarPagoForm
     template_name = "pagos/pago_confirmar.html"
     success_url = reverse_lazy("pagos:listado")
 
     def form_valid(self, form):
-        form.instance.estado = PagoMensual.Estado.PAGADO
+        form.instance.estado = Cuota.Estado.PAGADO
         response = super().form_valid(form)
         messages.success(self.request, "Pago confirmado correctamente.")
         return response
@@ -74,18 +74,18 @@ class AlumnoComprobanteUpdateView(AlumnoRequiredMixin, UpdateView):
     -- un pago ya PAGADO, de otro alumno, o de otro gimnasio da 404, mismo
     criterio que `RutinaAsignadaItemCalificarView`/`CancelarReservaView`."""
 
-    model = PagoMensual
+    model = Cuota
     form_class = AlumnoComprobanteForm
     template_name = "pagos/comprobante_alumno_form.html"
     success_url = reverse_lazy("home")
 
     def get_queryset(self):
         if self.alumno is None:
-            return PagoMensual.objects.none()
-        return PagoMensual.objects.filter(
+            return Cuota.objects.none()
+        return Cuota.objects.filter(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
-            estado__in=[PagoMensual.Estado.PENDIENTE, PagoMensual.Estado.VENCIDO],
+            estado__in=[Cuota.Estado.PENDIENTE, Cuota.Estado.VENCIDO],
         )
 
     def get(self, request, *args, **kwargs):

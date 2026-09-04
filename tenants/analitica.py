@@ -393,15 +393,15 @@ def ingresos_por_mes(gimnasio, *, meses=_MESES_DE_HISTORIAL, hoy=None):
     cuota atrasada. Solo cuenta `PAGADO`: pendiente y vencido son expectativa,
     no ingreso.
     """
-    from pagos.models import PagoMensual
+    from pagos.models import Cuota
 
     hoy = hoy or timezone.localdate()
     ventana = _meses_hacia_atras(hoy, meses)
 
     cobrado = {
         (fila["anio"], fila["mes"]): fila["total"] or 0
-        for fila in PagoMensual.objects.for_gimnasio(gimnasio)
-        .filter(estado=PagoMensual.Estado.PAGADO)
+        for fila in Cuota.objects.for_gimnasio(gimnasio)
+        .filter(estado=Cuota.Estado.PAGADO)
         .values("anio", "mes")
         .annotate(total=Sum("monto"))
     }
@@ -423,7 +423,7 @@ def indicadores_del_momento(gimnasio, *, hoy=None):
     un vistazo, que es lo primero que mira alguien al entrar al panel.
     """
     from alumnos.models import Alumno
-    from pagos.models import PagoMensual
+    from pagos.models import Cuota
     from turnos.models import Reserva
 
     hoy = hoy or timezone.localdate()
@@ -442,11 +442,11 @@ def indicadores_del_momento(gimnasio, *, hoy=None):
     # Cobranza del mes EN CURSO: qué proporción de lo emitido ya entró. Es la
     # pregunta que un dueño se hace todos los meses y que hoy había que
     # contar a ojo en la tabla de pagos.
-    del_mes = PagoMensual.objects.for_gimnasio(gimnasio).filter(
+    del_mes = Cuota.objects.for_gimnasio(gimnasio).filter(
         anio=hoy.year, mes=hoy.month
     )
     emitidos = del_mes.count()
-    pagados = del_mes.filter(estado=PagoMensual.Estado.PAGADO).count()
+    pagados = del_mes.filter(estado=Cuota.Estado.PAGADO).count()
 
     return {
         "asistentes_hoy": reservas.filter(fecha=hoy).count(),
