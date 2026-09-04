@@ -929,6 +929,103 @@ class RevocacionAccesoTests(TestCase):
         self.assertTrue(ajeno.perfil.usuario.is_active)
 
 
+class SexoSegunElPublicoDelGimnasioTests(TestCase):
+    """En un gimnasio de un solo género, el campo «Sexo» sale de la ficha y lo
+    completa el propio formulario.
+
+    Se completa en vez de dejarlo vacío para que, el día que el gimnasio pase a
+    mixto, el histórico ya esté cargado y los gráficos por género sirvan desde
+    el primer día.
+    """
+
+    def setUp(self):
+        self.mixto = Gimnasio.objects.create(nombre="Mixto", slug="mixto")
+        self.de_mujeres = Gimnasio.objects.create(
+            nombre="Solo mujeres", slug="mujeres",
+            tipo_publico=Gimnasio.TipoPublico.MUJERES,
+        )
+
+    def _form(self, gimnasio, instance=None, **cambios):
+        from alumnos.forms import AlumnoForm
+
+        datos = {
+            "nombre": "Ana",
+            "apellido": "Paz",
+            "estado": Alumno.Estado.ACTIVO,
+            "fecha_inicio_ciclo": timezone.localdate().isoformat(),
+        }
+        datos.update(cambios)
+        return AlumnoForm(datos, instance=instance, gimnasio=gimnasio)
+
+    def test_en_un_gimnasio_mixto_el_campo_sigue_estando(self):
+        form = self._form(self.mixto, sexo=Alumno.Sexo.MASCULINO)
+
+        self.assertIn("sexo", form.fields)
+        self.assertTrue(form.is_valid(), form.errors)
+        alumno = form.save(commit=False)
+        alumno.gimnasio = self.mixto
+        alumno.save()
+        self.assertEqual(alumno.sexo, Alumno.Sexo.MASCULINO)
+
+    def test_en_un_gimnasio_de_mujeres_no_se_pide_y_se_completa_solo(self):
+        form = self._form(self.de_mujeres)
+
+        self.assertNotIn("sexo", form.fields)
+        self.assertTrue(form.is_valid(), form.errors)
+        alumno = form.save(commit=False)
+        alumno.gimnasio = self.de_mujeres
+        alumno.save()
+        self.assertEqual(alumno.sexo, Alumno.Sexo.FEMENINO)
+
+    def test_en_un_gimnasio_de_hombres_se_completa_con_masculino(self):
+        gimnasio = Gimnasio.objects.create(
+            nombre="Solo hombres", slug="hombres",
+            tipo_publico=Gimnasio.TipoPublico.HOMBRES,
+        )
+
+        form = self._form(gimnasio)
+        self.assertTrue(form.is_valid(), form.errors)
+        alumno = form.save(commit=False)
+        alumno.gimnasio = gimnasio
+        alumno.save()
+
+        self.assertEqual(alumno.sexo, Alumno.Sexo.MASCULINO)
+
+    def test_un_alumno_ya_cargado_conserva_su_sexo_si_el_gimnasio_cambia(self):
+        """El que más importa. Un alumno cargado como masculino cuando el
+        gimnasio era mixto NO se reescribe al editarle cualquier otro campo
+        después de pasar a «solo mujeres» -- por eso esto vive en el form y no
+        en un `pre_save`, que estamparía en cada guardado."""
+        alumno = Alumno.objects.create(
+            gimnasio=self.mixto, nombre="Ana", apellido="Paz",
+            sexo=Alumno.Sexo.MASCULINO,
+        )
+        Gimnasio.objects.filter(pk=self.mixto.pk).update(
+            tipo_publico=Gimnasio.TipoPublico.MUJERES
+        )
+        self.mixto.refresh_from_db()
+
+        form = self._form(self.mixto, instance=alumno, telefono="1122334455")
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        alumno.refresh_from_db()
+        self.assertEqual(alumno.sexo, Alumno.Sexo.MASCULINO)
+        self.assertEqual(alumno.telefono, "1122334455")
+
+    def test_la_ficha_no_renderiza_el_campo_cuando_no_corresponde(self):
+        staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=staff, gimnasio=self.de_mujeres, rol=Perfil.Rol.STAFF
+        )
+        self.client.force_login(staff)
+
+        response = self.client.get(reverse("alumnos:crear"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'name="sexo"')
+
+
 class BotonDeBajaYAltaTests(TestCase):
     """Lo que el botón de baja/alta tiene que escribir ADEMÁS de `estado`.
 
@@ -1022,7 +1119,6 @@ class AnclaFuturaEnLaFichaTests(TestCase):
 
 
 class PanelAccesosTests(TestCase):
-
     """Vista de conjunto de los accesos del gimnasio.
 
     Hasta ahora el staff solo veía el acceso de un alumno entrando a su ficha,

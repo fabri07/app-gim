@@ -42,6 +42,14 @@ class AlumnoForm(TenantScopedModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # En un gimnasio de un solo género, preguntar el sexo en cada alta es
+        # pedirle al staff un dato que ya se conoce. Se saca del formulario y
+        # lo completa `clean()`. Se completa (en vez de dejarlo vacío) para que
+        # el día que el gimnasio pase a mixto el histórico ya esté cargado y
+        # los gráficos por género sirvan desde el primer día.
+        if not self.gimnasio.tiene_publico_mixto:
+            del self.fields["sexo"]
+
         # OBLIGATORIO en el formulario aunque sea `blank=True` en el modelo.
         # El modelo tiene que poder nacer sin ancla (la estampan las señales
         # del alta y de la primera rutina), pero desde la ficha vaciarla
@@ -55,6 +63,33 @@ class AlumnoForm(TenantScopedModelForm):
         # que omita el campo falla de forma visible en vez de guardar a
         # medias.
         self.fields["fecha_inicio_ciclo"].required = True
+
+    def clean(self):
+        """Estampa el sexo cuando el gimnasio lo define por sí mismo.
+
+        Va acá y no en `save()` porque `_post_clean` corre DESPUÉS de `clean()`
+        y valida la instancia: un valor mal mapeado falla como error de
+        validación en vez de entrar a la base como dato sucio. `construct_instance`
+        no lo pisa -- solo escribe campos presentes en `cleaned_data`, y `sexo`
+        ya no es un campo del form.
+
+        Solo completa lo que está VACÍO: el género de un alumno ya cargado no
+        se toca nunca, aunque el gimnasio haya cambiado de tipo de público
+        después. Es el mismo criterio con el que `registrar_fecha_de_baja`
+        actúa solo en la transición y no en cada guardado.
+
+        **Tampoco va como señal `pre_save`**, por la misma razón, y porque acá
+        el form es el único camino de escritura de la UI.
+        """
+        datos = super().clean()
+        # `not self.instance.sexo` NO es redundante: sin esa condición, editarle
+        # el teléfono a un alumno cargado como masculino cuando el gimnasio era
+        # mixto le reescribiría el género al guardar. Se completa solo lo que
+        # está vacío -- el alta nueva, y el alumno viejo al que nunca se le
+        # cargó el dato. Hay un test de regresión por cada uno de esos casos.
+        if "sexo" not in self.fields and not self.instance.sexo:
+            self.instance.sexo = self.gimnasio.sexo_implicito()
+        return datos
 
     def clean_fecha_inicio_ciclo(self):
         """El ancla no puede ser futura.

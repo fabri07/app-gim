@@ -445,7 +445,55 @@ suma cinco funciones que responden "¿cómo venimos?".
 - **La última semana del gráfico semanal está en curso** y siempre se ve más
   baja; el copy lo aclara para que no se lea como una caída.
 
+## Público del gimnasio y composición del padrón (2026-09-04)
+
+`Gimnasio.tipo_publico` (`TextChoices`: `MIXTO` —default—, `MUJERES`,
+`HOMBRES`) existe porque en un gimnasio de un solo género las dos tarjetas de
+género no informan nada: «Alumnos por género» es una sola barra y «Ejercicios
+más asignados por género» es una copia exacta del gráfico general, apilada en
+un color. El default preserva exactamente el panel y la ficha de todos los
+gimnasios que ya existían.
+
+- **Es un intercambio, no un apagado.** La tarjeta de composición del padrón es
+  siempre UNA, y la llena lo que de verdad distingue a los alumnos de ese
+  gimnasio: género si es mixto, `distribucion_por_edad` si no. La segunda
+  tarjeta (ejercicios por género) simplemente no se renderiza. **Lo decide la
+  vista, no el template**: `ejercicios_mas_asignados_por_genero` vuelve a
+  correr la query de ranking, así que saltearla ahorra trabajo real.
+- **`Gimnasio.tiene_publico_mixto` y `sexo_implicito()`** son los dos únicos
+  lugares donde vive la regla — la consultan el dashboard y `AlumnoForm`.
+  `sexo_implicito()` resuelve contra `Alumno.Sexo` con import tardío
+  (`Alumno` ya importa `tenants`; a nivel de módulo sería circular).
+- **Los tramos de edad cubren TODO el dominio.** El primero es «Hasta 25» y no
+  «18 a 25» a propósito: un gimnasio puede tener menores, y con piso en 18 un
+  alumno de 16 no entraba en ningún tramo y desaparecía del gráfico en
+  silencio. Mismo criterio que `orden_con_bucket_vacio`, que se niega a
+  descartar el bucket vacío. `fecha_nacimiento` sin cargar → «Sin dato».
+- **La edad se calcula en Python, nunca como aritmética de fecha contra una
+  columna.** Es una query (`values_list`) y el agrupado va sobre las filas ya
+  traídas — eso no viola "una consulta agregada por indicador", que es sobre no
+  hacer N queries. Y `hoy` es parámetro, o un test de bordes (25/26) se rompe
+  solo el día del cumpleaños del fixture.
+- **El campo «Sexo» sale de la ficha y lo completa `AlumnoForm.clean()`**, pero
+  **solo si está vacío**. Sin esa condición, editarle el teléfono a un alumno
+  cargado como masculino cuando el gimnasio era mixto le reescribía el género
+  al guardar. Se completa (en vez de dejarlo vacío) para que el día que el
+  gimnasio pase a mixto el histórico ya sirva. No va como señal `pre_save` por
+  la misma razón: estamparía en cada guardado.
+- **Gotcha del JS del panel, y el motivo de `datosDe()`.** Todos los gráficos
+  viven en un solo IIFE que leía cada dataset con
+  `JSON.parse(document.getElementById(...).textContent)`. Con un `json_script`
+  ausente eso lanza y **se lleva puestos todos los gráficos que vienen
+  después**, sin ningún rastro del lado del servidor. Las 7 lecturas pasan
+  ahora por `datosDe(id)`, que devuelve `[]` si el nodo no está. **Si agregás
+  un gráfico condicional, leé el dataset con ese helper.** Tampoco alcanza con
+  dejar el `json_script` sin condición: con la clave ausente renderiza `""` y
+  `"".map(...)` rompe igual — hay un test que verifica que el nodo no quede.
+- «Alumnos por género» y «Alumnos por edad» devuelven la MISMA forma
+  (`{etiqueta, total}`) para compartir `barraSimple()` sin ramas.
+
 ## Datos de demostración (`manage.py sembrar_demo`)
+
 
 Agregado el 2026-09-02: una cuenta vacía no muestra NADA de la app (los
 gráficos del panel, la tarjeta de planes por vencer y los botones de eliminar
@@ -698,6 +746,7 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
   de RPE, que excluye `rpe=""`): mide qué se pone en las rutinas, no qué
   se calificó. Cada gráfico tiene su "Ver como tabla" (`<details>`, sin
   JS) como equivalente accesible. Para `alumno`: el portal de Fase 3 (su
+
   rutina activa, su cuota del mes, últimas novedades) — ver más abajo.
 - **`RutinaPlantillaItem`/`RutinaAsignadaItem`** no son `TenantOwnedModel`
   (no tienen `gimnasio` propio): sus vistas resuelven el aislamiento

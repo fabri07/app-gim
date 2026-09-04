@@ -109,6 +109,80 @@ def distribucion_por_genero(gimnasio):
     ]
 
 
+#: Tramos de edad de `distribucion_por_edad`, en orden de presentación. Cada
+#: entrada es `(edad_maxima_inclusive, etiqueta)`; `None` es el tramo abierto
+#: del final.
+#:
+#: **Los tramos cubren TODO el dominio a propósito**: el primero es "Hasta 25"
+#: y no "18 a 25" porque un gimnasio puede tener menores, y con un piso en 18
+#: un alumno de 16 no entraría en ningún tramo y desaparecería del gráfico sin
+#: que nadie se entere. Es el mismo criterio con el que
+#: `core.catalogos.orden_con_bucket_vacio` se niega a descartar el bucket vacío.
+TRAMOS_EDAD = (
+    (25, "Hasta 25"),
+    (35, "26 a 35"),
+    (45, "36 a 45"),
+    (None, "46 o más"),
+)
+
+#: Los alumnos sin `fecha_nacimiento` cargada. Va al final y separado, igual
+#: que el "No informado" de `distribucion_por_genero`: no es una edad, es la
+#: ausencia del dato.
+ETIQUETA_SIN_EDAD = "Sin dato"
+
+
+def _edad(nacimiento, hoy):
+    """Años cumplidos. Resta uno si todavía no llegó el cumpleaños de este año."""
+    return (
+        hoy.year
+        - nacimiento.year
+        - ((hoy.month, hoy.day) < (nacimiento.month, nacimiento.day))
+    )
+
+
+def distribucion_por_edad(gimnasio, hoy=None):
+    """Cantidad de alumnos por tramo de edad, en orden fijo (no por magnitud)
+    para que las barras no se reordenen solas entre cargas.
+
+    Devuelve la MISMA forma que `distribucion_por_genero`
+    (`[{"etiqueta", "total"}]`) porque las dos alimentan la misma tarjeta del
+    panel -- cuál de las dos se usa lo decide `Gimnasio.tiene_publico_mixto`.
+    Siempre devuelve las cinco filas, aunque estén en cero.
+
+    **La edad se calcula en Python, nunca como aritmética de fecha contra una
+    columna en el queryset.** Esa aritmética anda en Postgres y da resultados
+    silenciosamente distintos en SQLite, que es donde corre toda la suite (la
+    misma trampa que documentan `pagos/acceso.py` y `pagos/models.py`). Encima,
+    "¿ya pasó el cumpleaños?" es justo lo que peor se expresa en SQL portable.
+
+    Es **una sola query** (`values_list`) y el agrupado va sobre las filas ya
+    traídas: eso no viola la regla de "una consulta agregada por indicador",
+    que es sobre no hacer N queries, no sobre no iterar en Python.
+    """
+    from alumnos.models import Alumno
+
+    hoy = hoy or timezone.localdate()
+    conteos = {etiqueta: 0 for _, etiqueta in TRAMOS_EDAD}
+    conteos[ETIQUETA_SIN_EDAD] = 0
+
+    for nacimiento in Alumno.objects.for_gimnasio(gimnasio).values_list(
+        "fecha_nacimiento", flat=True
+    ):
+        if nacimiento is None:
+            conteos[ETIQUETA_SIN_EDAD] += 1
+            continue
+        edad = _edad(nacimiento, hoy)
+        for tope, etiqueta in TRAMOS_EDAD:
+            # `tope is None` es el tramo abierto del final: siempre matchea,
+            # así que ninguna edad puede quedar sin contar.
+            if tope is None or edad <= tope:
+                conteos[etiqueta] += 1
+                break
+
+    orden = [etiqueta for _, etiqueta in TRAMOS_EDAD] + [ETIQUETA_SIN_EDAD]
+    return [{"etiqueta": etiqueta, "total": conteos[etiqueta]} for etiqueta in orden]
+
+
 def rpe_por_ejercicio(gimnasio):
     """Distribución de RPE por ejercicio, ordenada por cantidad total de
     calificaciones recibidas (de más a menos reportado).

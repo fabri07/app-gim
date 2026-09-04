@@ -441,7 +441,6 @@ class EnviarRecordatoriosCommandTests(TestCase):
         self.assertIn("Vence el 10/03.", payload["body"])
 
     def test_alumno_sin_perfil_no_queda_bloqueado_para_siempre(self):
-
         """Si el dedup se marcara ANTES de confirmar que se puede entregar
         el push, un alumno sin Perfil vinculado en el momento del barrido
         quedaría sin este aviso para siempre, incluso después de que el
@@ -463,7 +462,6 @@ class EnviarRecordatoriosCommandTests(TestCase):
         from django.core.management import call_command
 
         with patch("notificaciones.services._enviar") as mock_enviar, patch(
-
             "django.utils.timezone.localdate", return_value=hoy
         ):
             call_command("enviar_recordatorios")

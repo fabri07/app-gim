@@ -1359,6 +1359,7 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
+                "tipo_publico": "mixto",
                 "paleta": "oceano",
                 "tipografia": "plus_jakarta",
                 "fondo_tipo": "color",
@@ -1387,6 +1388,7 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
+                "tipo_publico": "mixto",
                 "paleta": "bosque",
                 "tipografia": "plus_jakarta",
                 "fondo_tipo": "color",
@@ -1435,6 +1437,7 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
+                "tipo_publico": "mixto",
                 "paleta": "bosque",
                 "tipografia": "sora",
                 "fondo_tipo": "color",
@@ -1449,12 +1452,65 @@ class GimnasioUpdateViewTests(TestCase):
         self.gimnasio.refresh_from_db()
         self.assertEqual(self.gimnasio.tipografia, "sora")
 
+    def test_staff_actualiza_el_tipo_de_publico(self):
+        self.client.login(username="dueno", password="clave-123456")
+
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Gimnasio Central",
+                "tipo_publico": "mujeres",
+                "paleta": "bosque",
+                "tipografia": "plus_jakarta",
+                "fondo_tipo": "color",
+                "texto_bienvenida": "",
+                "contacto": "",
+                "link_instagram": "",
+                "link_whatsapp": "",
+            },
+        )
+
+        self.assertRedirects(response, reverse("gimnasio_editar"))
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.tipo_publico, "mujeres")
+        self.assertFalse(self.gimnasio.tiene_publico_mixto)
+
+    def test_el_form_rechaza_un_tipo_de_publico_fuera_del_catalogo(self):
+        self.client.login(username="dueno", password="clave-123456")
+
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Gimnasio Central",
+                "tipo_publico": "solo-zurdos",
+                "paleta": "bosque",
+                "tipografia": "plus_jakarta",
+                "fondo_tipo": "color",
+                "texto_bienvenida": "",
+                "contacto": "",
+                "link_instagram": "",
+                "link_whatsapp": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.tipo_publico, "mixto")
+
+    def test_un_gimnasio_nuevo_nace_mixto(self):
+        """El default preserva el comportamiento de todos los gimnasios que ya
+        existían: mismo panel y misma ficha que antes de esta feature."""
+        self.assertTrue(Gimnasio.objects.create(
+            nombre="Nuevo", slug="nuevo"
+        ).tiene_publico_mixto)
+
     def test_el_form_rechaza_una_tipografia_fuera_de_la_lista_curada(self):
         self.client.login(username="dueno", password="clave-123456")
         response = self.client.post(
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
+                "tipo_publico": "mixto",
                 "paleta": "bosque",
                 "tipografia": "comic-sans-libre",
                 "fondo_tipo": "color",
@@ -1474,6 +1530,7 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
+                "tipo_publico": "mixto",
                 "paleta": "azul-libre-inventado",
                 "tipografia": "plus_jakarta",
                 "fondo_tipo": "color",
@@ -1511,6 +1568,7 @@ class GimnasioUpdateViewTests(TestCase):
     def _datos_base_fondo(self, **overrides):
         datos = {
             "nombre": "Gimnasio Central",
+            "tipo_publico": "mixto",
             "paleta": "bosque",
             "tipografia": "plus_jakarta",
             "fondo_tipo": "color",
@@ -1711,6 +1769,7 @@ class GimnasioFormFondoImagenTests(SimpleTestCase):
     def _datos_base(self, **overrides):
         datos = {
             "nombre": "Gimnasio Test",
+            "tipo_publico": "mixto",
             "paleta": "bosque",
             "tipografia": "plus_jakarta",
             "fondo_tipo": "imagen",
@@ -1839,6 +1898,7 @@ class GimnasioFormLogoTests(SimpleTestCase):
     def _datos_base(self, **overrides):
         datos = {
             "nombre": "Gimnasio Test",
+            "tipo_publico": "mixto",
             "paleta": "bosque",
             "tipografia": "plus_jakarta",
             "fondo_tipo": "color",
@@ -1900,6 +1960,7 @@ class GimnasioFormArchivoYEliminarContradiccionTests(SimpleTestCase):
     def _datos_base(self, **overrides):
         datos = {
             "nombre": "Gimnasio Test",
+            "tipo_publico": "mixto",
             "paleta": "bosque",
             "tipografia": "plus_jakarta",
             "fondo_tipo": "color",
@@ -2216,6 +2277,170 @@ class AnaliticaTests(TestCase):
         self.assertEqual(sentadilla["generos"]["no_informado"], 1)  # Bruno cae acá
         self.assertEqual(sentadilla["generos"]["masculino"], 0)  # ya no es "masculino"
         self.assertEqual(sentadilla["total"], 3)
+
+
+class DistribucionPorEdadTests(TestCase):
+    """`distribucion_por_edad`: la tarjeta de composición del padrón cuando el
+    gimnasio es de un solo género y agrupar por sexo no informa nada.
+
+    `hoy` es un parámetro y no `timezone.localdate()` a secas justamente para
+    poder fijar los bordes: un test de "tiene 25 o 26" que dependiera del día
+    real se rompería solo el día del cumpleaños del fixture.
+    """
+
+    HOY = date(2026, 6, 15)
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+
+    def _alumno(self, nacimiento, gimnasio=None, nombre="A"):
+        return Alumno.objects.create(
+            gimnasio=gimnasio or self.gimnasio, nombre=nombre, apellido="X",
+            fecha_nacimiento=nacimiento,
+        )
+
+    def _conteos(self, gimnasio=None):
+        from tenants.analitica import distribucion_por_edad
+
+        return {
+            fila["etiqueta"]: fila["total"]
+            for fila in distribucion_por_edad(gimnasio or self.gimnasio, hoy=self.HOY)
+        }
+
+    def test_devuelve_los_cinco_tramos_aunque_esten_en_cero(self):
+        """El orden es fijo y todas las filas viajan siempre: si se saltearan
+        los tramos vacíos, las barras se reordenarían solas entre cargas."""
+        from tenants.analitica import distribucion_por_edad
+
+        filas = distribucion_por_edad(self.gimnasio, hoy=self.HOY)
+
+        self.assertEqual(
+            [fila["etiqueta"] for fila in filas],
+            ["Hasta 25", "26 a 35", "36 a 45", "46 o más", "Sin dato"],
+        )
+        self.assertEqual([fila["total"] for fila in filas], [0, 0, 0, 0, 0])
+
+    def test_los_bordes_de_cada_tramo(self):
+        self._alumno(date(2000, 6, 15), nombre="Cumple hoy, 26")   # 26 -> 26 a 35
+        self._alumno(date(2000, 6, 16), nombre="Cumple mañana, 25")  # 25 -> Hasta 25
+        self._alumno(date(1991, 6, 16), nombre="34")               # 34 -> 26 a 35
+        self._alumno(date(1990, 6, 15), nombre="36")               # 36 -> 36 a 45
+        self._alumno(date(1980, 6, 15), nombre="46")               # 46 -> 46 o más
+
+        conteos = self._conteos()
+
+        self.assertEqual(conteos["Hasta 25"], 1)
+        self.assertEqual(conteos["26 a 35"], 2)
+        self.assertEqual(conteos["36 a 45"], 1)
+        self.assertEqual(conteos["46 o más"], 1)
+
+    def test_un_alumno_menor_de_edad_cae_en_el_primer_tramo_y_no_se_pierde(self):
+        """REGRESIÓN del diseño: con el primer tramo como «18 a 25», un alumno
+        de 16 no entraba en ninguno y desaparecía del gráfico en silencio. Los
+        tramos tienen que cubrir todo el dominio."""
+        self._alumno(date(2010, 1, 1), nombre="Menor")  # 16 años
+
+        conteos = self._conteos()
+
+        self.assertEqual(conteos["Hasta 25"], 1)
+        self.assertEqual(sum(conteos.values()), 1)
+
+    def test_sin_fecha_de_nacimiento_va_a_sin_dato(self):
+        """`fecha_nacimiento` es opcional: los que no la tienen se muestran
+        aparte, no se descartan ni se mezclan con un tramo real."""
+        Alumno.objects.create(gimnasio=self.gimnasio, nombre="Sin", apellido="Fecha")
+
+        conteos = self._conteos()
+
+        self.assertEqual(conteos["Sin dato"], 1)
+
+    def test_no_mezcla_gimnasios(self):
+        self._alumno(date(1990, 1, 1), gimnasio=self.otro_gimnasio, nombre="Ajeno")
+
+        self.assertEqual(sum(self._conteos().values()), 0)
+        self.assertEqual(sum(self._conteos(self.otro_gimnasio).values()), 1)
+
+    def test_el_costo_no_crece_con_la_cantidad_de_alumnos(self):
+        from tenants.analitica import distribucion_por_edad
+
+        for i in range(3):
+            self._alumno(date(1990, 1, 1), nombre=f"chico-{i}")
+        with CaptureQueriesContext(connection) as chico:
+            distribucion_por_edad(self.gimnasio, hoy=self.HOY)
+
+        for i in range(40):
+            self._alumno(date(1990, 1, 1), nombre=f"grande-{i}")
+        with CaptureQueriesContext(connection) as grande:
+            distribucion_por_edad(self.gimnasio, hoy=self.HOY)
+
+        self.assertEqual(len(grande), len(chico))
+
+
+class TarjetaDeComposicionDelPadronTests(TestCase):
+    """Qué tarjeta muestra el panel según `Gimnasio.tipo_publico`.
+
+    Es un INTERCAMBIO, no una suma: la tarjeta es siempre una sola y la llena
+    lo que de verdad distingue al padrón de ese gimnasio. En un gimnasio de un
+    solo género, «Alumnos por género» es una sola barra y «Ejercicios más
+    asignados por género» es una copia exacta del gráfico de arriba.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.staff = User.objects.create_user("staff", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz",
+            sexo=Alumno.Sexo.FEMENINO, fecha_nacimiento=date(1995, 3, 2),
+        )
+        self.client.force_login(self.staff)
+
+    def _panel(self, tipo_publico):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(tipo_publico=tipo_publico)
+        return self.client.get(reverse("home"))
+
+    def test_un_gimnasio_mixto_ve_las_dos_tarjetas_de_genero_y_no_la_de_edad(self):
+        """El caso espejo, y el que importa: sin este test, un fix que
+        escondiera los gráficos SIEMPRE pasaría igual."""
+        response = self._panel(Gimnasio.TipoPublico.MIXTO)
+
+        self.assertIn("genero_stats", response.context)
+        self.assertIn("ejercicios_mas_asignados_por_genero", response.context)
+        self.assertNotIn("edad_stats", response.context)
+        # Sobre el encabezado y no sobre el texto suelto: los nombres de los
+        # gráficos también aparecen en los comentarios del JS del panel.
+        self.assertContains(response, "<h2>Alumnos por género</h2>")
+
+
+    def test_un_gimnasio_de_un_solo_genero_ve_la_de_edad_en_su_lugar(self):
+        response = self._panel(Gimnasio.TipoPublico.MUJERES)
+
+        self.assertIn("edad_stats", response.context)
+        self.assertNotIn("genero_stats", response.context)
+        self.assertNotIn("ejercicios_mas_asignados_por_genero", response.context)
+        self.assertContains(response, "<h2>Alumnos por edad</h2>")
+        self.assertNotContains(response, "<h2>Alumnos por género</h2>")
+        self.assertNotContains(
+            response, "<h2>Ejercicios más asignados por género</h2>"
+        )
+
+
+    def test_el_dataset_del_grafico_que_no_va_no_queda_en_el_html(self):
+        """El JS del panel es un solo IIFE: si quedara un `<script
+        id="genero-data">` vacío, el `JSON.parse` de ese nodo se llevaría
+        puestos todos los gráficos que vienen después, sin ningún síntoma del
+        lado del servidor."""
+        response = self._panel(Gimnasio.TipoPublico.HOMBRES)
+
+        self.assertNotContains(response, 'id="genero-data"')
+        self.assertNotContains(response, 'id="ejercicios-genero-data"')
+        self.assertContains(response, 'id="edad-data"')
+        # Y los que no dependen del tipo de público siguen todos ahí.
+        for nodo in ("ingresos-data", "rpe-data", "ejercicios-data"):
+            self.assertContains(response, f'id="{nodo}"')
 
 
 class SuplantacionServicioTests(TestCase):

@@ -125,6 +125,7 @@ class GimnasioForm(forms.ModelForm):
         model = Gimnasio
         fields = [
             "nombre",
+            "tipo_publico",
             "logo",
             "paleta",
             "tipografia",

@@ -39,7 +39,6 @@ def _fecha_o_nada(texto):
 
 
 class CuotaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
-
     model = Cuota
     template_name = "pagos/pago_list.html"
     context_object_name = "pagos"
@@ -164,13 +163,11 @@ class CuotaAnularView(StaffRequiredMixin, TenantScopedMixin, DetailView):
                 cuota,
                 f"Cuota del {cuota.periodo_inicio:%d/%m/%Y} de {cuota.alumno} "
                 f"anulada",
-
             )
         return redirect("pagos:listado")
 
 
 class AlumnoComprobanteUpdateView(AlumnoRequiredMixin, UpdateView):
-
     """El alumno sube el comprobante de SU PROPIO pago PENDIENTE/VENCIDO.
     No cambia `estado`: sigue siendo el staff quien confirma el pago en
     `ConfirmarPagoView`. `get_queryset` acota por alumno, gimnasio Y estado

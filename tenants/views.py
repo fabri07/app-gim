@@ -232,13 +232,30 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "asistencia_diaria": analitica.asistencia_diaria(gimnasio),
             "ingresos_mensuales": analitica.ingresos_por_mes(gimnasio),
             "asistencia": analitica.asistencia_por_dia_y_hora(gimnasio),
-            "genero_stats": analitica.distribucion_por_genero(gimnasio),
             "rpe_por_ejercicio": analitica.rpe_por_ejercicio(gimnasio),
             "ejercicios_mas_asignados": analitica.ejercicios_mas_asignados(gimnasio),
-            "ejercicios_mas_asignados_por_genero": analitica.ejercicios_mas_asignados_por_genero(
-                gimnasio
+            # Composición del padrón: por GÉNERO si el gimnasio es mixto, por
+            # EDAD si es de un solo género. Es un intercambio, no una suma --
+            # la tarjeta del panel es siempre una sola, y la llena lo que de
+            # verdad distingue a los alumnos de ESE gimnasio. En un gimnasio de
+            # mujeres, «Alumnos por género» es una sola barra y «Ejercicios más
+            # asignados por género» es una copia exacta del gráfico general.
+            #
+            # Se decide acá y no en el template: `ejercicios_mas_asignados_por_genero`
+            # vuelve a correr la query de ranking (costo documentado en
+            # CLAUDE.md), así que saltearla ahorra trabajo real en cada carga.
+            **(
+                {
+                    "genero_stats": analitica.distribucion_por_genero(gimnasio),
+                    "ejercicios_mas_asignados_por_genero": (
+                        analitica.ejercicios_mas_asignados_por_genero(gimnasio)
+                    ),
+                }
+                if gimnasio.tiene_publico_mixto
+                else {"edad_stats": analitica.distribucion_por_edad(gimnasio)}
             ),
         }
+
 
 
 GIMNASIO_COOKIE_NOMBRE = "gimnasio_preferido"

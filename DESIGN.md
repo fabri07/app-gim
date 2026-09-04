@@ -216,8 +216,14 @@ codificación de datos, no branding, así que ningún paisaje lo pisa.
 `#b7d3f6` → `#6da7ec` → `#2a78d6` → `#184f95` (claro a oscuro).
 
 ### Paleta categórica de dataviz
+
 4 colores para series categóricas (no ordinales/divergentes) del dashboard
-— hoy solo el desglose por género de "Ejercicios más asignados". Slots 1-4
+— hoy solo el desglose por género de "Ejercicios más asignados", que
+**solo se renderiza en gimnasios de público mixto** (`Gimnasio.tipo_publico`,
+ver CLAUDE.md § "Público del gimnasio"): en uno de un solo género ese gráfico
+sería el general repintado, así que no se muestra y esta paleta se queda sin
+ningún consumidor en pantalla. Slots 1-4
+
 del tema por defecto de la skill `dataviz` (azul → naranja → aqua →
 amarillo), en ese orden fijo, nunca ciclado. Validados con
 `scripts/validate_palette.js` de la skill contra el fondo real de esta app

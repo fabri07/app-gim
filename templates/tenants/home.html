@@ -319,9 +319,17 @@
     </details>
   </div>
 
-  <div class="tarjeta">
-    <h2>Alumnos por género</h2>
-    {% if genero_stats %}
+  {% comment %}
+  Composición del padrón: UNA tarjeta, llenada por género o por edad según
+  `Gimnasio.tipo_publico`. En un gimnasio de un solo género el gráfico de
+  género es una sola barra, así que ahí se muestra la edad, que sí distingue.
+  La condición envuelve la tarjeta ENTERA y no solo su contenido: con la clave
+  ausente quedaría una tarjeta huérfana con nada más que el encabezado.
+
+  {% endcomment %}
+  {% if genero_stats %}
+    <div class="tarjeta">
+      <h2>Alumnos por género</h2>
       <div class="grafico-contenedor">
         <canvas id="grafico-genero"></canvas>
       </div>
@@ -338,8 +346,32 @@
           </table>
         </div>
       </details>
-    {% endif %}
-  </div>
+    </div>
+  {% endif %}
+
+  {% if edad_stats %}
+    <div class="tarjeta">
+      <h2>Alumnos por edad</h2>
+      <p class="texto-suave">Composición del padrón por tramo de edad. Los alumnos sin fecha de nacimiento cargada aparecen como «Sin dato».</p>
+      <div class="grafico-contenedor">
+        <canvas id="grafico-edad"></canvas>
+      </div>
+      <details class="tabla-detalle">
+        <summary>Ver como tabla</summary>
+        <div class="tabla-scroll">
+          <table class="tabla">
+            <thead><tr><th>Edad</th><th>Alumnos</th></tr></thead>
+            <tbody>
+              {% for fila in edad_stats %}
+                <tr><td>{{ fila.etiqueta }}</td><td>{{ fila.total }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  {% endif %}
+
 
   <div class="tarjeta">
     <h2>RPE reportado por ejercicio</h2>
@@ -407,11 +439,18 @@
     {% endif %}
   </div>
 
+  {% comment %}
+  Solo en gimnasios mixtos: con un solo género este gráfico es una copia
+  exacta del de arriba, apilado en un color. La tarjeta entera queda fuera,
+  incluido el estado vacío.
+  {% endcomment %}
+  {% if ejercicios_mas_asignados_por_genero %}
   <div class="tarjeta">
     <h2>Ejercicios más asignados por género</h2>
     <p class="texto-suave">Mismo ranking que el gráfico anterior, desglosado por género del alumno.</p>
-    {% if ejercicios_mas_asignados_por_genero %}
       <div class="grafico-contenedor">
+
+
         <canvas id="grafico-ejercicios-genero"></canvas>
       </div>
       <details class="tabla-detalle">
@@ -443,19 +482,22 @@
           </table>
         </div>
       </details>
-    {% else %}
-      <p class="texto-suave">Todavía no hay ejercicios asignados en ninguna rutina.</p>
-    {% endif %}
   </div>
+  {% endif %}
 
   {{ ingresos_mensuales|json_script:"ingresos-data" }}
+
+
   {{ altas_y_bajas|json_script:"altas-bajas-data" }}
   {{ asistencia_semanal|json_script:"asistencia-semanal-data" }}
   {{ asistencia_diaria|json_script:"asistencia-diaria-data" }}
-  {{ genero_stats|json_script:"genero-data" }}
+  {% if genero_stats %}{{ genero_stats|json_script:"genero-data" }}{% endif %}
+  {% if edad_stats %}{{ edad_stats|json_script:"edad-data" }}{% endif %}
+
   {{ rpe_por_ejercicio|json_script:"rpe-data" }}
   {{ ejercicios_mas_asignados|json_script:"ejercicios-data" }}
-  {{ ejercicios_mas_asignados_por_genero|json_script:"ejercicios-genero-data" }}
+  {% if ejercicios_mas_asignados_por_genero %}{{ ejercicios_mas_asignados_por_genero|json_script:"ejercicios-genero-data" }}{% endif %}
+
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
   <script>
     (function () {
@@ -467,7 +509,43 @@
       var ROJO = "#d64545";
       var GRIS = "#6b7280";
 
+      // Un dataset puede NO estar en el DOM: el panel intercambia tarjetas
+      // según el tipo de público del gimnasio (género vs. edad). Sin este
+      // guard, un `JSON.parse(null)` corta el IIFE entero y se lleva puestos
+      // todos los gráficos que vienen DESPUÉS -- el dueño ve canvas en blanco
+      // y no queda ningún rastro del lado del servidor.
+      function datosDe(id) {
+        var nodo = document.getElementById(id);
+        return nodo ? JSON.parse(nodo.textContent) : [];
+      }
+
+      // Barra vertical de una sola serie. La comparten «Alumnos por género» y
+      // «Alumnos por edad», que nunca se muestran juntos: las dos funciones de
+      // analítica devuelven la misma forma (`{etiqueta, total}`) justamente
+      // para que esta tarjeta no necesite dos implementaciones.
+      function barraSimple(id, datos, color) {
+        var el = document.getElementById(id);
+        if (!el || !datos.length) return;
+        new Chart(el, {
+          type: "bar",
+          data: {
+            labels: datos.map(function (d) { return d.etiqueta; }),
+            datasets: [{
+              data: datos.map(function (d) { return d.total; }),
+              backgroundColor: color,
+              borderRadius: 4,
+              maxBarThickness: 24,
+            }],
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+          },
+        });
+      }
+
       function lineaSimple(id, datos, color) {
+
         var el = document.getElementById(id);
         if (!el || !datos.length) return;
         new Chart(el, {
@@ -491,7 +569,7 @@
         });
       }
 
-      var ingresosData = JSON.parse(document.getElementById("ingresos-data").textContent);
+      var ingresosData = datosDe("ingresos-data");
       var elIngresos = document.getElementById("grafico-ingresos");
       if (elIngresos && ingresosData.length) {
         new Chart(elIngresos, {
@@ -520,7 +598,7 @@
         });
       }
 
-      var altasBajasData = JSON.parse(document.getElementById("altas-bajas-data").textContent);
+      var altasBajasData = datosDe("altas-bajas-data");
       var elAltasBajas = document.getElementById("grafico-altas-bajas");
       if (elAltasBajas && altasBajasData.length) {
         new Chart(elAltasBajas, {
@@ -575,37 +653,21 @@
 
       lineaSimple(
         "grafico-asistencia-semanal",
-        JSON.parse(document.getElementById("asistencia-semanal-data").textContent),
+        datosDe("asistencia-semanal-data"),
         AZUL
       );
       lineaSimple(
         "grafico-asistencia-diaria",
-        JSON.parse(document.getElementById("asistencia-diaria-data").textContent),
+        datosDe("asistencia-diaria-data"),
         AZUL
       );
 
-      var generoData = JSON.parse(document.getElementById("genero-data").textContent);
-      var elGenero = document.getElementById("grafico-genero");
-      if (elGenero && generoData.length) {
-        new Chart(elGenero, {
-          type: "bar",
-          data: {
-            labels: generoData.map(function (d) { return d.etiqueta; }),
-            datasets: [{
-              data: generoData.map(function (d) { return d.total; }),
-              backgroundColor: "#2a78d6",
-              borderRadius: 4,
-              maxBarThickness: 24,
-            }],
-          },
-          options: {
-            plugins: { legend: { display: false } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-          },
-        });
-      }
+      // Solo una de las dos existe en el DOM (ver `datosDe`).
+      barraSimple("grafico-genero", datosDe("genero-data"), AZUL);
+      barraSimple("grafico-edad", datosDe("edad-data"), AZUL);
 
-      var rpeData = JSON.parse(document.getElementById("rpe-data").textContent);
+
+      var rpeData = datosDe("rpe-data");
       var elRpe = document.getElementById("grafico-rpe");
       if (elRpe && rpeData.length) {
         // Diverging azul<->rojo (skill dataviz): mas_intenso/seguir_intensidad
@@ -642,7 +704,7 @@
         });
       }
 
-      var ejerciciosData = JSON.parse(document.getElementById("ejercicios-data").textContent);
+      var ejerciciosData = datosDe("ejercicios-data");
       var elEjercicios = document.getElementById("grafico-ejercicios");
       if (elEjercicios && ejerciciosData.length) {
         new Chart(elEjercicios, {
@@ -664,7 +726,7 @@
         });
       }
 
-      var ejerciciosGeneroData = JSON.parse(document.getElementById("ejercicios-genero-data").textContent);
+      var ejerciciosGeneroData = datosDe("ejercicios-genero-data");
       var elEjerciciosGenero = document.getElementById("grafico-ejercicios-genero");
       if (elEjerciciosGenero && ejerciciosGeneroData.length) {
         // Paleta categórica (skill dataviz, tema por defecto, slots 1-4).

@@ -29,6 +29,12 @@
         {{ form.nombre }}
         {% if form.nombre.errors %}<p class="config-error">{{ form.nombre.errors.0 }}</p>{% endif %}
 
+        {{ form.tipo_publico.label_tag }}
+        {{ form.tipo_publico }}
+        <p class="texto-suave">{{ form.tipo_publico.help_text }}</p>
+        {% if form.tipo_publico.errors %}<p class="config-error">{{ form.tipo_publico.errors.0 }}</p>{% endif %}
+
+
         {% if object.logo %}
           <div class="config-logo-actual">
             <img src="{{ object.logo.url }}" alt="{{ object.nombre }}">
@@ -44,6 +50,8 @@
       <div class="form-seccion">
         <h2>Apariencia</h2>
         {{ form.paleta.label_tag }}
+
+
         {{ form.paleta }}
         {% if form.paleta.errors %}<p class="config-error">{{ form.paleta.errors.0 }}</p>{% endif %}
         {{ form.tipografia.label_tag }}
