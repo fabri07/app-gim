@@ -124,6 +124,11 @@ _NOVEDADES = [
 ]
 
 
+#: Días de tolerancia que se le configuran al gimnasio de demo, para que el
+#: estado "acceso pausado" se vea en una captura.
+_TOLERANCIA_DEMO = 5
+
+
 def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
     """Llena `gimnasio` con datos verosímiles y devuelve un resumen.
 
@@ -136,6 +141,7 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
     from importaciones.parsing import normalizar_texto
     from novedades.models import Novedad
     from pagos.models import DIAS_CICLO, Cuota
+    from tenants.models import Gimnasio
     from rutinas.models import (
         RutinaAsignada,
         RutinaAsignadaDiaCompletado,
@@ -382,6 +388,63 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                 )
                 pagos += 1
         resumen["pagos"] = pagos
+
+        # Un alumno con el acceso pausado. Sin esto, el estado nuevo no se ve
+        # en ninguna captura: hace falta que el gimnasio tenga la tolerancia
+        # configurada Y que alguien tenga una cuota impaga vieja, y una cuenta
+        # recién sembrada no cumple ninguna de las dos.
+        if gimnasio.dias_tolerancia_pago is None:
+            gimnasio.dias_tolerancia_pago = _TOLERANCIA_DEMO
+            gimnasio.save(update_fields=["dias_tolerancia_pago", "modificado"])
+        # La fecha de activación va por `update()` y NO por `save()`: la señal
+        # `registrar_activacion_del_bloqueo` la estampa en HOY durante la
+        # transición apagado -> prendido, así que asignarla antes de guardar no
+        # sirve, la pisa. Se retrocede porque en una demo el bloqueo tiene que
+        # verse ya, y `bloqueo_de` ignora las cuotas anteriores a esa fecha.
+        #
+        # Fuera del `if` a propósito: al resembrar, la tolerancia ya quedó
+        # configurada de la corrida anterior y la fecha seguiría en el "hoy" de
+        # aquella vez, dejando la demo sin ningún alumno bloqueado.
+        Gimnasio.objects.filter(pk=gimnasio.pk).update(
+            fecha_activacion_bloqueo=hoy - timedelta(days=365)
+        )
+        gimnasio.refresh_from_db()
+
+        # El moroso: se le atrasa el ciclo en curso lo suficiente como para
+        # cruzar la tolerancia. No alcanza con marcarlo VENCIDO -- el bloqueo
+        # se decide por la FECHA de arranque del ciclo, no por el estado.
+        moroso = alumnos[0]
+        vencida = (
+            Cuota.objects.filter(alumno=moroso, periodo_inicio__lte=hoy)
+            .order_by("-periodo_inicio")
+            .first()
+        )
+        if vencida is not None:
+            atraso = _TOLERANCIA_DEMO + 3
+            vencida.periodo_inicio = hoy - timedelta(days=atraso)
+            vencida.periodo_fin = vencida.periodo_inicio + timedelta(days=DIAS_CICLO - 1)
+            vencida.estado = Cuota.Estado.VENCIDO
+            vencida.fecha_pago = None
+            vencida.medio_pago_texto = ""
+            vencida.save()
+            resumen["alumnos_bloqueados"] = 1
+
+        # Y EXACTAMENTE uno: los ciclos se siembran con arranques al azar
+        # dentro de los últimos 28 días y una mezcla de estados, así que sin
+        # esto quedaban ~5 de 8 alumnos bloqueados y la demo parecía un
+        # gimnasio roto en vez de una app funcionando con un moroso. A los
+        # demás se les da por saldado el ciclo en curso si ya cruzó la
+        # tolerancia; los pendientes recientes quedan, que es lo que hace
+        # realista el panel.
+        Cuota.objects.filter(
+            gimnasio=gimnasio,
+            estado__in=Cuota.ESTADOS_IMPAGOS,
+            periodo_inicio__lte=hoy - timedelta(days=_TOLERANCIA_DEMO),
+        ).exclude(alumno=moroso).update(
+            estado=Cuota.Estado.PAGADO,
+            medio_pago_texto="Transferencia",
+            modificado=timezone.now(),
+        )
 
         # --- Reservas ------------------------------------------------------
         # 10 semanas hacia atrás: la grilla de calor del panel agrupa TODO el
