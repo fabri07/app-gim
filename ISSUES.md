@@ -20,6 +20,74 @@ del log.
 
 ---
 
+## [2026-09-03] Migración a cuotas por ciclo de 28 días + bloqueo por falta de pago
+**Estado:** resuelto (código); **pendiente el despliegue**, que tiene pasos que no
+se pueden saltear (ver abajo).
+
+**Contexto.** El dueño preguntó qué hacía «Día límite de pago mensual» y quedó a
+la vista que no hacía nada útil: vencía cuotas y mandaba un push, pero un alumno
+con la cuota vencida seguía viendo su rutina completa. Además el modelo de cobro
+no se parecía al negocio — cuota por mes calendario con un día límite igual para
+todo el gimnasio, cuando el gimnasio cobra por bloques de 4 semanas anclados al
+día en que cada alumno empieza a entrenar.
+
+**Qué se hizo.** `PagoMensual` → `Cuota` con `periodo_inicio`/`periodo_fin`,
+ancla por alumno (`Alumno.fecha_inicio_ciclo`), y bloqueo de Rutina y Turnos
+configurable por `Gimnasio.dias_tolerancia_pago`. Detalle en `CLAUDE.md`.
+
+**Decisión comercial explícita:** 365/28 = 13,04 cobros al año contra 12 meses.
+Con el mismo monto por cuota son ~8,6% más de facturación anual por alumno. Se
+tomó a sabiendas, no es un efecto colateral. Si algún gimnasio no lo quiere, hay
+que bajarle el monto de la cuota.
+
+**Riesgos que una revisión adversarial del plan encontró ANTES de escribir
+código (12 hallazgos graves, los 12 confirmados contra el código).** Los tres
+que más cerca estuvieron de llegar a producción:
+
+1. **Anclar el histórico en la primera rutina del alumno** producía, para TODO
+   alumno existente, un ciclo solapado con la cuota calendario del mes en curso
+   —que el gimnasio probablemente ya cobró—, nacida vencida en la misma corrida
+   del cron y con push masivo de «tu cuota está vencida» el día del deploy. El
+   ancla correcta es el primer día NO cubierto por la última cuota emitida.
+2. **Tratar la tolerancia vacía como 0 días** pasaba todo el padrón a VENCIDO el
+   día del deploy. Con la tolerancia sin configurar se vence recién cuando el
+   ciclo terminó.
+3. **Prender la tolerancia sin fecha de corte** bloqueaba de golpe a todo el que
+   arrastrara cualquier impaga histórica. De ahí `fecha_activacion_bloqueo`.
+
+**Riesgo aceptado a propósito:** el ciclo de pago y el ciclo de la rutina se
+desincronizan con el tiempo y el producto no tiene forma de reconciliarlos.
+
+**Pasos de despliegue que NO se pueden saltear** (en este orden):
+
+1. Los dos crons (`generar-pagos.yml`, `enviar-recordatorios.yml`) están **con
+   el `schedule` comentado**. Hacen `checkout` de `main` y corren contra la base
+   de producción SIN `migrate` (Render migra dentro de su `buildCommand`), así
+   que entre el merge y el deploy verde hay una ventana de código nuevo sobre
+   esquema viejo. Reactivarlos es un paso del procedimiento, no un supuesto.
+2. Backup **y una verificación exitosa** (no solo el backup) antes de desplegar.
+3. La vuelta atrás NO es «revertir el código»: el rename es un `ALTER TABLE`. El
+   comando de reversa es `python manage.py migrate pagos 0003` (arrastra por
+   dependencia el backfill del ancla), más `migrate alumnos 0004` y
+   `migrate tenants 0008`. **Verificar que la Shell de Render esté disponible
+   ANTES de desplegar** — el proyecto no tiene CLI ni API key de Render.
+   Probado de punta a punta sobre una base con 63 cuotas: la tabla vuelve, las
+   filas quedan intactas y `mes`/`anio` se recuperan exactos.
+4. **La primera corrida de `enviar_recordatorios` manda una ráfaga.** Al
+   arreglar que `marcar_vencidos` escriba `modificado`, todas las cuotas que
+   pasen a VENCIDO caen en el filtro `modificado__date=hoy`. Contar cuántas son
+   en producción y hacer esa primera pasada con `PUSH_ENABLED=False`.
+5. **Prender `dias_tolerancia_pago` recién un ciclo después del deploy**, en un
+   gimnasio, a mano. Arranca vacío en todos.
+6. Cargar el secret `HEALTHCHECKS_URL_GENERAR_PAGOS` (el ping se saltea solo si
+   falta, no rompe el workflow).
+
+**Deuda que queda abierta:** `Gimnasio.dia_vencimiento_pago` y `Cuota.mes`/`anio`
+siguen en la base sin uso. Las dos últimas **no se borran nunca** (el
+`RemoveField` es irreversible: sin `default`, el backwards emite
+`ADD COLUMN NOT NULL` y falla). `dia_vencimiento_pago` sí se puede retirar en un
+commit aparte una vez confirmado que producción está sana.
+
 ## [2026-09-02] Armar una plantilla desde cero la dejaba siempre vacía
 
 **Estado:** resuelto
