@@ -4,7 +4,7 @@
 {% block content %}
 <div class="tarjeta">
   <h1>Subir comprobante</h1>
-  <p class="texto-suave">{{ object.mes|stringformat:"02d" }}/{{ object.anio }}</p>
+  <p class="texto-suave">{{ object.periodo_inicio|date:"d/m/Y" }} al {{ object.periodo_fin|date:"d/m/Y" }}</p>
   <form method="post" enctype="multipart/form-data" novalidate hx-boost="false">
     {% csrf_token %}
     {{ form.as_p }}

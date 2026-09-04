@@ -17,6 +17,7 @@ from django.utils import timezone
 from alumnos.models import Alumno
 from novedades.models import Novedad
 from pagos.models import Cuota
+from pagos.testing import crear_cuota, crear_cuota_mensual
 from rutinas.models import RutinaAsignada, RutinaPlantilla
 from tenants.models import Gimnasio, Perfil
 from turnos.models import Reserva
@@ -299,33 +300,23 @@ class EnviarRecordatoriosCommandTests(TestCase):
 
     @patch("notificaciones.services._enviar")
     def test_pago_por_vencer_solo_del_gimnasio_correcto(self, mock_enviar):
-        # La fecha se FIJA en vez de derivarse de `timezone.localdate()`:
-        # el aviso sale cuando `dia_vencimiento_pago - hoy.day` está entre 0 y
-        # 3, una resta sin vuelta de mes, así que cualquier fixture relativa a
-        # "hoy" es irrepresentable cerca de fin de mes. La versión anterior
-        # recortaba los dos días con `min(..., 28)` y del 26 en adelante los
-        # dos gimnasios caían en 28: B entraba también en la ventana y el test
-        # fallaba los últimos días de cada mes por choque de fixtures, no por
-        # un bug del código. Mismo patrón de patch que
-        # `test_turno_proximo_*` más abajo.
+        # La ventana de aviso ya no depende de `dia_vencimiento_pago` (que
+        # murió con la migración a ciclos) sino de cuándo ARRANCÓ el ciclo de
+        # cada alumno: se avisa dentro de los `DIAS_AVISO_PAGO` días
+        # siguientes. La fecha se fija igual, para que el test no dependa del
+        # día en que corre.
         hoy = date(2026, 3, 10)
-        self.gimnasio_a.dia_vencimiento_pago = 12  # a 2 días: notifica
-        self.gimnasio_a.save(update_fields=["dia_vencimiento_pago"])
-        self.gimnasio_b.dia_vencimiento_pago = 25  # a 15 días: no notifica
-        self.gimnasio_b.save(update_fields=["dia_vencimiento_pago"])
 
-        Cuota.objects.create(
+        crear_cuota(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
-            mes=hoy.month,
-            anio=hoy.year,
+            inicio=hoy - timedelta(days=2),  # dentro de la ventana: notifica
             monto=10000,
         )
-        Cuota.objects.create(
+        crear_cuota(
             gimnasio=self.gimnasio_b,
             alumno=self.alumno_b,
-            mes=hoy.month,
-            anio=hoy.year,
+            inicio=hoy - timedelta(days=10),  # fuera de la ventana: no notifica
             monto=10000,
         )
 
@@ -340,20 +331,13 @@ class EnviarRecordatoriosCommandTests(TestCase):
 
     @patch("notificaciones.services._enviar")
     def test_correrlo_dos_veces_el_mismo_dia_no_duplica(self, mock_enviar):
-        # Fecha FIJA, mismo criterio que `test_pago_por_vencer_solo_del_gimnasio_correcto`:
-        # `min(hoy.day + 1, 28)` derivado de hoy quedaba en 28 los días 29, 30
-        # y 31, y `28 - 31 = -3` cae fuera de la ventana de [0, 3] días, así
-        # que no se enviaba nada y el test fallaba tres días por mes -- por la
-        # fixture, no por el código.
+        # Fecha FIJA para que el test no dependa del día en que corre.
         hoy = date(2026, 3, 10)
-        self.gimnasio_a.dia_vencimiento_pago = 12  # a 2 días: notifica
-        self.gimnasio_a.save(update_fields=["dia_vencimiento_pago"])
 
-        Cuota.objects.create(
+        crear_cuota(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
-            mes=hoy.month,
-            anio=hoy.year,
+            inicio=hoy - timedelta(days=2),
             monto=10000,
         )
 
@@ -379,17 +363,14 @@ class EnviarRecordatoriosCommandTests(TestCase):
         chequea el Perfil primero -- ver notificaciones/services.py."""
         # Fecha FIJA por el mismo motivo que el test de arriba.
         hoy = date(2026, 3, 10)
-        self.gimnasio_a.dia_vencimiento_pago = 12  # a 2 días: notifica
-        self.gimnasio_a.save(update_fields=["dia_vencimiento_pago"])
 
         alumno_sin_perfil = Alumno.objects.create(
             gimnasio=self.gimnasio_a, nombre="Sin", apellido="Perfil"
         )
-        Cuota.objects.create(
+        crear_cuota(
             gimnasio=self.gimnasio_a,
             alumno=alumno_sin_perfil,
-            mes=hoy.month,
-            anio=hoy.year,
+            inicio=hoy - timedelta(days=2),
             monto=10000,
         )
 

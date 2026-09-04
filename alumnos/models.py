@@ -60,6 +60,20 @@ class Alumno(TenantOwnedModel):
     #: no es derivable: `modificado` cambia con cualquier edición, así que
     #: contar bajas por ahí daría un número inventado.
     fecha_baja = models.DateField(null=True, blank=True, editable=False)
+    #: Ancla del ciclo de cobro: el día a partir del cual se cuentan los
+    #: bloques de `pagos.DIAS_CICLO` días. NO es `creado`: el alumno se puede
+    #: dar de alta un lunes y empezar a entrenar el jueves, y el ciclo tiene
+    #: que arrancar cuando entrena (regla de producto). Se estampa solo (alta,
+    #: primera rutina, reactivación -- ver `alumnos/signals.py`) y el staff lo
+    #: puede corregir en la ficha.
+    fecha_inicio_ciclo = models.DateField(
+        "Inicio del ciclo de pago",
+        null=True,
+        blank=True,
+        help_text="Día a partir del cual se cuentan los ciclos de cobro. Se "
+        "completa solo con la fecha de la primera rutina asignada; corregilo "
+        "solo si el alumno empezó a entrenar otro día.",
+    )
     # Ficha de inscripción ampliada (cargada por el staff el día del alta):
     # todos blank=True a propósito -- no todo alumno cuenta todo el detalle
     # en el momento, y los alumnos ya existentes no tienen esta info.

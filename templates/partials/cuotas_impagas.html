@@ -1,0 +1,46 @@
+{% comment %}
+Lista de cuotas sin pagar, cada una con su propio botón de comprobante.
+
+Son TODAS las impagas y no solo la del ciclo en curso: si al alumno lo bloquea
+una cuota anterior y en pantalla solo aparece la actual, le sube el comprobante
+a la equivocada y sigue bloqueado sin entender por qué.
+
+Contexto esperado: `cuotas_impagas`, `medios_cobro`, `gimnasio`.
+{% endcomment %}
+{% if cuotas_impagas %}
+  <ul class="lista-cuotas">
+    {% for cuota in cuotas_impagas %}
+      <li>
+        <span>Del {{ cuota.periodo_inicio|date:"d/m/Y" }} al {{ cuota.periodo_fin|date:"d/m/Y" }}</span>
+        {% if cuota.estado == "vencido" %}
+          <span class="badge badge--riesgo">Vencida</span>
+        {% else %}
+          <span class="badge badge--alerta">Pendiente</span>
+        {% endif %}
+        {% if cuota.monto > 0 %}<span>$ {{ cuota.monto }}</span>{% endif %}
+        <a class="boton-secundario" href="{% url 'pagos:comprobante_subir' cuota.pk %}">Subir comprobante</a>
+      </li>
+    {% endfor %}
+  </ul>
+
+  {% if medios_cobro %}
+    <p>Podés transferir a:</p>
+    <ul>
+      {% for medio in medios_cobro %}
+        <li>
+          <strong>{{ medio.alias }}</strong>
+          {% if medio.titular %}· {{ medio.titular }}{% endif %}
+          {% if medio.entidad %}· {{ medio.entidad }}{% endif %}
+          <button type="button" class="boton-copiar" data-copiar-alias="{{ medio.alias }}">Copiar</button>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    {% comment %} Sin alias cargado el alumno no tiene a dónde pagar: se le da el contacto del gimnasio, no un hueco. {% endcomment %}
+    <p class="texto-suave">
+      El gimnasio todavía no cargó un alias para transferencias.
+      {% if gimnasio.contacto %}Escribile a {{ gimnasio.contacto }} para coordinar el pago.
+      {% else %}Consultá con el gimnasio cómo pagar.{% endif %}
+    </p>
+  {% endif %}
+{% endif %}

@@ -76,6 +76,7 @@ class RecordatorioEnviado(TenantOwnedModel):
         PAGO_VENCIDO = "pago_vencido", "Pago vencido"
         TURNO_PROXIMO = "turno_proximo", "Turno próximo"
         RUTINA_INICIADA = "rutina_iniciada", "Rutina iniciada"
+        ACCESO_BLOQUEADO = "acceso_bloqueado", "Acceso bloqueado"
 
     tipo = models.CharField(max_length=20, choices=Tipo.choices)
     objeto_id = models.PositiveBigIntegerField()

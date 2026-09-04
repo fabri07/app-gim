@@ -35,6 +35,8 @@ from rutinas.forms import (
     RutinaPlantillaForm,
     RutinaPlantillaItemForm,
 )
+from pagos import acceso
+from pagos.models import MedioCobro
 from rutinas.models import (
     SEMANAS_POR_CICLO,
     RutinaAsignada,
@@ -588,6 +590,20 @@ class RutinaAsignadaPdfView(
         return response
 
 
+def _cortar_si_esta_bloqueado(alumno):
+    """403 si el alumno tiene el acceso pausado por una cuota impaga.
+
+    Es la defensa del servidor, no la UX: las plantillas directamente NO
+    renderizan estos controles cuando hay bloqueo. Hace falta igual porque un
+    POST se puede repetir desde el historial o desde una pestaña vieja.
+    """
+    if acceso.bloqueo_de(alumno) is not None:
+        raise PermissionDenied(
+            "Tu acceso a la rutina está pausado hasta que se registre el pago "
+            "de tu cuota."
+        )
+
+
 class RutinaAsignadaItemCalificarView(AlumnoRequiredMixin, View):
     """El alumno califica el RPE de un ejercicio de su rutina ACTIVA.
 
@@ -606,6 +622,7 @@ class RutinaAsignadaItemCalificarView(AlumnoRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         if self.alumno is None:
             raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
+        _cortar_si_esta_bloqueado(self.alumno)
         # Se resuelve PRIMERO la rutina vigente y después el item dentro de
         # ella, en vez de filtrar los items por un flag: así el criterio de
         # vigencia vive en un solo lugar (`vigente_de`) y no se reimplementa
@@ -643,6 +660,23 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
     def get(self, request, *args, **kwargs):
         if self.alumno is None:
             raise Http404
+        # 200 con una pantalla que se explica, y NO un 404: esta URL queda en
+        # favoritos y en el historial del celular. Un 404 le diría al alumno
+        # que la app se rompió, cuando lo que pasa es que tiene una cuota
+        # impaga y hay algo concreto que puede hacer.
+        bloqueo = acceso.bloqueo_de(self.alumno)
+        if bloqueo is not None:
+            return render(
+                request,
+                "rutinas/bloqueado.html",
+                {
+                    "bloqueo": bloqueo,
+                    "cuotas_impagas": acceso.cuotas_impagas_de(self.alumno),
+                    "medios_cobro": MedioCobro.objects.for_gimnasio(
+                        self.gimnasio
+                    ).filter(activo=True),
+                },
+            )
         dia = kwargs["dia"]
         rutina_actual = RutinaAsignada.vigente_de(alumno=self.alumno)
         if rutina_actual is None:
@@ -710,6 +744,7 @@ class RutinaAsignadaDiaCompletadoToggleView(AlumnoRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         if self.alumno is None:
             raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
+        _cortar_si_esta_bloqueado(self.alumno)
         dia = kwargs["dia"]
         semana = kwargs["semana"]
         # `vigente_de` y no "la activa": un plan programado a futuro NO se

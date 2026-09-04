@@ -38,6 +38,7 @@ from alumnos.models import Alumno
 from alumnos.services import crear_acceso
 from novedades.models import Novedad, NovedadLeida
 from pagos.models import MedioCobro, Cuota
+from pagos.testing import crear_cuota, crear_cuota_mensual
 from rutinas.models import RutinaAsignada, RutinaAsignadaItem
 from tenants import paisaje_matching, suplantacion
 from tenants.context_processors import tour_onboarding_disponible
@@ -484,7 +485,7 @@ class HomeViewStaffFechaLocalTests(TestCase):
     def test_pagos_del_mes_son_los_del_mes_local(self):
         from pagos.models import Cuota
 
-        pago = Cuota.objects.create(
+        pago = crear_cuota_mensual(
             gimnasio=self.gimnasio, alumno=self.alumno,
             mes=5, anio=2026, monto=10000,
         )
@@ -492,7 +493,7 @@ class HomeViewStaffFechaLocalTests(TestCase):
         with patch("django.utils.timezone.now", return_value=self.MOMENTO):
             response = self.client.get(reverse("home"))
 
-        self.assertEqual(list(response.context["pagos_del_mes"]), [pago])
+        self.assertEqual(list(response.context["cuotas_vigentes"]), [pago])
 
     def test_no_cuenta_como_activo_un_plan_que_arranca_manana(self):
         from rutinas.models import RutinaAsignada
@@ -561,7 +562,7 @@ class HomeViewAlumnoTests(TestCase):
             descanso="60s",
             notas="Controlar la técnica",
         )
-        Cuota.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio,
             alumno=alumno,
             mes=self.hoy.month,
@@ -580,7 +581,9 @@ class HomeViewAlumnoTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Rutina Fuerza")
-        self.assertContains(response, "Pagado")
+        # Una cuota paga se muestra como "Al día" con el ciclo que cubre, no
+        # como el badge "Pagado" del panel del staff.
+        self.assertContains(response, "Al día")
         self.assertContains(response, "Gimnasio cerrado el feriado")
 
     def test_saluda_con_el_nombre_del_alumno_no_con_el_username(self):
@@ -844,7 +847,7 @@ class HomeViewAlumnoTests(TestCase):
         _user, _perfil, alumno = self._crear_alumno_con_login(
             username="hugo", nombre="Hugo", apellido="Peralta"
         )
-        Cuota.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio,
             alumno=alumno,
             mes=self.hoy.month,
@@ -875,7 +878,7 @@ class HomeViewAlumnoTests(TestCase):
         response = self.client.get(reverse("home"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Monto: $ 15000")
+        self.assertContains(response, "15000")
         self.assertContains(response, "gimnasio.alfa")
         self.assertContains(response, "Juan Pérez")
         self.assertContains(response, "Mercado Pago")
@@ -886,7 +889,7 @@ class HomeViewAlumnoTests(TestCase):
         _user, _perfil, alumno = self._crear_alumno_con_login(
             username="ines", nombre="Inés", apellido="Marín"
         )
-        Cuota.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio,
             alumno=alumno,
             mes=self.hoy.month,
@@ -3317,12 +3320,12 @@ class IndicadoresTemporalesTests(TestCase):
         from pagos.models import Cuota
 
         alumno = self._alumno("Ana")
-        Cuota.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio, alumno=alumno, mes=9, anio=2026,
             monto=Decimal("30000"), estado=Cuota.Estado.PAGADO,
         )
         otro = self._alumno("Beto")
-        Cuota.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio, alumno=otro, mes=9, anio=2026,
             monto=Decimal("30000"), estado=Cuota.Estado.PENDIENTE,
         )
@@ -3359,7 +3362,7 @@ class IndicadoresTemporalesTests(TestCase):
             [Cuota.Estado.PAGADO, Cuota.Estado.PAGADO,
              Cuota.Estado.PENDIENTE, Cuota.Estado.VENCIDO]
         ):
-            Cuota.objects.create(
+            crear_cuota_mensual(
                 gimnasio=self.gimnasio, alumno=self._alumno(f"A{i}"),
                 mes=9, anio=2026, monto=Decimal("1000"), estado=estado,
             )

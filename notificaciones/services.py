@@ -180,7 +180,10 @@ def notificar_nueva_reserva(reserva) -> None:
 def notificar_comprobante_subido(pago) -> None:
     payload = {
         "title": "Nuevo comprobante subido",
-        "body": f"{pago.alumno} subió el comprobante de {pago.mes:02d}/{pago.anio}.",
+        "body": (
+            f"{pago.alumno} subió el comprobante del ciclo que arrancó el "
+            f"{pago.periodo_inicio:%d/%m}."
+        ),
         "url": reverse("pagos:listado"),
         "icon": _icono_url(pago.gimnasio),
     }
@@ -197,9 +200,23 @@ def notificar_pago_por_vencer(pago) -> None:
     usuario = pago.alumno.perfil.usuario
     if _ya_notificado(pago.gimnasio, RecordatorioEnviado.Tipo.PAGO_POR_VENCER, pago.pk):
         return
+    # El aviso de bloqueo solo se menciona si el gimnasio de verdad bloquea.
+    # Con la tolerancia sin configurar —el estado de todos los gimnasios hasta
+    # que alguien la prenda— amenazar con un bloqueo que no existe es mentirle
+    # al alumno, y a la tercera vez deja de leer los avisos.
+    tolerancia = pago.gimnasio.dias_tolerancia_pago
+    if tolerancia is None:
+        aviso = f"Vence el {pago.periodo_fin:%d/%m}."
+    elif tolerancia == 0:
+        aviso = "Tenés que pagarla hoy para no perder el acceso a tu rutina."
+    else:
+        aviso = (
+            f"Tenés {tolerancia} día{'s' if tolerancia != 1 else ''} para "
+            f"pagarla antes de que se te bloquee la rutina."
+        )
     payload = {
         "title": "Tu cuota está por vencer",
-        "body": f"La cuota de {pago.mes:02d}/{pago.anio} vence el día {pago.gimnasio.dia_vencimiento_pago}.",
+        "body": f"La cuota del {pago.periodo_inicio:%d/%m} al {pago.periodo_fin:%d/%m}. {aviso}",
         "url": "/",
         "icon": _icono_url(pago.gimnasio),
     }
@@ -214,7 +231,37 @@ def notificar_pago_vencido(pago) -> None:
         return
     payload = {
         "title": "Tu cuota está vencida",
-        "body": f"La cuota de {pago.mes:02d}/{pago.anio} ya venció.",
+        "body": (
+            f"La cuota del {pago.periodo_inicio:%d/%m} al "
+            f"{pago.periodo_fin:%d/%m} ya venció."
+        ),
+        "url": "/",
+        "icon": _icono_url(pago.gimnasio),
+    }
+    notificar_a_usuario(usuario, payload)
+
+
+def notificar_acceso_bloqueado(pago) -> None:
+    """Le avisa al alumno el día que se le corta el acceso.
+
+    Va aparte de `notificar_pago_vencido` porque son dos cosas distintas y en
+    gimnasios sin tolerancia la segunda pasa y esta no: "tu cuota venció" es
+    contable, "no podés ver tu rutina" es una consecuencia que el alumno tiene
+    que poder anticipar y resolver.
+    """
+    if pago.alumno.perfil_id is None:
+        return
+    usuario = pago.alumno.perfil.usuario
+    if _ya_notificado(
+        pago.gimnasio, RecordatorioEnviado.Tipo.ACCESO_BLOQUEADO, pago.pk
+    ):
+        return
+    payload = {
+        "title": "Se pausó el acceso a tu rutina",
+        "body": (
+            "Tenés una cuota sin pagar. Subí el comprobante desde la app y el "
+            "gimnasio te reactiva la rutina y los turnos."
+        ),
         "url": "/",
         "icon": _icono_url(pago.gimnasio),
     }

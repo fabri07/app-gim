@@ -120,7 +120,7 @@ _NOVEDADES = [
     ("Nuevos horarios de funcional",
      "Sumamos turno de funcional los martes y jueves a las 19. Cupos limitados."),
     ("Recordatorio de cuota",
-     "La cuota vence el día 10. Podés pagar por transferencia y subir el comprobante desde la app."),
+     "Podés pagar por transferencia y subir el comprobante desde la app."),
 ]
 
 
@@ -135,7 +135,7 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.parsing import normalizar_texto
     from novedades.models import Novedad
-    from pagos.models import Cuota
+    from pagos.models import DIAS_CICLO, Cuota
     from rutinas.models import (
         RutinaAsignada,
         RutinaAsignadaDiaCompletado,
@@ -342,19 +342,28 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
         resumen["calificaciones"] = calificados
         resumen["dias_entrenados"] = completados
 
-        # --- Pagos --------------------------------------------------------
+        # --- Cuotas -------------------------------------------------------
+        # Ciclos de 28 días hacia atrás desde el ciclo en curso de cada alumno,
+        # no meses calendario: es como cobra el sistema desde la migración a
+        # ciclos. `ciclos` se deriva de `meses` para no cambiar la firma del
+        # comando (13,04 ciclos al año contra 12 meses).
         pagos = 0
-        for desplazamiento in range(meses):
-            mes = hoy.month - desplazamiento
-            anio = hoy.year
-            while mes <= 0:
-                mes += 12
-                anio -= 1
-            for alumno in alumnos:
-                if alumno.estado == Alumno.Estado.INACTIVO and desplazamiento < 2:
+        ciclos = max(1, round(meses * 365 / 12 / DIAS_CICLO))
+        for alumno in alumnos:
+            # Cada alumno arranca su ciclo un día distinto: es justamente lo
+            # que el panel tiene que poder mostrar. Sin esto todos cobrarían
+            # el mismo día y la demo escondería el caso interesante.
+            alumno.fecha_inicio_ciclo = hoy - timedelta(
+                days=DIAS_CICLO * (ciclos - 1) + azar.randrange(DIAS_CICLO)
+            )
+            alumno.save(update_fields=["fecha_inicio_ciclo", "modificado"])
+            for indice in range(ciclos):
+                inicio = alumno.fecha_inicio_ciclo + timedelta(days=DIAS_CICLO * indice)
+                es_el_actual = indice == ciclos - 1
+                if alumno.estado == Alumno.Estado.INACTIVO and es_el_actual:
                     continue  # se dio de baja: no genera cuotas nuevas
-                if desplazamiento == 0:
-                    # El mes en curso: mezcla realista, es lo que se ve en el panel.
+                if es_el_actual:
+                    # Mezcla realista: es lo que se ve en el panel.
                     estado = azar.choices(
                         [Cuota.Estado.PAGADO, Cuota.Estado.PENDIENTE,
                          Cuota.Estado.VENCIDO],
@@ -363,11 +372,12 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                 else:
                     estado = Cuota.Estado.PAGADO
                 Cuota.objects.create(
-                    gimnasio=gimnasio, alumno=alumno, mes=mes, anio=anio,
+                    gimnasio=gimnasio, alumno=alumno,
+                    periodo_inicio=inicio,
+                    periodo_fin=inicio + timedelta(days=DIAS_CICLO - 1),
                     monto=Decimal("28000"),
                     estado=estado,
-                    fecha_pago=hoy - timedelta(days=desplazamiento * 30)
-                    if estado == Cuota.Estado.PAGADO else None,
+                    fecha_pago=inicio if estado == Cuota.Estado.PAGADO else None,
                     medio_pago_texto="Transferencia" if estado == Cuota.Estado.PAGADO else "",
                 )
                 pagos += 1

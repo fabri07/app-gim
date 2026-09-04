@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Acceso pausado{% endblock %}
+
+{% comment %}
+Se renderiza con 200, NO con 404, cuando el alumno abre su rutina teniendo una
+cuota impaga pasada la tolerancia del gimnasio. La URL del día de la rutina
+queda en favoritos y en el historial del celular: un 404 le diría que la app se
+rompió, cuando lo que pasa es que hay algo concreto que puede hacer.
+{% endcomment %}
+
+{% block content %}
+  <div class="tarjeta aviso-urgente">
+    <h1>Tu acceso a la rutina está pausado</h1>
+    <p>
+      Tenés una cuota sin registrar desde hace
+      {{ bloqueo.dias_de_atraso }} día{{ bloqueo.dias_de_atraso|pluralize }}
+      (la del {{ bloqueo.cuota.periodo_inicio|date:"d/m/Y" }}).
+    </p>
+    <p>
+      Subí el comprobante y el gimnasio te reactiva la rutina y los turnos
+      apenas lo confirme. Si ya pagaste, avisale al gimnasio.
+    </p>
+
+    {% include 'partials/cuotas_impagas.html' with gimnasio=perfil.gimnasio %}
+
+    <p><a class="boton" href="{% url 'home' %}">Volver al inicio</a></p>
+  </div>
+{% endblock %}

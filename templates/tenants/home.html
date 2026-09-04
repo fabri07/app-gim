@@ -69,8 +69,17 @@
       <span class="metrica__etiqueta">Alumnos con pago pendiente</span>
     </div>
     <div class="metrica">
-      <span class="metrica__valor">{{ pagos_del_mes|length }}</span>
-      <span class="metrica__etiqueta">Pagos del mes</span>
+      <span class="metrica__valor">{{ cuotas_vigentes|length }}</span>
+      <span class="metrica__etiqueta">Cuotas en curso</span>
+    </div>
+    <div class="metrica{% if alumnos_bloqueados_count %} metrica--urgente{% endif %}">
+      <span class="metrica__valor">{{ alumnos_bloqueados_count }}</span>
+      <span class="metrica__etiqueta">
+        Alumnos con acceso pausado
+        {% if alumnos_bloqueados_count %}
+          <a class="metrica__delta" href="{% url 'pagos:listado' %}?estado=deudores">Ver deudores</a>
+        {% endif %}
+      </span>
     </div>
     <div class="metrica">
       <span class="metrica__valor">{{ alumnos_con_rutina_count }}</span>
@@ -110,7 +119,7 @@
         {% if cobranza_porcentaje is None %}—{% else %}{{ cobranza_porcentaje }}%{% endif %}
       </span>
       <span class="metrica__etiqueta">
-        Cobrado este mes
+        Cuotas en curso ya cobradas
         {% if cobranza_emitidos %}
           <span class="metrica__delta">{{ cobranza_pagados }} de {{ cobranza_emitidos }} cuotas</span>
         {% endif %}
@@ -120,18 +129,19 @@
 
   <div class="tarjeta">
     <div class="acciones-lista">
-      <h2>Pagos del mes</h2>
+      <h2>Cuotas en curso</h2>
       <a class="boton-secundario" href="{% url 'pagos:listado' %}">Ver todos</a>
     </div>
     <div class="tabla-scroll">
       <table class="tabla">
         <thead>
-          <tr><th>Alumno</th><th>Monto</th><th>Estado</th></tr>
+          <tr><th>Alumno</th><th>Período</th><th>Monto</th><th>Estado</th></tr>
         </thead>
         <tbody>
-          {% for pago in pagos_del_mes %}
+          {% for pago in cuotas_vigentes %}
             <tr>
               <td>{{ pago.alumno }}</td>
+              <td>{{ pago.periodo_inicio|date:"d/m" }} al {{ pago.periodo_fin|date:"d/m" }}</td>
               <td>{{ pago.monto }}</td>
               <td>
                 {% if pago.estado == "pagado" %}
@@ -144,7 +154,7 @@
               </td>
             </tr>
           {% empty %}
-            <tr><td colspan="3" class="texto-suave">Todavía no hay pagos generados para este mes.</td></tr>
+            <tr><td colspan="4" class="texto-suave">Todavía no hay cuotas en curso.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -714,9 +724,30 @@
       </p>
     </div>
   {% else %}
+    {% if bloqueo %}
+      <div class="tarjeta aviso-urgente">
+        <h2>Tu acceso está pausado</h2>
+        <p>
+          Tenés una cuota sin registrar desde hace
+          {{ bloqueo.dias_de_atraso }} día{{ bloqueo.dias_de_atraso|pluralize }}
+          (la del {{ bloqueo.cuota.periodo_inicio|date:"d/m/Y" }}), así que la
+          rutina y los turnos quedaron en pausa.
+        </p>
+        <p>
+          Subí el comprobante acá abajo y el gimnasio te reactiva todo apenas
+          lo confirme. Si ya pagaste, avisale al gimnasio.
+        </p>
+      </div>
+    {% endif %}
+
     <div class="tarjeta">
       <h2>Tu rutina</h2>
-      {% if rutina_actual %}
+      {% if bloqueo %}
+        <p class="texto-suave">
+          Vas a volver a ver tu rutina cuando el gimnasio registre el pago de
+          tu cuota.
+        </p>
+      {% elif rutina_actual %}
         <p><strong>{{ rutina_actual.nombre_snapshot }}</strong></p>
         <p class="texto-suave">Objetivo: {{ rutina_actual.objetivo_snapshot }}</p>
         <p class="texto-suave">Semana {{ rutina_actual.semana_actual }} de 4</p>
@@ -735,37 +766,15 @@
     </div>
 
     <div class="tarjeta">
-      <h2>Tu cuota de este mes</h2>
-      {% if mensualidad_actual %}
-        {% if mensualidad_actual.estado == "pagado" %}
-          <span class="badge badge--ok">Pagado</span>
-        {% elif mensualidad_actual.estado == "vencido" %}
-          <span class="badge badge--riesgo">Vencido</span>
-        {% else %}
-          <span class="badge badge--alerta">Pendiente</span>
-        {% endif %}
-        {% if mensualidad_actual.monto > 0 %}
-          <p>Monto: $ {{ mensualidad_actual.monto }}</p>
-        {% endif %}
-        {% if mensualidad_actual.estado != "pagado" %}
-          <p>Fecha límite de pago: {{ fecha_limite_pago|date:"d/m/Y" }}</p>
-        {% endif %}
-        {% if mensualidad_actual.estado != "pagado" and medios_cobro %}
-          <p>Podés transferir a:</p>
-          <ul>
-            {% for medio in medios_cobro %}
-              <li>
-                <strong>{{ medio.alias }}</strong>
-                {% if medio.titular %}· {{ medio.titular }}{% endif %}
-                {% if medio.entidad %}· {{ medio.entidad }}{% endif %}
-                <button type="button" class="boton-copiar" data-copiar-alias="{{ medio.alias }}">Copiar</button>
-              </li>
-            {% endfor %}
-          </ul>
-        {% endif %}
-        {% if mensualidad_actual.estado != "pagado" %}
-          <a class="boton-secundario" href="{% url 'pagos:comprobante_subir' mensualidad_actual.pk %}">Subir comprobante</a>
-        {% endif %}
+      <h2>Tu cuota</h2>
+      {% if cuotas_impagas %}
+        {% include 'partials/cuotas_impagas.html' with gimnasio=perfil.gimnasio %}
+      {% elif cuota_actual %}
+        <span class="badge badge--ok">Al día</span>
+        <p class="texto-suave">
+          Ciclo del {{ cuota_actual.periodo_inicio|date:"d/m/Y" }} al
+          {{ cuota_actual.periodo_fin|date:"d/m/Y" }}.
+        </p>
       {% else %}
         <p class="texto-suave">Sin información de tu cuota este mes.</p>
       {% endif %}

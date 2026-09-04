@@ -6,6 +6,7 @@ un campo que el staff edite a mano.
 """
 
 from django import forms
+from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from core.forms import TenantScopedModelForm
@@ -23,6 +24,7 @@ class AlumnoForm(TenantScopedModelForm):
             "telefono",
             "fecha_nacimiento",
             "estado",
+            "fecha_inicio_ciclo",
             "sexo",
             "actividad_fisica_previa",
             "frecuencia_actividad_previa",
@@ -35,7 +37,45 @@ class AlumnoForm(TenantScopedModelForm):
         ]
         widgets = {
             "fecha_nacimiento": forms.DateInput(attrs={"type": "date"}),
+            "fecha_inicio_ciclo": forms.DateInput(attrs={"type": "date"}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # OBLIGATORIO en el formulario aunque sea `blank=True` en el modelo.
+        # El modelo tiene que poder nacer sin ancla (la estampan las señales
+        # del alta y de la primera rutina), pero desde la ficha vaciarla
+        # tendría un efecto invisible y grave: `generar_pagos_pendientes`
+        # filtra por ancla no nula, así que el alumno dejaría de recibir
+        # cuotas para siempre sin ningún síntoma.
+        #
+        # Se resuelve con `required` y no con un `clean_*` que lance
+        # `ValidationError`: así el error sale por el camino normal de Django,
+        # lo renderiza `partials/campo_form.html` debajo del campo, y un POST
+        # que omita el campo falla de forma visible en vez de guardar a
+        # medias.
+        self.fields["fecha_inicio_ciclo"].required = True
+
+    def clean_fecha_inicio_ciclo(self):
+        """El ancla no puede ser futura.
+
+        `pagos.ciclo_vigente` no emite nada mientras el ancla no llegue, así
+        que una fecha futura tipeada por error apaga la facturación de ese
+        alumno, en silencio y hasta esa fecha.
+        """
+        fecha = self.cleaned_data["fecha_inicio_ciclo"]
+        if fecha > timezone.localdate():
+            raise forms.ValidationError(
+                "El inicio del ciclo de pago no puede ser una fecha futura: "
+                "hasta ese día no se le emitiría ninguna cuota."
+            )
+        return fecha
+        if fecha > timezone.localdate():
+            raise forms.ValidationError(
+                "El inicio del ciclo de pago no puede ser una fecha futura: "
+                "hasta ese día no se le emitiría ninguna cuota."
+            )
+        return fecha
 
 
 class CrearAccesoForm(forms.Form):

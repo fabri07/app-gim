@@ -4,6 +4,19 @@
 
 {% block content %}
 <div class="contenido--ancho">
+  {% if bloqueo %}
+    {% comment %} Con el acceso pausado la grilla se sigue viendo, pero SIN los botones de reservar: un 403 bajo el hx-boost global es un click muerto, sin mensaje ni recarga. Cancelar sigue habilitado -- el alumno tiene que poder liberar el cupo que ya ocupaba. {% endcomment %}
+    <div class="tarjeta aviso-urgente">
+      <h2>No podés reservar turnos nuevos</h2>
+      <p>
+        Tenés una cuota sin registrar desde hace
+        {{ bloqueo.dias_de_atraso }} día{{ bloqueo.dias_de_atraso|pluralize }}
+        (la del {{ bloqueo.cuota.periodo_inicio|date:"d/m/Y" }}). Podés seguir
+        cancelando los turnos que ya tenías.
+      </p>
+      <p><a class="boton" href="{% url 'home' %}">Ver cómo pagar</a></p>
+    </div>
+  {% endif %}
   {% if calendar_mostrar %}
     <div class="tarjeta">
       <h2>Google Calendar</h2>
@@ -111,6 +124,8 @@
                     <span class="badge badge--riesgo">Completo</span>
                   {% elif not franja.reservable %}
                     <span class="badge badge--alerta">Reservas cerradas</span>
+                  {% elif bloqueo %}
+                    <span class="badge badge--urgente">Acceso pausado</span>
                   {% else %}
                     <form method="post" action="{% url 'turnos:reservar' %}">
                       {% csrf_token %}

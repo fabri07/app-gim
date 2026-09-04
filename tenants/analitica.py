@@ -388,28 +388,48 @@ def asistencia_diaria(gimnasio, *, dias=_DIAS_DE_HISTORIAL, hoy=None):
 def ingresos_por_mes(gimnasio, *, meses=_MESES_DE_HISTORIAL, hoy=None):
     """Plata efectivamente cobrada por mes.
 
-    Se agrupa por el mes de la CUOTA (`anio`/`mes`), no por `fecha_pago`: al
-    dueño le importa cuánto facturó cada mes, no cuándo entró el dinero de una
-    cuota atrasada. Solo cuenta `PAGADO`: pendiente y vencido son expectativa,
-    no ingreso.
+    Se agrupa por el mes en que ARRANCA el ciclo de la cuota, no por
+    `fecha_pago`: al dueño le importa cuánto facturó cada mes, no cuándo entró
+    el dinero de una cuota atrasada. Solo cuenta `PAGADO`: pendiente y vencido
+    son expectativa, no ingreso, y ANULADO es una cuota condonada.
+
+    **El eje sigue siendo mensual a propósito**, aunque el cobro sea cada 28
+    días. Agrupar crudo por `periodo_inicio` daría un bucket por cada fecha de
+    arranque distinta —y como el ancla es por alumno, eso son tantos buckets
+    como alumnos, con una cuota cada uno: un gráfico ilegible.
+
+    Consecuencia asumida de los 28 días: 365/28 = 13,04 ciclos al año contra
+    12 meses, así que una vez al año un mes recibe DOS ciclos del mismo alumno
+    y la barra se ve el doble de alta sin que haya pasado nada raro. El copy
+    del gráfico lo aclara.
+
+    El filtro por `ventana[0]` no es cosmético: sin él la consulta agrega toda
+    la tabla histórica y recién después se descarta lo que sobra.
+    `periodo_inicio` es `DateField`, así que `TruncMonth` devuelve `date` y no
+    hace falta el unwrap `hasattr(..., "date")` que sí necesitan las funciones
+    que truncan sobre `creado` (un `DateTimeField`).
     """
     from pagos.models import Cuota
 
     hoy = hoy or timezone.localdate()
     ventana = _meses_hacia_atras(hoy, meses)
 
+    # El alias NO puede llamarse `mes`: choca con la columna muerta del mismo
+    # nombre que `Cuota` conserva para la vuelta atrás, y Django rechaza la
+    # anotación con `ValueError`.
     cobrado = {
-        (fila["anio"], fila["mes"]): fila["total"] or 0
+        fila["mes_calendario"]: fila["total"] or 0
         for fila in Cuota.objects.for_gimnasio(gimnasio)
-        .filter(estado=Cuota.Estado.PAGADO)
-        .values("anio", "mes")
+        .filter(estado=Cuota.Estado.PAGADO, periodo_inicio__gte=ventana[0])
+        .annotate(mes_calendario=TruncMonth("periodo_inicio"))
+        .values("mes_calendario")
         .annotate(total=Sum("monto"))
     }
     return [
         {
             "mes": mes,
             "etiqueta": _etiqueta_mes(mes),
-            "total": float(cobrado.get((mes.year, mes.month), 0)),
+            "total": float(cobrado.get(mes, 0)),
         }
         for mes in ventana
     ]
@@ -439,14 +459,16 @@ def indicadores_del_momento(gimnasio, *, hoy=None):
         creado__date__gte=inicio_mes_anterior, creado__date__lt=inicio_mes
     ).count()
 
-    # Cobranza del mes EN CURSO: qué proporción de lo emitido ya entró. Es la
-    # pregunta que un dueño se hace todos los meses y que hoy había que
-    # contar a ojo en la tabla de pagos.
-    del_mes = Cuota.objects.for_gimnasio(gimnasio).filter(
-        anio=hoy.year, mes=hoy.month
-    )
-    emitidos = del_mes.count()
-    pagados = del_mes.filter(estado=Cuota.Estado.PAGADO).count()
+    # Cobranza de los ciclos VIGENTES: qué proporción de lo que corre hoy ya
+    # entró. Con cuotas por ciclo anclado a cada alumno "el mes" dejó de ser
+    # una unidad de cobro, así que la pregunta equivalente es "de las cuotas
+    # que están corriendo, ¿cuántas están pagas?". `periodo_fin` es INCLUSIVO,
+    # de ahí el `__gte` y no `__gt`.
+    vigentes = Cuota.objects.for_gimnasio(gimnasio).filter(
+        periodo_inicio__lte=hoy, periodo_fin__gte=hoy
+    ).exclude(estado=Cuota.Estado.ANULADO)
+    emitidos = vigentes.count()
+    pagados = vigentes.filter(estado=Cuota.Estado.PAGADO).count()
 
     return {
         "asistentes_hoy": reservas.filter(fecha=hoy).count(),

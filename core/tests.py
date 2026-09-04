@@ -17,6 +17,8 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, SimpleTestCase, TestCase
+
+from pagos.testing import crear_cuota, crear_cuota_mensual
 from django.urls import reverse
 from django.views.generic import ListView
 
@@ -186,7 +188,7 @@ class BorradoTests(TestCase):
         from core.borrado import bloqueos_de_borrado, frase
         from pagos.models import Cuota
 
-        Cuota.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio, alumno=self.alumno, mes=1, anio=2026, monto=100
         )
 
@@ -310,7 +312,7 @@ class BorrarConExplicacionViewTests(TestCase):
         lo que el gimnasio facturó. El botón no puede destruirlo."""
         from pagos.models import Cuota
 
-        Cuota.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio, alumno=self.alumno, mes=1, anio=2026, monto=100
         )
         url = reverse("alumnos:eliminar", args=[self.alumno.pk])

@@ -13,11 +13,13 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.urls import reverse_lazy
+from django.utils.dateparse import parse_date
 from django.views.generic import CreateView, ListView, UpdateView
 
 from core.mixins import TenantScopedMixin
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from pagos.forms import AlumnoComprobanteForm, ConfirmarPagoForm, MedioCobroForm
+from pagos import acceso
 from pagos.models import MedioCobro, Cuota
 
 
@@ -27,19 +29,25 @@ class CuotaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
     context_object_name = "pagos"
 
     def get_queryset(self):
+        """Filtros por RANGO DE FECHAS, no por mes/año.
+
+        Con cuotas ancladas a cada alumno, "el mes" dejó de ser una unidad de
+        cobro: un ciclo de 28 días que arranca el 28 de marzo cae casi entero
+        en abril. Un rango `desde`/`hasta` sobre `periodo_inicio` responde la
+        misma pregunta sin mentir. Las dos fechas son opcionales e
+        independientes; una fecha mal tipeada se ignora en vez de dar 500.
+        """
         queryset = super().get_queryset().select_related("alumno")
-        self.mes = self.request.GET.get("mes", "")
-        self.anio = self.request.GET.get("anio", "")
+        self.desde = self.request.GET.get("desde", "")
+        self.hasta = self.request.GET.get("hasta", "")
         self.estado = self.request.GET.get("estado", "")
 
-        if self.mes:
-            queryset = queryset.filter(mes=self.mes)
-        if self.anio:
-            queryset = queryset.filter(anio=self.anio)
+        if (desde := parse_date(self.desde) if self.desde else None) is not None:
+            queryset = queryset.filter(periodo_inicio__gte=desde)
+        if (hasta := parse_date(self.hasta) if self.hasta else None) is not None:
+            queryset = queryset.filter(periodo_inicio__lte=hasta)
         if self.estado == "deudores":
-            queryset = queryset.filter(
-                estado__in=[Cuota.Estado.PENDIENTE, Cuota.Estado.VENCIDO]
-            )
+            queryset = queryset.filter(estado__in=Cuota.ESTADOS_IMPAGOS)
         elif self.estado:
             queryset = queryset.filter(estado=self.estado)
 
@@ -47,8 +55,8 @@ class CuotaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["mes_actual"] = self.mes
-        context["anio_actual"] = self.anio
+        context["desde_actual"] = self.desde
+        context["hasta_actual"] = self.hasta
         context["estado_actual"] = self.estado
         context["estados"] = Cuota.Estado.choices
         return context
@@ -63,7 +71,21 @@ class ConfirmarPagoView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
     def form_valid(self, form):
         form.instance.estado = Cuota.Estado.PAGADO
         response = super().form_valid(form)
-        messages.success(self.request, "Pago confirmado correctamente.")
+        # Si al alumno le queda OTRA cuota bloqueándolo, decirlo. "Pago
+        # confirmado" a secas, sobre alguien que sigue sin poder abrir su
+        # rutina, es una mentira que el staff descubre por el reclamo del
+        # alumno.
+        bloqueo = acceso.bloqueo_de(self.object.alumno)
+        if bloqueo is None:
+            messages.success(self.request, "Pago confirmado correctamente.")
+        else:
+            messages.warning(
+                self.request,
+                f"Pago confirmado, pero {self.object.alumno} sigue con el acceso "
+                f"pausado por la cuota del "
+                f"{bloqueo.cuota.periodo_inicio:%d/%m/%Y}, que también está "
+                f"impaga.",
+            )
         return response
 
 
@@ -85,7 +107,7 @@ class AlumnoComprobanteUpdateView(AlumnoRequiredMixin, UpdateView):
         return Cuota.objects.filter(
             gimnasio=self.gimnasio,
             alumno=self.alumno,
-            estado__in=[Cuota.Estado.PENDIENTE, Cuota.Estado.VENCIDO],
+            estado__in=Cuota.ESTADOS_IMPAGOS,
         )
 
     def get(self, request, *args, **kwargs):

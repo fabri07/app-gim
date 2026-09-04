@@ -151,13 +151,33 @@ class Gimnasio(TimeStampedModel):
     link_whatsapp = models.URLField(blank=True)
     link_facebook = models.URLField(blank=True)
     dia_vencimiento_pago = models.PositiveSmallIntegerField(
-        "Día límite de pago mensual",
+        "Día límite de pago mensual (en desuso)",
         default=10,
         validators=[MinValueValidator(1), MaxValueValidator(28)],
-        help_text="Día del mes hasta el cual el alumno puede pagar la "
-        "cuota sin quedar atrasado. Tope en 28 para que el día exista en "
-        "cualquier mes.",
+        help_text="OBSOLETO desde la migración a cuotas por ciclo: el "
+        "vencimiento ya no cae un día fijo del mes sino a los "
+        "`dias_tolerancia_pago` del arranque del ciclo de cada alumno. Se "
+        "deja la columna un release para que revertir el código alcance "
+        "como vuelta atrás (mismo criterio que `Ejercicio.grupo_muscular`).",
     )
+    dias_tolerancia_pago = models.PositiveSmallIntegerField(
+        "Días de tolerancia antes de bloquear",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(60)],
+        help_text="Días que el alumno puede seguir viendo su rutina y "
+        "reservando turnos después de que arranca un ciclo impago. Pasados "
+        "esos días se le bloquean esas dos secciones hasta que el staff "
+        "confirme el pago. Dejalo VACÍO para no bloquear a nadie.",
+    )
+    #: Cuándo se prendió el bloqueo por primera vez. Lo estampa una señal en la
+    #: transición `dias_tolerancia_pago` None -> valor, igual que
+    #: `Alumno.fecha_baja`. Existe para que prender la función NO sea
+    #: retroactivo: sin esto, el día que el dueño la activa quedan bloqueados
+    #: de golpe todos los que arrastren cualquier cuota impaga histórica (el
+    #: que estuvo de licencia, el que pagó en efectivo y nadie confirmó, el
+    #: becado). `bloqueo_de` ignora las cuotas anteriores a esta fecha.
+    fecha_activacion_bloqueo = models.DateField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = "gimnasio"

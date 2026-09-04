@@ -20,6 +20,8 @@ from django.db import connection
 from django.utils import timezone
 from datetime import date
 from django.test import Client, SimpleTestCase, TestCase
+
+from pagos.testing import crear_cuota, crear_cuota_mensual
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -212,6 +214,7 @@ class AlumnoViewsTests(TestCase):
             "telefono": "",
             "fecha_nacimiento": "",
             "estado": Alumno.Estado.ACTIVO,
+                "fecha_inicio_ciclo": "2026-01-05",
             "observaciones": "",
         }
         response = self.client.post(reverse("alumnos:crear"), datos)
@@ -255,6 +258,7 @@ class AlumnoViewsTests(TestCase):
             "telefono": "",
             "fecha_nacimiento": "",
             "estado": Alumno.Estado.ACTIVO,
+                "fecha_inicio_ciclo": "2026-01-05",
             "sexo": Alumno.Sexo.FEMENINO,
             "actividad_fisica_previa": "on",
             "frecuencia_actividad_previa": Alumno.FrecuenciaActividad.VARIAS_POR_SEMANA,
@@ -288,6 +292,7 @@ class AlumnoViewsTests(TestCase):
             "telefono": "",
             "fecha_nacimiento": "",
             "estado": Alumno.Estado.ACTIVO,
+                "fecha_inicio_ciclo": "2026-01-05",
             "sexo": "no-es-una-opcion",
             "observaciones": "",
         }
@@ -332,7 +337,7 @@ class AlumnoViewsTests(TestCase):
         from pagos.models import Cuota
         from rutinas.models import RutinaAsignada
 
-        pago_propio = Cuota.objects.create(
+        pago_propio = crear_cuota_mensual(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
             mes=1,
@@ -343,7 +348,7 @@ class AlumnoViewsTests(TestCase):
         otro_alumno = Alumno.objects.create(
             gimnasio=self.gimnasio_a, nombre="Otro", apellido="Alumno"
         )
-        pago_ajeno = Cuota.objects.create(
+        pago_ajeno = crear_cuota_mensual(
             gimnasio=self.gimnasio_a,
             alumno=otro_alumno,
             mes=2,
@@ -1067,6 +1072,7 @@ class EspejoEstadoAccesoTests(TestCase):
                 "nombre": "Juan",
                 "apellido": "Pérez",
                 "estado": Alumno.Estado.INACTIVO,
+                "fecha_inicio_ciclo": "2026-01-05",
                 "actividad_fisica_previa": False,
                 "tiene_discapacidad": False,
                 "tiene_enfermedad_cronica": False,
@@ -1094,6 +1100,7 @@ class EspejoEstadoAccesoTests(TestCase):
                 "nombre": "Juan",
                 "apellido": "Pérez",
                 "estado": Alumno.Estado.ACTIVO,
+                "fecha_inicio_ciclo": "2026-01-05",
                 "actividad_fisica_previa": False,
                 "tiene_discapacidad": False,
                 "tiene_enfermedad_cronica": False,
