@@ -14,6 +14,8 @@ import logging
 
 from django.conf import settings
 from django.urls import reverse
+from django.utils import timezone
+
 from py_vapid import Vapid01
 from pywebpush import WebPushException, webpush
 
@@ -200,20 +202,25 @@ def notificar_pago_por_vencer(pago) -> None:
     usuario = pago.alumno.perfil.usuario
     if _ya_notificado(pago.gimnasio, RecordatorioEnviado.Tipo.PAGO_POR_VENCER, pago.pk):
         return
-    # El aviso de bloqueo solo se menciona si el gimnasio de verdad bloquea.
-    # Con la tolerancia sin configurar —el estado de todos los gimnasios hasta
-    # que alguien la prenda— amenazar con un bloqueo que no existe es mentirle
-    # al alumno, y a la tercera vez deja de leer los avisos.
-    tolerancia = pago.gimnasio.dias_tolerancia_pago
-    if tolerancia is None:
-        aviso = f"Vence el {pago.periodo_fin:%d/%m}."
-    elif tolerancia == 0:
+    # El aviso de bloqueo solo se menciona si esa cuota de verdad bloquea
+    # (`tolerancia_efectiva`: tolerancia configurada Y cuota posterior a la
+    # activación). Amenazar con un bloqueo que no existe es mentirle al
+    # alumno, y a la tercera vez deja de leer los avisos. Y los días se
+    # cuentan desde HOY hasta la fecha límite, no con la tolerancia entera:
+    # el cron dispara este aviso hasta `DIAS_AVISO_PAGO` días antes, así que
+    # «tenés 10 días» el día que quedan 2 era mandarlo al bloqueo confiado.
+    limite = pago.fecha_limite_pago()
+    dias = (limite - timezone.localdate()).days
+    if pago.tolerancia_efectiva() is None:
+        aviso = f"Vence el {limite:%d/%m}."
+    elif dias <= 0:
         aviso = "Tenés que pagarla hoy para no perder el acceso a tu rutina."
     else:
         aviso = (
-            f"Tenés {tolerancia} día{'s' if tolerancia != 1 else ''} para "
-            f"pagarla antes de que se te bloquee la rutina."
+            f"Tenés {dias} día{'s' if dias != 1 else ''} para pagarla "
+            f"(hasta el {limite:%d/%m}) antes de que se te pause la rutina."
         )
+
     payload = {
         "title": "Tu cuota está por vencer",
         "body": f"La cuota del {pago.periodo_inicio:%d/%m} al {pago.periodo_fin:%d/%m}. {aviso}",

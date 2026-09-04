@@ -671,7 +671,9 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
                 "rutinas/bloqueado.html",
                 {
                     "bloqueo": bloqueo,
+                    "gimnasio": self.gimnasio,
                     "cuotas_impagas": acceso.cuotas_impagas_de(self.alumno),
+
                     "medios_cobro": MedioCobro.objects.for_gimnasio(
                         self.gimnasio
                     ).filter(activo=True),

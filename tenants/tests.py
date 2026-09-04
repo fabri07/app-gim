@@ -2837,6 +2837,33 @@ class SembrarDemoTests(TestCase):
         self._sembrar(alumnos=3, confirmar=True)
         self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 4)
 
+    def test_con_confirmar_no_toca_la_configuracion_de_bloqueo(self):
+        """Sobre una cuenta de prueba la demo prende la tolerancia y retrocede
+        un año `fecha_activacion_bloqueo` para que se vea un alumno bloqueado.
+        Sobre el gimnasio de un cliente (`--confirmar`) eso anulaba la garantía
+        de que prender el bloqueo no es retroactivo: bloqueaba de golpe a todos
+        sus alumnos reales con cualquier impaga histórica, en un comando."""
+        from alumnos.models import Alumno
+
+        Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Real", apellido="Cliente"
+        )
+
+        salida = self._sembrar(alumnos=3, confirmar=True)
+
+        self.gimnasio.refresh_from_db()
+        self.assertIsNone(self.gimnasio.dias_tolerancia_pago)
+        self.assertIsNone(self.gimnasio.fecha_activacion_bloqueo)
+        self.assertIn("bloqueo_configurado: False", salida)
+
+    def test_en_una_cuenta_de_prueba_si_configura_el_bloqueo(self):
+        self._sembrar(alumnos=3)
+
+        self.gimnasio.refresh_from_db()
+        self.assertIsNotNone(self.gimnasio.dias_tolerancia_pago)
+        self.assertLess(self.gimnasio.fecha_activacion_bloqueo, timezone.localdate())
+
+
     def test_borrar_saca_solo_los_de_demo(self):
         """El alumno real tiene que sobrevivir al `--borrar`: si el marcador
         no funcionara, este comando sería una forma de perder datos."""

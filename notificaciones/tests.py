@@ -301,24 +301,25 @@ class EnviarRecordatoriosCommandTests(TestCase):
     @patch("notificaciones.services._enviar")
     def test_pago_por_vencer_solo_del_gimnasio_correcto(self, mock_enviar):
         # La ventana de aviso ya no depende de `dia_vencimiento_pago` (que
-        # murió con la migración a ciclos) sino de cuándo ARRANCÓ el ciclo de
-        # cada alumno: se avisa dentro de los `DIAS_AVISO_PAGO` días
-        # siguientes. La fecha se fija igual, para que el test no dependa del
-        # día en que corre.
+        # murió con la migración a ciclos) sino de la fecha límite de pago de
+        # cada cuota: sin tolerancia, el último día del ciclo. Se avisa hasta
+        # `DIAS_AVISO_PAGO` días antes. La fecha se fija igual, para que el
+        # test no dependa del día en que corre.
         hoy = date(2026, 3, 10)
 
         crear_cuota(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
-            inicio=hoy - timedelta(days=2),  # dentro de la ventana: notifica
+            inicio=hoy - timedelta(days=26),  # termina mañana: notifica
             monto=10000,
         )
         crear_cuota(
             gimnasio=self.gimnasio_b,
             alumno=self.alumno_b,
-            inicio=hoy - timedelta(days=10),  # fuera de la ventana: no notifica
+            inicio=hoy - timedelta(days=10),  # le quedan 17 días: no notifica
             monto=10000,
         )
+
 
         from django.core.management import call_command
 
@@ -337,7 +338,7 @@ class EnviarRecordatoriosCommandTests(TestCase):
         crear_cuota(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
-            inicio=hoy - timedelta(days=2),
+            inicio=hoy - timedelta(days=26),
             monto=10000,
         )
 
@@ -347,6 +348,7 @@ class EnviarRecordatoriosCommandTests(TestCase):
             call_command("enviar_recordatorios")
             call_command("enviar_recordatorios")
 
+
         mock_enviar.assert_called_once()
         self.assertEqual(
             RecordatorioEnviado.objects.filter(
@@ -355,7 +357,91 @@ class EnviarRecordatoriosCommandTests(TestCase):
             1,
         )
 
+    @patch("notificaciones.services._enviar")
+    def test_sin_tolerancia_avisa_cerca_del_fin_del_ciclo_y_no_al_arrancar(
+        self, mock_enviar
+    ):
+        """REGRESIÓN. La ventana se medía desde el ARRANQUE del ciclo: en un
+        gimnasio sin tolerancia (todos, hoy) el push salía el día 1 diciendo
+        «Vence el día 28», y como el dedup es por cuota, cerca del vencimiento
+        real no llegaba nada."""
+        hoy = date(2026, 3, 10)
+        crear_cuota(
+            gimnasio=self.gimnasio_a, alumno=self.alumno_a,
+            inicio=hoy - timedelta(days=1), monto=10000,  # recién arrancó
+        )
+        crear_cuota(
+            gimnasio=self.gimnasio_a, alumno=self.alumno_a,
+            inicio=hoy - timedelta(days=27), monto=10000,  # termina hoy
+        )
+
+        from django.core.management import call_command
+
+        with patch("django.utils.timezone.localdate", return_value=hoy):
+            call_command("enviar_recordatorios")
+
+        mock_enviar.assert_called_once()
+        (_, payload), _ = mock_enviar.call_args
+        self.assertIn("Vence el 10/03.", payload["body"])
+        self.assertNotIn("pause", payload["body"])
+
+    @patch("notificaciones.services._enviar")
+    def test_con_tolerancia_dice_cuantos_dias_quedan_hasta_la_fecha_limite(
+        self, mock_enviar
+    ):
+        """El cuerpo contaba la tolerancia ENTERA («tenés 5 días») aunque el
+        aviso saliera cuando quedaban 2: mandaba al alumno al bloqueo
+        confiado."""
+        hoy = date(2026, 3, 10)
+        self.gimnasio_a.dias_tolerancia_pago = 5
+        self.gimnasio_a.save()
+        Gimnasio.objects.filter(pk=self.gimnasio_a.pk).update(
+            fecha_activacion_bloqueo=date(2026, 1, 1)
+        )
+        # Límite = inicio + 5 - 1 = 12/3: quedan 2 días.
+        crear_cuota(
+            gimnasio=self.gimnasio_a, alumno=self.alumno_a,
+            inicio=hoy - timedelta(days=2), monto=10000,
+        )
+
+        from django.core.management import call_command
+
+        with patch("django.utils.timezone.localdate", return_value=hoy):
+            call_command("enviar_recordatorios")
+
+        mock_enviar.assert_called_once()
+        (_, payload), _ = mock_enviar.call_args
+        self.assertIn("Tenés 2 días para pagarla (hasta el 12/03)", payload["body"])
+
+    @patch("notificaciones.services._enviar")
+    def test_una_cuota_anterior_a_la_activacion_no_amenaza_con_bloqueo(
+        self, mock_enviar
+    ):
+        """A esa cuota el bloqueo no la alcanza (`tolerancia_efectiva` es
+        `None`): amenazar con una pausa que no va a pasar es mentirle al
+        alumno."""
+        hoy = date(2026, 3, 10)
+        self.gimnasio_a.dias_tolerancia_pago = 5
+        self.gimnasio_a.save()
+        Gimnasio.objects.filter(pk=self.gimnasio_a.pk).update(
+            fecha_activacion_bloqueo=hoy
+        )
+        crear_cuota(
+            gimnasio=self.gimnasio_a, alumno=self.alumno_a,
+            inicio=hoy - timedelta(days=27), monto=10000,  # termina hoy
+        )
+
+        from django.core.management import call_command
+
+        with patch("django.utils.timezone.localdate", return_value=hoy):
+            call_command("enviar_recordatorios")
+
+        mock_enviar.assert_called_once()
+        (_, payload), _ = mock_enviar.call_args
+        self.assertIn("Vence el 10/03.", payload["body"])
+
     def test_alumno_sin_perfil_no_queda_bloqueado_para_siempre(self):
+
         """Si el dedup se marcara ANTES de confirmar que se puede entregar
         el push, un alumno sin Perfil vinculado en el momento del barrido
         quedaría sin este aviso para siempre, incluso después de que el
@@ -370,13 +456,14 @@ class EnviarRecordatoriosCommandTests(TestCase):
         crear_cuota(
             gimnasio=self.gimnasio_a,
             alumno=alumno_sin_perfil,
-            inicio=hoy - timedelta(days=2),
+            inicio=hoy - timedelta(days=26),  # termina mañana: en ventana
             monto=10000,
         )
 
         from django.core.management import call_command
 
         with patch("notificaciones.services._enviar") as mock_enviar, patch(
+
             "django.utils.timezone.localdate", return_value=hoy
         ):
             call_command("enviar_recordatorios")

@@ -194,7 +194,19 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   **`Estado.ANULADO`** es la salida del staff para condonar una cuota: no
   bloquea y no suma a `ingresos_por_mes`. Sin ese estado, destrabar a un
   becado o a alguien de licencia obligaba a marcar PAGADO, o sea a falsear la
-  facturación del gimnasio.
+  facturación del gimnasio. Se escribe desde `pagos:anular`
+  (`CuotaAnularView`, con pantalla de confirmación; una PAGADA da 404, y una
+  anulada vuelve a PENDIENTE desde el mismo botón) — durante un release el
+  estado existió sin ninguna vista que lo setease, y el filtro «Anulada» del
+  listado no podía matchear nada.
+  **La fecha límite de pago vive en un solo lugar**: `limite_de_pago()` (pura)
+  y su gemela en SQL `filtro_por_limite_de_pago()`, de las que dependen
+  `marcar_vencidos`, el aviso «por vencer» del cron y el texto del push
+  (`Cuota.fecha_limite_pago()`). `tolerancia_efectiva()` devuelve `None` para
+  las cuotas anteriores a `fecha_activacion_bloqueo`, que siguen venciendo al
+  terminar el ciclo. Hay un test que recorre 70 días × 5 tolerancias comparando
+  las dos versiones: **si tocás una, la otra tiene que seguirla.**
+
 
   **De dónde sale `Alumno.fecha_inicio_ciclo`** (lo más delicado de todo esto):
   - **Alumnos que ya existían**: la migración `pagos/0006` los ancla en el
@@ -213,13 +225,23 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
     vigente arrancó antes**: durante la baja no se emiten cuotas pero el ancla
     avanza sola, así que sin esto el que vuelve de tres meses recibe esa noche
     una cuota retroactiva ya vencida. La condición evita regalarle 27 días al
-    que se dio de baja por error y volvió el mismo día.
+    que se dio de baja por error y volvió el mismo día. **Va en el `pre_save`,
+    así que todo `save(update_fields=...)` sobre `estado` tiene que listar
+    también `fecha_baja` y `fecha_inicio_ciclo`**: con `["estado"]` a secas
+    Django calcula los dos valores y los tira, y así estuvo el botón de
+    baja/alta (el único camino de UI) un release entero.
+
   - El campo es **obligatorio en `AlumnoForm`** aunque sea `blank=True` en el
     modelo: vaciarlo desde la ficha dejaría al alumno sin recibir ninguna
-    cuota, en silencio y para siempre. Y no acepta fechas futuras, que apagan
-    la facturación igual (`ciclo_vigente` no emite nada hasta que el ancla
-    llega — un ancla futura además daba índice NEGATIVO, `(-6)//28 == -1`, y
-    emitía una cuota por un período anterior al alta).
+    cuota, en silencio y para siempre. Y no acepta que el staff la MUEVA a una
+    fecha futura, que apaga la facturación igual (`ciclo_vigente` no emite
+    nada hasta que el ancla llega — un ancla futura además daba índice
+    NEGATIVO, `(-6)//28 == -1`, y emitía una cuota por un período anterior al
+    alta). El valor YA guardado pasa siempre aunque sea futuro: la señal de la
+    primera rutina lo escribe legítimamente cuando el plan se carga con
+    anticipación, y rechazarlo dejaba la ficha entera inguardable hasta ese
+    día.
+
 
 
 ### Bloqueo de acceso por falta de pago (`pagos/acceso.py`)
@@ -242,11 +264,21 @@ turnos. `pagos/acceso.py` es el ÚNICO lugar donde vive esa regla —
   silenciosamente distintos en SQLite, donde corre toda la suite. Como el
   gimnasio siempre se conoce en el punto de uso, es un escalar.
 - **Vencer y bloquear usan el mismo umbral**, para que no haya un día en que
-  el alumno esté bloqueado y la app le diga «Pendiente». Con la tolerancia
-  vacía, `marcar_vencidos` vence recién cuando el ciclo TERMINÓ (`hoy >
+  el alumno esté bloqueado y la app le diga «Pendiente»: `acceso.py` bloquea
+  con `periodo_inicio <= hoy - tolerancia`, y `marcar_vencidos` vence con
+  `fecha_limite_pago < hoy`, que es la misma desigualdad (un `<` en vez de
+  `<=` en el vencimiento producía exactamente ese día). Con la tolerancia
+  vacía —o para las cuotas anteriores a `fecha_activacion_bloqueo`, a las que
+  el bloqueo no alcanza— vence recién cuando el ciclo TERMINÓ (`hoy >
   periodo_fin`): es la traducción honesta del «vence cuando el mes cerró» de
   antes, y evita el incidente de pasar todo el padrón a VENCIDO el día del
-  deploy.
+  deploy, o el día que un dueño prende la tolerancia.
+- **El aviso «por vencer» se mide contra la fecha límite, no contra el
+  arranque del ciclo**: sale cuando `fecha_limite_pago` cae entre hoy y
+  `DIAS_AVISO_PAGO` días, y el cuerpo dice cuántos días QUEDAN. Medirlo desde
+  el arranque mandaba el push el día 1 («vence el 28») y, por el dedup por
+  cuota, nada cerca del vencimiento real.
+
 - **Qué se bloquea**: el portal reemplaza la tarjeta de rutina por la del
   bloqueo, `RutinaMiDiaDetailView` renderiza `rutinas/bloqueado.html` **con
   200 y no 404** (esa URL queda en favoritos; un 404 diría que la app se

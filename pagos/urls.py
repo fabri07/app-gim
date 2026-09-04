@@ -9,6 +9,8 @@ from django.urls import path
 from pagos.views import (
     AlumnoComprobanteUpdateView,
     ConfirmarPagoView,
+    CuotaAnularView,
+
     MedioCobroCreateView,
     MedioCobroListView,
     MedioCobroUpdateView,
@@ -23,6 +25,8 @@ urlpatterns = [
     path("medios/nuevo/", MedioCobroCreateView.as_view(), name="medios_crear"),
     path("medios/<int:pk>/editar/", MedioCobroUpdateView.as_view(), name="medios_editar"),
     path("<int:pk>/confirmar/", ConfirmarPagoView.as_view(), name="confirmar"),
+    path("<int:pk>/anular/", CuotaAnularView.as_view(), name="anular"),
+
     path(
         "<int:pk>/comprobante/",
         AlumnoComprobanteUpdateView.as_view(),

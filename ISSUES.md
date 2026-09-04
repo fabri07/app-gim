@@ -20,7 +20,58 @@ del log.
 
 ---
 
+## [2026-09-04] Revisión de la rama de ciclos: once hallazgos antes del merge
+**Estado:** resuelto (799 → 1224 tests; cada hallazgo con test de regresión, y
+los dos graves verificados fallando sin el fix).
+
+Un `/code-review` sobre `cuotas-por-ciclo-y-bloqueo` encontró once problemas
+que la suite no cubría. Los que importan, por lo que enseñan:
+
+1. **`alumno.save(update_fields=["estado"])` descartaba lo que el `pre_save`
+   escribía.** `registrar_fecha_de_baja` estampa `fecha_baja` y re-ancla
+   `fecha_inicio_ciclo` al reactivar, pero el UPDATE solo lleva las columnas
+   listadas: los dos valores se calculaban y se tiraban. Era el ÚNICO camino
+   de UI para reactivar, así que el re-anclado —documentado como la defensa
+   contra «el que vuelve de tres meses recibe esa noche una cuota vencida»—
+   nunca corrió, y «altas y bajas por mes» no contaba ninguna baja hecha con
+   el botón. **Regla:** si un `pre_save` escribe un campo, todo
+   `update_fields` que dispare esa señal tiene que listarlo.
+2. **Bloquear y vencer diferían en un día** (`<=` en `acceso.py`, `<` en
+   `marcar_vencidos`): con tolerancia 3, el día 4 el alumno no tenía rutina y
+   la app decía «Pendiente». El test existente fijaba el día equivocado.
+3. **`marcar_vencidos` ignoraba `fecha_activacion_bloqueo`.** El día que un
+   dueño prendía la tolerancia, el cron pasaba a VENCIDO a medio padrón y
+   `enviar_recordatorios` les mandaba «tu cuota está vencida» a alumnos que
+   por diseño NO estaban bloqueados: la ráfaga que la fecha de activación
+   existe para evitar, entrando por la otra puerta. Ahora la fecha límite es
+   una sola función (`limite_de_pago`) con su gemela en SQL, y un test recorre
+   70 días × 5 tolerancias comparándolas.
+4. **El aviso «por vencer» salía el día 1 del ciclo** diciendo «vence el 28», y
+   por el dedup por cuota no llegaba nada cerca del vencimiento real. Con
+   tolerancia, encima, el cuerpo decía la tolerancia entera («tenés 10 días»)
+   aunque quedaran 2.
+5. **`Estado.ANULADO` no se podía setear desde la app** (solo `/admin/`): la
+   salida para condonarle la cuota a un becado sin falsear la facturación no
+   existía en la práctica. Nueva `pagos:anular`, con confirmación.
+6. **La ficha del alumno quedaba inguardable** mientras tuviera un ancla
+   futura escrita por la propia app (plan cargado con anticipación).
+7. `?desde=2026-02-31` era un 500: `parse_date` LANZA con una fecha bien
+   formada e imposible, no devuelve `None`.
+8. `sembrar_demo --confirmar` retrocedía un año `fecha_activacion_bloqueo`
+   sobre un gimnasio con alumnos reales: bloqueo retroactivo masivo en un
+   comando. Ahora, con alumnos reales, no toca la configuración de bloqueo.
+9. `bloqueado.html` leía `perfil.gimnasio`, que esa vista no pone en el
+   contexto; sin alias cargado nunca mostraba el contacto del gimnasio.
+10. Un bloque duplicado muerto en `clean_fecha_inicio_ciclo`.
+
+**Lección sobre la suite:** todos pasaban con 799 tests en verde. Los tests de
+los dos graves existían y fijaban el bug: uno reactivaba con `alumno.save()`
+(sin `update_fields`, o sea sin pasar por la vista) y el otro afirmaba el día
+5 donde correspondía el 4. Un test que no ejercita el camino real de la UI
+prueba el modelo, no el producto.
+
 ## [2026-09-03] Migración a cuotas por ciclo de 28 días + bloqueo por falta de pago
+
 **Estado:** resuelto (código); **pendiente el despliegue**, que tiene pasos que no
 se pueden saltear (ver abajo).
 

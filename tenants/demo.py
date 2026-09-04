@@ -154,6 +154,13 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
     azar = random.Random(semilla)
     hoy = timezone.localdate()
     resumen = {}
+    # ANTES de crear nada: si el gimnasio ya tiene alumnos que no son de demo
+    # (el camino `--confirmar`), es el gimnasio de un cliente y su
+    # configuración de bloqueo no se toca -- ver el bloque de tolerancia.
+    hay_alumnos_reales = (
+        Alumno.objects.for_gimnasio(gimnasio).exclude(observaciones=MARCA).exists()
+    )
+
 
     with transaction.atomic():
         # --- Biblioteca -------------------------------------------------
@@ -393,22 +400,36 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
         # en ninguna captura: hace falta que el gimnasio tenga la tolerancia
         # configurada Y que alguien tenga una cuota impaga vieja, y una cuenta
         # recién sembrada no cumple ninguna de las dos.
-        if gimnasio.dias_tolerancia_pago is None:
-            gimnasio.dias_tolerancia_pago = _TOLERANCIA_DEMO
-            gimnasio.save(update_fields=["dias_tolerancia_pago", "modificado"])
-        # La fecha de activación va por `update()` y NO por `save()`: la señal
-        # `registrar_activacion_del_bloqueo` la estampa en HOY durante la
-        # transición apagado -> prendido, así que asignarla antes de guardar no
-        # sirve, la pisa. Se retrocede porque en una demo el bloqueo tiene que
-        # verse ya, y `bloqueo_de` ignora las cuotas anteriores a esa fecha.
         #
-        # Fuera del `if` a propósito: al resembrar, la tolerancia ya quedó
-        # configurada de la corrida anterior y la fecha seguiría en el "hoy" de
-        # aquella vez, dejando la demo sin ningún alumno bloqueado.
-        Gimnasio.objects.filter(pk=gimnasio.pk).update(
-            fecha_activacion_bloqueo=hoy - timedelta(days=365)
-        )
-        gimnasio.refresh_from_db()
+        # SOLO en una cuenta de prueba. Retroceder `fecha_activacion_bloqueo`
+        # un año es anular a propósito la garantía de que prender el bloqueo
+        # no es retroactivo; sobre el gimnasio de un cliente (`--confirmar`)
+        # eso bloqueaba de golpe a todos sus alumnos reales con cualquier
+        # impaga histórica. Ahí la configuración queda como estaba y la demo
+        # muestra el bloqueo solo si el dueño ya lo tenía prendido.
+        if hay_alumnos_reales:
+            resumen["bloqueo_configurado"] = False
+        else:
+            if gimnasio.dias_tolerancia_pago is None:
+                gimnasio.dias_tolerancia_pago = _TOLERANCIA_DEMO
+                gimnasio.save(update_fields=["dias_tolerancia_pago", "modificado"])
+            # La fecha de activación va por `update()` y NO por `save()`: la
+            # señal `registrar_activacion_del_bloqueo` la estampa en HOY
+            # durante la transición apagado -> prendido, así que asignarla
+            # antes de guardar no sirve, la pisa. Se retrocede porque en una
+            # demo el bloqueo tiene que verse ya, y `bloqueo_de` ignora las
+            # cuotas anteriores a esa fecha.
+            #
+            # Fuera del `if` a propósito: al resembrar, la tolerancia ya quedó
+            # configurada de la corrida anterior y la fecha seguiría en el
+            # "hoy" de aquella vez, dejando la demo sin ningún alumno
+            # bloqueado.
+            Gimnasio.objects.filter(pk=gimnasio.pk).update(
+                fecha_activacion_bloqueo=hoy - timedelta(days=365)
+            )
+            gimnasio.refresh_from_db()
+            resumen["bloqueo_configurado"] = True
+
 
         # El moroso: se le atrasa el ciclo en curso lo suficiente como para
         # cruzar la tolerancia. No alcanza con marcarlo VENCIDO -- el bloqueo

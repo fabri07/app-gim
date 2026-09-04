@@ -64,18 +64,20 @@ class AlumnoForm(TenantScopedModelForm):
         alumno, en silencio y hasta esa fecha.
         """
         fecha = self.cleaned_data["fecha_inicio_ciclo"]
-        if fecha > timezone.localdate():
+        # El valor que YA está guardado pasa siempre, aunque sea futuro: la
+        # señal `anclar_ciclo_a_la_primera_rutina` escribe legítimamente un
+        # ancla futura cuando el plan se carga con anticipación (caso
+        # soportado a propósito). Sin esta excepción, hasta que llegara ese
+        # día NINGÚN guardado de la ficha -- corregir un teléfono, cargar la
+        # ficha de inscripción -- pasaba la validación, por un valor que el
+        # staff no tipeó. Lo que se rechaza es que el staff la MUEVA a futuro.
+        if fecha > timezone.localdate() and fecha != self.instance.fecha_inicio_ciclo:
             raise forms.ValidationError(
                 "El inicio del ciclo de pago no puede ser una fecha futura: "
                 "hasta ese día no se le emitiría ninguna cuota."
             )
         return fecha
-        if fecha > timezone.localdate():
-            raise forms.ValidationError(
-                "El inicio del ciclo de pago no puede ser una fecha futura: "
-                "hasta ese día no se le emitiría ninguna cuota."
-            )
-        return fecha
+
 
 
 class CrearAccesoForm(forms.Form):

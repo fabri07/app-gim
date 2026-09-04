@@ -929,7 +929,100 @@ class RevocacionAccesoTests(TestCase):
         self.assertTrue(ajeno.perfil.usuario.is_active)
 
 
+class BotonDeBajaYAltaTests(TestCase):
+    """Lo que el botón de baja/alta tiene que escribir ADEMÁS de `estado`.
+
+    REGRESIÓN de un bug de un release entero: la vista guardaba con
+    `update_fields=["estado"]`, y como `registrar_fecha_de_baja` escribe
+    `fecha_baja` y re-ancla `fecha_inicio_ciclo` en el `pre_save`, Django
+    calculaba esos valores y los TIRABA -- el UPDATE solo lleva las columnas
+    listadas. Era el único camino de UI para reactivar.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        self.client.force_login(self.staff)
+
+    def _toggle(self):
+        return self.client.post(reverse("alumnos:activar", args=[self.alumno.pk]))
+
+    def test_dar_de_baja_desde_el_boton_estampa_la_fecha_de_baja(self):
+        """Sin esto, «altas y bajas por mes» no contaba ninguna baja hecha con
+        el botón."""
+        self._toggle()
+
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.estado, Alumno.Estado.INACTIVO)
+        self.assertEqual(self.alumno.fecha_baja, timezone.localdate())
+
+    def test_reactivar_desde_el_boton_reancla_el_ciclo_de_pago(self):
+        """La consecuencia grave: el que volvía de tres meses recibía esa
+        noche una cuota retroactiva ya vencida y, con la tolerancia prendida,
+        quedaba bloqueado el día 1 de su regreso."""
+        hoy = timezone.localdate()
+        Alumno.objects.filter(pk=self.alumno.pk).update(
+            fecha_inicio_ciclo=hoy - datetime.timedelta(days=200)
+        )
+
+        self._toggle()  # baja
+        self._toggle()  # alta
+
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.estado, Alumno.Estado.ACTIVO)
+        self.assertEqual(self.alumno.fecha_inicio_ciclo, hoy)
+        self.assertIsNone(self.alumno.fecha_baja)
+
+
+class AnclaFuturaEnLaFichaTests(TestCase):
+    """`clean_fecha_inicio_ciclo` rechaza fechas futuras, pero la propia app
+    escribe una cuando el plan se carga con anticipación
+    (`anclar_ciclo_a_la_primera_rutina`). REGRESIÓN: hasta que llegaba ese
+    día, NINGÚN guardado de la ficha pasaba la validación -- corregir un
+    teléfono fallaba por un valor que el staff no tipeó."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz"
+        )
+        self.futuro = timezone.localdate() + datetime.timedelta(days=5)
+        Alumno.objects.filter(pk=self.alumno.pk).update(fecha_inicio_ciclo=self.futuro)
+        self.alumno.refresh_from_db()
+
+    def _form(self, **cambios):
+        from alumnos.forms import AlumnoForm
+
+        datos = {
+            "nombre": "Ana",
+            "apellido": "Paz",
+            "estado": Alumno.Estado.ACTIVO,
+            "fecha_inicio_ciclo": self.futuro.isoformat(),
+        }
+        datos.update(cambios)
+        return AlumnoForm(datos, instance=self.alumno, gimnasio=self.gimnasio)
+
+    def test_la_ficha_se_guarda_sin_tocar_el_ancla_futura_que_escribio_la_app(self):
+        form = self._form(telefono="1122334455")
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_moverla_a_otra_fecha_futura_sigue_rechazado(self):
+        otro_futuro = self.futuro + datetime.timedelta(days=1)
+
+        form = self._form(fecha_inicio_ciclo=otro_futuro.isoformat())
+
+        self.assertIn("fecha_inicio_ciclo", form.errors)
+
+
 class PanelAccesosTests(TestCase):
+
     """Vista de conjunto de los accesos del gimnasio.
 
     Hasta ahora el staff solo veía el acceso de un alumno entrando a su ficha,

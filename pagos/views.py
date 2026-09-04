@@ -12,9 +12,12 @@ La única acción de escritura del staff es confirmar un pago existente
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.shortcuts import redirect
+
 from django.urls import reverse_lazy
 from django.utils.dateparse import parse_date
-from django.views.generic import CreateView, ListView, UpdateView
+from django.views.generic import CreateView, DetailView, ListView, UpdateView
+
 
 from core.mixins import TenantScopedMixin
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
@@ -23,7 +26,20 @@ from pagos import acceso
 from pagos.models import MedioCobro, Cuota
 
 
+def _fecha_o_nada(texto):
+    """`parse_date` devuelve `None` con un texto mal formado, pero LANZA
+    `ValueError` con uno bien formado e imposible (`2026-02-31`). Sin esto,
+    `?desde=2026-02-31` era un 500."""
+    if not texto:
+        return None
+    try:
+        return parse_date(texto)
+    except ValueError:
+        return None
+
+
 class CuotaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
+
     model = Cuota
     template_name = "pagos/pago_list.html"
     context_object_name = "pagos"
@@ -42,10 +58,11 @@ class CuotaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         self.hasta = self.request.GET.get("hasta", "")
         self.estado = self.request.GET.get("estado", "")
 
-        if (desde := parse_date(self.desde) if self.desde else None) is not None:
+        if (desde := _fecha_o_nada(self.desde)) is not None:
             queryset = queryset.filter(periodo_inicio__gte=desde)
-        if (hasta := parse_date(self.hasta) if self.hasta else None) is not None:
+        if (hasta := _fecha_o_nada(self.hasta)) is not None:
             queryset = queryset.filter(periodo_inicio__lte=hasta)
+
         if self.estado == "deudores":
             queryset = queryset.filter(estado__in=Cuota.ESTADOS_IMPAGOS)
         elif self.estado:
@@ -71,25 +88,89 @@ class ConfirmarPagoView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
     def form_valid(self, form):
         form.instance.estado = Cuota.Estado.PAGADO
         response = super().form_valid(form)
-        # Si al alumno le queda OTRA cuota bloqueándolo, decirlo. "Pago
-        # confirmado" a secas, sobre alguien que sigue sin poder abrir su
-        # rutina, es una mentira que el staff descubre por el reclamo del
-        # alumno.
-        bloqueo = acceso.bloqueo_de(self.object.alumno)
-        if bloqueo is None:
-            messages.success(self.request, "Pago confirmado correctamente.")
-        else:
-            messages.warning(
-                self.request,
-                f"Pago confirmado, pero {self.object.alumno} sigue con el acceso "
-                f"pausado por la cuota del "
-                f"{bloqueo.cuota.periodo_inicio:%d/%m/%Y}, que también está "
-                f"impaga.",
-            )
+        _avisar_si_sigue_bloqueado(self.request, self.object, "Pago confirmado")
+
         return response
 
 
+
+def _avisar_si_sigue_bloqueado(request, cuota, mensaje_ok):
+    """El mensaje de éxito de cualquier acción que destraba una cuota.
+
+    Si al alumno le queda OTRA cuota bloqueándolo, decirlo. Un «listo» a
+    secas sobre alguien que sigue sin poder abrir su rutina es una mentira
+    que el staff descubre por el reclamo del alumno.
+    """
+    bloqueo = acceso.bloqueo_de(cuota.alumno)
+    if bloqueo is None:
+        messages.success(request, f"{mensaje_ok}.")
+    else:
+        messages.warning(
+            request,
+            f"{mensaje_ok}, pero {cuota.alumno} sigue con el acceso "
+
+            f"pausado por la cuota del "
+            f"{bloqueo.cuota.periodo_inicio:%d/%m/%Y}, que también está "
+            f"impaga.",
+        )
+
+
+class CuotaAnularView(StaffRequiredMixin, TenantScopedMixin, DetailView):
+    """Condona una cuota (`Estado.ANULADO`), o deshace la condonación.
+
+    Es la ÚNICA salida del staff para sacar una cuota del conjunto que bloquea
+    sin falsear la facturación: marcar PAGADO a un becado o a alguien de
+    licencia suma a `ingresos_por_mes` un dinero que no entró. El estado
+    existía desde la migración a ciclos pero ninguna vista lo escribía -- solo
+    se podía desde `/admin/`, y el filtro «Anulada» del listado no podía
+    matchear nunca nada.
+
+    Con pantalla de confirmación a propósito, mismo criterio que
+    `BorrarConExplicacionView`: anular no borra, pero saca la cuota de la
+    deuda del alumno y del panel del staff, y desde el listado es un click.
+
+    Una cuota PAGADA no se anula (da 404, igual que la de otro gimnasio): si
+    el cobro fue un error, se edita desde «Confirmar pago». Una cuota ya
+    anulada vuelve a PENDIENTE; si su plazo ya pasó, la vence el próximo cron.
+    """
+
+    model = Cuota
+    template_name = "pagos/pago_anular.html"
+    context_object_name = "cuota"
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .exclude(estado=Cuota.Estado.PAGADO)
+            .select_related("alumno")
+        )
+
+    def post(self, request, *args, **kwargs):
+        cuota = self.get_object()
+        if cuota.estado == Cuota.Estado.ANULADO:
+            cuota.estado = Cuota.Estado.PENDIENTE
+            cuota.save(update_fields=["estado", "modificado"])
+            messages.success(
+                request,
+                f"La cuota del {cuota.periodo_inicio:%d/%m/%Y} de {cuota.alumno} "
+                f"vuelve a estar pendiente.",
+            )
+        else:
+            cuota.estado = Cuota.Estado.ANULADO
+            cuota.save(update_fields=["estado", "modificado"])
+            _avisar_si_sigue_bloqueado(
+                request,
+                cuota,
+                f"Cuota del {cuota.periodo_inicio:%d/%m/%Y} de {cuota.alumno} "
+                f"anulada",
+
+            )
+        return redirect("pagos:listado")
+
+
 class AlumnoComprobanteUpdateView(AlumnoRequiredMixin, UpdateView):
+
     """El alumno sube el comprobante de SU PROPIO pago PENDIENTE/VENCIDO.
     No cambia `estado`: sigue siendo el staff quien confirma el pago en
     `ConfirmarPagoView`. `get_queryset` acota por alumno, gimnasio Y estado

@@ -73,10 +73,18 @@
               {% endif %}
             </td>
             <td>
-              <a href="{% url 'pagos:confirmar' pago.pk %}">
-                {% if pago.estado == "pagado" %}Editar{% else %}Confirmar{% endif %}
-              </a>
+              {% if pago.estado == "anulado" %}
+                <a href="{% url 'pagos:anular' pago.pk %}">Reactivar</a>
+              {% else %}
+                <a href="{% url 'pagos:confirmar' pago.pk %}">
+                  {% if pago.estado == "pagado" %}Editar{% else %}Confirmar{% endif %}
+                </a>
+                {% if pago.estado != "pagado" %}
+                  &middot; <a href="{% url 'pagos:anular' pago.pk %}">Anular</a>
+                {% endif %}
+              {% endif %}
             </td>
+
           </tr>
         {% empty %}
           <tr>

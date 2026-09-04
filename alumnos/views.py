@@ -193,8 +193,19 @@ class AlumnoToggleEstadoView(
         # mudado a la señal: son dos escrituras (el estado y el `is_active`
         # del receiver) y si la segunda falla no puede quedar commiteada la
         # primera — sería exactamente la divergencia que este frente elimina.
+        #
+        # `update_fields` tiene que incluir lo que el `pre_save` escribe
+        # (`registrar_fecha_de_baja` estampa `fecha_baja` y re-ancla
+        # `fecha_inicio_ciclo` al reactivar): con `["estado"]` a secas Django
+        # calcula esos valores y los TIRA, porque el UPDATE solo lleva las
+        # columnas listadas. Así estuvo un release entero, y era el único
+        # camino de UI para reactivar -- el que volvía de tres meses recibía
+        # esa noche una cuota retroactiva ya vencida.
         with transaction.atomic():
-            alumno.save(update_fields=["estado"])
+            alumno.save(
+                update_fields=["estado", "fecha_baja", "fecha_inicio_ciclo", "modificado"]
+            )
+
 
         messages.success(
             request, f"{alumno} ahora está {alumno.get_estado_display().lower()}."

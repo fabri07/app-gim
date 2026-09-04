@@ -22,12 +22,10 @@ class Command(BaseCommand):
     help = "Envía recordatorios push: novedades programadas, pagos por vencer/vencidos, turnos próximos."
 
     def handle(self, *args, **options):
-        from collections import defaultdict
-
         from novedades.models import Novedad
         from rutinas.models import RutinaAsignada
-        from pagos.models import Cuota
-        from tenants.models import Gimnasio
+        from pagos.models import Cuota, filtro_por_limite_de_pago, regimenes_de_pago
+
         from turnos.models import Reserva
         from turnos.services import _ahora_local
         from notificaciones import services
@@ -49,18 +47,38 @@ class Command(BaseCommand):
             services.notificar_rutina_asignada(rutina)
             rutinas_iniciadas += 1
 
-        # "Por vencer": la cuota del ciclo que ya arrancó y sigue impaga,
-        # dentro de los primeros `DIAS_AVISO_PAGO` días. Antes esto era
-        # `dia_vencimiento_pago - hoy.day`, aritmética de día del mes que ya
-        # no aplica: cada alumno tiene su propia fecha de arranque.
+        # "Por vencer": la cuota PENDIENTE cuyo último día para pagar
+        # (`Cuota.fecha_limite_pago`) cae entre hoy y dentro de
+        # `DIAS_AVISO_PAGO` días. La fecha límite depende del régimen del
+        # gimnasio: fin del ciclo sin tolerancia, `periodo_inicio +
+        # tolerancia - 1` con ella. Una versión anterior medía la ventana
+        # desde el ARRANQUE del ciclo, así que en un gimnasio sin tolerancia
+        # (todos, hoy) el aviso salía el día 1 diciendo «vence el día 28» --
+        # y como el dedup es por cuota, cerca del vencimiento real no llegaba
+        # nada. Se agrupa por régimen y no por gimnasio para que el costo no
+        # crezca con la cantidad de tenants, y el umbral se calcula en Python
+        # (`periodo_inicio + columna` anda en Postgres y da otra cosa en
+        # SQLite).
+        regimenes = regimenes_de_pago()
         pagos_por_vencer = 0
-        for pago in Cuota.objects.filter(
-            estado=Cuota.Estado.PENDIENTE,
-            periodo_inicio__lte=hoy,
-            periodo_inicio__gte=hoy - timedelta(days=DIAS_AVISO_PAGO),
-        ).select_related("gimnasio", "alumno"):
-            services.notificar_pago_por_vencer(pago)
-            pagos_por_vencer += 1
+        for (tolerancia, activacion), gimnasio_ids in regimenes.items():
+            for pago in (
+                Cuota.objects.filter(
+                    gimnasio_id__in=gimnasio_ids, estado=Cuota.Estado.PENDIENTE
+                )
+                .filter(
+                    filtro_por_limite_de_pago(
+                        tolerancia,
+                        activacion,
+                        desde=hoy,
+                        hasta=hoy + timedelta(days=DIAS_AVISO_PAGO),
+                    )
+                )
+                .select_related("gimnasio", "alumno")
+            ):
+                services.notificar_pago_por_vencer(pago)
+                pagos_por_vencer += 1
+
 
         pagos_vencidos = 0
         for pago in Cuota.objects.filter(
@@ -70,18 +88,12 @@ class Command(BaseCommand):
             pagos_vencidos += 1
 
         # "Acceso bloqueado": las cuotas impagas que HOY cruzan el umbral de
-        # tolerancia de su gimnasio. Se agrupa por valor de tolerancia y no
-        # por gimnasio para que el costo no crezca con la cantidad de tenants,
-        # y el umbral se calcula en Python -- `periodo_inicio + columna` en el
-        # queryset anda en Postgres y da resultados distintos en SQLite.
+        # tolerancia de su gimnasio. Mismo agrupado por régimen que arriba.
         accesos_bloqueados = 0
-        por_tolerancia = defaultdict(list)
-        for gimnasio_id, tolerancia, activacion in Gimnasio.objects.filter(
-            dias_tolerancia_pago__isnull=False,
-            fecha_activacion_bloqueo__isnull=False,
-        ).values_list("id", "dias_tolerancia_pago", "fecha_activacion_bloqueo"):
-            por_tolerancia[(tolerancia, activacion)].append(gimnasio_id)
-        for (tolerancia, activacion), gimnasio_ids in por_tolerancia.items():
+        for (tolerancia, activacion), gimnasio_ids in regimenes.items():
+            if tolerancia is None or activacion is None:
+                continue  # ese gimnasio no bloquea a nadie
+
             # Solo las que cruzan el umbral HOY: avisar todos los días sería
             # acoso, y el dedup de `RecordatorioEnviado` solo cubre repetirlo
             # para la misma cuota.

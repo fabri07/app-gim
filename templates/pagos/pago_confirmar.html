@@ -11,5 +11,12 @@
     <button type="submit" class="boton">Confirmar pago</button>
     <a class="boton-secundario" href="{% url 'pagos:listado' %}">Cancelar</a>
   </form>
+  {% if object.estado != "pagado" %}
+    <p class="texto-suave">
+      ¿No corresponde cobrarla (becado, licencia, emitida por error)?
+      <a href="{% url 'pagos:anular' object.pk %}">Anular la cuota</a> en vez de confirmarla.
+    </p>
+  {% endif %}
+
 </div>
 {% endblock %}

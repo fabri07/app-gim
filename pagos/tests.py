@@ -307,10 +307,18 @@ class MarcarVencidosTests(TestCase):
             monto=Decimal("15000.00"),
         )
 
-    def _con_tolerancia(self, dias):
-        self.gimnasio.dias_tolerancia_pago = dias
-        self.gimnasio.save()
-        self.gimnasio.refresh_from_db()
+    def _con_tolerancia(self, dias, gimnasio=None, activacion=date(2026, 1, 1)):
+        gimnasio = gimnasio or self.gimnasio
+        gimnasio.dias_tolerancia_pago = dias
+        gimnasio.save()
+        # La señal estampa la activación en el HOY real, que es posterior a
+        # todas las fechas de estos tests: se retrocede para que las cuotas
+        # del fixture queden bajo el régimen de la tolerancia.
+        Gimnasio.objects.filter(pk=gimnasio.pk).update(
+            fecha_activacion_bloqueo=activacion
+        )
+        gimnasio.refresh_from_db()
+
 
     # --- sin tolerancia: el estado de TODOS los gimnasios al desplegar ---
 
@@ -341,22 +349,107 @@ class MarcarVencidosTests(TestCase):
     # --- con tolerancia ---
 
     def test_con_tolerancia_vence_al_pasarse_los_dias_desde_el_arranque(self):
+        """Tolerancia 3 y ciclo del 1/7: el 3/7 todavía se puede pagar, el
+        4/7 ya venció -- que es el MISMO día en que `acceso.py` bloquea.
+        La versión anterior de este test fijaba el 5/7, un día tarde."""
         self._con_tolerancia(3)
         cuota = self._pendiente(date(2026, 7, 1))
 
-        self.assertEqual(marcar_vencidos(date(2026, 7, 4)), 0)
-        self.assertEqual(marcar_vencidos(date(2026, 7, 5)), 1)
+        self.assertEqual(marcar_vencidos(date(2026, 7, 3)), 0)
+        self.assertEqual(marcar_vencidos(date(2026, 7, 4)), 1)
 
         cuota.refresh_from_db()
         self.assertEqual(cuota.estado, Cuota.Estado.VENCIDO)
+
+    def test_con_tolerancia_vence_el_mismo_dia_que_bloquea(self):
+        """REGRESIÓN. `marcar_vencidos` usaba `<` donde `acceso.py` usa `<=`:
+        con tolerancia 3, el día 4 el alumno estaba bloqueado (sin rutina ni
+        turnos) y el panel y el portal le decían «Pendiente». Es exactamente
+        el día que el docstring de `marcar_vencidos` promete que no existe."""
+        self._con_tolerancia(3)
+        self._pendiente(date(2026, 7, 1))
+        hoy = date(2026, 7, 4)
+
+        self.assertIsNotNone(acceso.bloqueo_de(self.alumno, hoy=hoy))
+        self.assertEqual(marcar_vencidos(hoy), 1)
+
+    def test_las_cuotas_anteriores_a_la_activacion_no_vencen_por_tolerancia(self):
+        """REGRESIÓN. `acceso.py` ignora las cuotas anteriores a
+        `fecha_activacion_bloqueo`, pero `marcar_vencidos` no: el día que un
+        dueño prendía la tolerancia, el cron pasaba a VENCIDO a todo el ciclo
+        en curso más viejo que la tolerancia y `enviar_recordatorios` les
+        mandaba «tu cuota está vencida» a alumnos que, por diseño, NO estaban
+        bloqueados. La ráfaga que la fecha de activación existe para evitar,
+        entrando por la otra puerta."""
+        self._con_tolerancia(3, activacion=date(2026, 7, 1))
+        anterior = self._pendiente(date(2026, 6, 20))  # cubre hasta el 17/7
+        posterior = self._pendiente(date(2026, 7, 2))
+
+        self.assertEqual(marcar_vencidos(date(2026, 7, 5)), 1)
+
+        anterior.refresh_from_db()
+        posterior.refresh_from_db()
+        self.assertEqual(anterior.estado, Cuota.Estado.PENDIENTE)
+        self.assertEqual(posterior.estado, Cuota.Estado.VENCIDO)
+        # La anterior sigue el régimen de siempre: vence al terminar su ciclo.
+        self.assertEqual(marcar_vencidos(date(2026, 7, 17)), 0)
+        self.assertEqual(marcar_vencidos(date(2026, 7, 18)), 1)
+
+    def test_la_regla_en_sql_coincide_con_la_regla_en_python(self):
+        """`filtro_por_limite_de_pago` es `limite_de_pago` escrita en SQL, y
+        de ella dependen vencer (`marcar_vencidos`) y avisar «por vencer» (el
+        cron). Si divergen, hay un día en que el alumno está bloqueado y la
+        app dice «Pendiente», o un aviso que llega con el acceso ya cortado.
+        Se recorren 70 días y cinco tolerancias, con cuotas de los dos lados
+        de la fecha de activación."""
+        from pagos.models import filtro_por_limite_de_pago, limite_de_pago
+
+        activacion = date(2026, 7, 1)
+        cuotas = [
+            self._pendiente(date(2026, 6, 20)),
+            self._pendiente(date(2026, 7, 2)),
+            self._pendiente(date(2026, 7, 30)),
+        ]
+        for tolerancia in (None, 0, 1, 3, 10):
+            for corrimiento in range(70):
+                hoy = date(2026, 6, 20) + timedelta(days=corrimiento)
+                ventana = (hoy, hoy + timedelta(days=3))
+
+                def limite(cuota):
+                    return limite_de_pago(
+                        cuota.periodo_inicio, cuota.periodo_fin, tolerancia, activacion
+                    )
+
+                vencidas_python = {c.pk for c in cuotas if limite(c) < hoy}
+                vencidas_sql = set(
+                    Cuota.objects.filter(
+                        filtro_por_limite_de_pago(
+                            tolerancia, activacion, hasta=hoy - timedelta(days=1)
+                        )
+                    ).values_list("pk", flat=True)
+                )
+                self.assertEqual(vencidas_sql, vencidas_python, (tolerancia, hoy))
+
+                por_vencer_python = {
+                    c.pk for c in cuotas if ventana[0] <= limite(c) <= ventana[1]
+                }
+                por_vencer_sql = set(
+                    Cuota.objects.filter(
+                        filtro_por_limite_de_pago(
+                            tolerancia, activacion, desde=ventana[0], hasta=ventana[1]
+                        )
+                    ).values_list("pk", flat=True)
+                )
+                self.assertEqual(por_vencer_sql, por_vencer_python, (tolerancia, hoy))
+
 
     def test_la_tolerancia_se_evalua_por_gimnasio(self):
         """No es un valor global: dos gimnasios con tolerancias distintas
         pueden dar resultados distintos el mismo día."""
         self._con_tolerancia(10)
-        estricto = Gimnasio.objects.create(
-            nombre="Gimnasio B", slug="gimnasio-b", dias_tolerancia_pago=2
-        )
+        estricto = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+        self._con_tolerancia(2, gimnasio=estricto)
+
         alumno_estricto = Alumno.objects.create(
             gimnasio=estricto, nombre="Ana", apellido="Gomez"
         )
@@ -558,6 +651,105 @@ class CuotaViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+    def test_una_fecha_imposible_en_el_filtro_no_da_500(self):
+        """REGRESIÓN. `parse_date` devuelve `None` con un texto mal formado,
+        pero LANZA `ValueError` con uno bien formado e imposible: `?desde=
+        2026-02-31` era un 500, contra lo que prometía el docstring."""
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(
+            reverse("pagos:listado"), {"desde": "2026-02-31", "hasta": "2026-13-01"}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.pago_pendiente_a, list(response.context["pagos"]))
+
+    # --- anular (condonar) una cuota ---
+
+    def test_anular_condona_la_cuota_y_la_saca_de_la_deuda(self):
+        """`Estado.ANULADO` existía desde la migración a ciclos pero ninguna
+        vista lo escribía: la única salida para destrabar a un becado sin
+        falsear la facturación estaba en `/admin/`."""
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.post(
+            reverse("pagos:anular", args=[self.pago_pendiente_a.pk])
+        )
+
+        self.assertRedirects(response, reverse("pagos:listado"))
+        self.pago_pendiente_a.refresh_from_db()
+        self.assertEqual(self.pago_pendiente_a.estado, Cuota.Estado.ANULADO)
+        self.assertNotIn(
+            self.pago_pendiente_a, list(acceso.cuotas_impagas_de(self.alumno_a))
+        )
+
+    def test_reactivar_una_anulada_la_vuelve_pendiente(self):
+        self.client.login(username="staff-a", password="clave-123456")
+        self.pago_pendiente_a.estado = Cuota.Estado.ANULADO
+        self.pago_pendiente_a.save()
+
+        self.client.post(reverse("pagos:anular", args=[self.pago_pendiente_a.pk]))
+
+        self.pago_pendiente_a.refresh_from_db()
+        self.assertEqual(self.pago_pendiente_a.estado, Cuota.Estado.PENDIENTE)
+
+    def test_una_cuota_pagada_no_se_anula(self):
+        """Si el cobro fue un error se edita desde «Confirmar pago»; anular
+        una cuota cobrada borraría un ingreso real de la facturación."""
+        self.client.login(username="staff-a", password="clave-123456")
+
+        self.assertEqual(
+            self.client.get(reverse("pagos:anular", args=[self.pago_pagado_a.pk])).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(reverse("pagos:anular", args=[self.pago_pagado_a.pk])).status_code,
+            404,
+        )
+        self.pago_pagado_a.refresh_from_db()
+        self.assertEqual(self.pago_pagado_a.estado, Cuota.Estado.PAGADO)
+
+    def test_anular_una_cuota_de_otro_gimnasio_da_404(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.post(reverse("pagos:anular", args=[self.pago_b.pk]))
+
+        self.assertEqual(response.status_code, 404)
+        self.pago_b.refresh_from_db()
+        self.assertEqual(self.pago_b.estado, Cuota.Estado.PENDIENTE)
+
+    def test_el_alumno_no_puede_anular(self):
+        self.client.login(username="alumno-a", password="clave-123456")
+
+        response = self.client.post(
+            reverse("pagos:anular", args=[self.pago_pendiente_a.pk])
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_la_confirmacion_explica_que_anular_no_suma_ingresos(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(
+            reverse("pagos:anular", args=[self.pago_pendiente_a.pk])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "no suma a los ingresos")
+
+    def test_el_listado_ofrece_anular_solo_a_las_impagas(self):
+        self.client.login(username="staff-a", password="clave-123456")
+
+        response = self.client.get(reverse("pagos:listado"))
+
+        self.assertContains(
+            response, reverse("pagos:anular", args=[self.pago_pendiente_a.pk])
+        )
+        self.assertNotContains(
+            response, reverse("pagos:anular", args=[self.pago_pagado_a.pk])
+        )
+
 
     def test_confirmar_pago_pendiente_lo_marca_pagado_y_persiste_datos(self):
         self.client.login(username="staff-a", password="clave-123456")
@@ -1079,6 +1271,20 @@ class BloqueoEnLasVistasDelAlumnoTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Tu acceso a la rutina está pausado")
+
+    def test_sin_alias_cargado_el_detalle_del_dia_muestra_el_contacto(self):
+        """REGRESIÓN. `bloqueado.html` leía `perfil.gimnasio`, que solo
+        `HomeView` pone en el contexto: acá `gimnasio` quedaba vacío y, sin
+        `MedioCobro` cargado, siempre salía el genérico «Consultá con el
+        gimnasio cómo pagar» en vez del contacto real."""
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(contacto="11-5555-0000")
+        self._rutina_con_un_dia()
+
+        response = self.client.get(reverse("rutinas:mi_dia_detalle", args=[1]))
+
+        self.assertContains(response, "11-5555-0000")
+        self.assertNotContains(response, "Consultá con el gimnasio cómo pagar")
+
 
     def test_no_puede_calificar_ni_marcar_dia_entrenado(self):
         rutina = self._rutina_con_un_dia()

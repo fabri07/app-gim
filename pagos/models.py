@@ -118,6 +118,26 @@ class Cuota(TenantOwnedModel):
     #: `acceso.py`, las vistas y los tests no puedan divergir.
     ESTADOS_IMPAGOS = (Estado.PENDIENTE, Estado.VENCIDO)
 
+    def tolerancia_efectiva(self):
+        """Ver `tolerancia_efectiva()` a nivel de módulo."""
+        gimnasio = self.gimnasio
+        return tolerancia_efectiva(
+            self.periodo_inicio,
+            gimnasio.dias_tolerancia_pago,
+            gimnasio.fecha_activacion_bloqueo,
+        )
+
+    def fecha_limite_pago(self):
+        """Ver `limite_de_pago()` a nivel de módulo."""
+        gimnasio = self.gimnasio
+        return limite_de_pago(
+            self.periodo_inicio,
+            self.periodo_fin,
+            gimnasio.dias_tolerancia_pago,
+            gimnasio.fecha_activacion_bloqueo,
+        )
+
+
     alumno = models.ForeignKey(
         "alumnos.Alumno",
         on_delete=models.PROTECT,
@@ -277,8 +297,13 @@ def marcar_vencidos(hoy):
     Dos regímenes, según el gimnasio tenga o no configurada la tolerancia:
 
     - **Con tolerancia N**: vence a los N días de arrancar el ciclo. Es el
-      mismo umbral con el que se bloquea al alumno, para que no haya un día en
-      que esté bloqueado y la app le diga "Pendiente".
+      mismo umbral con el que se bloquea al alumno (`periodo_inicio <= hoy -
+      N`, ver `pagos/acceso.py::_umbral`), para que no haya un día en que
+      esté bloqueado y la app le diga "Pendiente". Un `<` en vez de `<=` acá
+      producía exactamente ese día. Y las cuotas anteriores a
+      `fecha_activacion_bloqueo` siguen el régimen sin tolerancia, porque a
+      esas el bloqueo no las alcanza (ver `tolerancia_efectiva`).
+
     - **Sin tolerancia** (el estado de todos los gimnasios hasta que alguien
       la prenda): vence recién cuando el ciclo TERMINÓ. Es la traducción
       honesta del comportamiento viejo ("vence cuando el mes cerró") y evita
@@ -298,29 +323,114 @@ def marcar_vencidos(hoy):
     el queryset: esa aritmética anda en Postgres y da resultados
     silenciosamente distintos en SQLite, donde corre toda la suite.
     """
-    from collections import defaultdict
-
     from django.utils import timezone
+
+    ahora = timezone.now()
+
+    total = 0
+    for (tolerancia, activacion), gimnasio_ids in regimenes_de_pago().items():
+        # "Ya venció" es `fecha_limite_pago < hoy`, o sea `<= hoy - 1`. La
+        # misma regla que `limite_de_pago`, escrita en SQL -- ver el docstring
+        # de `filtro_por_limite_de_pago` y el test que compara las dos.
+        vencibles = Cuota.objects.filter(
+            estado=Cuota.Estado.PENDIENTE, gimnasio_id__in=gimnasio_ids
+        ).filter(
+            filtro_por_limite_de_pago(
+                tolerancia, activacion, hasta=hoy - timedelta(days=1)
+            )
+        )
+        total += vencibles.update(estado=Cuota.Estado.VENCIDO, modificado=ahora)
+    return total
+
+
+def tolerancia_efectiva(periodo_inicio, tolerancia, activacion):
+    """La tolerancia que de verdad rige para una cuota, o `None` si esa cuota
+    no está sujeta al bloqueo.
+
+    No alcanza con mirar `Gimnasio.dias_tolerancia_pago`: `pagos/acceso.py`
+    ignora las cuotas anteriores a `fecha_activacion_bloqueo` (prender el
+    bloqueo no es retroactivo), así que para ESAS cuotas el régimen sigue
+    siendo el de siempre -- vencen cuando el ciclo terminó. Si `marcar_vencidos`
+    no hiciera la misma distinción, el día que un dueño prende la tolerancia
+    el cron pasaría a VENCIDO a medio padrón y `enviar_recordatorios` les
+    mandaría «tu cuota está vencida» a alumnos que, por diseño, no están
+    bloqueados: la ráfaga masiva que la fecha de activación existe para evitar,
+    entrando por la otra puerta.
+
+    Función pura, sin ORM, como `ciclo_vigente`.
+    """
+    if tolerancia is None or activacion is None or periodo_inicio < activacion:
+        return None
+    return tolerancia
+
+
+def limite_de_pago(periodo_inicio, periodo_fin, tolerancia, activacion):
+    """El último día (INCLUSIVO) en que la cuota se puede pagar sin vencer.
+
+    - Sin tolerancia efectiva: el último día del período, `periodo_fin`.
+    - Con tolerancia N: el día anterior a que se cruce el umbral de bloqueo.
+      `acceso.py` bloquea cuando `periodo_inicio <= hoy - N`, o sea a partir
+      del día `periodo_inicio + N`; el último día libre es `periodo_inicio +
+      N - 1`. Con N = 0 el límite queda ANTES de que arranque el ciclo: la
+      cuota nace vencida y bloqueando, que es lo que significa "cero días".
+
+    Vencer, bloquear y avisar «por vencer» se calculan los tres a partir de
+    esta fecha, para que no haya un día en que el alumno esté bloqueado y la
+    app le diga «Pendiente», ni un aviso que llegue cuando el acceso ya se
+    cortó.
+    """
+    efectiva = tolerancia_efectiva(periodo_inicio, tolerancia, activacion)
+    if efectiva is None:
+        return periodo_fin
+    return periodo_inicio + timedelta(days=efectiva - 1)
+
+
+def filtro_por_limite_de_pago(tolerancia, activacion, *, hasta, desde=None):
+    """El `Q` equivalente a `desde <= limite_de_pago(...) <= hasta` para las
+    cuotas de los gimnasios con ese par (tolerancia, activación).
+
+    Es `limite_de_pago` escrita en SQL, para que `marcar_vencidos` y el aviso
+    de «por vencer» del cron no traigan todo el padrón a memoria. Como el
+    umbral se resuelve en Python (`periodo_inicio + columna` da resultados
+    distintos en SQLite y en Postgres), la tolerancia y la activación llegan
+    como escalares y el queryset solo compara fechas contra constantes.
+    **Si tocás `limite_de_pago`, esto tiene que seguirla**: hay un test que
+    recorre un rango de días y compara las dos.
+    """
+    from django.db.models import Q
+
+    def entre(campo, corrimiento):
+        # `campo + corrimiento` en [desde, hasta]  <=>  `campo` en
+        # [desde - corrimiento, hasta - corrimiento].
+        condicion = Q(**{f"{campo}__lte": hasta - corrimiento})
+        if desde is not None:
+            condicion &= Q(**{f"{campo}__gte": desde - corrimiento})
+        return condicion
+
+    por_fin_de_ciclo = entre("periodo_fin", timedelta(0))
+    if tolerancia is None or activacion is None:
+        return por_fin_de_ciclo
+    return (
+        Q(periodo_inicio__gte=activacion)
+        & entre("periodo_inicio", timedelta(days=tolerancia - 1))
+    ) | (Q(periodo_inicio__lt=activacion) & por_fin_de_ciclo)
+
+
+def regimenes_de_pago():
+    """Los ids de gimnasio agrupados por `(tolerancia, fecha de activación)`.
+
+    Se agrupa por VALOR y no por gimnasio para que el costo de los barridos
+    (`marcar_vencidos`, el cron de recordatorios) no crezca con la cantidad
+    de tenants: son un puñado de pares distintos.
+    """
+    from collections import defaultdict
 
     from tenants.models import Gimnasio
 
-    por_tolerancia = defaultdict(list)
-    for gimnasio_id, tolerancia in Gimnasio.objects.values_list(
-        "id", "dias_tolerancia_pago"
+    regimenes = defaultdict(list)
+    for gimnasio_id, tolerancia, activacion in Gimnasio.objects.values_list(
+        "id", "dias_tolerancia_pago", "fecha_activacion_bloqueo"
     ):
-        por_tolerancia[tolerancia].append(gimnasio_id)
+        regimenes[(tolerancia, activacion)].append(gimnasio_id)
+    return regimenes
 
-    ahora = timezone.now()
-    total = 0
-    for tolerancia, gimnasio_ids in por_tolerancia.items():
-        vencibles = Cuota.objects.filter(
-            estado=Cuota.Estado.PENDIENTE, gimnasio_id__in=gimnasio_ids
-        )
-        if tolerancia is None:
-            vencibles = vencibles.filter(periodo_fin__lt=hoy)
-        else:
-            vencibles = vencibles.filter(
-                periodo_inicio__lt=hoy - timedelta(days=tolerancia)
-            )
-        total += vencibles.update(estado=Cuota.Estado.VENCIDO, modificado=ahora)
-    return total
