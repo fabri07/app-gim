@@ -20,6 +20,8 @@ from django.db import connection
 from django.utils import timezone
 from datetime import date
 from django.test import Client, SimpleTestCase, TestCase
+
+from pagos.testing import crear_cuota, crear_cuota_mensual
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -212,6 +214,7 @@ class AlumnoViewsTests(TestCase):
             "telefono": "",
             "fecha_nacimiento": "",
             "estado": Alumno.Estado.ACTIVO,
+                "fecha_inicio_ciclo": "2026-01-05",
             "observaciones": "",
         }
         response = self.client.post(reverse("alumnos:crear"), datos)
@@ -255,6 +258,7 @@ class AlumnoViewsTests(TestCase):
             "telefono": "",
             "fecha_nacimiento": "",
             "estado": Alumno.Estado.ACTIVO,
+                "fecha_inicio_ciclo": "2026-01-05",
             "sexo": Alumno.Sexo.FEMENINO,
             "actividad_fisica_previa": "on",
             "frecuencia_actividad_previa": Alumno.FrecuenciaActividad.VARIAS_POR_SEMANA,
@@ -288,6 +292,7 @@ class AlumnoViewsTests(TestCase):
             "telefono": "",
             "fecha_nacimiento": "",
             "estado": Alumno.Estado.ACTIVO,
+                "fecha_inicio_ciclo": "2026-01-05",
             "sexo": "no-es-una-opcion",
             "observaciones": "",
         }
@@ -329,27 +334,27 @@ class AlumnoViewsTests(TestCase):
 
     # 6. La ficha muestra los pagos y la rutina propios, no los de otro alumno.
     def test_ficha_muestra_pagos_y_rutina_propios_sin_filtrar_de_otro_alumno(self):
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
         from rutinas.models import RutinaAsignada
 
-        pago_propio = PagoMensual.objects.create(
+        pago_propio = crear_cuota_mensual(
             gimnasio=self.gimnasio_a,
             alumno=self.alumno_a,
             mes=1,
             anio=2026,
             monto=1000,
-            estado=PagoMensual.Estado.PAGADO,
+            estado=Cuota.Estado.PAGADO,
         )
         otro_alumno = Alumno.objects.create(
             gimnasio=self.gimnasio_a, nombre="Otro", apellido="Alumno"
         )
-        pago_ajeno = PagoMensual.objects.create(
+        pago_ajeno = crear_cuota_mensual(
             gimnasio=self.gimnasio_a,
             alumno=otro_alumno,
             mes=2,
             anio=2026,
             monto=2000,
-            estado=PagoMensual.Estado.PENDIENTE,
+            estado=Cuota.Estado.PENDIENTE,
         )
         rutina_propia = RutinaAsignada.objects.create(
             gimnasio=self.gimnasio_a,
@@ -924,6 +929,195 @@ class RevocacionAccesoTests(TestCase):
         self.assertTrue(ajeno.perfil.usuario.is_active)
 
 
+class SexoSegunElPublicoDelGimnasioTests(TestCase):
+    """En un gimnasio de un solo género, el campo «Sexo» sale de la ficha y lo
+    completa el propio formulario.
+
+    Se completa en vez de dejarlo vacío para que, el día que el gimnasio pase a
+    mixto, el histórico ya esté cargado y los gráficos por género sirvan desde
+    el primer día.
+    """
+
+    def setUp(self):
+        self.mixto = Gimnasio.objects.create(nombre="Mixto", slug="mixto")
+        self.de_mujeres = Gimnasio.objects.create(
+            nombre="Solo mujeres", slug="mujeres",
+            tipo_publico=Gimnasio.TipoPublico.MUJERES,
+        )
+
+    def _form(self, gimnasio, instance=None, **cambios):
+        from alumnos.forms import AlumnoForm
+
+        datos = {
+            "nombre": "Ana",
+            "apellido": "Paz",
+            "estado": Alumno.Estado.ACTIVO,
+            "fecha_inicio_ciclo": timezone.localdate().isoformat(),
+        }
+        datos.update(cambios)
+        return AlumnoForm(datos, instance=instance, gimnasio=gimnasio)
+
+    def test_en_un_gimnasio_mixto_el_campo_sigue_estando(self):
+        form = self._form(self.mixto, sexo=Alumno.Sexo.MASCULINO)
+
+        self.assertIn("sexo", form.fields)
+        self.assertTrue(form.is_valid(), form.errors)
+        alumno = form.save(commit=False)
+        alumno.gimnasio = self.mixto
+        alumno.save()
+        self.assertEqual(alumno.sexo, Alumno.Sexo.MASCULINO)
+
+    def test_en_un_gimnasio_de_mujeres_no_se_pide_y_se_completa_solo(self):
+        form = self._form(self.de_mujeres)
+
+        self.assertNotIn("sexo", form.fields)
+        self.assertTrue(form.is_valid(), form.errors)
+        alumno = form.save(commit=False)
+        alumno.gimnasio = self.de_mujeres
+        alumno.save()
+        self.assertEqual(alumno.sexo, Alumno.Sexo.FEMENINO)
+
+    def test_en_un_gimnasio_de_hombres_se_completa_con_masculino(self):
+        gimnasio = Gimnasio.objects.create(
+            nombre="Solo hombres", slug="hombres",
+            tipo_publico=Gimnasio.TipoPublico.HOMBRES,
+        )
+
+        form = self._form(gimnasio)
+        self.assertTrue(form.is_valid(), form.errors)
+        alumno = form.save(commit=False)
+        alumno.gimnasio = gimnasio
+        alumno.save()
+
+        self.assertEqual(alumno.sexo, Alumno.Sexo.MASCULINO)
+
+    def test_un_alumno_ya_cargado_conserva_su_sexo_si_el_gimnasio_cambia(self):
+        """El que más importa. Un alumno cargado como masculino cuando el
+        gimnasio era mixto NO se reescribe al editarle cualquier otro campo
+        después de pasar a «solo mujeres» -- por eso esto vive en el form y no
+        en un `pre_save`, que estamparía en cada guardado."""
+        alumno = Alumno.objects.create(
+            gimnasio=self.mixto, nombre="Ana", apellido="Paz",
+            sexo=Alumno.Sexo.MASCULINO,
+        )
+        Gimnasio.objects.filter(pk=self.mixto.pk).update(
+            tipo_publico=Gimnasio.TipoPublico.MUJERES
+        )
+        self.mixto.refresh_from_db()
+
+        form = self._form(self.mixto, instance=alumno, telefono="1122334455")
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        alumno.refresh_from_db()
+        self.assertEqual(alumno.sexo, Alumno.Sexo.MASCULINO)
+        self.assertEqual(alumno.telefono, "1122334455")
+
+    def test_la_ficha_no_renderiza_el_campo_cuando_no_corresponde(self):
+        staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=staff, gimnasio=self.de_mujeres, rol=Perfil.Rol.STAFF
+        )
+        self.client.force_login(staff)
+
+        response = self.client.get(reverse("alumnos:crear"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'name="sexo"')
+
+
+class BotonDeBajaYAltaTests(TestCase):
+    """Lo que el botón de baja/alta tiene que escribir ADEMÁS de `estado`.
+
+    REGRESIÓN de un bug de un release entero: la vista guardaba con
+    `update_fields=["estado"]`, y como `registrar_fecha_de_baja` escribe
+    `fecha_baja` y re-ancla `fecha_inicio_ciclo` en el `pre_save`, Django
+    calculaba esos valores y los TIRABA -- el UPDATE solo lleva las columnas
+    listadas. Era el único camino de UI para reactivar.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gim A", slug="gim-a")
+        self.staff = User.objects.create_user("staff", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Pérez"
+        )
+        self.client.force_login(self.staff)
+
+    def _toggle(self):
+        return self.client.post(reverse("alumnos:activar", args=[self.alumno.pk]))
+
+    def test_dar_de_baja_desde_el_boton_estampa_la_fecha_de_baja(self):
+        """Sin esto, «altas y bajas por mes» no contaba ninguna baja hecha con
+        el botón."""
+        self._toggle()
+
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.estado, Alumno.Estado.INACTIVO)
+        self.assertEqual(self.alumno.fecha_baja, timezone.localdate())
+
+    def test_reactivar_desde_el_boton_reancla_el_ciclo_de_pago(self):
+        """La consecuencia grave: el que volvía de tres meses recibía esa
+        noche una cuota retroactiva ya vencida y, con la tolerancia prendida,
+        quedaba bloqueado el día 1 de su regreso."""
+        hoy = timezone.localdate()
+        Alumno.objects.filter(pk=self.alumno.pk).update(
+            fecha_inicio_ciclo=hoy - datetime.timedelta(days=200)
+        )
+
+        self._toggle()  # baja
+        self._toggle()  # alta
+
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.estado, Alumno.Estado.ACTIVO)
+        self.assertEqual(self.alumno.fecha_inicio_ciclo, hoy)
+        self.assertIsNone(self.alumno.fecha_baja)
+
+
+class AnclaFuturaEnLaFichaTests(TestCase):
+    """`clean_fecha_inicio_ciclo` rechaza fechas futuras, pero la propia app
+    escribe una cuando el plan se carga con anticipación
+    (`anclar_ciclo_a_la_primera_rutina`). REGRESIÓN: hasta que llegaba ese
+    día, NINGÚN guardado de la ficha pasaba la validación -- corregir un
+    teléfono fallaba por un valor que el staff no tipeó."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz"
+        )
+        self.futuro = timezone.localdate() + datetime.timedelta(days=5)
+        Alumno.objects.filter(pk=self.alumno.pk).update(fecha_inicio_ciclo=self.futuro)
+        self.alumno.refresh_from_db()
+
+    def _form(self, **cambios):
+        from alumnos.forms import AlumnoForm
+
+        datos = {
+            "nombre": "Ana",
+            "apellido": "Paz",
+            "estado": Alumno.Estado.ACTIVO,
+            "fecha_inicio_ciclo": self.futuro.isoformat(),
+        }
+        datos.update(cambios)
+        return AlumnoForm(datos, instance=self.alumno, gimnasio=self.gimnasio)
+
+    def test_la_ficha_se_guarda_sin_tocar_el_ancla_futura_que_escribio_la_app(self):
+        form = self._form(telefono="1122334455")
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_moverla_a_otra_fecha_futura_sigue_rechazado(self):
+        otro_futuro = self.futuro + datetime.timedelta(days=1)
+
+        form = self._form(fecha_inicio_ciclo=otro_futuro.isoformat())
+
+        self.assertIn("fecha_inicio_ciclo", form.errors)
+
+
 class PanelAccesosTests(TestCase):
     """Vista de conjunto de los accesos del gimnasio.
 
@@ -1067,6 +1261,7 @@ class EspejoEstadoAccesoTests(TestCase):
                 "nombre": "Juan",
                 "apellido": "Pérez",
                 "estado": Alumno.Estado.INACTIVO,
+                "fecha_inicio_ciclo": "2026-01-05",
                 "actividad_fisica_previa": False,
                 "tiene_discapacidad": False,
                 "tiene_enfermedad_cronica": False,
@@ -1094,6 +1289,7 @@ class EspejoEstadoAccesoTests(TestCase):
                 "nombre": "Juan",
                 "apellido": "Pérez",
                 "estado": Alumno.Estado.ACTIVO,
+                "fecha_inicio_ciclo": "2026-01-05",
                 "actividad_fisica_previa": False,
                 "tiene_discapacidad": False,
                 "tiene_enfermedad_cronica": False,

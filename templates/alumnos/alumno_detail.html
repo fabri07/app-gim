@@ -187,8 +187,7 @@
       <table class="tabla">
         <thead>
           <tr>
-            <th>Mes</th>
-            <th>Año</th>
+            <th>Período</th>
             <th>Monto</th>
             <th>Estado</th>
           </tr>
@@ -196,14 +195,15 @@
         <tbody>
           {% for pago in pagos %}
             <tr>
-              <td>{{ pago.mes }}</td>
-              <td>{{ pago.anio }}</td>
+              <td>{{ pago.periodo_inicio|date:"d/m/Y" }} al {{ pago.periodo_fin|date:"d/m/Y" }}</td>
               <td>{{ pago.monto }}</td>
               <td>
                 {% if pago.estado == "pagado" %}
                   <span class="badge badge--ok">Pagado</span>
                 {% elif pago.estado == "pendiente" %}
                   <span class="badge badge--alerta">Pendiente</span>
+                {% elif pago.estado == "anulado" %}
+                  <span class="badge">Anulada</span>
                 {% else %}
                   <span class="badge badge--riesgo">Vencido</span>
                 {% endif %}
@@ -211,7 +211,7 @@
             </tr>
           {% empty %}
             <tr>
-              <td colspan="4" class="texto-suave">Sin pagos registrados todavía.</td>
+              <td colspan="3" class="texto-suave">Sin pagos registrados todavía.</td>
             </tr>
           {% endfor %}
         </tbody>

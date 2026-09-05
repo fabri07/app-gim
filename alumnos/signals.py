@@ -74,6 +74,12 @@ def registrar_fecha_de_baja(sender, instance, raw=False, **kwargs):
     if instance.pk is None:
         # Alta directa en estado inactivo: hay baja, aunque no haya transición.
         instance.fecha_baja = timezone.localdate() if inactivo else None
+        # Ancla del ciclo de cobro. Sin esto el alumno nuevo no recibe NINGUNA
+        # cuota (`generar_pagos_pendientes` filtra por ancla no nula) y es un
+        # agujero de facturación silencioso. La corrige después la señal de la
+        # primera rutina, si el alumno arranca a entrenar otro día.
+        if instance.fecha_inicio_ciclo is None:
+            instance.fecha_inicio_ciclo = timezone.localdate()
         return
 
     estaba_inactivo = (
@@ -86,6 +92,7 @@ def registrar_fecha_de_baja(sender, instance, raw=False, **kwargs):
         instance.fecha_baja = timezone.localdate()
     elif not inactivo and estaba_inactivo:
         instance.fecha_baja = None
+        _reanclar_ciclo_al_reactivar(instance)
 
 
 @receiver(post_save, sender="alumnos.Alumno")
@@ -130,3 +137,64 @@ def sincronizar_acceso_con_estado(sender, instance, raw=False, **kwargs):
     if usuario.is_active != activo:
         usuario.is_active = activo
         usuario.save(update_fields=["is_active"])
+
+
+def _reanclar_ciclo_al_reactivar(instance):
+    """Mueve el ancla del ciclo a hoy cuando el alumno vuelve de una baja.
+
+    Durante la baja no se emiten cuotas (`generar_pagos_pendientes` filtra por
+    `estado=ACTIVO`) pero el ancla sigue avanzando sola. Sin esto, el alumno
+    que vuelve después de tres meses recibe esa misma noche una cuota cuyo
+    período transcurrió casi entero mientras estaba de baja, el cron la vence
+    en la misma corrida (genera y vence seguido) y —con la tolerancia
+    prendida— queda sin rutina ni turnos el día 1 de su regreso.
+
+    **Condicional a propósito**: solo se re-ancla si el ciclo vigente arrancó
+    ANTES de hoy. Re-anclar siempre le regalaría hasta 27 días de cuota al que
+    se dio de baja por error y volvió el mismo día.
+
+    Va en el `pre_save` que ya detecta la transición para que el valor viaje
+    en el mismo UPDATE que `fecha_baja = None`, mismo argumento que el
+    docstring de `registrar_fecha_de_baja`.
+
+    **Límite conocido**, igual que los otros receivers de este archivo: no se
+    dispara con `QuerySet.update()` ni `bulk_update()`.
+    """
+    from pagos.models import ciclo_vigente
+
+    hoy = timezone.localdate()
+    ciclo = ciclo_vigente(instance.fecha_inicio_ciclo, hoy)
+    if ciclo is None or ciclo[0] < hoy:
+        instance.fecha_inicio_ciclo = hoy
+
+
+@receiver(post_save, sender="rutinas.RutinaAsignada")
+def anclar_ciclo_a_la_primera_rutina(sender, instance, created, raw=False, **kwargs):
+    """El ciclo de cobro arranca el día que el alumno empieza a entrenar.
+
+    Regla de producto: el alumno se puede dar de alta un lunes y arrancar el
+    jueves; la cuota tiene que seguir a la rutina, no al trámite.
+
+    Se corrige el ancla SOLO si el alumno todavía no tiene ninguna cuota
+    emitida. Una vez que se le facturó algo, mover el ancla solaparía períodos
+    y volvería a cobrar días ya cobrados -- y el `unique_together` no lo
+    impide, porque solo prohíbe dos cuotas con el MISMO arranque, no dos
+    períodos que se pisan.
+
+    `sender` por string y no importando `RutinaAsignada`: el orden de
+    dependencia es `alumnos -> rutinas`, y un import real lo invertiría. Es el
+    mismo patrón que ya usan los otros dos receivers de este archivo.
+
+    `instance.fecha_inicio` y no `localdate()`: un plan cargado a futuro tiene
+    que anclar el ciclo el día que arranca de verdad.
+    """
+    if raw or not created:
+        return
+
+    alumno = instance.alumno
+    if alumno.pagos.exists():
+        return
+    if alumno.fecha_inicio_ciclo == instance.fecha_inicio:
+        return
+    alumno.fecha_inicio_ciclo = instance.fecha_inicio
+    alumno.save(update_fields=["fecha_inicio_ciclo", "modificado"])

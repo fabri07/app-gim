@@ -10,9 +10,16 @@
 
 name: Generar pagos del mes
 
+# ⛔ CRON DESACTIVADO A PROPÓSITO — migración a cuotas por ciclo de 28 días.
+# Estos workflows hacen `checkout` de `main` y corren contra la base de
+# PRODUCCIÓN sin correr `migrate` (Render migra dentro de su `buildCommand`),
+# así que entre el merge y el deploy verde hay una ventana de código nuevo
+# sobre esquema viejo. REACTIVAR (descomentar el `schedule`) recién con el
+# deploy de Render en verde — es un paso numerado del procedimiento, no un
+# supuesto. Mientras tanto queda `workflow_dispatch` para correrlo a mano.
 on:
-  schedule:
-    - cron: "30 6 * * *"   # 06:30 UTC, después del backup para no solaparse
+  # schedule:
+  #   - cron: "30 6 * * *"   # 06:30 UTC, después del backup para no solaparse
   workflow_dispatch:
 
 permissions:
@@ -48,3 +55,23 @@ jobs:
           DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_POOLED }}
           DJANGO_DEBUG: "False"
         run: python manage.py generar_pagos
+
+      # Mismo criterio que backup.yml: se alerta por AUSENCIA de ping, que es
+      # lo único que cubre a la vez el comando fallido, el workflow desactivado
+      # por inactividad del repo y GitHub Actions caído. Desde la migración a
+      # cuotas por ciclo este cron es el ÚNICO emisor de facturación *y* el
+      # insumo del bloqueo por falta de pago: que se caiga en silencio significa
+      # un gimnasio que deja de cobrar sin enterarse.
+      #
+      # `if: secrets.X != ''` no es válido en GitHub Actions (los secrets no se
+      # pueden evaluar en `if`), así que el guard va adentro del paso: sin el
+      # secret cargado el ping se saltea y el workflow no falla por eso.
+      - name: Avisar a Healthchecks
+        env:
+          PING: ${{ secrets.HEALTHCHECKS_URL_GENERAR_PAGOS }}
+        run: |
+          if [ -n "$PING" ]; then
+            curl -fsS -m 10 --retry 3 "$PING"
+          else
+            echo "HEALTHCHECKS_URL_GENERAR_PAGOS sin cargar: se saltea el ping."
+          fi

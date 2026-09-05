@@ -1,12 +1,13 @@
 from django.contrib import admin
 
-from pagos.models import PagoMensual, MedioCobro
+from pagos.models import Cuota, MedioCobro
 
 
-@admin.register(PagoMensual)
-class PagoMensualAdmin(admin.ModelAdmin):
-    list_display = ("alumno", "mes", "anio", "monto", "estado", "gimnasio")
-    list_filter = ("estado", "gimnasio", "anio")
+@admin.register(Cuota)
+class CuotaAdmin(admin.ModelAdmin):
+    list_display = ("alumno", "periodo_inicio", "periodo_fin", "monto", "estado", "gimnasio")
+    list_filter = ("estado", "gimnasio")
+    date_hierarchy = "periodo_inicio"
     search_fields = ("alumno__nombre", "alumno__apellido")
 
 

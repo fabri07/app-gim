@@ -7,7 +7,7 @@ hace con `manage.py crear_gimnasio` (ver `tenants/services.py`).
 """
 
 import logging
-from datetime import date, datetime
+from datetime import datetime
 
 from django.conf import settings
 from django.contrib import messages
@@ -77,6 +77,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         renderiza un estado vacío en vez de 500.
         """
         from novedades.models import Novedad
+        from pagos import acceso
         from pagos.models import MedioCobro
         from rutinas.models import RutinaAsignada
 
@@ -124,16 +125,26 @@ class HomeView(LoginRequiredMixin, TemplateView):
                 )
             ]
 
+        # El bloqueo se resuelve UNA vez y decide qué se renderiza: con el
+        # acceso cortado, la tarjeta de rutina se reemplaza por la del
+        # bloqueo. La de cuota y las novedades siguen visibles siempre -- el
+        # alumno tiene que poder ver cómo pagar y enterarse de los avisos
+        # justamente cuando está bloqueado.
+        bloqueo = acceso.bloqueo_de(alumno, hoy=hoy)
+
         return {
             "alumno": alumno,
-            "rutina_actual": rutina_actual,
-            "dias_disponibles": dias_disponibles,
-            "mensualidad_actual": alumno.pagos.filter(
-                mes=hoy.month, anio=hoy.year
+            "bloqueo": bloqueo,
+            "rutina_actual": None if bloqueo else rutina_actual,
+            "dias_disponibles": [] if bloqueo else dias_disponibles,
+            # TODAS las impagas, no solo la del ciclo vigente: si lo que
+            # bloquea es una cuota anterior y en pantalla solo aparece la
+            # actual, el alumno le sube el comprobante a la equivocada y sigue
+            # bloqueado sin entender por qué.
+            "cuotas_impagas": acceso.cuotas_impagas_de(alumno),
+            "cuota_actual": alumno.pagos.filter(
+                periodo_inicio__lte=hoy, periodo_fin__gte=hoy
             ).first(),
-            "fecha_limite_pago": date(
-                hoy.year, hoy.month, perfil.gimnasio.dia_vencimiento_pago
-            ),
             "ultimas_novedades": Novedad.objects.for_gimnasio(perfil.gimnasio)
             .visibles()
             .para_alumno(alumno)[:5],
@@ -149,7 +160,8 @@ class HomeView(LoginRequiredMixin, TemplateView):
     def _metricas_dashboard(gimnasio):
         from alumnos.models import Alumno
         from novedades.models import Novedad
-        from pagos.models import PagoMensual
+        from pagos import acceso
+        from pagos.models import Cuota
         from rutinas.models import RutinaAsignada
         from tenants import analitica
 
@@ -167,13 +179,25 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "alumnos_activos_count": Alumno.objects.for_gimnasio(gimnasio)
             .filter(estado=Alumno.Estado.ACTIVO)
             .count(),
+            # Acotado al ciclo VIGENTE a propósito. Sin cota de fecha esto
+            # cuenta alumnos con cualquier cuota pendiente de cualquier época,
+            # y solo funcionaba porque el cron viejo limpiaba los pendientes
+            # de meses cerrados. Con gimnasios sin tolerancia configurada, los
+            # PENDIENTE del ciclo en curso ya no vencen hasta que el ciclo
+            # termina, así que sin esta cota el contador solo podría subir.
             "alumnos_pago_pendiente_count": Alumno.objects.for_gimnasio(gimnasio)
-            .filter(pagos__estado=PagoMensual.Estado.PENDIENTE)
+            .filter(
+                pagos__estado=Cuota.Estado.PENDIENTE,
+                pagos__periodo_inicio__lte=hoy,
+                pagos__periodo_fin__gte=hoy,
+            )
             .distinct()
             .count(),
-            "pagos_del_mes": PagoMensual.objects.for_gimnasio(gimnasio).filter(
-                mes=hoy.month, anio=hoy.year
-            ),
+            "alumnos_bloqueados_count": acceso.contar_bloqueados(gimnasio, hoy=hoy),
+            "cuotas_vigentes": Cuota.objects.for_gimnasio(gimnasio)
+            .filter(periodo_inicio__lte=hoy, periodo_fin__gte=hoy)
+            .exclude(estado=Cuota.Estado.ANULADO)
+            .select_related("alumno"),
             # Alumnos ACTIVOS con un plan vigente, no filas de rutina: desde
             # que las rutinas ya no se archivan, contar `activa=True` sumaría
             # todo el histórico (un alumno con 5 ciclos valdría 5) y el número
@@ -208,13 +232,30 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "asistencia_diaria": analitica.asistencia_diaria(gimnasio),
             "ingresos_mensuales": analitica.ingresos_por_mes(gimnasio),
             "asistencia": analitica.asistencia_por_dia_y_hora(gimnasio),
-            "genero_stats": analitica.distribucion_por_genero(gimnasio),
             "rpe_por_ejercicio": analitica.rpe_por_ejercicio(gimnasio),
             "ejercicios_mas_asignados": analitica.ejercicios_mas_asignados(gimnasio),
-            "ejercicios_mas_asignados_por_genero": analitica.ejercicios_mas_asignados_por_genero(
-                gimnasio
+            # Composición del padrón: por GÉNERO si el gimnasio es mixto, por
+            # EDAD si es de un solo género. Es un intercambio, no una suma --
+            # la tarjeta del panel es siempre una sola, y la llena lo que de
+            # verdad distingue a los alumnos de ESE gimnasio. En un gimnasio de
+            # mujeres, «Alumnos por género» es una sola barra y «Ejercicios más
+            # asignados por género» es una copia exacta del gráfico general.
+            #
+            # Se decide acá y no en el template: `ejercicios_mas_asignados_por_genero`
+            # vuelve a correr la query de ranking (costo documentado en
+            # CLAUDE.md), así que saltearla ahorra trabajo real en cada carga.
+            **(
+                {
+                    "genero_stats": analitica.distribucion_por_genero(gimnasio),
+                    "ejercicios_mas_asignados_por_genero": (
+                        analitica.ejercicios_mas_asignados_por_genero(gimnasio)
+                    ),
+                }
+                if gimnasio.tiene_publico_mixto
+                else {"edad_stats": analitica.distribucion_por_edad(gimnasio)}
             ),
         }
+
 
 
 GIMNASIO_COOKIE_NOMBRE = "gimnasio_preferido"

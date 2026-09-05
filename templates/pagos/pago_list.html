@@ -11,13 +11,14 @@
   </div>
 
   <form method="get" class="filtros">
+    {% comment %} Rango de fechas y no mes/año: con ciclos anclados a cada alumno, un ciclo que arranca el 28 de marzo cae casi entero en abril y "el mes" deja de ser una unidad de cobro. {% endcomment %}
     <div>
-      <label for="mes">Mes</label>
-      <input type="number" name="mes" id="mes" min="1" max="12" value="{{ mes_actual }}">
+      <label for="desde">Desde</label>
+      <input type="date" name="desde" id="desde" value="{{ desde_actual }}">
     </div>
     <div>
-      <label for="anio">Año</label>
-      <input type="number" name="anio" id="anio" min="2000" value="{{ anio_actual }}">
+      <label for="hasta">Hasta</label>
+      <input type="date" name="hasta" id="hasta" value="{{ hasta_actual }}">
     </div>
     <div>
       <label for="estado">Estado</label>
@@ -30,7 +31,7 @@
       </select>
     </div>
     <button type="submit" class="boton-secundario">Filtrar</button>
-    {% if mes_actual or anio_actual or estado_actual %}
+    {% if desde_actual or hasta_actual or estado_actual %}
       <a class="boton-secundario" href="{% url 'pagos:listado' %}">Quitar filtros</a>
     {% endif %}
   </form>
@@ -40,7 +41,7 @@
       <thead>
         <tr>
           <th>Alumno</th>
-          <th>Mes/Año</th>
+          <th>Período</th>
           <th>Monto</th>
           <th>Estado</th>
           <th>Comprobante</th>
@@ -51,13 +52,15 @@
         {% for pago in pagos %}
           <tr>
             <td>{{ pago.alumno }}</td>
-            <td>{{ pago.mes|stringformat:"02d" }}/{{ pago.anio }}</td>
+            <td>{{ pago.periodo_inicio|date:"d/m/Y" }} al {{ pago.periodo_fin|date:"d/m/Y" }}</td>
             <td>{{ pago.monto }}</td>
             <td>
               {% if pago.estado == "pagado" %}
                 <span class="badge badge--ok">Pagado</span>
               {% elif pago.estado == "vencido" %}
                 <span class="badge badge--riesgo">Vencido</span>
+              {% elif pago.estado == "anulado" %}
+                <span class="badge">Anulada</span>
               {% else %}
                 <span class="badge badge--alerta">Pendiente</span>
               {% endif %}
@@ -70,10 +73,18 @@
               {% endif %}
             </td>
             <td>
-              <a href="{% url 'pagos:confirmar' pago.pk %}">
-                {% if pago.estado == "pagado" %}Editar{% else %}Confirmar{% endif %}
-              </a>
+              {% if pago.estado == "anulado" %}
+                <a href="{% url 'pagos:anular' pago.pk %}">Reactivar</a>
+              {% else %}
+                <a href="{% url 'pagos:confirmar' pago.pk %}">
+                  {% if pago.estado == "pagado" %}Editar{% else %}Confirmar{% endif %}
+                </a>
+                {% if pago.estado != "pagado" %}
+                  &middot; <a href="{% url 'pagos:anular' pago.pk %}">Anular</a>
+                {% endif %}
+              {% endif %}
             </td>
+
           </tr>
         {% empty %}
           <tr>

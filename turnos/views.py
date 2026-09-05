@@ -22,6 +22,7 @@ from django.views.generic import CreateView, TemplateView, UpdateView, View
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
+from pagos import acceso
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from turnos.forms import (
     ConfiguracionTurnosForm,
@@ -253,6 +254,13 @@ class MisTurnosView(AlumnoRequiredMixin, SemanaNavegableMixin, TemplateView):
         context["sin_horarios"] = not HorarioAtencion.objects.for_gimnasio(
             self.gimnasio
         ).exists()
+        # Con el acceso pausado la grilla se muestra igual pero SIN los
+        # botones de reservar (ver la plantilla): esconder la agenda entera no
+        # aporta nada y las reservas ya hechas tienen que seguir a la vista
+        # para poder cancelarlas.
+        context["bloqueo"] = (
+            None if self.alumno is None else acceso.bloqueo_de(self.alumno)
+        )
         context.update(self._contexto_calendar())
         return context
 
@@ -300,6 +308,15 @@ class ReservarView(AlumnoRequiredMixin, View):
         if self.alumno is None:
             raise PermissionDenied(
                 "Todavía no tenés una ficha de alumno vinculada."
+            )
+        # Defensa del servidor: la grilla no muestra los botones de reservar
+        # cuando hay bloqueo, pero un POST se puede repetir desde una pestaña
+        # vieja. CancelarReservaView NO lleva este corte a propósito -- un
+        # alumno bloqueado tiene que poder liberar el cupo que ya ocupaba.
+        if acceso.bloqueo_de(self.alumno) is not None:
+            raise PermissionDenied(
+                "Tu acceso a los turnos está pausado hasta que se registre el "
+                "pago de tu cuota."
             )
 
         form = ReservaForm(request.POST)

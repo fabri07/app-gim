@@ -54,6 +54,28 @@ class Gimnasio(TimeStampedModel):
     slug = models.SlugField(max_length=140, unique=True)
     activo = models.BooleanField(default=True)
 
+    class TipoPublico(models.TextChoices):
+        """A qué público atiende el gimnasio.
+
+        No es un dato decorativo: define si tiene sentido preguntar el sexo de
+        cada alumno y si la composición del padrón se mira por género o por
+        edad. En un gimnasio de un solo género, «Alumnos por género» es una
+        sola barra y «Ejercicios más asignados por género» es una copia exacta
+        del gráfico general.
+        """
+
+        MIXTO = "mixto", "Mixto"
+        MUJERES = "mujeres", "Solo mujeres"
+        HOMBRES = "hombres", "Solo hombres"
+
+    #: Qué valor de `Alumno.Sexo` implica cada tipo de público. Única fuente de
+    #: verdad de ese mapeo, mismo criterio que `PALETAS`/`TIPOGRAFIA_FUENTES`.
+    #: `MIXTO` no está a propósito: ahí el dato lo carga el staff.
+    SEXO_POR_TIPO_PUBLICO = {
+        TipoPublico.MUJERES: "femenino",
+        TipoPublico.HOMBRES: "masculino",
+    }
+
     class Tipografia(models.TextChoices):
         PLUS_JAKARTA = "plus_jakarta", "Plus Jakarta Sans — geométrica, moderna"
         SORA = "sora", "Sora — técnica, alto contraste"
@@ -120,6 +142,15 @@ class Gimnasio(TimeStampedModel):
         DISCOS = "discos", "Discos apilados"
         KETTLEBELL = "kettlebell", "Kettlebells"
 
+    tipo_publico = models.CharField(
+        "Público del gimnasio",
+        max_length=10,
+        choices=TipoPublico.choices,
+        default=TipoPublico.MIXTO,
+        help_text="En un gimnasio de un solo género no se le pregunta el sexo "
+        "a cada alumno (se completa solo) y el panel muestra la composición "
+        "del padrón por edad en vez de por género.",
+    )
     logo = models.ImageField(upload_to="logos/", blank=True)
     paleta = models.CharField(
         max_length=20,
@@ -151,13 +182,33 @@ class Gimnasio(TimeStampedModel):
     link_whatsapp = models.URLField(blank=True)
     link_facebook = models.URLField(blank=True)
     dia_vencimiento_pago = models.PositiveSmallIntegerField(
-        "Día límite de pago mensual",
+        "Día límite de pago mensual (en desuso)",
         default=10,
         validators=[MinValueValidator(1), MaxValueValidator(28)],
-        help_text="Día del mes hasta el cual el alumno puede pagar la "
-        "cuota sin quedar atrasado. Tope en 28 para que el día exista en "
-        "cualquier mes.",
+        help_text="OBSOLETO desde la migración a cuotas por ciclo: el "
+        "vencimiento ya no cae un día fijo del mes sino a los "
+        "`dias_tolerancia_pago` del arranque del ciclo de cada alumno. Se "
+        "deja la columna un release para que revertir el código alcance "
+        "como vuelta atrás (mismo criterio que `Ejercicio.grupo_muscular`).",
     )
+    dias_tolerancia_pago = models.PositiveSmallIntegerField(
+        "Días de tolerancia antes de bloquear",
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(60)],
+        help_text="Días que el alumno puede seguir viendo su rutina y "
+        "reservando turnos después de que arranca un ciclo impago. Pasados "
+        "esos días se le bloquean esas dos secciones hasta que el staff "
+        "confirme el pago. Dejalo VACÍO para no bloquear a nadie.",
+    )
+    #: Cuándo se prendió el bloqueo por primera vez. Lo estampa una señal en la
+    #: transición `dias_tolerancia_pago` None -> valor, igual que
+    #: `Alumno.fecha_baja`. Existe para que prender la función NO sea
+    #: retroactivo: sin esto, el día que el dueño la activa quedan bloqueados
+    #: de golpe todos los que arrastren cualquier cuota impaga histórica (el
+    #: que estuvo de licencia, el que pagó en efectivo y nadie confirmó, el
+    #: becado). `bloqueo_de` ignora las cuotas anteriores a esta fecha.
+    fecha_activacion_bloqueo = models.DateField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = "gimnasio"
@@ -176,6 +227,36 @@ class Gimnasio(TimeStampedModel):
         Ver `doodle_static_url` para por qué puede venir vacía.
         """
         return doodle_static_url(self.fondo_doodle)
+
+    @property
+    def tiene_publico_mixto(self):
+        """Si tiene sentido distinguir alumnos por género en este gimnasio.
+
+        Lo consulta el dashboard (qué tarjeta de composición del padrón
+        mostrar) y `AlumnoForm` (si pedir el campo «Sexo» o completarlo solo).
+        Vive acá y no como comparación suelta en cada consumidor para que la
+        regla no pueda divergir entre los dos.
+        """
+        return self.tipo_publico == self.TipoPublico.MIXTO
+
+    def sexo_implicito(self):
+        """El `Alumno.Sexo` que corresponde por definición, o `None` si es
+        mixto (ahí el dato lo elige el staff, no se deduce).
+
+        El import es tardío a propósito: `Alumno` hereda de `TenantOwnedModel`
+        y ya importa `tenants`, así que a nivel de módulo sería circular.
+        Mismo patrón que `tenants/analitica.py`.
+        """
+        valor = self.SEXO_POR_TIPO_PUBLICO.get(self.tipo_publico)
+        if valor is None:
+            return None
+        from alumnos.models import Alumno
+
+        # El dict guarda el string crudo (no se puede importar `Alumno` a
+        # nivel de módulo), así que se resuelve contra el catálogo real: si
+        # alguien renombra un valor de `Alumno.Sexo`, esto revienta acá en vez
+        # de escribir en silencio un sexo que ya no existe.
+        return Alumno.Sexo(valor)
 
     @property
     def tipografia_css_family(self):

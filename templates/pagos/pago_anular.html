@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}{% if cuota.estado == "anulado" %}Reactivar cuota{% else %}Anular cuota{% endif %} · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  {% if cuota.estado == "anulado" %}
+    <h1>Reactivar cuota</h1>
+    <p class="texto-suave">{{ cuota.alumno }} &middot; {{ cuota.periodo_inicio|date:"d/m/Y" }} al {{ cuota.periodo_fin|date:"d/m/Y" }}</p>
+    <p>
+      La cuota vuelve a estar <strong>pendiente</strong>: el alumno la ve otra
+      vez entre sus cuotas a pagar y, si el plazo ya pasó, vuelve a contar
+      para el bloqueo por falta de pago.
+    </p>
+  {% else %}
+    <h1>Anular cuota</h1>
+    <p class="texto-suave">{{ cuota.alumno }} &middot; {{ cuota.periodo_inicio|date:"d/m/Y" }} al {{ cuota.periodo_fin|date:"d/m/Y" }}</p>
+    <p>
+      Anular es <strong>condonar</strong> la cuota: deja de contar como deuda
+      del alumno, no lo bloquea y <strong>no suma a los ingresos</strong> del
+      gimnasio. Es la salida para un becado, una licencia o una cuota que se
+      emitió por error. Si el alumno pagó, usá «Confirmar pago».
+    </p>
+    <p class="texto-suave">Se puede deshacer desde el listado de pagos.</p>
+  {% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" class="boton">
+      {% if cuota.estado == "anulado" %}Volver a pendiente{% else %}Anular cuota{% endif %}
+    </button>
+    <a class="boton-secundario" href="{% url 'pagos:listado' %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

@@ -14,9 +14,16 @@
 
 name: Enviar recordatorios push
 
+# ⛔ CRON DESACTIVADO A PROPÓSITO — migración a cuotas por ciclo de 28 días.
+# Estos workflows hacen `checkout` de `main` y corren contra la base de
+# PRODUCCIÓN sin correr `migrate` (Render migra dentro de su `buildCommand`),
+# así que entre el merge y el deploy verde hay una ventana de código nuevo
+# sobre esquema viejo. REACTIVAR (descomentar el `schedule`) recién con el
+# deploy de Render en verde — es un paso numerado del procedimiento, no un
+# supuesto. Mientras tanto queda `workflow_dispatch` para correrlo a mano.
 on:
-  schedule:
-    - cron: "*/15 * * * *"
+  # schedule:
+  #   - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:

@@ -20,6 +20,125 @@ del log.
 
 ---
 
+## [2026-09-04] Revisión de la rama de ciclos: once hallazgos antes del merge
+**Estado:** resuelto (799 → 1224 tests; cada hallazgo con test de regresión, y
+los dos graves verificados fallando sin el fix).
+
+Un `/code-review` sobre `cuotas-por-ciclo-y-bloqueo` encontró once problemas
+que la suite no cubría. Los que importan, por lo que enseñan:
+
+1. **`alumno.save(update_fields=["estado"])` descartaba lo que el `pre_save`
+   escribía.** `registrar_fecha_de_baja` estampa `fecha_baja` y re-ancla
+   `fecha_inicio_ciclo` al reactivar, pero el UPDATE solo lleva las columnas
+   listadas: los dos valores se calculaban y se tiraban. Era el ÚNICO camino
+   de UI para reactivar, así que el re-anclado —documentado como la defensa
+   contra «el que vuelve de tres meses recibe esa noche una cuota vencida»—
+   nunca corrió, y «altas y bajas por mes» no contaba ninguna baja hecha con
+   el botón. **Regla:** si un `pre_save` escribe un campo, todo
+   `update_fields` que dispare esa señal tiene que listarlo.
+2. **Bloquear y vencer diferían en un día** (`<=` en `acceso.py`, `<` en
+   `marcar_vencidos`): con tolerancia 3, el día 4 el alumno no tenía rutina y
+   la app decía «Pendiente». El test existente fijaba el día equivocado.
+3. **`marcar_vencidos` ignoraba `fecha_activacion_bloqueo`.** El día que un
+   dueño prendía la tolerancia, el cron pasaba a VENCIDO a medio padrón y
+   `enviar_recordatorios` les mandaba «tu cuota está vencida» a alumnos que
+   por diseño NO estaban bloqueados: la ráfaga que la fecha de activación
+   existe para evitar, entrando por la otra puerta. Ahora la fecha límite es
+   una sola función (`limite_de_pago`) con su gemela en SQL, y un test recorre
+   70 días × 5 tolerancias comparándolas.
+4. **El aviso «por vencer» salía el día 1 del ciclo** diciendo «vence el 28», y
+   por el dedup por cuota no llegaba nada cerca del vencimiento real. Con
+   tolerancia, encima, el cuerpo decía la tolerancia entera («tenés 10 días»)
+   aunque quedaran 2.
+5. **`Estado.ANULADO` no se podía setear desde la app** (solo `/admin/`): la
+   salida para condonarle la cuota a un becado sin falsear la facturación no
+   existía en la práctica. Nueva `pagos:anular`, con confirmación.
+6. **La ficha del alumno quedaba inguardable** mientras tuviera un ancla
+   futura escrita por la propia app (plan cargado con anticipación).
+7. `?desde=2026-02-31` era un 500: `parse_date` LANZA con una fecha bien
+   formada e imposible, no devuelve `None`.
+8. `sembrar_demo --confirmar` retrocedía un año `fecha_activacion_bloqueo`
+   sobre un gimnasio con alumnos reales: bloqueo retroactivo masivo en un
+   comando. Ahora, con alumnos reales, no toca la configuración de bloqueo.
+9. `bloqueado.html` leía `perfil.gimnasio`, que esa vista no pone en el
+   contexto; sin alias cargado nunca mostraba el contacto del gimnasio.
+10. Un bloque duplicado muerto en `clean_fecha_inicio_ciclo`.
+
+**Lección sobre la suite:** todos pasaban con 799 tests en verde. Los tests de
+los dos graves existían y fijaban el bug: uno reactivaba con `alumno.save()`
+(sin `update_fields`, o sea sin pasar por la vista) y el otro afirmaba el día
+5 donde correspondía el 4. Un test que no ejercita el camino real de la UI
+prueba el modelo, no el producto.
+
+## [2026-09-03] Migración a cuotas por ciclo de 28 días + bloqueo por falta de pago
+
+**Estado:** resuelto (código); **pendiente el despliegue**, que tiene pasos que no
+se pueden saltear (ver abajo).
+
+**Contexto.** El dueño preguntó qué hacía «Día límite de pago mensual» y quedó a
+la vista que no hacía nada útil: vencía cuotas y mandaba un push, pero un alumno
+con la cuota vencida seguía viendo su rutina completa. Además el modelo de cobro
+no se parecía al negocio — cuota por mes calendario con un día límite igual para
+todo el gimnasio, cuando el gimnasio cobra por bloques de 4 semanas anclados al
+día en que cada alumno empieza a entrenar.
+
+**Qué se hizo.** `PagoMensual` → `Cuota` con `periodo_inicio`/`periodo_fin`,
+ancla por alumno (`Alumno.fecha_inicio_ciclo`), y bloqueo de Rutina y Turnos
+configurable por `Gimnasio.dias_tolerancia_pago`. Detalle en `CLAUDE.md`.
+
+**Decisión comercial explícita:** 365/28 = 13,04 cobros al año contra 12 meses.
+Con el mismo monto por cuota son ~8,6% más de facturación anual por alumno. Se
+tomó a sabiendas, no es un efecto colateral. Si algún gimnasio no lo quiere, hay
+que bajarle el monto de la cuota.
+
+**Riesgos que una revisión adversarial del plan encontró ANTES de escribir
+código (12 hallazgos graves, los 12 confirmados contra el código).** Los tres
+que más cerca estuvieron de llegar a producción:
+
+1. **Anclar el histórico en la primera rutina del alumno** producía, para TODO
+   alumno existente, un ciclo solapado con la cuota calendario del mes en curso
+   —que el gimnasio probablemente ya cobró—, nacida vencida en la misma corrida
+   del cron y con push masivo de «tu cuota está vencida» el día del deploy. El
+   ancla correcta es el primer día NO cubierto por la última cuota emitida.
+2. **Tratar la tolerancia vacía como 0 días** pasaba todo el padrón a VENCIDO el
+   día del deploy. Con la tolerancia sin configurar se vence recién cuando el
+   ciclo terminó.
+3. **Prender la tolerancia sin fecha de corte** bloqueaba de golpe a todo el que
+   arrastrara cualquier impaga histórica. De ahí `fecha_activacion_bloqueo`.
+
+**Riesgo aceptado a propósito:** el ciclo de pago y el ciclo de la rutina se
+desincronizan con el tiempo y el producto no tiene forma de reconciliarlos.
+
+**Pasos de despliegue que NO se pueden saltear** (en este orden):
+
+1. Los dos crons (`generar-pagos.yml`, `enviar-recordatorios.yml`) están **con
+   el `schedule` comentado**. Hacen `checkout` de `main` y corren contra la base
+   de producción SIN `migrate` (Render migra dentro de su `buildCommand`), así
+   que entre el merge y el deploy verde hay una ventana de código nuevo sobre
+   esquema viejo. Reactivarlos es un paso del procedimiento, no un supuesto.
+2. Backup **y una verificación exitosa** (no solo el backup) antes de desplegar.
+3. La vuelta atrás NO es «revertir el código»: el rename es un `ALTER TABLE`. El
+   comando de reversa es `python manage.py migrate pagos 0003` (arrastra por
+   dependencia el backfill del ancla), más `migrate alumnos 0004` y
+   `migrate tenants 0008`. **Verificar que la Shell de Render esté disponible
+   ANTES de desplegar** — el proyecto no tiene CLI ni API key de Render.
+   Probado de punta a punta sobre una base con 63 cuotas: la tabla vuelve, las
+   filas quedan intactas y `mes`/`anio` se recuperan exactos.
+4. **La primera corrida de `enviar_recordatorios` manda una ráfaga.** Al
+   arreglar que `marcar_vencidos` escriba `modificado`, todas las cuotas que
+   pasen a VENCIDO caen en el filtro `modificado__date=hoy`. Contar cuántas son
+   en producción y hacer esa primera pasada con `PUSH_ENABLED=False`.
+5. **Prender `dias_tolerancia_pago` recién un ciclo después del deploy**, en un
+   gimnasio, a mano. Arranca vacío en todos.
+6. Cargar el secret `HEALTHCHECKS_URL_GENERAR_PAGOS` (el ping se saltea solo si
+   falta, no rompe el workflow).
+
+**Deuda que queda abierta:** `Gimnasio.dia_vencimiento_pago` y `Cuota.mes`/`anio`
+siguen en la base sin uso. Las dos últimas **no se borran nunca** (el
+`RemoveField` es irreversible: sin `default`, el backwards emite
+`ADD COLUMN NOT NULL` y falla). `dia_vencimiento_pago` sí se puede retirar en un
+commit aparte una vez confirmado que producción está sana.
+
 ## [2026-09-02] Armar una plantilla desde cero la dejaba siempre vacía
 
 **Estado:** resuelto

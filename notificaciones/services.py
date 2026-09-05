@@ -14,6 +14,8 @@ import logging
 
 from django.conf import settings
 from django.urls import reverse
+from django.utils import timezone
+
 from py_vapid import Vapid01
 from pywebpush import WebPushException, webpush
 
@@ -180,7 +182,10 @@ def notificar_nueva_reserva(reserva) -> None:
 def notificar_comprobante_subido(pago) -> None:
     payload = {
         "title": "Nuevo comprobante subido",
-        "body": f"{pago.alumno} subió el comprobante de {pago.mes:02d}/{pago.anio}.",
+        "body": (
+            f"{pago.alumno} subió el comprobante del ciclo que arrancó el "
+            f"{pago.periodo_inicio:%d/%m}."
+        ),
         "url": reverse("pagos:listado"),
         "icon": _icono_url(pago.gimnasio),
     }
@@ -197,9 +202,28 @@ def notificar_pago_por_vencer(pago) -> None:
     usuario = pago.alumno.perfil.usuario
     if _ya_notificado(pago.gimnasio, RecordatorioEnviado.Tipo.PAGO_POR_VENCER, pago.pk):
         return
+    # El aviso de bloqueo solo se menciona si esa cuota de verdad bloquea
+    # (`tolerancia_efectiva`: tolerancia configurada Y cuota posterior a la
+    # activación). Amenazar con un bloqueo que no existe es mentirle al
+    # alumno, y a la tercera vez deja de leer los avisos. Y los días se
+    # cuentan desde HOY hasta la fecha límite, no con la tolerancia entera:
+    # el cron dispara este aviso hasta `DIAS_AVISO_PAGO` días antes, así que
+    # «tenés 10 días» el día que quedan 2 era mandarlo al bloqueo confiado.
+    limite = pago.fecha_limite_pago()
+    dias = (limite - timezone.localdate()).days
+    if pago.tolerancia_efectiva() is None:
+        aviso = f"Vence el {limite:%d/%m}."
+    elif dias <= 0:
+        aviso = "Tenés que pagarla hoy para no perder el acceso a tu rutina."
+    else:
+        aviso = (
+            f"Tenés {dias} día{'s' if dias != 1 else ''} para pagarla "
+            f"(hasta el {limite:%d/%m}) antes de que se te pause la rutina."
+        )
+
     payload = {
         "title": "Tu cuota está por vencer",
-        "body": f"La cuota de {pago.mes:02d}/{pago.anio} vence el día {pago.gimnasio.dia_vencimiento_pago}.",
+        "body": f"La cuota del {pago.periodo_inicio:%d/%m} al {pago.periodo_fin:%d/%m}. {aviso}",
         "url": "/",
         "icon": _icono_url(pago.gimnasio),
     }
@@ -214,7 +238,37 @@ def notificar_pago_vencido(pago) -> None:
         return
     payload = {
         "title": "Tu cuota está vencida",
-        "body": f"La cuota de {pago.mes:02d}/{pago.anio} ya venció.",
+        "body": (
+            f"La cuota del {pago.periodo_inicio:%d/%m} al "
+            f"{pago.periodo_fin:%d/%m} ya venció."
+        ),
+        "url": "/",
+        "icon": _icono_url(pago.gimnasio),
+    }
+    notificar_a_usuario(usuario, payload)
+
+
+def notificar_acceso_bloqueado(pago) -> None:
+    """Le avisa al alumno el día que se le corta el acceso.
+
+    Va aparte de `notificar_pago_vencido` porque son dos cosas distintas y en
+    gimnasios sin tolerancia la segunda pasa y esta no: "tu cuota venció" es
+    contable, "no podés ver tu rutina" es una consecuencia que el alumno tiene
+    que poder anticipar y resolver.
+    """
+    if pago.alumno.perfil_id is None:
+        return
+    usuario = pago.alumno.perfil.usuario
+    if _ya_notificado(
+        pago.gimnasio, RecordatorioEnviado.Tipo.ACCESO_BLOQUEADO, pago.pk
+    ):
+        return
+    payload = {
+        "title": "Se pausó el acceso a tu rutina",
+        "body": (
+            "Tenés una cuota sin pagar. Subí el comprobante desde la app y el "
+            "gimnasio te reactiva la rutina y los turnos."
+        ),
         "url": "/",
         "icon": _icono_url(pago.gimnasio),
     }

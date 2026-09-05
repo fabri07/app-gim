@@ -1,7 +1,7 @@
 """
 Form de confirmación de pago (Fase 2 §6).
 
-El staff NUNCA crea un `PagoMensual` a mano (ver docstring de
+El staff NUNCA crea un `Cuota` a mano (ver docstring de
 `generar_pagos_pendientes` en `pagos/models.py`): las filas pendientes ya
 existen, autogeneradas por el cron de Fase 1. Este form solo cubre la única
 acción de escritura que le queda al staff sobre un pago: confirmarlo (cargar
@@ -22,12 +22,12 @@ estos campos sea un FK tenant-owned que necesite acotarse.
 from django import forms
 
 from core.forms import TenantScopedModelForm
-from pagos.models import MedioCobro, PagoMensual
+from pagos.models import MedioCobro, Cuota
 
 
 class ConfirmarPagoForm(TenantScopedModelForm):
     class Meta:
-        model = PagoMensual
+        model = Cuota
         fields = ["monto", "fecha_pago", "medio_pago_texto", "comprobante"]
         widgets = {
             "comprobante": forms.ClearableFileInput(attrs={"accept": "image/jpeg,image/png"}),
@@ -42,7 +42,7 @@ class AlumnoComprobanteForm(forms.ModelForm):
     lo hereda por consistencia con el resto de Fase 2)."""
 
     class Meta:
-        model = PagoMensual
+        model = Cuota
         fields = ["comprobante"]
         widgets = {
             "comprobante": forms.ClearableFileInput(attrs={"accept": "image/jpeg,image/png"}),

@@ -6,6 +6,7 @@ un campo que el staff edite a mano.
 """
 
 from django import forms
+from django.utils import timezone
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from core.forms import TenantScopedModelForm
@@ -23,6 +24,7 @@ class AlumnoForm(TenantScopedModelForm):
             "telefono",
             "fecha_nacimiento",
             "estado",
+            "fecha_inicio_ciclo",
             "sexo",
             "actividad_fisica_previa",
             "frecuencia_actividad_previa",
@@ -35,7 +37,82 @@ class AlumnoForm(TenantScopedModelForm):
         ]
         widgets = {
             "fecha_nacimiento": forms.DateInput(attrs={"type": "date"}),
+            "fecha_inicio_ciclo": forms.DateInput(attrs={"type": "date"}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # En un gimnasio de un solo género, preguntar el sexo en cada alta es
+        # pedirle al staff un dato que ya se conoce. Se saca del formulario y
+        # lo completa `clean()`. Se completa (en vez de dejarlo vacío) para que
+        # el día que el gimnasio pase a mixto el histórico ya esté cargado y
+        # los gráficos por género sirvan desde el primer día.
+        if not self.gimnasio.tiene_publico_mixto:
+            del self.fields["sexo"]
+
+        # OBLIGATORIO en el formulario aunque sea `blank=True` en el modelo.
+        # El modelo tiene que poder nacer sin ancla (la estampan las señales
+        # del alta y de la primera rutina), pero desde la ficha vaciarla
+        # tendría un efecto invisible y grave: `generar_pagos_pendientes`
+        # filtra por ancla no nula, así que el alumno dejaría de recibir
+        # cuotas para siempre sin ningún síntoma.
+        #
+        # Se resuelve con `required` y no con un `clean_*` que lance
+        # `ValidationError`: así el error sale por el camino normal de Django,
+        # lo renderiza `partials/campo_form.html` debajo del campo, y un POST
+        # que omita el campo falla de forma visible en vez de guardar a
+        # medias.
+        self.fields["fecha_inicio_ciclo"].required = True
+
+    def clean(self):
+        """Estampa el sexo cuando el gimnasio lo define por sí mismo.
+
+        Va acá y no en `save()` porque `_post_clean` corre DESPUÉS de `clean()`
+        y valida la instancia: un valor mal mapeado falla como error de
+        validación en vez de entrar a la base como dato sucio. `construct_instance`
+        no lo pisa -- solo escribe campos presentes en `cleaned_data`, y `sexo`
+        ya no es un campo del form.
+
+        Solo completa lo que está VACÍO: el género de un alumno ya cargado no
+        se toca nunca, aunque el gimnasio haya cambiado de tipo de público
+        después. Es el mismo criterio con el que `registrar_fecha_de_baja`
+        actúa solo en la transición y no en cada guardado.
+
+        **Tampoco va como señal `pre_save`**, por la misma razón, y porque acá
+        el form es el único camino de escritura de la UI.
+        """
+        datos = super().clean()
+        # `not self.instance.sexo` NO es redundante: sin esa condición, editarle
+        # el teléfono a un alumno cargado como masculino cuando el gimnasio era
+        # mixto le reescribiría el género al guardar. Se completa solo lo que
+        # está vacío -- el alta nueva, y el alumno viejo al que nunca se le
+        # cargó el dato. Hay un test de regresión por cada uno de esos casos.
+        if "sexo" not in self.fields and not self.instance.sexo:
+            self.instance.sexo = self.gimnasio.sexo_implicito()
+        return datos
+
+    def clean_fecha_inicio_ciclo(self):
+        """El ancla no puede ser futura.
+
+        `pagos.ciclo_vigente` no emite nada mientras el ancla no llegue, así
+        que una fecha futura tipeada por error apaga la facturación de ese
+        alumno, en silencio y hasta esa fecha.
+        """
+        fecha = self.cleaned_data["fecha_inicio_ciclo"]
+        # El valor que YA está guardado pasa siempre, aunque sea futuro: la
+        # señal `anclar_ciclo_a_la_primera_rutina` escribe legítimamente un
+        # ancla futura cuando el plan se carga con anticipación (caso
+        # soportado a propósito). Sin esta excepción, hasta que llegara ese
+        # día NINGÚN guardado de la ficha -- corregir un teléfono, cargar la
+        # ficha de inscripción -- pasaba la validación, por un valor que el
+        # staff no tipeó. Lo que se rechaza es que el staff la MUEVA a futuro.
+        if fecha > timezone.localdate() and fecha != self.instance.fecha_inicio_ciclo:
+            raise forms.ValidationError(
+                "El inicio del ciclo de pago no puede ser una fecha futura: "
+                "hasta ese día no se le emitiría ninguna cuota."
+            )
+        return fecha
+
 
 
 class CrearAccesoForm(forms.Form):

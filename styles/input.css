@@ -296,6 +296,14 @@
     @apply text-red-600;
   }
 
+  /* Ámbar y no rojo, mismo criterio que `.aviso-urgente`: un alumno con el
+     acceso pausado no es un error del sistema, es una tarea pendiente del
+     staff. Solo se aplica cuando el número es mayor que cero -- teñir un
+     "0 alumnos con acceso pausado" convierte una buena noticia en alarma. */
+  .metrica--urgente {
+    @apply border-l-4 border-l-amber-500 bg-amber-50;
+  }
+
   /* Estado (activo/pagado/visible vs. riesgo) */
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs
@@ -530,6 +538,19 @@
      tarjetas informativas sin cambiarle el fondo a toda la pantalla. */
   .aviso-urgente {
     @apply border-l-4 border-l-amber-500 bg-amber-50;
+  }
+
+  /* Cuotas impagas en el portal del alumno: una fila por cuota, cada una con
+     su propio botón de comprobante. Mismo molde que
+     `.lista-planes-por-vencer`, del que se diferencia solo por el color del
+     separador (ésta vive dentro y fuera de una tarjeta ámbar). */
+  .lista-cuotas {
+    @apply list-none p-0 mt-3 flex flex-col gap-2;
+  }
+
+  .lista-cuotas li {
+    @apply flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2
+      first:border-t-0 first:pt-0;
   }
 
   .lista-planes-por-vencer {

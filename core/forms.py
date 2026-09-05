@@ -2,7 +2,7 @@
 Form-base que cierra el hueco de FK-injection.
 
 Stampar `gimnasio` en el objeto nuevo no alcanza: un form con una FK a otra
-entidad tenant-owned (p.ej. `RutinaAsignada.alumno`, `PagoMensual.alumno`)
+entidad tenant-owned (p.ej. `RutinaAsignada.alumno`, `Cuota.alumno`)
 permitiría hacer POST con el id de un alumno de otro gimnasio. Este form-base
 acota AUTOMÁTICAMENTE el queryset de todo campo FK tenant-owned al `gimnasio`
 recibido. Se escribe una sola vez; toda la lógica de filtrado vive acá (DRY)

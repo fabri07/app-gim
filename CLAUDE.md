@@ -168,17 +168,143 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   separadas, y cada fila lleve el grupo muscular como subtítulo bajo el
   nombre del ejercicio, igual que la tabla en pantalla — esa regla de
   sincronía se mantiene, aunque ya no haya secciones que sincronizar.
-- **`pagos`** — `PagoMensual(TenantOwnedModel)` y `MedioCobro(TenantOwnedModel)`
+- **`pagos`** — `Cuota(TenantOwnedModel)` y `MedioCobro(TenantOwnedModel)`
   (alias/CBU/lo que el gimnasio muestra al alumno para pagar, editable por
-  staff). `pagos/models.py` expone `generar_pagos_pendientes(mes, anio)` y
-  `marcar_vencidos(mes, anio, dia)`; `python manage.py generar_pagos` corre
-  ambas para el mes/día actual — lo programa
-  `.github/workflows/generar-pagos.yml` (GitHub Actions, no Render: no hay
-  cron en el plan free). `marcar_vencidos` vence tanto los pendientes de
-  meses ya cerrados como los del mes en curso que ya pasaron el
-  `Gimnasio.dia_vencimiento_pago` de su propio gimnasio (join por FK, cada
-  gimnasio tiene el suyo) — antes ese campo era solo cosmético en el portal
-  del alumno.
+  staff). **La cuota NO es mensual**: se llamaba `PagoMensual` hasta la
+  migración a ciclos y hoy es un período con fechas (`periodo_inicio` /
+  `periodo_fin`, este último INCLUSIVO) de `DIAS_CICLO = 28` días, anclado a
+  `Alumno.fecha_inicio_ciclo` — el día en que ESE alumno empieza a entrenar.
+  `related_name` sigue siendo `pagos`.
+  **Consecuencia comercial asumida, no un efecto colateral:** 365/28 = 13,04
+  cobros al año contra 12 meses, o sea ~8,6% más de facturación anual por
+  alumno con el mismo monto. El panel y la analítica se siguen leyendo en
+  clave mensual (`TruncMonth("periodo_inicio")`), así que una vez al año un
+  mes muestra dos ciclos del mismo alumno.
+  **`mes`/`anio` siguen en la base, `null=True` y sin uso.** No se borran: el
+  `RemoveField` sería irreversible (no tienen `default`, así que el
+  `database_backwards` emite `ADD COLUMN NOT NULL` sin default y falla), y dos
+  columnas muertas cuestan infinitamente menos que un restore. `Cuota.save()`
+  las mantiene llenas derivadas de `periodo_inicio`; los caminos en lote las
+  setean a mano porque `bulk_create` no pasa por `save()`.
+  `pagos/models.py` expone `ciclo_vigente(ancla, hoy)` (función pura, sin ORM),
+  `generar_pagos_pendientes(hoy)` y `marcar_vencidos(hoy)`;
+  `python manage.py generar_pagos` corre las dos — lo programa
+  `.github/workflows/generar-pagos.yml`, que ahora pingea Healthchecks porque
+  pasó a ser el único emisor de facturación Y el insumo del bloqueo.
+  **`Estado.ANULADO`** es la salida del staff para condonar una cuota: no
+  bloquea y no suma a `ingresos_por_mes`. Sin ese estado, destrabar a un
+  becado o a alguien de licencia obligaba a marcar PAGADO, o sea a falsear la
+  facturación del gimnasio. Se escribe desde `pagos:anular`
+  (`CuotaAnularView`, con pantalla de confirmación; una PAGADA da 404, y una
+  anulada vuelve a PENDIENTE desde el mismo botón) — durante un release el
+  estado existió sin ninguna vista que lo setease, y el filtro «Anulada» del
+  listado no podía matchear nada.
+  **La fecha límite de pago vive en un solo lugar**: `limite_de_pago()` (pura)
+  y su gemela en SQL `filtro_por_limite_de_pago()`, de las que dependen
+  `marcar_vencidos`, el aviso «por vencer» del cron y el texto del push
+  (`Cuota.fecha_limite_pago()`). `tolerancia_efectiva()` devuelve `None` para
+  las cuotas anteriores a `fecha_activacion_bloqueo`, que siguen venciendo al
+  terminar el ciclo. Hay un test que recorre 70 días × 5 tolerancias comparando
+  las dos versiones: **si tocás una, la otra tiene que seguirla.**
+
+
+  **De dónde sale `Alumno.fecha_inicio_ciclo`** (lo más delicado de todo esto):
+  - **Alumnos que ya existían**: la migración `pagos/0006` los ancla en el
+    **primer día no cubierto por su última cuota mensual** (`max(periodo_fin)
+    + 1 día`). La versión intuitiva —anclar en la primera rutina— estaba mal
+    para TODOS, no en un caso de borde: el ciclo vigente cae siempre en
+    `[hoy-27, hoy]`, así que se solapaba siempre con la cuota calendario del
+    mes en curso que el gimnasio ya cobró, nacía vencida en la misma corrida
+    del cron y disparaba un push masivo de «tu cuota está vencida».
+  - **Alumnos nuevos**: `pre_save` al alta, corregido por el `post_save` de
+    la primera `RutinaAsignada` (solo si todavía no tiene ninguna cuota: mover
+    el ancla con cuotas emitidas solapa períodos y vuelve a cobrar días ya
+    cobrados, y el `unique_together` no lo impide porque solo prohíbe dos
+    cuotas con el MISMO arranque).
+  - **Al reactivar** (INACTIVO→ACTIVO), se re-ancla a hoy **solo si el ciclo
+    vigente arrancó antes**: durante la baja no se emiten cuotas pero el ancla
+    avanza sola, así que sin esto el que vuelve de tres meses recibe esa noche
+    una cuota retroactiva ya vencida. La condición evita regalarle 27 días al
+    que se dio de baja por error y volvió el mismo día. **Va en el `pre_save`,
+    así que todo `save(update_fields=...)` sobre `estado` tiene que listar
+    también `fecha_baja` y `fecha_inicio_ciclo`**: con `["estado"]` a secas
+    Django calcula los dos valores y los tira, y así estuvo el botón de
+    baja/alta (el único camino de UI) un release entero.
+
+  - El campo es **obligatorio en `AlumnoForm`** aunque sea `blank=True` en el
+    modelo: vaciarlo desde la ficha dejaría al alumno sin recibir ninguna
+    cuota, en silencio y para siempre. Y no acepta que el staff la MUEVA a una
+    fecha futura, que apaga la facturación igual (`ciclo_vigente` no emite
+    nada hasta que el ancla llega — un ancla futura además daba índice
+    NEGATIVO, `(-6)//28 == -1`, y emitía una cuota por un período anterior al
+    alta). El valor YA guardado pasa siempre aunque sea futuro: la señal de la
+    primera rutina lo escribe legítimamente cuando el plan se carga con
+    anticipación, y rechazarlo dejaba la ficha entera inguardable hasta ese
+    día.
+
+
+
+### Bloqueo de acceso por falta de pago (`pagos/acceso.py`)
+
+`Gimnasio.dias_tolerancia_pago` (vacío = **no bloquear a nadie**, y es el
+estado de todos los gimnasios existentes) define a los cuántos días de
+arrancar un ciclo impago el alumno deja de ver su rutina y de poder reservar
+turnos. `pagos/acceso.py` es el ÚNICO lugar donde vive esa regla —
+`bloqueo_de(alumno)`, `cuotas_impagas_de(alumno)` y `contar_bloqueados(gimnasio)`.
+
+- **`Gimnasio.fecha_activacion_bloqueo`**, estampada por `tenants/signals.py`
+  en la transición apagado→prendido: `bloqueo_de` ignora las cuotas anteriores
+  a esa fecha. Sin esto, el día que el dueño prende la función quedan
+  bloqueados de golpe todos los que arrastren cualquier impaga histórica (el
+  que estuvo de licencia, el que pagó en efectivo y nadie confirmó, el
+  becado). Es literalmente «un alumno que pagó y se queda sin acceso»,
+  multiplicado por el gimnasio entero.
+- **La tolerancia se resuelve en Python, nunca como `periodo_inicio + columna`
+  en el queryset**: esa aritmética anda en Postgres y da resultados
+  silenciosamente distintos en SQLite, donde corre toda la suite. Como el
+  gimnasio siempre se conoce en el punto de uso, es un escalar.
+- **Vencer y bloquear usan el mismo umbral**, para que no haya un día en que
+  el alumno esté bloqueado y la app le diga «Pendiente»: `acceso.py` bloquea
+  con `periodo_inicio <= hoy - tolerancia`, y `marcar_vencidos` vence con
+  `fecha_limite_pago < hoy`, que es la misma desigualdad (un `<` en vez de
+  `<=` en el vencimiento producía exactamente ese día). Con la tolerancia
+  vacía —o para las cuotas anteriores a `fecha_activacion_bloqueo`, a las que
+  el bloqueo no alcanza— vence recién cuando el ciclo TERMINÓ (`hoy >
+  periodo_fin`): es la traducción honesta del «vence cuando el mes cerró» de
+  antes, y evita el incidente de pasar todo el padrón a VENCIDO el día del
+  deploy, o el día que un dueño prende la tolerancia.
+- **El aviso «por vencer» se mide contra la fecha límite, no contra el
+  arranque del ciclo**: sale cuando `fecha_limite_pago` cae entre hoy y
+  `DIAS_AVISO_PAGO` días, y el cuerpo dice cuántos días QUEDAN. Medirlo desde
+  el arranque mandaba el push el día 1 («vence el 28») y, por el dedup por
+  cuota, nada cerca del vencimiento real.
+
+- **Qué se bloquea**: el portal reemplaza la tarjeta de rutina por la del
+  bloqueo, `RutinaMiDiaDetailView` renderiza `rutinas/bloqueado.html` **con
+  200 y no 404** (esa URL queda en favoritos; un 404 diría que la app se
+  rompió), y calificar RPE / marcar día entrenado / reservar turno dan 403.
+  **Cancelar una reserva y subir el comprobante NUNCA se bloquean** — el
+  alumno tiene que poder liberar el cupo y pagar.
+- **Un 403 solo no alcanza**: bajo el `hx-boost` global es un click muerto sin
+  ningún mensaje, así que los botones directamente no se renderizan con el
+  acceso pausado. El 403 es la defensa del servidor, no la UX.
+- **El portal lista TODAS las cuotas impagas** (`partials/cuotas_impagas.html`),
+  no solo la del ciclo en curso: si bloquea una anterior y en pantalla solo
+  aparece la actual, el alumno le sube el comprobante a la equivocada y sigue
+  bloqueado sin entender por qué.
+- **Subir el comprobante NO desbloquea** — decisión de producto: solo el staff
+  marcando PAGADO. `ConfirmarPagoView` avisa si el alumno sigue bloqueado por
+  otra cuota; «Pago confirmado» a secas sobre alguien que sigue sin acceso es
+  una mentira que el staff descubre por el reclamo.
+- **El contador del panel es una query agregada**, nunca `bloqueo_de` por fila:
+  es exactamente el N+1 que este proyecto ya pagó con un 502 en producción.
+- **`marcar_vencidos` escribe `modificado` explícitamente**: `QuerySet.update()`
+  no dispara `auto_now` y `enviar_recordatorios` filtra por
+  `modificado__date=hoy`, así que hasta ahora el push de «cuota vencida» no
+  salía nunca. Arreglarlo implica que **la primera corrida post-deploy manda
+  una ráfaga**: contar antes cuántas filas caen y hacer esa pasada con el push
+  silenciado.
+
 - **`novedades`** — `Novedad(TenantOwnedModel)` con `NovedadQuerySet.visibles()`
   (activa + publicada + no vencida), y `NovedadLeida` (read-receipt por
   alumno; no es `TenantOwnedModel`, se scopea vía su FK a `Novedad`/`Alumno`
@@ -319,7 +445,55 @@ suma cinco funciones que responden "¿cómo venimos?".
 - **La última semana del gráfico semanal está en curso** y siempre se ve más
   baja; el copy lo aclara para que no se lea como una caída.
 
+## Público del gimnasio y composición del padrón (2026-09-04)
+
+`Gimnasio.tipo_publico` (`TextChoices`: `MIXTO` —default—, `MUJERES`,
+`HOMBRES`) existe porque en un gimnasio de un solo género las dos tarjetas de
+género no informan nada: «Alumnos por género» es una sola barra y «Ejercicios
+más asignados por género» es una copia exacta del gráfico general, apilada en
+un color. El default preserva exactamente el panel y la ficha de todos los
+gimnasios que ya existían.
+
+- **Es un intercambio, no un apagado.** La tarjeta de composición del padrón es
+  siempre UNA, y la llena lo que de verdad distingue a los alumnos de ese
+  gimnasio: género si es mixto, `distribucion_por_edad` si no. La segunda
+  tarjeta (ejercicios por género) simplemente no se renderiza. **Lo decide la
+  vista, no el template**: `ejercicios_mas_asignados_por_genero` vuelve a
+  correr la query de ranking, así que saltearla ahorra trabajo real.
+- **`Gimnasio.tiene_publico_mixto` y `sexo_implicito()`** son los dos únicos
+  lugares donde vive la regla — la consultan el dashboard y `AlumnoForm`.
+  `sexo_implicito()` resuelve contra `Alumno.Sexo` con import tardío
+  (`Alumno` ya importa `tenants`; a nivel de módulo sería circular).
+- **Los tramos de edad cubren TODO el dominio.** El primero es «Hasta 25» y no
+  «18 a 25» a propósito: un gimnasio puede tener menores, y con piso en 18 un
+  alumno de 16 no entraba en ningún tramo y desaparecía del gráfico en
+  silencio. Mismo criterio que `orden_con_bucket_vacio`, que se niega a
+  descartar el bucket vacío. `fecha_nacimiento` sin cargar → «Sin dato».
+- **La edad se calcula en Python, nunca como aritmética de fecha contra una
+  columna.** Es una query (`values_list`) y el agrupado va sobre las filas ya
+  traídas — eso no viola "una consulta agregada por indicador", que es sobre no
+  hacer N queries. Y `hoy` es parámetro, o un test de bordes (25/26) se rompe
+  solo el día del cumpleaños del fixture.
+- **El campo «Sexo» sale de la ficha y lo completa `AlumnoForm.clean()`**, pero
+  **solo si está vacío**. Sin esa condición, editarle el teléfono a un alumno
+  cargado como masculino cuando el gimnasio era mixto le reescribía el género
+  al guardar. Se completa (en vez de dejarlo vacío) para que el día que el
+  gimnasio pase a mixto el histórico ya sirva. No va como señal `pre_save` por
+  la misma razón: estamparía en cada guardado.
+- **Gotcha del JS del panel, y el motivo de `datosDe()`.** Todos los gráficos
+  viven en un solo IIFE que leía cada dataset con
+  `JSON.parse(document.getElementById(...).textContent)`. Con un `json_script`
+  ausente eso lanza y **se lleva puestos todos los gráficos que vienen
+  después**, sin ningún rastro del lado del servidor. Las 7 lecturas pasan
+  ahora por `datosDe(id)`, que devuelve `[]` si el nodo no está. **Si agregás
+  un gráfico condicional, leé el dataset con ese helper.** Tampoco alcanza con
+  dejar el `json_script` sin condición: con la clave ausente renderiza `""` y
+  `"".map(...)` rompe igual — hay un test que verifica que el nodo no quede.
+- «Alumnos por género» y «Alumnos por edad» devuelven la MISMA forma
+  (`{etiqueta, total}`) para compartir `barraSimple()` sin ramas.
+
 ## Datos de demostración (`manage.py sembrar_demo`)
+
 
 Agregado el 2026-09-02: una cuenta vacía no muestra NADA de la app (los
 gráficos del panel, la tarjeta de planes por vencer y los botones de eliminar
@@ -391,7 +565,7 @@ historial cuelga con `on_delete=PROTECT`, así que el borrado revienta con
 **Regla de producto:** borrar de verdad lo que NO tiene historial (cargado por
 error, pruebas — el caso real), y cuando no se puede, decirlo en castellano y
 ofrecer la salida que ya existe. **Nunca borrar historial de cobros en
-cascada**: `PagoMensual` es el registro de lo que el gimnasio facturó.
+cascada**: `Cuota` es el registro de lo que el gimnasio facturó.
 
 - `core/borrado.py` lee el MODELO (`_meta.related_objects`), no una lista
   escrita a mano: si aparece una FK nueva, entra sola en el aviso.
@@ -572,12 +746,13 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
   de RPE, que excluye `rpe=""`): mide qué se pone en las rutinas, no qué
   se calificó. Cada gráfico tiene su "Ver como tabla" (`<details>`, sin
   JS) como equivalente accesible. Para `alumno`: el portal de Fase 3 (su
+
   rutina activa, su cuota del mes, últimas novedades) — ver más abajo.
 - **`RutinaPlantillaItem`/`RutinaAsignadaItem`** no son `TenantOwnedModel`
   (no tienen `gimnasio` propio): sus vistas resuelven el aislamiento
   buscando primero el padre vía `for_gimnasio()` antes de tocar el item — ver
   `rutinas/views.py` (`ItemPlantillaMixin`).
-- `PagoMensual` sigue sin vista de "crear" — el staff solo confirma pagos ya
+- `Cuota` sigue sin vista de "crear" — el staff solo confirma pagos ya
   autogenerados (principio no negociable §3).
 
 ## Portal del alumno y acceso (Fase 3)
@@ -1470,7 +1645,7 @@ notifications.
 
 - **`notificaciones`** es la app más nueva del proyecto, **última** en
   `INSTALLED_APPS` a propósito: sus signals/servicios leen
-  `Novedad`/`RutinaAsignada`/`Reserva`/`PagoMensual`/`Gimnasio`/`Perfil`, así
+  `Novedad`/`RutinaAsignada`/`Reserva`/`Cuota`/`Gimnasio`/`Perfil`, así
   que depende de todo el dominio (mismo criterio de orden que el resto de
   `INSTALLED_APPS`).
 - **`SuscripcionPush`** (una fila por dispositivo/navegador, NO OneToOne con
@@ -1481,7 +1656,7 @@ notifications.
   stampa en el alta desde `usuario.perfil.gimnasio`, nunca del cliente.
 - **`RecordatorioEnviado`** es el mecanismo de dedup para los eventos que
   dispara el cron (ver abajo) — modelo satélite en `notificaciones`, sin
-  agregar ningún campo "ya notificado" a `Novedad`/`PagoMensual`/`Reserva`,
+  agregar ningún campo "ya notificado" a `Novedad`/`Cuota`/`Reserva`,
   mismo patrón que `calendario.ReservaCalendarEvent`.
 - **Manifest e íconos dinámicos por gimnasio**: `notificaciones/views.py`
   expone `/g/<slug>/manifest.json` y `/g/<slug>/icono-<192|512>.png`
@@ -1543,10 +1718,10 @@ notifications.
   subía el comprobante era siempre el staff, en `ConfirmarPagoView`. Ahora
   `pagos:comprobante_subir` (`AlumnoComprobanteUpdateView`,
   `AlumnoRequiredMixin`) deja que el alumno suba el comprobante de su propio
-  `PagoMensual` PENDIENTE/VENCIDO — **no cambia `estado`**, el staff sigue
+  `Cuota` PENDIENTE/VENCIDO — **no cambia `estado`**, el staff sigue
   siendo el único que confirma el pago. Esta vista dispara la notificación
   con una llamada directa (no un signal): un `post_save` genérico sobre
-  `PagoMensual` no podría distinguir "subió el alumno" de "confirmó el
+  `Cuota` no podría distinguir "subió el alumno" de "confirmó el
   staff" sin flags frágiles.
 - **Cron único** (`notificaciones/management/commands/
   enviar_recordatorios.py`, `.github/workflows/enviar-recordatorios.yml`,
@@ -1702,7 +1877,7 @@ casilla propia), pero no hay evidencia de que este paso ya se haya hecho.
   verificarlas ahí, no acá).
 - **Qué se guarda en R2 y qué no** (pregunta recurrente): R2 guarda SOLO los
   archivos subidos por usuarios, que son exactamente tres campos —
-  `Gimnasio.logo` (`logos/`), `PagoMensual.comprobante` (`comprobantes/`) e
+  `Gimnasio.logo` (`logos/`), `Cuota.comprobante` (`comprobantes/`) e
   `Importacion.archivo` (`importaciones/`, el `.xlsx` original). **Todo el
   resto de los datos vive en Postgres**: alumnos, rutinas, ejercicios, pagos,
   novedades, turnos/reservas, tokens de Google Calendar, usuarios, y el

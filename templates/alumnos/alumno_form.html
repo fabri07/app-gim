@@ -19,11 +19,14 @@
       <h2>Datos personales</h2>
       {% include 'partials/campo_form.html' with campo=form.nombre %}
       {% include 'partials/campo_form.html' with campo=form.apellido %}
-      {% include 'partials/campo_form.html' with campo=form.sexo %}
+      {% comment %} No está en un gimnasio de un solo género: lo completa el form. {% endcomment %}
+      {% if form.sexo %}{% include 'partials/campo_form.html' with campo=form.sexo %}{% endif %}
+
       {% include 'partials/campo_form.html' with campo=form.fecha_nacimiento %}
       {% include 'partials/campo_form.html' with campo=form.email %}
       {% include 'partials/campo_form.html' with campo=form.telefono %}
       {% include 'partials/campo_form.html' with campo=form.estado %}
+      {% include 'partials/campo_form.html' with campo=form.fecha_inicio_ciclo %}
     </div>
 
     <div class="form-seccion">

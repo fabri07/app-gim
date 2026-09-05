@@ -149,11 +149,19 @@ cambia el historial del alumno.
 `rutina_asignada`, `ejercicio_nombre_snapshot`, `ejercicio_video_snapshot`, `día`, `orden`,
 `series`, `repeticiones`, `descanso`, `notas`.
 
-### PagoMensual
-`gimnasio`, `alumno`, `mes`, `año`, `monto`, `estado` (pendiente/pagado/vencido),
-`fecha_pago`, `medio_pago_texto`, `comprobante` (a object storage), `observaciones`.
-Los pendientes se **autogeneran por cron** para cada alumno activo al inicio del mes, y el
-cron pasa `pendiente → vencido` cuando corresponde. Usar `PROTECT`.
+### Cuota
+`gimnasio`, `alumno`, `periodo_inicio`, `periodo_fin` (inclusivo), `monto`,
+`estado` (pendiente/pagado/vencido/anulada), `fecha_pago`, `medio_pago_texto`,
+`comprobante` (a object storage), `observaciones`.
+Los pendientes se **autogeneran por cron** para cada alumno activo, y el cron pasa
+`pendiente → vencido` cuando corresponde. Usar `PROTECT`.
+
+> **Actualizado.** Esta sección decía `mes`/`año` y "al inicio del mes": el modelo
+> se llamaba `PagoMensual` y cobraba por mes calendario con un día límite igual
+> para todo el gimnasio. Hoy la cuota es un **ciclo de 28 días anclado al día en
+> que cada alumno empieza a entrenar**, y hay bloqueo de acceso configurable por
+> días de tolerancia. El detalle vive en `CLAUDE.md` § `pagos` y § "Bloqueo de
+> acceso por falta de pago".
 
 ### Novedad
 `gimnasio`, `título`, `mensaje`, `fecha_publicación`, `visible_hasta`, `activa`.
@@ -342,7 +350,7 @@ gamificación.
 setup, recolección del Excel.
 
 **Semana 1:** repo + esqueleto reusable (Fase 0). Modelo Gimnasio, auth, Alumno, Ejercicio,
-RutinaPlantilla, PagoMensual. Admin funcional. Tests de tenant isolation.
+RutinaPlantilla, Cuota. Admin funcional. Tests de tenant isolation.
 
 **Semana 2:** dashboard del staff, CRUD de alumnos (con invitación), CRUD de ejercicios,
 CRUD de rutinas con duplicación.

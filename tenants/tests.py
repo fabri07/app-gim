@@ -37,7 +37,8 @@ from alumnos.identidad import TIPO_EMAIL
 from alumnos.models import Alumno
 from alumnos.services import crear_acceso
 from novedades.models import Novedad, NovedadLeida
-from pagos.models import MedioCobro, PagoMensual
+from pagos.models import MedioCobro, Cuota
+from pagos.testing import crear_cuota, crear_cuota_mensual
 from rutinas.models import RutinaAsignada, RutinaAsignadaItem
 from tenants import paisaje_matching, suplantacion
 from tenants.context_processors import tour_onboarding_disponible
@@ -482,9 +483,9 @@ class HomeViewStaffFechaLocalTests(TestCase):
         self.client.force_login(staff)
 
     def test_pagos_del_mes_son_los_del_mes_local(self):
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
 
-        pago = PagoMensual.objects.create(
+        pago = crear_cuota_mensual(
             gimnasio=self.gimnasio, alumno=self.alumno,
             mes=5, anio=2026, monto=10000,
         )
@@ -492,7 +493,7 @@ class HomeViewStaffFechaLocalTests(TestCase):
         with patch("django.utils.timezone.now", return_value=self.MOMENTO):
             response = self.client.get(reverse("home"))
 
-        self.assertEqual(list(response.context["pagos_del_mes"]), [pago])
+        self.assertEqual(list(response.context["cuotas_vigentes"]), [pago])
 
     def test_no_cuenta_como_activo_un_plan_que_arranca_manana(self):
         from rutinas.models import RutinaAsignada
@@ -561,13 +562,13 @@ class HomeViewAlumnoTests(TestCase):
             descanso="60s",
             notas="Controlar la técnica",
         )
-        PagoMensual.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio,
             alumno=alumno,
             mes=self.hoy.month,
             anio=self.hoy.year,
             monto=10000,
-            estado=PagoMensual.Estado.PAGADO,
+            estado=Cuota.Estado.PAGADO,
         )
         Novedad.objects.create(
             gimnasio=self.gimnasio,
@@ -580,7 +581,9 @@ class HomeViewAlumnoTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Rutina Fuerza")
-        self.assertContains(response, "Pagado")
+        # Una cuota paga se muestra como "Al día" con el ciclo que cubre, no
+        # como el badge "Pagado" del panel del staff.
+        self.assertContains(response, "Al día")
         self.assertContains(response, "Gimnasio cerrado el feriado")
 
     def test_saluda_con_el_nombre_del_alumno_no_con_el_username(self):
@@ -844,13 +847,13 @@ class HomeViewAlumnoTests(TestCase):
         _user, _perfil, alumno = self._crear_alumno_con_login(
             username="hugo", nombre="Hugo", apellido="Peralta"
         )
-        PagoMensual.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio,
             alumno=alumno,
             mes=self.hoy.month,
             anio=self.hoy.year,
             monto=15000,
-            estado=PagoMensual.Estado.PENDIENTE,
+            estado=Cuota.Estado.PENDIENTE,
         )
         MedioCobro.objects.create(
             gimnasio=self.gimnasio,
@@ -875,7 +878,7 @@ class HomeViewAlumnoTests(TestCase):
         response = self.client.get(reverse("home"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Monto: $ 15000")
+        self.assertContains(response, "15000")
         self.assertContains(response, "gimnasio.alfa")
         self.assertContains(response, "Juan Pérez")
         self.assertContains(response, "Mercado Pago")
@@ -886,13 +889,13 @@ class HomeViewAlumnoTests(TestCase):
         _user, _perfil, alumno = self._crear_alumno_con_login(
             username="ines", nombre="Inés", apellido="Marín"
         )
-        PagoMensual.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio,
             alumno=alumno,
             mes=self.hoy.month,
             anio=self.hoy.year,
             monto=15000,
-            estado=PagoMensual.Estado.PAGADO,
+            estado=Cuota.Estado.PAGADO,
         )
         MedioCobro.objects.create(
             gimnasio=self.gimnasio,
@@ -1356,6 +1359,7 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
+                "tipo_publico": "mixto",
                 "paleta": "oceano",
                 "tipografia": "plus_jakarta",
                 "fondo_tipo": "color",
@@ -1384,6 +1388,7 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
+                "tipo_publico": "mixto",
                 "paleta": "bosque",
                 "tipografia": "plus_jakarta",
                 "fondo_tipo": "color",
@@ -1432,6 +1437,7 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
+                "tipo_publico": "mixto",
                 "paleta": "bosque",
                 "tipografia": "sora",
                 "fondo_tipo": "color",
@@ -1446,12 +1452,65 @@ class GimnasioUpdateViewTests(TestCase):
         self.gimnasio.refresh_from_db()
         self.assertEqual(self.gimnasio.tipografia, "sora")
 
+    def test_staff_actualiza_el_tipo_de_publico(self):
+        self.client.login(username="dueno", password="clave-123456")
+
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Gimnasio Central",
+                "tipo_publico": "mujeres",
+                "paleta": "bosque",
+                "tipografia": "plus_jakarta",
+                "fondo_tipo": "color",
+                "texto_bienvenida": "",
+                "contacto": "",
+                "link_instagram": "",
+                "link_whatsapp": "",
+            },
+        )
+
+        self.assertRedirects(response, reverse("gimnasio_editar"))
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.tipo_publico, "mujeres")
+        self.assertFalse(self.gimnasio.tiene_publico_mixto)
+
+    def test_el_form_rechaza_un_tipo_de_publico_fuera_del_catalogo(self):
+        self.client.login(username="dueno", password="clave-123456")
+
+        response = self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Gimnasio Central",
+                "tipo_publico": "solo-zurdos",
+                "paleta": "bosque",
+                "tipografia": "plus_jakarta",
+                "fondo_tipo": "color",
+                "texto_bienvenida": "",
+                "contacto": "",
+                "link_instagram": "",
+                "link_whatsapp": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.tipo_publico, "mixto")
+
+    def test_un_gimnasio_nuevo_nace_mixto(self):
+        """El default preserva el comportamiento de todos los gimnasios que ya
+        existían: mismo panel y misma ficha que antes de esta feature."""
+        self.assertTrue(Gimnasio.objects.create(
+            nombre="Nuevo", slug="nuevo"
+        ).tiene_publico_mixto)
+
     def test_el_form_rechaza_una_tipografia_fuera_de_la_lista_curada(self):
         self.client.login(username="dueno", password="clave-123456")
         response = self.client.post(
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
+                "tipo_publico": "mixto",
                 "paleta": "bosque",
                 "tipografia": "comic-sans-libre",
                 "fondo_tipo": "color",
@@ -1471,6 +1530,7 @@ class GimnasioUpdateViewTests(TestCase):
             reverse("gimnasio_editar"),
             {
                 "nombre": "Gimnasio Central",
+                "tipo_publico": "mixto",
                 "paleta": "azul-libre-inventado",
                 "tipografia": "plus_jakarta",
                 "fondo_tipo": "color",
@@ -1508,6 +1568,7 @@ class GimnasioUpdateViewTests(TestCase):
     def _datos_base_fondo(self, **overrides):
         datos = {
             "nombre": "Gimnasio Central",
+            "tipo_publico": "mixto",
             "paleta": "bosque",
             "tipografia": "plus_jakarta",
             "fondo_tipo": "color",
@@ -1708,6 +1769,7 @@ class GimnasioFormFondoImagenTests(SimpleTestCase):
     def _datos_base(self, **overrides):
         datos = {
             "nombre": "Gimnasio Test",
+            "tipo_publico": "mixto",
             "paleta": "bosque",
             "tipografia": "plus_jakarta",
             "fondo_tipo": "imagen",
@@ -1836,6 +1898,7 @@ class GimnasioFormLogoTests(SimpleTestCase):
     def _datos_base(self, **overrides):
         datos = {
             "nombre": "Gimnasio Test",
+            "tipo_publico": "mixto",
             "paleta": "bosque",
             "tipografia": "plus_jakarta",
             "fondo_tipo": "color",
@@ -1897,6 +1960,7 @@ class GimnasioFormArchivoYEliminarContradiccionTests(SimpleTestCase):
     def _datos_base(self, **overrides):
         datos = {
             "nombre": "Gimnasio Test",
+            "tipo_publico": "mixto",
             "paleta": "bosque",
             "tipografia": "plus_jakarta",
             "fondo_tipo": "color",
@@ -2213,6 +2277,170 @@ class AnaliticaTests(TestCase):
         self.assertEqual(sentadilla["generos"]["no_informado"], 1)  # Bruno cae acá
         self.assertEqual(sentadilla["generos"]["masculino"], 0)  # ya no es "masculino"
         self.assertEqual(sentadilla["total"], 3)
+
+
+class DistribucionPorEdadTests(TestCase):
+    """`distribucion_por_edad`: la tarjeta de composición del padrón cuando el
+    gimnasio es de un solo género y agrupar por sexo no informa nada.
+
+    `hoy` es un parámetro y no `timezone.localdate()` a secas justamente para
+    poder fijar los bordes: un test de "tiene 25 o 26" que dependiera del día
+    real se rompería solo el día del cumpleaños del fixture.
+    """
+
+    HOY = date(2026, 6, 15)
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.otro_gimnasio = Gimnasio.objects.create(nombre="Otro", slug="otro")
+
+    def _alumno(self, nacimiento, gimnasio=None, nombre="A"):
+        return Alumno.objects.create(
+            gimnasio=gimnasio or self.gimnasio, nombre=nombre, apellido="X",
+            fecha_nacimiento=nacimiento,
+        )
+
+    def _conteos(self, gimnasio=None):
+        from tenants.analitica import distribucion_por_edad
+
+        return {
+            fila["etiqueta"]: fila["total"]
+            for fila in distribucion_por_edad(gimnasio or self.gimnasio, hoy=self.HOY)
+        }
+
+    def test_devuelve_los_cinco_tramos_aunque_esten_en_cero(self):
+        """El orden es fijo y todas las filas viajan siempre: si se saltearan
+        los tramos vacíos, las barras se reordenarían solas entre cargas."""
+        from tenants.analitica import distribucion_por_edad
+
+        filas = distribucion_por_edad(self.gimnasio, hoy=self.HOY)
+
+        self.assertEqual(
+            [fila["etiqueta"] for fila in filas],
+            ["Hasta 25", "26 a 35", "36 a 45", "46 o más", "Sin dato"],
+        )
+        self.assertEqual([fila["total"] for fila in filas], [0, 0, 0, 0, 0])
+
+    def test_los_bordes_de_cada_tramo(self):
+        self._alumno(date(2000, 6, 15), nombre="Cumple hoy, 26")   # 26 -> 26 a 35
+        self._alumno(date(2000, 6, 16), nombre="Cumple mañana, 25")  # 25 -> Hasta 25
+        self._alumno(date(1991, 6, 16), nombre="34")               # 34 -> 26 a 35
+        self._alumno(date(1990, 6, 15), nombre="36")               # 36 -> 36 a 45
+        self._alumno(date(1980, 6, 15), nombre="46")               # 46 -> 46 o más
+
+        conteos = self._conteos()
+
+        self.assertEqual(conteos["Hasta 25"], 1)
+        self.assertEqual(conteos["26 a 35"], 2)
+        self.assertEqual(conteos["36 a 45"], 1)
+        self.assertEqual(conteos["46 o más"], 1)
+
+    def test_un_alumno_menor_de_edad_cae_en_el_primer_tramo_y_no_se_pierde(self):
+        """REGRESIÓN del diseño: con el primer tramo como «18 a 25», un alumno
+        de 16 no entraba en ninguno y desaparecía del gráfico en silencio. Los
+        tramos tienen que cubrir todo el dominio."""
+        self._alumno(date(2010, 1, 1), nombre="Menor")  # 16 años
+
+        conteos = self._conteos()
+
+        self.assertEqual(conteos["Hasta 25"], 1)
+        self.assertEqual(sum(conteos.values()), 1)
+
+    def test_sin_fecha_de_nacimiento_va_a_sin_dato(self):
+        """`fecha_nacimiento` es opcional: los que no la tienen se muestran
+        aparte, no se descartan ni se mezclan con un tramo real."""
+        Alumno.objects.create(gimnasio=self.gimnasio, nombre="Sin", apellido="Fecha")
+
+        conteos = self._conteos()
+
+        self.assertEqual(conteos["Sin dato"], 1)
+
+    def test_no_mezcla_gimnasios(self):
+        self._alumno(date(1990, 1, 1), gimnasio=self.otro_gimnasio, nombre="Ajeno")
+
+        self.assertEqual(sum(self._conteos().values()), 0)
+        self.assertEqual(sum(self._conteos(self.otro_gimnasio).values()), 1)
+
+    def test_el_costo_no_crece_con_la_cantidad_de_alumnos(self):
+        from tenants.analitica import distribucion_por_edad
+
+        for i in range(3):
+            self._alumno(date(1990, 1, 1), nombre=f"chico-{i}")
+        with CaptureQueriesContext(connection) as chico:
+            distribucion_por_edad(self.gimnasio, hoy=self.HOY)
+
+        for i in range(40):
+            self._alumno(date(1990, 1, 1), nombre=f"grande-{i}")
+        with CaptureQueriesContext(connection) as grande:
+            distribucion_por_edad(self.gimnasio, hoy=self.HOY)
+
+        self.assertEqual(len(grande), len(chico))
+
+
+class TarjetaDeComposicionDelPadronTests(TestCase):
+    """Qué tarjeta muestra el panel según `Gimnasio.tipo_publico`.
+
+    Es un INTERCAMBIO, no una suma: la tarjeta es siempre una sola y la llena
+    lo que de verdad distingue al padrón de ese gimnasio. En un gimnasio de un
+    solo género, «Alumnos por género» es una sola barra y «Ejercicios más
+    asignados por género» es una copia exacta del gráfico de arriba.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.staff = User.objects.create_user("staff", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz",
+            sexo=Alumno.Sexo.FEMENINO, fecha_nacimiento=date(1995, 3, 2),
+        )
+        self.client.force_login(self.staff)
+
+    def _panel(self, tipo_publico):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(tipo_publico=tipo_publico)
+        return self.client.get(reverse("home"))
+
+    def test_un_gimnasio_mixto_ve_las_dos_tarjetas_de_genero_y_no_la_de_edad(self):
+        """El caso espejo, y el que importa: sin este test, un fix que
+        escondiera los gráficos SIEMPRE pasaría igual."""
+        response = self._panel(Gimnasio.TipoPublico.MIXTO)
+
+        self.assertIn("genero_stats", response.context)
+        self.assertIn("ejercicios_mas_asignados_por_genero", response.context)
+        self.assertNotIn("edad_stats", response.context)
+        # Sobre el encabezado y no sobre el texto suelto: los nombres de los
+        # gráficos también aparecen en los comentarios del JS del panel.
+        self.assertContains(response, "<h2>Alumnos por género</h2>")
+
+
+    def test_un_gimnasio_de_un_solo_genero_ve_la_de_edad_en_su_lugar(self):
+        response = self._panel(Gimnasio.TipoPublico.MUJERES)
+
+        self.assertIn("edad_stats", response.context)
+        self.assertNotIn("genero_stats", response.context)
+        self.assertNotIn("ejercicios_mas_asignados_por_genero", response.context)
+        self.assertContains(response, "<h2>Alumnos por edad</h2>")
+        self.assertNotContains(response, "<h2>Alumnos por género</h2>")
+        self.assertNotContains(
+            response, "<h2>Ejercicios más asignados por género</h2>"
+        )
+
+
+    def test_el_dataset_del_grafico_que_no_va_no_queda_en_el_html(self):
+        """El JS del panel es un solo IIFE: si quedara un `<script
+        id="genero-data">` vacío, el `JSON.parse` de ese nodo se llevaría
+        puestos todos los gráficos que vienen después, sin ningún síntoma del
+        lado del servidor."""
+        response = self._panel(Gimnasio.TipoPublico.HOMBRES)
+
+        self.assertNotContains(response, 'id="genero-data"')
+        self.assertNotContains(response, 'id="ejercicios-genero-data"')
+        self.assertContains(response, 'id="edad-data"')
+        # Y los que no dependen del tipo de público siguen todos ahí.
+        for nodo in ("ingresos-data", "rpe-data", "ejercicios-data"):
+            self.assertContains(response, f'id="{nodo}"')
 
 
 class SuplantacionServicioTests(TestCase):
@@ -2797,7 +3025,7 @@ class SembrarDemoTests(TestCase):
 
     def test_siembra_datos_en_todas_las_secciones(self):
         from alumnos.models import Alumno
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
         from rutinas.models import RutinaAsignada
         from turnos.models import Reserva
 
@@ -2805,7 +3033,7 @@ class SembrarDemoTests(TestCase):
 
         self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 6)
         self.assertTrue(RutinaAsignada.objects.for_gimnasio(self.gimnasio).exists())
-        self.assertTrue(PagoMensual.objects.for_gimnasio(self.gimnasio).exists())
+        self.assertTrue(Cuota.objects.for_gimnasio(self.gimnasio).exists())
         self.assertTrue(Reserva.objects.for_gimnasio(self.gimnasio).exists())
 
     def test_se_niega_a_sembrar_sobre_un_gimnasio_con_alumnos_reales(self):
@@ -2833,6 +3061,33 @@ class SembrarDemoTests(TestCase):
         )
         self._sembrar(alumnos=3, confirmar=True)
         self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 4)
+
+    def test_con_confirmar_no_toca_la_configuracion_de_bloqueo(self):
+        """Sobre una cuenta de prueba la demo prende la tolerancia y retrocede
+        un año `fecha_activacion_bloqueo` para que se vea un alumno bloqueado.
+        Sobre el gimnasio de un cliente (`--confirmar`) eso anulaba la garantía
+        de que prender el bloqueo no es retroactivo: bloqueaba de golpe a todos
+        sus alumnos reales con cualquier impaga histórica, en un comando."""
+        from alumnos.models import Alumno
+
+        Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Real", apellido="Cliente"
+        )
+
+        salida = self._sembrar(alumnos=3, confirmar=True)
+
+        self.gimnasio.refresh_from_db()
+        self.assertIsNone(self.gimnasio.dias_tolerancia_pago)
+        self.assertIsNone(self.gimnasio.fecha_activacion_bloqueo)
+        self.assertIn("bloqueo_configurado: False", salida)
+
+    def test_en_una_cuenta_de_prueba_si_configura_el_bloqueo(self):
+        self._sembrar(alumnos=3)
+
+        self.gimnasio.refresh_from_db()
+        self.assertIsNotNone(self.gimnasio.dias_tolerancia_pago)
+        self.assertLess(self.gimnasio.fecha_activacion_bloqueo, timezone.localdate())
+
 
     def test_borrar_saca_solo_los_de_demo(self):
         """El alumno real tiene que sobrevivir al `--borrar`: si el marcador
@@ -3314,17 +3569,17 @@ class IndicadoresTemporalesTests(TestCase):
     def test_ingresos_solo_cuentan_lo_pagado(self):
         """Pendiente y vencido son expectativa, no ingreso: sumarlos haría que
         el gráfico muestre plata que el gimnasio no tiene."""
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
 
         alumno = self._alumno("Ana")
-        PagoMensual.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio, alumno=alumno, mes=9, anio=2026,
-            monto=Decimal("30000"), estado=PagoMensual.Estado.PAGADO,
+            monto=Decimal("30000"), estado=Cuota.Estado.PAGADO,
         )
         otro = self._alumno("Beto")
-        PagoMensual.objects.create(
+        crear_cuota_mensual(
             gimnasio=self.gimnasio, alumno=otro, mes=9, anio=2026,
-            monto=Decimal("30000"), estado=PagoMensual.Estado.PENDIENTE,
+            monto=Decimal("30000"), estado=Cuota.Estado.PENDIENTE,
         )
 
         filas = analitica.ingresos_por_mes(self.gimnasio, meses=2, hoy=self.hoy)
@@ -3353,13 +3608,13 @@ class IndicadoresTemporalesTests(TestCase):
         self.assertIsNone(datos["cobranza_porcentaje"])
 
     def test_cobranza_calcula_el_porcentaje(self):
-        from pagos.models import PagoMensual
+        from pagos.models import Cuota
 
         for i, estado in enumerate(
-            [PagoMensual.Estado.PAGADO, PagoMensual.Estado.PAGADO,
-             PagoMensual.Estado.PENDIENTE, PagoMensual.Estado.VENCIDO]
+            [Cuota.Estado.PAGADO, Cuota.Estado.PAGADO,
+             Cuota.Estado.PENDIENTE, Cuota.Estado.VENCIDO]
         ):
-            PagoMensual.objects.create(
+            crear_cuota_mensual(
                 gimnasio=self.gimnasio, alumno=self._alumno(f"A{i}"),
                 mes=9, anio=2026, monto=Decimal("1000"), estado=estado,
             )

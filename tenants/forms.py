@@ -125,6 +125,7 @@ class GimnasioForm(forms.ModelForm):
         model = Gimnasio
         fields = [
             "nombre",
+            "tipo_publico",
             "logo",
             "paleta",
             "tipografia",
@@ -136,7 +137,7 @@ class GimnasioForm(forms.ModelForm):
             "link_instagram",
             "link_whatsapp",
             "link_facebook",
-            "dia_vencimiento_pago",
+            "dias_tolerancia_pago",
         ]
         widgets = {
             "fondo_tipo": forms.RadioSelect,

@@ -109,6 +109,80 @@ def distribucion_por_genero(gimnasio):
     ]
 
 
+#: Tramos de edad de `distribucion_por_edad`, en orden de presentación. Cada
+#: entrada es `(edad_maxima_inclusive, etiqueta)`; `None` es el tramo abierto
+#: del final.
+#:
+#: **Los tramos cubren TODO el dominio a propósito**: el primero es "Hasta 25"
+#: y no "18 a 25" porque un gimnasio puede tener menores, y con un piso en 18
+#: un alumno de 16 no entraría en ningún tramo y desaparecería del gráfico sin
+#: que nadie se entere. Es el mismo criterio con el que
+#: `core.catalogos.orden_con_bucket_vacio` se niega a descartar el bucket vacío.
+TRAMOS_EDAD = (
+    (25, "Hasta 25"),
+    (35, "26 a 35"),
+    (45, "36 a 45"),
+    (None, "46 o más"),
+)
+
+#: Los alumnos sin `fecha_nacimiento` cargada. Va al final y separado, igual
+#: que el "No informado" de `distribucion_por_genero`: no es una edad, es la
+#: ausencia del dato.
+ETIQUETA_SIN_EDAD = "Sin dato"
+
+
+def _edad(nacimiento, hoy):
+    """Años cumplidos. Resta uno si todavía no llegó el cumpleaños de este año."""
+    return (
+        hoy.year
+        - nacimiento.year
+        - ((hoy.month, hoy.day) < (nacimiento.month, nacimiento.day))
+    )
+
+
+def distribucion_por_edad(gimnasio, hoy=None):
+    """Cantidad de alumnos por tramo de edad, en orden fijo (no por magnitud)
+    para que las barras no se reordenen solas entre cargas.
+
+    Devuelve la MISMA forma que `distribucion_por_genero`
+    (`[{"etiqueta", "total"}]`) porque las dos alimentan la misma tarjeta del
+    panel -- cuál de las dos se usa lo decide `Gimnasio.tiene_publico_mixto`.
+    Siempre devuelve las cinco filas, aunque estén en cero.
+
+    **La edad se calcula en Python, nunca como aritmética de fecha contra una
+    columna en el queryset.** Esa aritmética anda en Postgres y da resultados
+    silenciosamente distintos en SQLite, que es donde corre toda la suite (la
+    misma trampa que documentan `pagos/acceso.py` y `pagos/models.py`). Encima,
+    "¿ya pasó el cumpleaños?" es justo lo que peor se expresa en SQL portable.
+
+    Es **una sola query** (`values_list`) y el agrupado va sobre las filas ya
+    traídas: eso no viola la regla de "una consulta agregada por indicador",
+    que es sobre no hacer N queries, no sobre no iterar en Python.
+    """
+    from alumnos.models import Alumno
+
+    hoy = hoy or timezone.localdate()
+    conteos = {etiqueta: 0 for _, etiqueta in TRAMOS_EDAD}
+    conteos[ETIQUETA_SIN_EDAD] = 0
+
+    for nacimiento in Alumno.objects.for_gimnasio(gimnasio).values_list(
+        "fecha_nacimiento", flat=True
+    ):
+        if nacimiento is None:
+            conteos[ETIQUETA_SIN_EDAD] += 1
+            continue
+        edad = _edad(nacimiento, hoy)
+        for tope, etiqueta in TRAMOS_EDAD:
+            # `tope is None` es el tramo abierto del final: siempre matchea,
+            # así que ninguna edad puede quedar sin contar.
+            if tope is None or edad <= tope:
+                conteos[etiqueta] += 1
+                break
+
+    orden = [etiqueta for _, etiqueta in TRAMOS_EDAD] + [ETIQUETA_SIN_EDAD]
+    return [{"etiqueta": etiqueta, "total": conteos[etiqueta]} for etiqueta in orden]
+
+
 def rpe_por_ejercicio(gimnasio):
     """Distribución de RPE por ejercicio, ordenada por cantidad total de
     calificaciones recibidas (de más a menos reportado).
@@ -388,28 +462,48 @@ def asistencia_diaria(gimnasio, *, dias=_DIAS_DE_HISTORIAL, hoy=None):
 def ingresos_por_mes(gimnasio, *, meses=_MESES_DE_HISTORIAL, hoy=None):
     """Plata efectivamente cobrada por mes.
 
-    Se agrupa por el mes de la CUOTA (`anio`/`mes`), no por `fecha_pago`: al
-    dueño le importa cuánto facturó cada mes, no cuándo entró el dinero de una
-    cuota atrasada. Solo cuenta `PAGADO`: pendiente y vencido son expectativa,
-    no ingreso.
+    Se agrupa por el mes en que ARRANCA el ciclo de la cuota, no por
+    `fecha_pago`: al dueño le importa cuánto facturó cada mes, no cuándo entró
+    el dinero de una cuota atrasada. Solo cuenta `PAGADO`: pendiente y vencido
+    son expectativa, no ingreso, y ANULADO es una cuota condonada.
+
+    **El eje sigue siendo mensual a propósito**, aunque el cobro sea cada 28
+    días. Agrupar crudo por `periodo_inicio` daría un bucket por cada fecha de
+    arranque distinta —y como el ancla es por alumno, eso son tantos buckets
+    como alumnos, con una cuota cada uno: un gráfico ilegible.
+
+    Consecuencia asumida de los 28 días: 365/28 = 13,04 ciclos al año contra
+    12 meses, así que una vez al año un mes recibe DOS ciclos del mismo alumno
+    y la barra se ve el doble de alta sin que haya pasado nada raro. El copy
+    del gráfico lo aclara.
+
+    El filtro por `ventana[0]` no es cosmético: sin él la consulta agrega toda
+    la tabla histórica y recién después se descarta lo que sobra.
+    `periodo_inicio` es `DateField`, así que `TruncMonth` devuelve `date` y no
+    hace falta el unwrap `hasattr(..., "date")` que sí necesitan las funciones
+    que truncan sobre `creado` (un `DateTimeField`).
     """
-    from pagos.models import PagoMensual
+    from pagos.models import Cuota
 
     hoy = hoy or timezone.localdate()
     ventana = _meses_hacia_atras(hoy, meses)
 
+    # El alias NO puede llamarse `mes`: choca con la columna muerta del mismo
+    # nombre que `Cuota` conserva para la vuelta atrás, y Django rechaza la
+    # anotación con `ValueError`.
     cobrado = {
-        (fila["anio"], fila["mes"]): fila["total"] or 0
-        for fila in PagoMensual.objects.for_gimnasio(gimnasio)
-        .filter(estado=PagoMensual.Estado.PAGADO)
-        .values("anio", "mes")
+        fila["mes_calendario"]: fila["total"] or 0
+        for fila in Cuota.objects.for_gimnasio(gimnasio)
+        .filter(estado=Cuota.Estado.PAGADO, periodo_inicio__gte=ventana[0])
+        .annotate(mes_calendario=TruncMonth("periodo_inicio"))
+        .values("mes_calendario")
         .annotate(total=Sum("monto"))
     }
     return [
         {
             "mes": mes,
             "etiqueta": _etiqueta_mes(mes),
-            "total": float(cobrado.get((mes.year, mes.month), 0)),
+            "total": float(cobrado.get(mes, 0)),
         }
         for mes in ventana
     ]
@@ -423,7 +517,7 @@ def indicadores_del_momento(gimnasio, *, hoy=None):
     un vistazo, que es lo primero que mira alguien al entrar al panel.
     """
     from alumnos.models import Alumno
-    from pagos.models import PagoMensual
+    from pagos.models import Cuota
     from turnos.models import Reserva
 
     hoy = hoy or timezone.localdate()
@@ -439,14 +533,16 @@ def indicadores_del_momento(gimnasio, *, hoy=None):
         creado__date__gte=inicio_mes_anterior, creado__date__lt=inicio_mes
     ).count()
 
-    # Cobranza del mes EN CURSO: qué proporción de lo emitido ya entró. Es la
-    # pregunta que un dueño se hace todos los meses y que hoy había que
-    # contar a ojo en la tabla de pagos.
-    del_mes = PagoMensual.objects.for_gimnasio(gimnasio).filter(
-        anio=hoy.year, mes=hoy.month
-    )
-    emitidos = del_mes.count()
-    pagados = del_mes.filter(estado=PagoMensual.Estado.PAGADO).count()
+    # Cobranza de los ciclos VIGENTES: qué proporción de lo que corre hoy ya
+    # entró. Con cuotas por ciclo anclado a cada alumno "el mes" dejó de ser
+    # una unidad de cobro, así que la pregunta equivalente es "de las cuotas
+    # que están corriendo, ¿cuántas están pagas?". `periodo_fin` es INCLUSIVO,
+    # de ahí el `__gte` y no `__gt`.
+    vigentes = Cuota.objects.for_gimnasio(gimnasio).filter(
+        periodo_inicio__lte=hoy, periodo_fin__gte=hoy
+    ).exclude(estado=Cuota.Estado.ANULADO)
+    emitidos = vigentes.count()
+    pagados = vigentes.filter(estado=Cuota.Estado.PAGADO).count()
 
     return {
         "asistentes_hoy": reservas.filter(fecha=hoy).count(),
