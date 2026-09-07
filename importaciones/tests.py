@@ -3829,3 +3829,137 @@ class HallazgosDelCodeReviewTests(TestCase):
 
         self.assertEqual(espia.call_count, 1)
         self.assertEqual(len(response.context["ejercicio_formset"].initial), 120)
+
+
+class PreviewPlantillasEscalaTests(TestCase):
+    """El preview no puede costar una query por ejercicio nuevo.
+
+    Hasta el 2026-09-07 `ResolucionEjercicioForm.categoria` era un
+    `ModelChoiceField`: al renderizar, `ModelChoiceIterator` hacía una query
+    por form (y con `.iterator()`, un cursor de servidor cada una -- lo que
+    mató un worker en producción contra el pooler de Neon), y al validar el
+    POST, `to_python` hacía otra por form. Con 40 ejercicios nuevos eran 80
+    queries de más en la pantalla que ya tiene el presupuesto de 30 s de
+    gunicorn documentado como riesgo.
+
+    Se comparan dos tamaños de conjunto (no un `assertNumQueries` fijo).
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.categoria = CategoriaEjercicio.objects.create(
+            gimnasio=self.gimnasio, nombre="Piernas"
+        )
+        self.staff = User.objects.create_user("staff", password="clave12345")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff", password="clave12345")
+
+    def _importacion(self, ejercicios):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Plan"
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        for n in range(ejercicios):
+            ws.append([1, 1, f"Ejercicio numero {n}", 4, "10"])
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.staff,
+        )
+        importacion.resultado = {**importacion.resultado, "hojas_elegidas": ["Plan"]}
+        importacion.save(update_fields=["resultado"])
+        return importacion
+
+    def _queries_del_get(self, ejercicios):
+        importacion = self._importacion(ejercicios)
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(
+                reverse("importaciones:plantillas_preview", args=[importacion.pk])
+            )
+        self.assertEqual(response.status_code, 200)
+        return len(ctx)
+
+    def _queries_del_post(self, ejercicios):
+        importacion = self._importacion(ejercicios)
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "0",
+            "form-0-nombre_hoja": "Plan", "form-0-incluir": "on",
+            "form-0-objetivo": "Fuerza", "form-0-nivel": "principiante",
+            "ejercicios-TOTAL_FORMS": str(ejercicios),
+            "ejercicios-INITIAL_FORMS": "0",
+        }
+        for i in range(ejercicios):
+            datos[f"ejercicios-{i}-nombre_normalizado"] = normalizar_texto(
+                f"Ejercicio numero {i}"
+            )
+            datos[f"ejercicios-{i}-accion"] = "crear_nuevo"
+            datos[f"ejercicios-{i}-categoria"] = self.categoria.pk
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.post(
+                reverse("importaciones:plantillas_preview", args=[importacion.pk]),
+                datos,
+            )
+        self.assertEqual(response.status_code, 302, response.content[:500])
+        RutinaPlantilla.objects.all().delete()
+        Ejercicio.objects.all().delete()
+        return len(ctx)
+
+    def test_el_get_del_preview_no_hace_una_query_por_ejercicio_nuevo(self):
+        pocos = self._queries_del_get(5)
+        muchos = self._queries_del_get(40)
+        self.assertEqual(pocos, muchos)
+
+    def test_el_post_del_preview_no_hace_una_query_por_ejercicio_nuevo(self):
+        """`bulk_create` agrega un par de statements por lote, así que se pide
+        O(lotes), no igualdad exacta -- mismo criterio que
+        `ImportacionPlantillasEscalaTests`."""
+        pocos = self._queries_del_post(5)
+        muchos = self._queries_del_post(40)
+        self.assertLess(muchos, pocos + 10)
+
+
+class PreviewPlantillasCategoriaAjenaTests(TestCase):
+    """Al dejar de ser `ModelChoiceField`, el form ya no filtra por gimnasio:
+    esa barrera vive en `confirmar_importacion_plantillas` (re-fetch
+    scopeado). Este test la fija desde el POST real, con un pk que EXISTE
+    pero en otro tenant -- el caso que un `999999` no cubre."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        self.ajena = CategoriaEjercicio.objects.create(gimnasio=otro, nombre="AJENA")
+        self.staff = User.objects.create_user("staff", password="clave12345")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff", password="clave12345")
+
+    def test_una_categoria_de_otro_gimnasio_no_crea_nada(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Plan"
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, 1, "Dominadas", 4, "10"])
+        importacion = previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.staff,
+        )
+        importacion.resultado = {**importacion.resultado, "hojas_elegidas": ["Plan"]}
+        importacion.save(update_fields=["resultado"])
+
+        response = self.client.post(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk]),
+            {
+                "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "0",
+                "form-0-nombre_hoja": "Plan", "form-0-incluir": "on",
+                "form-0-objetivo": "Fuerza", "form-0-nivel": "principiante",
+                "ejercicios-TOTAL_FORMS": "1", "ejercicios-INITIAL_FORMS": "0",
+                "ejercicios-0-nombre_normalizado": "dominadas",
+                "ejercicios-0-accion": "crear_nuevo",
+                "ejercicios-0-categoria": self.ajena.pk,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(RutinaPlantilla.objects.exists())
+        self.assertFalse(Ejercicio.objects.exists())
+        self.assertNotContains(response, "AJENA")

@@ -11,7 +11,6 @@ from django import forms
 from django.core.validators import FileExtensionValidator
 from django.db.models import BLANK_CHOICE_DASH
 
-from ejercicios.models import CategoriaEjercicio
 from rutinas.models import RutinaPlantilla
 
 
@@ -56,30 +55,35 @@ class ResolucionEjercicioForm(forms.Form):
     ])
     ejercicio_existente_id = forms.IntegerField(required=False)
     # Constraint no negociable: "todo ejercicio nuevo requiere que el staff
-    # lo elija en el preview, nunca un default silencioso". `empty_label`
-    # (el equivalente de `BLANK_CHOICE_DASH` en un ModelChoiceField) evita
-    # que el navegador pre-seleccione y mande la primera categoría real
-    # aunque el staff nunca haya tocado el campo -- sin eso el guard de
-    # `clean()` no llegaba a dispararse desde un POST real de navegador
-    # (fix post-review, hallazgo 1).
+    # lo elija en el preview, nunca un default silencioso". `BLANK_CHOICE_DASH`
+    # al frente evita que el navegador pre-seleccione y mande la primera
+    # categoría real aunque el staff nunca haya tocado el campo -- sin eso el
+    # guard de `clean()` no llegaba a dispararse desde un POST real de
+    # navegador (fix post-review, hallazgo 1).
     #
-    # Es `ModelChoiceField` desde 2026-08-26: las categorías son por
-    # gimnasio, así que el queryset se inyecta por `form_kwargs` del
-    # formset. `queryset=none()` como default para que un form armado sin
-    # `gimnasio` no ofrezca las categorías de todos los gimnasios.
-    categoria = forms.ModelChoiceField(
-        queryset=CategoriaEjercicio.objects.none(),
+    # NO es un `ModelChoiceField` (lo fue entre el 2026-08-26 y el
+    # 2026-09-07): un formset tiene un form POR EJERCICIO NUEVO, y un
+    # `ModelChoiceField` cuesta una query por form al renderizar
+    # (`ModelChoiceIterator`, que además usa `.iterator()` = un cursor de
+    # servidor en Postgres, lo que mató un worker contra el pooler de Neon)
+    # y otra por form al validar (`to_python`). Las categorías del gimnasio
+    # se calculan UNA vez en la vista y llegan por `form_kwargs` como lista
+    # de `(pk, nombre)`. Que el pk pertenezca al gimnasio lo revalida
+    # `confirmar_importacion_plantillas` contra la base -- mismo criterio que
+    # `ResolucionesJSONForm`.
+    categoria = forms.TypedChoiceField(
+        choices=BLANK_CHOICE_DASH,
+        coerce=int,
+        empty_value=None,
         required=False,
-        empty_label="---------",
         label="Categoría",
     )
 
-    def __init__(self, *args, gimnasio=None, **kwargs):
+    def __init__(self, *args, categorias=(), **kwargs):
         super().__init__(*args, **kwargs)
-        if gimnasio is not None:
-            self.fields["categoria"].queryset = CategoriaEjercicio.objects.for_gimnasio(
-                gimnasio
-            ).filter(activo=True)
+        self.fields["categoria"].choices = BLANK_CHOICE_DASH + [
+            (c.pk, c.nombre) for c in categorias
+        ]
 
     def clean(self):
         cleaned = super().clean()

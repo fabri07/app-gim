@@ -221,16 +221,26 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
             and nombre in nombres_a_resolver
         ]
         hoja_formset = HojaMetadataFormSet(initial=hojas_initial, prefix="form")
-        # `form_kwargs` es lo que hace llegar el gimnasio a cada form del
-        # formset: sin eso el `ModelChoiceField` de categoría ofrecería las
-        # categorías de todos los gimnasios (su queryset default es none(),
-        # así que el síntoma sería un desplegable vacío, no una fuga).
         ejercicio_formset = ResolucionEjercicioFormSet(
             initial=ejercicios_initial,
             prefix="ejercicios",
-            form_kwargs={"gimnasio": self.gimnasio},
+            form_kwargs={"categorias": self._categorias()},
         )
         return hoja_formset, ejercicio_formset
+
+    def _categorias(self):
+        """Las categorías del gimnasio, UNA query por request.
+
+        Se comparten entre todos los forms del formset (por `form_kwargs`) y
+        con las zonas de drag-and-drop del template. Antes cada form hacía la
+        suya: con 40 ejercicios nuevos eran 40 cursores de servidor en un
+        request, y contra el pooler de Neon eso mató un worker (2026-09-07).
+        """
+        if not hasattr(self, "_categorias_cache"):
+            self._categorias_cache = list(
+                CategoriaEjercicio.objects.for_gimnasio(self.gimnasio).filter(activo=True)
+            )
+        return self._categorias_cache
 
     def get(self, request, *args, **kwargs):
         importacion = self.get_importacion()
@@ -293,9 +303,7 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
             # Las zonas del drag-and-drop: antes iteraban las choices del
             # primer form del formset, que era un catálogo global. Ahora son
             # las categorías del gimnasio.
-            "categorias": CategoriaEjercicio.objects.for_gimnasio(
-                self.gimnasio
-            ).filter(activo=True),
+            "categorias": self._categorias(),
             "ejercicios_con_form": self._ejercicios_con_form(importacion, ejercicio_formset),
         })
 
@@ -305,7 +313,7 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
         ejercicio_formset = ResolucionEjercicioFormSet(
             request.POST,
             prefix="ejercicios",
-            form_kwargs={"gimnasio": self.gimnasio},
+            form_kwargs={"categorias": self._categorias()},
         )
 
         if not (hoja_formset.is_valid() and ejercicio_formset.is_valid()):
@@ -335,7 +343,7 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
                     f["nombre_normalizado"]: {
                         "accion": f["accion"],
                         "ejercicio_id": f["ejercicio_existente_id"],
-                        "categoria_id": f["categoria"].pk if f["categoria"] else None,
+                        "categoria_id": f["categoria"],
                     }
                     for f in ejercicio_formset.cleaned_data
                 },
