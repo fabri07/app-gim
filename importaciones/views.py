@@ -22,6 +22,7 @@ from importaciones.models import Importacion
 from importaciones.services import (
     ImportacionInvalida,
     construir_ejemplo_plantillas,
+    guardar_hojas_elegidas,
     hojas_elegidas,
     confirmar_importacion_biblioteca,
     confirmar_importacion_plantillas,
@@ -70,10 +71,7 @@ class SubirPlantillasView(StaffRequiredMixin, TenantScopedMixin, FormView):
         # elegir: la pantalla de hojas sería un "Continuar" obligatorio.
         hojas = importacion.resultado["hojas"]
         if len(hojas) == 1 and hojas[0]["items"]:
-            importacion.resultado = {
-                **importacion.resultado, "hojas_elegidas": [hojas[0]["nombre_hoja"]],
-            }
-            importacion.save(update_fields=["resultado"])
+            guardar_hojas_elegidas(importacion, [hojas[0]["nombre_hoja"]])
             return redirect("importaciones:plantillas_preview", pk=importacion.pk)
         return redirect("importaciones:plantillas_hojas", pk=importacion.pk)
 
@@ -155,8 +153,7 @@ class SeleccionHojasView(StaffRequiredMixin, TenantScopedMixin, View):
                 error="Elegí al menos una hoja con ejercicios para poder seguir.",
             ))
 
-        importacion.resultado = {**importacion.resultado, "hojas_elegidas": elegidas}
-        importacion.save(update_fields=["resultado"])
+        guardar_hojas_elegidas(importacion, elegidas)
         return redirect("importaciones:plantillas_preview", pk=importacion.pk)
 
 

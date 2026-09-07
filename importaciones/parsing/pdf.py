@@ -28,7 +28,7 @@ y el mensaje al staff es mejor que un plan vacío.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import openpyxl
 import pdfplumber
@@ -86,9 +86,15 @@ def leer_pdf(archivo, nombre_hoja):
         raise PdfSinTexto()
 
     if tablas:
-        hoja = _leer_como_tabla(tablas, nombre_hoja)
+        hoja = _leer_como_tabla(tablas)
         if hoja.items:
-            return hoja
+            # El nombre se pone acá y no adentro, para los DOS lectores por
+            # igual: es el nombre del archivo, no el de una hoja de Excel.
+            # Pasarlo por `Worksheet.title` le imponía las reglas de openpyxl
+            # (31 caracteres y un `ValueError` con `[ ] : * ? / \`), así que
+            # un `plan[1].pdf` -- el nombre que pone Chrome al bajar dos veces
+            # el mismo archivo -- era un 500.
+            return replace(hoja, nombre_hoja=nombre_hoja)
     return leer_texto_tolerante(lineas, nombre_hoja)
 
 
@@ -127,30 +133,35 @@ def _sin_saltos_por_ancho(valor):
     return RE_SALTO_POR_ANCHO.sub(" ", str(valor)).strip()
 
 
-def _leer_como_tabla(tablas, nombre_hoja):
+def _leer_como_tabla(tablas):
     """Apila las tablas de todas las páginas en una sola hoja.
 
     Excel repite las filas de título en cada página ("repetir filas de
-    título"), así que las dos primeras filas de la primera tabla se recuerdan
-    y se saltean cada vez que vuelven a aparecer: sin esto, cada encabezado
-    repetido caía en el lector como un ejercicio llamado "Series" con series
-    ilegibles.
+    título"), así que las dos primeras filas se conservan y cualquier
+    repetición posterior se saltea: sin esto, cada encabezado repetido caía en
+    el lector como un ejercicio llamado "Ejercicio" con series ilegibles.
+
+    De cada encabezado se conserva la PRIMERA aparición y se saltean las
+    siguientes. No alcanza con "conservar las dos primeras filas del flujo":
+    si la primera página corta justo después del título, esas dos filas son la
+    misma fila repetida, y la copia entraba como un ejercicio llamado
+    "Ejercicio" (o, con columna de día, como una fila inválida que el staff no
+    tiene cómo arreglar).
     """
     from importaciones.parsing import leer_hoja_plantilla  # evita el ciclo
 
+    filas = [fila for tabla in tablas for fila in tabla]
+    encabezados = {_fila_normalizada(f) for f in filas[:2]}
+    ya_vistos = set()
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = nombre_hoja[:31] or "PDF"  # límite de openpyxl para títulos
-    encabezados = {_fila_normalizada(f) for f in tablas[0][:2]}
-    vistos = 0
-    for tabla in tablas:
-        for fila in tabla:
-            clave = _fila_normalizada(fila)
-            if clave in encabezados:
-                vistos += 1
-                if vistos > 2:
-                    continue
-            ws.append([_sin_saltos_por_ancho(c) for c in fila])
+    for fila in filas:
+        clave = _fila_normalizada(fila)
+        if clave in encabezados:
+            if clave in ya_vistos:
+                continue
+            ya_vistos.add(clave)
+        ws.append([_sin_saltos_por_ancho(c) for c in fila])
     return leer_hoja_plantilla(ws, tolerante=True)
 
 
@@ -161,10 +172,10 @@ def _leer_como_tabla(tablas, nombre_hoja):
 RE_SEMANAS_EN_LINEA = re.compile(r"(?:semana|sem|week|wk|microciclo|micro)\s*(\d+)")
 RE_VINETA = re.compile(r"^[\s•\-·*–—]+")
 RE_SERIES_X_REPS = re.compile(r"^(\d+)\s*[x×]\s*(\d+(?:-\d+)?)$", re.IGNORECASE)
-RE_KILOS = re.compile(r"^\d+(?:[.,]\d+)?\s*(?:kg|kgs|k)$", re.IGNORECASE)
+# Sin `\s*`: los tokens salen de `str.split()`, nunca traen espacios.
+RE_KILOS = re.compile(r"^\d+(?:[.,]\d+)?(?:kg|kgs|k)$", re.IGNORECASE)
 RE_RANGO_REPS = re.compile(r"^\d+-\d+$")
 RE_ENTERO = re.compile(r"^\d+$")
-RE_KILOS_PEGADO = re.compile(r"^(\d+(?:[.,]\d+)?)(kg|kgs|k)$", re.IGNORECASE)
 
 # Palabras que solas forman una línea de encabezado, no un ejercicio.
 PALABRAS_ENCABEZADO = (
@@ -231,7 +242,7 @@ def _repartir_detalles(tokens, cantidad_semanas):
         if match:
             _cerrar(int(match.group(1)), match.group(2))
             continue
-        if RE_KILOS.match(token) or RE_KILOS_PEGADO.match(token):
+        if RE_KILOS.match(token):
             destino = actual - 1 if series_pendiente is None and actual > 0 else actual
             if destino < cantidad_semanas:
                 semanas[destino].kilos = token
@@ -262,7 +273,11 @@ def _nombre_del_dia(texto):
 def leer_texto_tolerante(lineas, nombre_hoja):
     """Lee un plan desde texto suelto. Ver el docstring del módulo."""
     semanas_activas = [1]
-    dia_actual, nombre_dia = 1, ""
+    dia_actual = 1
+    # El nombre del día se DERIVA de estas partes en el único lugar que lo
+    # usa (al construir el item). Tenerlo además como variable obligaba a
+    # recalcularlo en cada punto que tocaba la lista, y olvidarse en uno solo
+    # dejaba items con el título del día anterior.
     partes_nombre_dia = []
     en_encabezado_de_dia = False
     hubo_dia = False
@@ -288,7 +303,6 @@ def leer_texto_tolerante(lineas, nombre_hoja):
             dia_actual = int(match_dia.group(2))
             hubo_dia = True
             hubo_marcador = True
-            partes_nombre_dia = []
             resto = _nombre_del_dia(linea)
             # "DIA 1 - CORE A1. Plancha 4 20": el ejercicio puede venir pegado
             # en la misma línea, detrás de su código de bloque.
@@ -297,21 +311,14 @@ def leer_texto_tolerante(lineas, nombre_hoja):
                 (i for i, t in enumerate(tokens) if i > 0 and RE_BLOQUE.match(normalizar_texto(t))),
                 None,
             )
-            if corte is not None:
-                partes_nombre_dia.append(" ".join(tokens[:corte]))
-                nombre_dia = " · ".join(p for p in partes_nombre_dia if p)
-                en_encabezado_de_dia = False
-                linea = " ".join(tokens[corte:])
-            else:
-                if resto:
-                    partes_nombre_dia.append(resto)
-                nombre_dia = " · ".join(p for p in partes_nombre_dia if p)
-                en_encabezado_de_dia = True
+            partes_nombre_dia = [resto if corte is None else " ".join(tokens[:corte])]
+            en_encabezado_de_dia = corte is None
+            if corte is None:
                 continue
+            linea = " ".join(tokens[corte:])
 
         if en_encabezado_de_dia and RE_VINETA.match(linea) and not re.search(r"\d", linea):
             partes_nombre_dia.append(RE_VINETA.sub("", linea).strip())
-            nombre_dia = " · ".join(p for p in partes_nombre_dia if p)
             continue
         en_encabezado_de_dia = False
 
@@ -328,6 +335,7 @@ def leer_texto_tolerante(lineas, nombre_hoja):
         if not hubo_marcador and not numericos and not bloque:
             continue
 
+        nombre_dia = " · ".join(p for p in partes_nombre_dia if p)
         detalles = _repartir_detalles(numericos, len(semanas_activas))
         for semana, detalle in zip(semanas_activas, detalles):
             clave = (semana, dia_actual)
@@ -347,7 +355,7 @@ def leer_texto_tolerante(lineas, nombre_hoja):
                 fila_excel=numero_linea,
             ))
 
-    if not items or not hubo_dia and len(items) < 2:
+    if not items or (not hubo_dia and len(items) < 2):
         return HojaParseada(
             nombre_hoja=nombre_hoja,
             dias_por_semana=0,

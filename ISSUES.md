@@ -20,6 +20,55 @@ del log.
 
 ---
 
+## [2026-09-07] El importador de PDF daba 500 con un `plan[1].pdf`
+**Estado:** resuelto (con test)
+**Impacto:** el nombre del archivo termina como nombre de la `RutinaPlantilla`
+y, en el camino de las tablas, viajaba como `Worksheet.title` del workbook en
+memoria que sirve de adaptador. openpyxl valida ese título con las reglas de
+Excel: máximo 31 caracteres y `ValueError: Invalid character` con
+`[ ] : * ? / \`. O sea que `plan[1].pdf` —el nombre que pone Chrome al bajar
+dos veces el mismo archivo— era un **500 sin manejar** en
+`SubirPlantillasView` (`ERRORES_ARCHIVO_INVALIDO` no atrapa `ValueError`), y
+un nombre largo se recortaba a 31 caracteres contra los 120 que admite
+`RutinaPlantilla.nombre`. Django no sanea nada de eso: `UploadedFile.name`
+solo aplica `basename` y rechaza path traversal. Además el mismo archivo se
+nombraba distinto según qué lector ganara: el de texto conservaba el nombre
+completo.
+**Resolución:** el nombre se estampa una sola vez en `leer_pdf`, con
+`dataclasses.replace` sobre la `HojaParseada` que devuelve cualquiera de los
+dos lectores. El adaptador ya no toca `ws.title`.
+**Cómo apareció:** un `/code-review` de la rama. La sesión de review murió por
+límite de cuota con 7 de 8 agentes caídos; el único que terminó (el de
+simplificación) lo reportó como un problema de diseño —"el nombre no debería
+pasar por las reglas de openpyxl"— y el 500 salió al verificarlo.
+**Qué NO asumir:** que un hallazgo de "simplificación" es cosmético. Este
+era un 500 en producción disfrazado de olor a diseño.
+
+---
+
+## [2026-09-07] El dedup de encabezados repetidos fallaba si la primera página traía una sola fila
+**Estado:** resuelto (con test)
+**Impacto:** al apilar las tablas de todas las páginas de un PDF hay que
+saltear los encabezados que Excel repite arriba de cada página. La primera
+versión contaba apariciones y toleraba dos, asumiendo que las dos primeras
+filas del flujo eran las dos filas de encabezado. Si la primera página corta
+justo después del título, pdfplumber devuelve una tabla de UNA fila y esas
+"dos primeras" son la misma fila repetida: la copia entraba como dato. Con
+columna «Día» quedaba como una fila inválida que el staff no tiene forma de
+arreglar; **sin** columna «Día** (es opcional) entraba como un ejercicio
+fantasma llamado «Ejercicio», a completar.
+**Resolución:** de cada fila de encabezado se conserva la primera aparición y
+se saltean las siguientes. Sin contador.
+**Qué NO asumir — y por qué este es el ejemplo de manual:** el primer test de
+regresión que escribí **pasó sin el fix**, y el segundo también. El primero
+usaba el layout ancho, donde la fila duplicada la absorbe la detección de
+encabezado; el segundo tenía columna «Día», cuyo guard descartaba la fila
+antes de que llegara a ser un ejercicio. Recién el tercero (layout tabular,
+sin «Día») reprodujo el agujero. **Si un test de regresión pasa sin el fix,
+el fixture está tapando el bug, no probando que no existe.**
+
+---
+
 ## [2026-09-07] El «403» del importador era un worker muerto por cursores de servidor sobre el pooler de Neon
 **Estado:** resuelto (con test; pendiente verificar en producción tras el deploy)
 **Impacto:** el primer cliente pago subió un plan de una hoja, «nunca pudo

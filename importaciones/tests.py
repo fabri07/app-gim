@@ -4380,3 +4380,89 @@ class ImportarPdfFlujoTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertFalse(Importacion.objects.exists())
+
+
+class NombreDeArchivoRaroTests(TestCase):
+    """El nombre del archivo termina como nombre de la `RutinaPlantilla`, y
+    en el camino pasaba por `Worksheet.title`, que rechaza `[ ] : * ? / \\`
+    con un `ValueError` -- o sea un 500. `plan[1].pdf` es el nombre que pone
+    Chrome al bajar dos veces el mismo archivo: no es un caso rebuscado."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user("staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+
+    def test_un_pdf_con_corchetes_en_el_nombre_no_da_500(self):
+        response = self.client.post(
+            reverse("importaciones:plantillas_subir"),
+            {"archivo": _pdf_con_tabla(FILAS_ANCHA_PDF, nombre="plan[1].pdf")},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Importacion.objects.get().resultado["hojas"][0]["nombre_hoja"], "plan[1]")
+
+    def test_el_nombre_largo_no_se_recorta_a_31_caracteres(self):
+        """El límite de 31 es de las hojas de Excel, no de un nombre de
+        plantilla: `RutinaPlantilla.nombre` admite 120."""
+        largo = "Plan de entrenamiento de Eve Colazo agosto 2026"
+        hoja = parsear_archivo_plantillas(
+            _pdf_con_tabla(FILAS_ANCHA_PDF, nombre=f"{largo}.pdf")
+        )[0]
+        self.assertEqual(hoja.nombre_hoja, largo)
+
+    def test_el_lector_de_texto_y_el_de_tablas_nombran_igual(self):
+        por_tabla = parsear_archivo_plantillas(
+            _pdf_con_tabla(FILAS_ANCHA_PDF, nombre="Plan 4:1.pdf")
+        )[0]
+        por_texto = parsear_archivo_plantillas(
+            _pdf_con_texto(["DIA 1", "Sentadilla 3x10", "Press banca 3 8"], nombre="Plan 4:1.pdf")
+        )[0]
+        self.assertEqual(por_tabla.nombre_hoja, "Plan 4:1")
+        self.assertEqual(por_texto.nombre_hoja, "Plan 4:1")
+
+
+class EncabezadoRepetidoTests(SimpleTestCase):
+    """El dedup de encabezados repetidos por página no puede depender de que
+    la primera tabla tenga exactamente dos filas."""
+
+    # Sin columna "Dia" a propósito: con ella, el encabezado repetido caía en
+    # el guard de "el día no es un número" y se reportaba como fila inválida
+    # -- ruido, pero no un ejercicio fantasma. `Dia` es opcional, así que el
+    # daño real aparece cuando no está.
+    ENCABEZADO = ["Ejercicio", "Series", "Repeticiones"]
+    DATOS = [["Press de banca", "4", "8-12"], ["Sentadilla", "3", "10"]]
+
+    def _pdf_por_paginas(self, paginas):
+        pdf = _nuevo_pdf()
+        for filas in paginas:
+            pdf.add_page()
+            with pdf.table(first_row_as_headings=False) as tabla:
+                for fila in filas:
+                    celda = tabla.row()
+                    for valor in fila:
+                        celda.cell("" if valor is None else str(valor))
+        return _pdf_a_upload(pdf)
+
+    def test_una_primera_tabla_de_una_sola_fila_no_deja_pasar_el_encabezado(self):
+        """El encabezado suelto en su propia página dejaba `encabezados` con
+        UNA entrada, así que el contador de repeticiones (que toleraba dos)
+        dejaba pasar el de la página siguiente como si fuera un ejercicio."""
+        hoja = parsear_archivo_plantillas(self._pdf_por_paginas([
+            [self.ENCABEZADO], [self.ENCABEZADO] + self.DATOS,
+        ]))[0]
+        self.assertEqual(
+            [i.ejercicio_original for i in hoja.items], ["Press de banca", "Sentadilla"]
+        )
+        self.assertEqual(hoja.items_incompletos, 0)
+        self.assertEqual(hoja.filas_invalidas, [])
+
+    def test_el_encabezado_repetido_tampoco_ensucia_las_filas_invalidas(self):
+        """Con columna «Día», el encabezado colado no llegaba a ser un
+        ejercicio (el día no numérico lo descarta) pero sí se le reportaba al
+        staff como una fila con problemas que él no tiene cómo arreglar."""
+        encabezado = ["Dia"] + self.ENCABEZADO
+        hoja = parsear_archivo_plantillas(self._pdf_por_paginas([
+            [encabezado], [encabezado] + [["1"] + f for f in self.DATOS],
+        ]))[0]
+        self.assertEqual(hoja.filas_invalidas, [])

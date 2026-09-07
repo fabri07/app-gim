@@ -1191,14 +1191,20 @@ plantilla.
   `leer_hoja_plantilla(ws, tolerante=True)`. Los lectores solo usan
   `cell().value`/`max_row`/`max_column`/`merged_cells`/`title`, así que un
   workbook armado a mano es un adaptador perfecto y **el lector de Excel no se
-  toca**. Dos detalles que solo aparecieron con el Excel real del cliente
-  exportado a PDF: los encabezados que Excel repite en cada página se saltean
-  (fila igual, normalizada, a una de las dos primeras de la primera tabla), y
-  un salto de línea dentro de una celda es un corte por ancho de columna
-  (`PUENTE\nSUPINO` → `PUENTE SUPINO`) salvo que lo siga una viñeta, que es un
-  renglón real del marcador de día. **Se probó y descartó la estrategia
-  `text` de pdfplumber** para tablas sin bordes: parte palabras por la mitad y
-  produce columnas plausibles con basura adentro.
+  toca**. Tres detalles que no aparecen con un fixture sintético: (1) de cada
+  fila de encabezado se conserva la PRIMERA aparición y se saltean las
+  repeticiones que Excel imprime en cada página — contar "hasta dos" no
+  alcanza, porque si la primera página corta justo después del título esas dos
+  filas son la misma; (2) un salto de línea dentro de una celda es un corte
+  por ancho de columna (`PUENTE\nSUPINO` → `PUENTE SUPINO`) salvo que lo siga
+  una viñeta, que es un renglón real del marcador de día; (3) **el nombre de
+  la hoja no pasa por `Worksheet.title`** — se estampa con
+  `dataclasses.replace` en `leer_pdf`, para los dos lectores por igual. Es el
+  nombre del ARCHIVO, y openpyxl le imponía sus reglas de título de hoja: 31
+  caracteres y un `ValueError` con `[ ] : * ? / \`, o sea un 500 con un
+  `plan[1].pdf`. **Se probó y descartó la estrategia `text` de pdfplumber**
+  para tablas sin bordes: parte palabras por la mitad y produce columnas
+  plausibles con basura adentro.
 - **Intento 2, texto** (`leer_texto_tolerante`), cuando no hay tablas: una
   máquina de estados por línea — `SEMANA n` (una o varias en la línea) fija
   las semanas activas; `DÍA n` abre un día y las líneas con viñeta que siguen
@@ -1222,7 +1228,8 @@ plantilla.
   gunicorn); un Excel ancho impreso **partido a lo ancho** en varias páginas
   no se reconstruye (cae en el mensaje de «no reconocí ejercicios»); un corte
   a mitad de palabra por una columna angostísima (`UNILATERA L`) queda así en
-  el nombre y lo resuelve el matching difuso contra la biblioteca.
+  el nombre y lo resuelve el matching difuso contra la biblioteca (medido:
+  98 de score contra el nombre real, sobre un umbral de 87).
 - **El preview avisa cuántos ítems quedaron a completar** (por hoja y como
   advertencia a nivel archivo) y marca las celdas; al confirmar, los ítems
   se crean con `series=None`, la plantilla muestra «A completar» y no se

@@ -178,8 +178,7 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
         else:
             ejercicios_distintos[nombre_normalizado] = {"tipo": "nuevo"}
 
-    resultado_json = {
-        "hojas": [
+    hojas_json = [
             {
                 "nombre_hoja": hoja.nombre_hoja,
                 "dias_por_semana": hoja.dias_por_semana,
@@ -200,14 +199,19 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
                 ),
             }
             for hoja in hojas
-        ],
+    ]
+
+    resultado_json = {
+        "hojas": hojas_json,
         "ejercicios_distintos": ejercicios_distintos,
         # Campo a nivel archivo (no por hoja) -- agregamos las advertencias
         # de todas las hojas, mismo criterio que usa el import de
         # biblioteca (un solo archivo/hoja).
         "advertencias_columnas": [
             advertencia for hoja in hojas for advertencia in hoja.advertencias_columnas
-        ] + _advertencia_de_incompletos(items_por_hoja),
+        ] + _advertencia_de_incompletos(
+            sum(h["items_incompletos"] for h in hojas_json)
+        ),
     }
 
     return Importacion.objects.create(
@@ -219,12 +223,11 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
     )
 
 
-def _advertencia_de_incompletos(items_por_hoja):
+def _advertencia_de_incompletos(incompletos):
     """Un aviso a nivel archivo si la lectura tolerante dejó items sin series
-    o repeticiones, con el camino para terminarlos."""
-    incompletos = sum(
-        1 for items in items_por_hoja.values() for item in items if not item.esta_completo
-    )
+    o repeticiones, con el camino para terminarlos. Recibe el total ya
+    contado por hoja: contarlo de nuevo acá sería una tercera forma de
+    calcular lo mismo, sobre un conjunto que puede diferir."""
     if not incompletos:
         return []
     plural = "s" if incompletos != 1 else ""
@@ -303,6 +306,15 @@ def hojas_elegidas(resultado):
     if elegidas is None:
         return list(resultado["hojas"])
     return [h for h in resultado["hojas"] if h["nombre_hoja"] in set(elegidas)]
+
+
+def guardar_hojas_elegidas(importacion, nombres):
+    """Persiste la elección de hojas. Es la contraparte de `hojas_elegidas()`
+    y vive al lado a propósito: la escriben DOS caminos (la pantalla de
+    elección, y el atajo de `SubirPlantillasView` cuando el archivo trae una
+    sola hoja), y la forma del `resultado` no puede divergir entre ellos."""
+    importacion.resultado = {**importacion.resultado, "hojas_elegidas": list(nombres)}
+    importacion.save(update_fields=["resultado"])
 
 
 def _nombres_necesarios(hojas_a_procesar, decisiones_por_hoja):
