@@ -25,7 +25,7 @@ from importaciones.parsing.comun import (
 # importa: es el que decide qué columna se nombra en el mensaje de error.
 CAMPOS_REQUERIDOS_PLANTILLA = ("ejercicio", "series", "repeticiones")
 
-def leer_hoja_larga(ws):
+def leer_hoja_larga(ws, *, tolerante=False):
     """Parsea una hoja de un archivo de PLANTILLAS. `ws` es una worksheet
     de `openpyxl` ya abierta (no toca el filesystem acá)."""
     encabezado = buscar_fila_encabezado(ws, ALIAS_PLANTILLA, CAMPOS_REQUERIDOS_PLANTILLA)
@@ -62,19 +62,26 @@ def leer_hoja_larga(ws):
             filas_invalidas.append(FilaInvalida(fila_idx, "Falta el nombre del ejercicio"))
             continue
 
+        # En modo tolerante (PDF) un detalle ilegible no descarta el
+        # ejercicio: queda "a completar". El nombre, en cambio, es lo único
+        # que no se puede inventar (ver arriba).
         series_raw = valores[campos["series"]]
         try:
             series = int(series_raw)
         except (TypeError, ValueError):
-            filas_invalidas.append(
-                FilaInvalida(fila_idx, "La columna 'series' no es un número")
-            )
-            continue
+            if not tolerante:
+                filas_invalidas.append(
+                    FilaInvalida(fila_idx, "La columna 'series' no es un número")
+                )
+                continue
+            series = None
 
         repeticiones = valores[campos["repeticiones"]]
         if repeticiones is None or not str(repeticiones).strip():
-            filas_invalidas.append(FilaInvalida(fila_idx, "Falta 'repeticiones'"))
-            continue
+            if not tolerante:
+                filas_invalidas.append(FilaInvalida(fila_idx, "Falta 'repeticiones'"))
+                continue
+            repeticiones = ""
 
         semana_raw = valores[campos["semana"]] if "semana" in campos else None
         try:

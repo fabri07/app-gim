@@ -180,7 +180,10 @@ class ItemParseado:
     dia: int
     orden: int
     ejercicio_original: str
-    series: int
+    # `None` / "" solo en lectura TOLERANTE (el importador de PDF): el item
+    # entra "a completar" y el entrenador le carga series y repeticiones
+    # desde la plantilla. En lectura estricta (Excel) nunca son vacíos.
+    series: int | None
     repeticiones: str
     kilos: str
     descanso: str
@@ -196,6 +199,11 @@ class ItemParseado:
     # solo se puede reportar por su `orden`, que es la posición dentro del día
     # y no le sirve a nadie para encontrar la celda.
     fila_excel: int = 0
+
+
+    @property
+    def esta_completo(self):
+        return self.series is not None and bool(self.repeticiones)
 
 
 @dataclass(frozen=True)
@@ -224,8 +232,13 @@ class HojaParseada:
     # búsqueda de encabezado que puede caer en la fila equivocada, esto es lo
     # que le permite al staff (y a quien lo asista) ver de un vistazo si la
     # app entendió el archivo antes de confirmar nada.
-    layout: str = ""            # "tabular" | "ancha"
+    layout: str = ""            # "tabular" | "ancha" | "pdf_texto"
     fila_encabezado: int = 0    # 1-indexed, la que se usó como títulos
+
+    @property
+    def items_incompletos(self):
+        """Cuántos items quedaron "a completar" (solo en lectura tolerante)."""
+        return sum(1 for item in self.items if not item.esta_completo)
 
 
 def _mapa_merges(ws):

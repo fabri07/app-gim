@@ -23,6 +23,11 @@ rapidfuzz==3.13.0
 # Descarga de PDF de rutina asignada (rutinas/pdf.py)
 fpdf2==2.8.8
 
+# Planes de entrenamiento en PDF (importaciones/parsing/pdf.py). Trae
+# pdfminer.six y pypdfium2 (wheels binarios). Sin OCR a propósito: un PDF
+# que es solo imagen se rechaza con mensaje.
+pdfplumber==0.11.10
+
 # PWA / Web Push (app notificaciones) -- trae py-vapid transitivo, con el
 # comando `vapid` para generar el par de claves VAPID
 pywebpush==2.4.0

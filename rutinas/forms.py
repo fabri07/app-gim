@@ -27,6 +27,7 @@ from rutinas.models import (
     RutinaAsignadaItem,
     RutinaPlantilla,
     RutinaPlantillaItem,
+    mensaje_plantilla_incompleta,
 )
 
 
@@ -57,7 +58,10 @@ class RutinaPlantillaItemForm(TenantScopedModelForm):
     `series` y `repeticiones` siguen obligatorios a propósito: son la
     prescripción del entrenamiento, no hay valor sensato que inventar, y un
     item sin ellas le llega al alumno como una fila vacía en el portal y en
-    el PDF.
+    el PDF. En el MODELO son opcionales desde 2026-09-07 (el importador de
+    PDF deja items "a completar"), así que el form los vuelve a exigir
+    explícitamente en `__init__`: editar un item es justamente cómo se
+    completa, y si el form los dejara vacíos ese estado no tendría salida.
     """
 
     class Meta:
@@ -92,6 +96,10 @@ class RutinaPlantillaItemForm(TenantScopedModelForm):
     def __init__(self, *args, plantilla=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.plantilla = plantilla
+        # El modelo permite vacíos (items "a completar" del importador de
+        # PDF); el form no. Ver el docstring.
+        self.fields["series"].required = True
+        self.fields["repeticiones"].required = True
         self.fields["orden"].required = False
 
     def _items_del_dia(self, dia):
@@ -185,6 +193,13 @@ class AsignarRutinaForm(forms.Form):
         depende del orden de declaración, que es frágil y no se documenta
         solo."""
         cleaned = super().clean()
+        plantilla = cleaned.get("plantilla")
+        if plantilla is not None:
+            incompletos = plantilla.items_incompletos()
+            if incompletos:
+                # El modelo lo revalida (`crear_desde_plantilla`); esto es para
+                # que el mensaje salga en el campo y no como un 500.
+                self.add_error("plantilla", mensaje_plantilla_incompleta(incompletos))
         alumno = cleaned.get("alumno")
         fecha_inicio = cleaned.get("fecha_inicio")
         if not alumno or not fecha_inicio:

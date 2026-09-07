@@ -645,9 +645,18 @@ DEBAJO del campo).
 no debería serlo. `RutinaPlantillaItem.orden` obligaba al entrenador a
 numerar a mano; hoy es opcional y se calcula `max + 1` dentro del día, la
 misma regla que `services.agregar_ejercicio_asignado` ya usaba para el flujo
-de rutinas asignadas. `series`/`repeticiones` siguen obligatorios a propósito:
-no hay valor sensato que inventar y un item sin ellas le llega al alumno como
-una fila vacía.
+de rutinas asignadas. `series`/`repeticiones` siguen obligatorios **en el
+form** a propósito: no hay valor sensato que inventar y un item sin ellas le
+llega al alumno como una fila vacía. En el **modelo** de `RutinaPlantillaItem`
+son opcionales desde el 2026-09-07 (solo ahí, nunca en `RutinaAsignadaItem`):
+es lo que deja entrar los ítems «a completar» del importador de PDF (ver
+"Planes en PDF" más abajo). `RutinaPlantillaItemForm` los vuelve a exigir en
+`__init__` —editar un ítem es justamente cómo se completa— y
+`RutinaAsignada.crear_desde_plantilla` rechaza asignar una plantilla con
+ítems incompletos (`AsignarRutinaForm.clean` repite el chequeo para mostrarlo
+como error de campo, mismo patrón que el guard de fecha anterior a la
+vigente). El detalle marca cada ítem con «A completar» y el listado cuenta
+cuántos faltan con un `Count` anotado, nunca `items_incompletos()` por fila.
 
 ## Fechas: `timezone.localdate()`, nunca `timezone.now().date()`
 
@@ -1150,6 +1159,85 @@ plan original).
   preview, y la columna que ocupaba su lugar decía "Nuevo" en las 748 filas
   (ver `ISSUES.md` `[2026-08-27]`). "Ya existe" quedó como badge al lado del
   nombre: aparece solo cuando de verdad hay algo que decir.
+- **Ningún `ModelChoiceField` por ítem en un formset** (2026-09-07).
+  `ResolucionEjercicioForm.categoria` lo fue durante dos semanas: un form por
+  ejercicio nuevo, y cada `ModelChoiceField` cuesta una query al renderizar
+  (`ModelChoiceIterator`, que además usa `.iterator()` = un cursor de servidor
+  en Postgres) y otra al validar. Contra el pooler de Neon eso mató un worker
+  en producción con el archivo del primer cliente (ver `ISSUES.md`
+  `[2026-09-07]`). Hoy es un `TypedChoiceField` con las categorías del
+  gimnasio calculadas UNA vez en la vista (`PreviewPlantillasView._categorias`)
+  y compartidas por `form_kwargs`; la barrera de tenant sigue en
+  `confirmar_importacion_plantillas`, que re-resuelve el pk contra el catálogo
+  del gimnasio. `PreviewPlantillasEscalaTests` fija que GET y POST no crecen
+  con la cantidad de ejercicios nuevos.
+- **Un archivo de una sola hoja saltea la pantalla de elegir hojas** (todo
+  PDF, y el Excel de una hoja como el del cliente): con una sola hoja esa
+  pantalla era un «Continuar» obligatorio.
+
+### Planes en PDF (2026-09-07)
+
+`SubirPlantillasForm` acepta `.pdf` además de `.xlsx` (la biblioteca sigue
+solo Excel). `importaciones/parsing/pdf.py` (Django-free) lo lee en **dos
+intentos, del más exacto al más tolerante**, y la regla de producto que lo
+guía es que **la lectura no tiene que ser 100% certera: lo que importa es no
+perder ningún ejercicio del plan** — ejercicios, días y semanas primero; los
+detalles si se pueden, y lo que falte lo completa el entrenador desde la
+plantilla.
+
+- **Intento 1, tablas.** `pdfplumber.extract_tables()` (solo la estrategia
+  por líneas dibujadas) en cada página; todas las tablas se apilan en UNA hoja
+  de un `openpyxl.Workbook` en memoria y esa hoja pasa por
+  `leer_hoja_plantilla(ws, tolerante=True)`. Los lectores solo usan
+  `cell().value`/`max_row`/`max_column`/`merged_cells`/`title`, así que un
+  workbook armado a mano es un adaptador perfecto y **el lector de Excel no se
+  toca**. Tres detalles que no aparecen con un fixture sintético: (1) de cada
+  fila de encabezado se conserva la PRIMERA aparición y se saltean las
+  repeticiones que Excel imprime en cada página — contar "hasta dos" no
+  alcanza, porque si la primera página corta justo después del título esas dos
+  filas son la misma; (2) un salto de línea dentro de una celda es un corte
+  por ancho de columna (`PUENTE\nSUPINO` → `PUENTE SUPINO`) salvo que lo siga
+  una viñeta, que es un renglón real del marcador de día; (3) **el nombre de
+  la hoja no pasa por `Worksheet.title`** — se estampa con
+  `dataclasses.replace` en `leer_pdf`, para los dos lectores por igual. Es el
+  nombre del ARCHIVO, y openpyxl le imponía sus reglas de título de hoja: 31
+  caracteres y un `ValueError` con `[ ] : * ? / \`, o sea un 500 con un
+  `plan[1].pdf`. **Se probó y descartó la estrategia `text` de pdfplumber**
+  para tablas sin bordes: parte palabras por la mitad y produce columnas
+  plausibles con basura adentro.
+- **Intento 2, texto** (`leer_texto_tolerante`), cuando no hay tablas: una
+  máquina de estados por línea — `SEMANA n` (una o varias en la línea) fija
+  las semanas activas; `DÍA n` abre un día y las líneas con viñeta que siguen
+  son su nombre; una línea que es solo palabras de encabezado se ignora; el
+  resto es un ejercicio: código de bloque opcional (`A1.`), nombre hasta el
+  primer token numérico, y los números se reparten por semana en orden
+  (`4 20 4 25`, `3x12`, `40kg`). Antes del primer marcador, una línea sin
+  números es el título del documento, no un ejercicio. Sin `SEMANA` en todo
+  el texto, todo entra en la semana 1.
+- **Modo tolerante** (`tolerante=True`, solo lo activa el PDF): una fila con
+  nombre pero series ilegibles o sin repeticiones produce un ítem «a
+  completar» (`ItemParseado.series=None`, `repeticiones=""`) en vez de una
+  `FilaInvalida`; en la matriz ancha, un ejercicio sin ninguna celda cargada
+  entra en todas las semanas del encabezado. **El `.xlsx` sigue estricto**:
+  es un flag con default `False`, así que no cambia nada probado; si algún
+  día se quiere tolerancia también para Excel, es cambiar un default.
+- **Límites explícitos, con mensaje:** un PDF sin capa de texto (foto o
+  escaneo) → «foto o escaneo… exportalo desde Excel o Google Sheets» (no hay
+  OCR en el free tier de Render, riesgo aceptado); más de `MAX_PAGINAS_PDF`
+  (30) → rechazado antes de leerlo (pdfminer tarda ~1 s/página y hay 30 s de
+  gunicorn); un Excel ancho impreso **partido a lo ancho** en varias páginas
+  no se reconstruye (cae en el mensaje de «no reconocí ejercicios»); un corte
+  a mitad de palabra por una columna angostísima (`UNILATERA L`) queda así en
+  el nombre y lo resuelve el matching difuso contra la biblioteca (medido:
+  98 de score contra el nombre real, sobre un umbral de 87).
+- **El preview avisa cuántos ítems quedaron a completar** (por hoja y como
+  advertencia a nivel archivo) y marca las celdas; al confirmar, los ítems
+  se crean con `series=None`, la plantilla muestra «A completar» y no se
+  puede asignar hasta terminarlos.
+- **Fixtures de tests con `fpdf2`** (ya era dependencia): `_pdf_con_tabla` y
+  `_pdf_con_texto` en `importaciones/tests.py`. Helvetica no tiene `•`: las
+  viñetas de los fixtures van con `-`, y `multi_cell` necesita
+  `new_x="LMARGIN", new_y="NEXT"` o la segunda línea no tiene espacio.
 
 ## UI y white-label (Fase 4)
 
@@ -1846,7 +1934,14 @@ casilla propia), pero no hay evidencia de que este paso ya se haya hecho.
   `config/db.py` activa `conn_health_checks=True` — es obligatorio contra Neon,
   que suspende el compute por inactividad (scale-to-zero); sin el chequeo
   Django reusa conexiones muertas del pool de `CONN_MAX_AGE` y los requests
-  fallan de forma intermitente.
+  fallan de forma intermitente. **También activa
+  `disable_server_side_cursors=True`** (2026-09-07): la URL pooled es
+  PgBouncer en modo transacción, y Django documenta que con ese pooler los
+  cursores de servidor tienen que estar apagados. No es teórico: cualquier
+  `<select>` de un `ModelChoiceField` itera con `QuerySet.iterator()`, que en
+  Postgres abre un cursor `DECLARE`, y un worker de gunicorn murió por timeout
+  esperando uno de esos mientras renderizaba el preview del importador (ver
+  `ISSUES.md` `[2026-09-07]`).
 - **Trabajos programados (GitHub Actions, no Render):**
   - `.github/workflows/generar-pagos.yml` — corre `manage.py generar_pagos`
     todos los días 06:30 UTC. Usa la URL **pooled** (conexiones cortas).

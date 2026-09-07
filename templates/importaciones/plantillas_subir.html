@@ -6,20 +6,30 @@
   <h1>Importar plantillas de rutina</h1>
   <div class="tarjeta">
     <p class="texto-suave">
-      Subí un archivo .xlsx con tus planes de entrenamiento. En el paso
-      siguiente elegís qué hojas son planes (las auxiliares las podés dejar
+      Subí tu plan de entrenamiento como <strong>.xlsx</strong> o
+      <strong>.pdf</strong>. Si el archivo tiene varias hojas, en el paso
+      siguiente elegís cuáles son planes (las auxiliares las podés dejar
       afuera), y después revisás todo antes de confirmar.
     </p>
     <p class="texto-suave">
-      Las únicas columnas que no pueden faltar son <strong>Ejercicio</strong>,
-      <strong>Series</strong> y <strong>Repeticiones</strong>. Si no sabés cómo
-      armarlo,
+      En un Excel, las únicas columnas que no pueden faltar son
+      <strong>Ejercicio</strong>, <strong>Series</strong> y
+      <strong>Repeticiones</strong>. Si no sabés cómo armarlo,
       <a href="{% url 'importaciones:plantillas_ejemplo' %}" hx-boost="false">descargá
       un archivo de ejemplo</a> y llenalo con tus datos.
     </p>
+    <p class="texto-suave">
+      De un PDF se toman los ejercicios, los días y las semanas; las series,
+      repeticiones y kilos se leen si se pueden, y lo que falte lo completás
+      después desde la plantilla. Tiene que ser un PDF con texto (exportado
+      desde Excel, Google Sheets o Word): una foto o un escaneo no sirve.
+    </p>
     <form method="post" enctype="multipart/form-data" hx-boost="false">
       {% csrf_token %}
-      {{ form.as_p }}
+      {% for error in form.non_field_errors %}
+        <p class="config-error">{{ error }}</p>
+      {% endfor %}
+      {% include 'partials/campo_form.html' with campo=form.archivo %}
       <button type="submit" class="boton">Subir y previsualizar</button>
     </form>
   </div>
