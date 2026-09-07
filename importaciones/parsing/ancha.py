@@ -298,10 +298,18 @@ def _marcador_de_dia(ws, fila, merges, cols_dia):
     return numero, " · ".join(p for p in partes if p)
 
 
-def leer_hoja_ancha(ws, encabezado):
+def leer_hoja_ancha(ws, encabezado, *, tolerante=False):
     """Parsea una hoja ya reconocida como matriz ancha.
 
     Emite un `ItemParseado` por cada (fila de ejercicio × semana con datos).
+
+    Con `tolerante=True` (el importador de PDF), una semana con datos pero
+    con series ilegibles o sin repeticiones produce un item "a completar" en
+    vez de una `FilaInvalida`, y un ejercicio con nombre y NINGUNA celda
+    cargada entra en todas las semanas del encabezado, también a completar:
+    del PDF importa que el ejercicio esté en el plan, los detalles los carga
+    el entrenador. Una semana en blanco al lado de otra cargada sigue siendo
+    "no programada", igual que en modo estricto.
     """
     merges = _mapa_merges(ws)
     items = []
@@ -348,22 +356,27 @@ def leer_hoja_ancha(ws, encabezado):
         for bloque in encabezado.bloques:
             crudos = crudos_por_semana[bloque.numero]
             if not any(v is not None and str(v).strip() for v in crudos.values()):
-                continue  # semana no programada para este ejercicio
+                if not (tolerante and not hay_datos):
+                    continue  # semana no programada para este ejercicio
 
             try:
                 series = int(crudos.get("series"))
             except (TypeError, ValueError):
-                filas_invalidas.append(FilaInvalida(
-                    fila, f"Semana {bloque.numero}: 'series' no es un número"
-                ))
-                continue
+                if not tolerante:
+                    filas_invalidas.append(FilaInvalida(
+                        fila, f"Semana {bloque.numero}: 'series' no es un número"
+                    ))
+                    continue
+                series = None
 
             repeticiones = crudos.get("repeticiones")
             if repeticiones is None or not str(repeticiones).strip():
-                filas_invalidas.append(FilaInvalida(
-                    fila, f"Semana {bloque.numero}: falta 'repeticiones'"
-                ))
-                continue
+                if not tolerante:
+                    filas_invalidas.append(FilaInvalida(
+                        fila, f"Semana {bloque.numero}: falta 'repeticiones'"
+                    ))
+                    continue
+                repeticiones = ""
 
             clave = (bloque.numero, dia_actual)
             contador_orden[clave] = contador_orden.get(clave, 0) + 1

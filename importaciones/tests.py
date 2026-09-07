@@ -3963,3 +3963,81 @@ class PreviewPlantillasCategoriaAjenaTests(TestCase):
         self.assertFalse(RutinaPlantilla.objects.exists())
         self.assertFalse(Ejercicio.objects.exists())
         self.assertNotContains(response, "AJENA")
+
+
+class LecturaToleranteTests(SimpleTestCase):
+    """`tolerante=True` cambia UNA cosa: una fila con nombre de ejercicio pero
+    sin series (o con series no numéricas) o sin repeticiones produce un item
+    "a completar" (`series=None`, `repeticiones=""`) en vez de una
+    `FilaInvalida`. Es lo que necesita el importador de PDF: del PDF importa
+    la estructura (ejercicios, días, semanas); los detalles los completa el
+    entrenador. El `.xlsx` sigue estricto: mismo comportamiento de siempre.
+    """
+
+    def test_el_lector_largo_estricto_descarta_la_fila(self):
+        ws = _hoja_plantilla_basica()
+        ws.append([1, 2, "Peso muerto", None, ""])
+        hoja = leer_hoja_plantilla(ws)
+        self.assertEqual(len(hoja.items), 2)
+        self.assertEqual(len(hoja.filas_invalidas), 1)
+
+    def test_el_lector_largo_tolerante_deja_el_item_a_completar(self):
+        ws = _hoja_plantilla_basica()
+        ws.append([1, 2, "Peso muerto", None, ""])
+        ws.append([1, 2, "Dominadas", "x", "8"])
+        hoja = leer_hoja_plantilla(ws, tolerante=True)
+        self.assertEqual(hoja.filas_invalidas, [])
+        self.assertEqual(len(hoja.items), 4)
+        peso_muerto, dominadas = hoja.items[2], hoja.items[3]
+        self.assertEqual(peso_muerto.ejercicio_original, "Peso muerto")
+        self.assertIsNone(peso_muerto.series)
+        self.assertEqual(peso_muerto.repeticiones, "")
+        self.assertEqual(peso_muerto.dia, 2)
+        self.assertIsNone(dominadas.series)
+        self.assertEqual(dominadas.repeticiones, "8")
+        self.assertEqual(hoja.items_incompletos, 2)
+
+    def test_tolerante_no_inventa_un_nombre(self):
+        """Sin nombre no hay ejercicio: eso sigue siendo inválido."""
+        ws = _hoja_plantilla_basica()
+        ws.append([1, 2, None, 3, "10"])
+        hoja = leer_hoja_plantilla(ws, tolerante=True)
+        self.assertEqual(len(hoja.items), 2)
+        self.assertEqual(len(hoja.filas_invalidas), 1)
+
+    def test_la_matriz_ancha_tolerante_deja_a_completar_la_semana_rota(self):
+        ws = _hoja_matriz_ancha(filas_extra=[
+            [None, "B1.", "Sentadilla búlgara", None, "x", "10", None, None, 4, "12", None, None],
+        ])
+        estricta = leer_hoja_plantilla(ws)
+        self.assertEqual(len(estricta.filas_invalidas), 1)
+        self.assertEqual(len([i for i in estricta.items if i.ejercicio_original == "Sentadilla búlgara"]), 1)
+
+        tolerante = leer_hoja_plantilla(ws, tolerante=True)
+        self.assertEqual(tolerante.filas_invalidas, [])
+        bulgara = [i for i in tolerante.items if i.ejercicio_original == "Sentadilla búlgara"]
+        self.assertEqual([(i.semana, i.series, i.repeticiones) for i in bulgara],
+                         [(1, None, "10"), (2, 4, "12")])
+        self.assertEqual(tolerante.items_incompletos, 1)
+
+    def test_la_matriz_ancha_tolerante_entra_en_todas_las_semanas_sin_datos(self):
+        """Un ejercicio con nombre y ninguna celda cargada está en el plan
+        igual: entra en todas las semanas del encabezado, a completar. Uno con
+        datos en alguna semana entra solo en esas (una semana en blanco al
+        lado de otra cargada es "no programada", como siempre)."""
+        ws = _hoja_matriz_ancha(filas_extra=[
+            [None, "B1.", "Sentadilla búlgara", None, None, None, None, None, None, None, None, None],
+        ])
+        self.assertNotIn(
+            "Sentadilla búlgara",
+            [i.ejercicio_original for i in leer_hoja_plantilla(ws).items],
+        )
+        tolerante = leer_hoja_plantilla(ws, tolerante=True)
+        bulgara = [i for i in tolerante.items if i.ejercicio_original == "Sentadilla búlgara"]
+        self.assertEqual([(i.semana, i.series, i.dia, i.bloque) for i in bulgara],
+                         [(1, None, 2, "B1"), (2, None, 2, "B1")])
+        # Plancha tiene datos en las dos semanas del fixture: sigue en 2, no más.
+        self.assertEqual(len([i for i in tolerante.items if i.ejercicio_original == "Plancha"]), 2)
+
+    def test_items_incompletos_es_cero_en_una_hoja_normal(self):
+        self.assertEqual(leer_hoja_plantilla(_hoja_plantilla_basica()).items_incompletos, 0)

@@ -30,8 +30,12 @@ from importaciones.parsing.ancha import (  # noqa: F401  (re-export)
 from importaciones.parsing.tabular import leer_hoja_biblioteca, leer_hoja_larga
 
 
-def leer_hoja_plantilla(ws):
+def leer_hoja_plantilla(ws, *, tolerante=False):
     """Único punto donde se elige el layout de una hoja de PLANTILLAS.
+
+    `tolerante` (solo lo activa el importador de PDF): un detalle ilegible
+    deja el item "a completar" en vez de descartar la fila. Ver
+    `leer_hoja_ancha`.
 
     La matriz ancha se prueba PRIMERO, siempre: si se probara al revés, una
     hoja ancha matchearía igual el layout largo (su fila de grupos tiene
@@ -42,8 +46,8 @@ def leer_hoja_plantilla(ws):
     """
     encabezado_ancho = detectar_matriz_ancha(ws)
     if encabezado_ancho is not None:
-        return leer_hoja_ancha(ws, encabezado_ancho)
-    return leer_hoja_larga(ws)
+        return leer_hoja_ancha(ws, encabezado_ancho, tolerante=tolerante)
+    return leer_hoja_larga(ws, tolerante=tolerante)
 
 
 def parsear_archivo_plantillas(archivo):
