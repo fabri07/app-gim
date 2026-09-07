@@ -20,6 +20,73 @@ del log.
 
 ---
 
+## [2026-09-07] El «403» del importador era un worker muerto por cursores de servidor sobre el pooler de Neon
+**Estado:** resuelto (con test; pendiente verificar en producción tras el deploy)
+**Impacto:** el primer cliente pago subió un plan de una hoja, «nunca pudo
+completar la carga» y lo reportó como 403. El log de Render de esa hora no
+tiene ningún 403 (el único era un `curl` mío de prueba): tiene un worker de
+gunicorn abortado por timeout (30 s) y luego SIGKILL, parado en
+`django/forms/models.py::ModelChoiceIterator.__iter__` →
+`QuerySet.iterator()` → `psycopg/_server_cursor.py::_declare_gen`, esperando
+en el socket de Neon. Producción entra por la URL **pooled** (PgBouncer en
+modo transacción) y `config/db.py` no seteaba `DISABLE_SERVER_SIDE_CURSORS`,
+que Django exige con ese tipo de pooler. La única pantalla del flujo de
+importación con un `ModelChoiceField` era el preview de plantillas
+(`ResolucionEjercicioForm.categoria`, uno POR ejercicio nuevo → N cursores de
+servidor en un request): es la pantalla que sigue a la subida. El archivo no
+tenía nada que ver: las dos planillas del cliente parsean 172 ítems en local.
+**Resolución:** (1) `disable_server_side_cursors=True` en `config/db.py`,
+con test. (2) `categoria` pasa a `TypedChoiceField` con las categorías del
+gimnasio calculadas una vez en la vista y compartidas por `form_kwargs`: el
+preview hacía además una query por form al renderizar y otra al validar el
+POST; `PreviewPlantillasEscalaTests` fija que GET y POST no crecen con los
+ejercicios nuevos, y un test postea un pk de categoría que existe en OTRO
+tenant para fijar que la barrera sigue en `confirmar_importacion_plantillas`.
+**Verificación pendiente en producción** (Shell de Render, antes y después
+del deploy): `list(CategoriaEjercicio.objects.iterator())` cronometrado —
+antes cuelga/falla, después responde en menos de un segundo — y después la
+importación del archivo del cliente de punta a punta con la cuenta de prueba.
+**Qué NO asumir:** que el código de error que reporta un cliente es el real.
+«403» acá era un 502 de Render por el worker muerto; sin el log se habría
+buscado un problema de CSRF o de rol que no existía. El log manda.
+
+---
+
+## [2026-09-07] Planes en PDF: lectura tolerante, sin OCR y sin API
+**Estado:** aceptado (riesgo asumido a propósito)
+**Impacto:** el pedido fue «recibir planes en formato PDF» y los PDFs que
+van a llegar son «de todo un poco» (exportados de Excel/Sheets y también
+fotos o escaneos). Se eligió el camino determinístico con `pdfplumber` (sin
+llamar a ninguna API): gratis, sin dependencia externa, pero **un PDF que es
+solo imagen no se puede leer** — no hay OCR en el free tier de Render
+(tesseract no está instalado y los modelos ONNX puros pesan más que la RAM
+disponible). Se rechaza con un mensaje que dice exactamente qué hacer
+(«exportalo desde Excel o Google Sheets como PDF, o subí el .xlsx»).
+**Decisión de producto que lo hace viable:** la lectura no tiene que ser
+100% certera. Lo que importa es no perder ningún ejercicio: ejercicios, días
+y semanas primero; series/reps/kilos si se reconocen, y si no, el ítem entra
+«a completar» y el entrenador lo termina desde la plantilla (que no se puede
+asignar hasta que esté completa). Para eso `RutinaPlantillaItem.series` y
+`repeticiones` pasaron a opcionales en el modelo (solo en la plantilla, nunca
+en el snapshot del alumno).
+**Qué se probó:** el Excel real del primer cliente convertido a un PDF con
+bordes (92 filas × 26 columnas, dos páginas): 172 ítems, 4 días, mismo
+contenido que el `.xlsx`, en 1 s. Los únicos restos son cortes a mitad de
+palabra por columnas angostísimas («UNILATERA L»), que el matching difuso
+contra la biblioteca resuelve.
+**Qué NO asumir:** que la estrategia `text` de pdfplumber sirve como reserva
+para tablas sin bordes: se probó y parte palabras por la mitad
+(«PLAN DE ENTRE» | «NAMIEN» | «TO - AG»), o sea inventa estructura. Para un
+PDF sin bordes está el lector de texto línea por línea. Tampoco asumir que un
+Excel ancho impreso partido a lo ancho en varias páginas se reconstruye: no,
+y cae en el mensaje de «no reconocí ejercicios».
+**Si algún día hace falta leer fotos:** el flujo ya tiene el punto de
+enganche (`leer_pdf` levanta `PdfSinTexto`); ahí iría una extracción con
+Claude a JSON con el mismo esquema de `ItemParseado`, que entra al mismo
+preview. Es una env var y un módulo, no un rediseño.
+
+---
+
 ## [2026-09-04] Revisión de la rama de ciclos: once hallazgos antes del merge
 **Estado:** resuelto (799 → 1224 tests; cada hallazgo con test de regresión, y
 los dos graves verificados fallando sin el fix).
