@@ -442,6 +442,32 @@
     @apply whitespace-nowrap;
   }
 
+  /* Con 4 semanas la tabla tiene 17 columnas o más, así que el scroll
+     horizontal se lleva el nombre del ejercicio fuera de pantalla y las
+     celdas de la última semana quedan sin referencia: la columna del
+     ejercicio acompaña al scroll. Se marca con una clase propia y NO con
+     `:first-child` porque la segunda fila del encabezado empieza con
+     "Series", que no debe quedar fija. El fondo ya lo trae `.tabla th`, sin
+     él las celdas de abajo se verían pasar por debajo. */
+  .tabla--rutina-semanas .columna-ejercicio {
+    @apply sticky left-0 z-10;
+  }
+
+  /* `.tabla` lleva `overflow-hidden` para que las esquinas redondeadas
+     recorten el contenido, pero un ancestro con overflow distinto de
+     `visible` pasa a ser el contenedor de referencia del `sticky` de arriba
+     -- y como la tabla no scrollea (scrollea `.tabla-scroll`), la celda se
+     va de pantalla igual. Verificado en el navegador: sin esto la celda
+     quedaba en `left: -717px` con `position: sticky` aplicado. El redondeo
+     lo toma `.tabla-scroll` en su lugar. */
+  .tabla--rutina-semanas {
+    @apply overflow-visible rounded-none border-none shadow-none;
+  }
+
+  .tabla-scroll:has(.tabla--rutina-semanas) {
+    @apply rounded-2xl border border-gray-200 shadow-sm;
+  }
+
   .tabla--rutina-semanas details {
     @apply mt-1;
   }

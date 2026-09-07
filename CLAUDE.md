@@ -658,6 +658,23 @@ como error de campo, mismo patrón que el guard de fecha anterior a la
 vigente). El detalle marca cada ítem con «A completar» y el listado cuenta
 cuántos faltan con un `Count` anotado, nunca `items_incompletos()` por fila.
 
+**El detalle de la plantilla se agrupa por día, un ejercicio por fila y una
+columna por semana** (2026-09-07) — la misma reagrupación que recibió
+`asignada_detail.html` el 2026-08-31 y por el mismo motivo: el plan real del
+primer cliente son 43 ejercicios por semana × 4 semanas = 172 filas planas,
+ilegibles. Comparten el agrupador: `agrupacion.py::_filas_por_ejercicio` es el
+núcleo, y las dos funciones públicas (`listar_ejercicios_del_dia` para el
+snapshot, `listar_ejercicios_de_plantilla` para la plantilla) solo cambian QUÉ
+identifica al mismo ejercicio y de dónde salen nombre, categoría y video. La
+plantilla agrupa por `ejercicio_id` (tiene FK viva, así que renombrar en la
+biblioteca no parte la fila en dos); el snapshot sigue agrupando por nombre.
+**Solo se muestran las semanas que la plantilla TIENE**, no siempre 1..4.
+Consecuencia sobre el borrado: hay UN botón por fila y la fila son todas las
+semanas, así que `RutinaPlantillaItemDeleteView` quita el ejercicio de todas
+las semanas de ese día (antes borraba un item suelto) y el label dice de
+cuántas se trata — borrar una sola dejaría las otras tres en pantalla como si
+no hubiera pasado nada.
+
 ## Fechas: `timezone.localdate()`, nunca `timezone.now().date()`
 
 `TIME_ZONE` es `America/Argentina/Buenos_Aires` (UTC-3), así que **entre las
@@ -698,6 +715,34 @@ todos con la misma línea mal escrita y consecuencias distintas.
   liga la función al importar, así que parchear `django.utils.timezone.now` no
   la alcanza. Por eso el código usa `from django.utils import timezone` y
   llama `timezone.localdate()` — resuelto en cada llamada, y testeable.
+
+## `position: sticky` en una celda muere si la tabla tiene `overflow: hidden`
+
+`.tabla` lleva `overflow-hidden` para que sus esquinas redondeadas recorten el
+contenido. Cualquier ancestro con `overflow` distinto de `visible` pasa a ser
+el contenedor de referencia del `sticky` de una celda — y como la tabla no
+scrollea (scrollea `.tabla-scroll`), la celda no tiene rango donde pegarse y se
+va de pantalla igual, **con `position: sticky` aplicado y sin ningún error**.
+Medido en el navegador el 2026-09-07: `left: -717px` con `position: sticky`,
+`left: 0px` y `z-index: 10` todos correctos en el estilo computado.
+
+Por eso `.tabla--rutina-semanas` (las dos tablas de 17+ columnas, plantilla y
+rutina asignada) revierte `overflow`/`rounded`/`border`/`shadow` y el marco lo
+toma `.tabla-scroll:has(...)`. Si agregás otra columna fija, revisá primero el
+`overflow` de TODOS los ancestros hasta el scroller.
+
+**Dos trampas de verificación que costaron media hora acá**, las dos ya
+conocidas y las dos silenciosas:
+1. El **service worker** cachea `/static/` con estrategia cache-first, así que
+   el `app.css` recompilado no llega al navegador aunque el servidor lo sirva
+   bien. Se desregistra con `navigator.serviceWorker.getRegistrations()` +
+   `unregister()` y `caches.delete(...)`, y **se vuelve a registrar en cada
+   carga**, así que hay que repetirlo tras cada rebuild.
+2. Un `runserver` que ya estaba corriendo siguió sirviendo el **template
+   viejo** después de editarlo (verificado con `curl` autenticado: el HTML no
+   traía la clase nueva y pesaba exactamente lo mismo). Reiniciarlo lo
+   resolvió. Antes de sospechar del código, compará el HTML servido con el
+   archivo en disco.
 
 ## Comentarios en templates: `{# #}` es de UNA sola línea
 
@@ -1230,6 +1275,17 @@ plantilla.
   a mitad de palabra por una columna angostísima (`UNILATERA L`) queda así en
   el nombre y lo resuelve el matching difuso contra la biblioteca (medido:
   98 de score contra el nombre real, sobre un umbral de 87).
+- **El preview cuenta por semana, no filas.** Decía «172 ejercicios · 4 días»,
+  que se lee como 172 ejercicios DISTINTOS y para 4 días es absurdo: el propio
+  dueño del producto lo leyó como un error del importador. Son 43 por semana
+  repetidos en 4 semanas, y el modelo guarda un item por ejercicio Y POR
+  SEMANA porque cada una tiene su progresión (35 de los 42 ejercicios del
+  archivo real cambian de prescripción entre semanas). El JSON del preview
+  guarda `semanas` y `ejercicios_por_semana` (la semana más cargada, **no** un
+  promedio: `len(items)/semanas` da decimales y miente si el entrenador no
+  programó todo en todas las semanas), y las dos pantallas lo muestran
+  separado. Las dos claves se leen con `.get()` y fallback, porque una
+  `Importacion` EN_REVISION creada antes del deploy no las tiene.
 - **El preview avisa cuántos ítems quedaron a completar** (por hoja y como
   advertencia a nivel archivo) y marca las celdas; al confirmar, los ítems
   se crean con `series=None`, la plantilla muestra «A completar» y no se

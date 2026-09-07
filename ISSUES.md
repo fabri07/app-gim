@@ -20,6 +20,60 @@ del log.
 
 ---
 
+## [2026-09-07] «172 ejercicios · 4 días»: un conteo correcto que se leía como un bug
+**Estado:** resuelto
+**Impacto:** el dueño del producto miró el preview de una importación y dijo
+«imposible que dé 172 ejercicios para 4 días, probablemente está sumando los
+ejercicios de cada día y multiplicándolos por cada semana». Tenía razón en el
+mecanismo y el importador no tenía ningún error: son 11+11+10+11 = **43
+ejercicios por semana** × **4 semanas** = 172, y el `.xlsx` original da
+exactamente lo mismo. `RutinaPlantillaItem` guarda un item por ejercicio, día
+y SEMANA porque cada semana tiene su propia prescripción: **35 de los 42
+ejercicios del archivo real cambian entre semanas** (Plancha lateral
+Copenhague va 3x10 → 3x12 → 3x15 → 3x15); solo 7 se repiten iguales.
+**Lo que estaba mal era el copy**, en dos pantallas: el preview rotulaba
+`len(items)` como «ejercicios», y la de elegir hojas tenía una columna
+«Ejercicios» con el mismo número al lado de «Días» y «Semanas».
+**Resolución:** el JSON del preview guarda `semanas` y `ejercicios_por_semana`
+(la semana más cargada, no un promedio) y las pantallas muestran las tres
+cifras por separado, con una línea que aclara el total de filas cuando hay más
+de una semana. Además el detalle de la plantilla, que mostraba las 172 filas
+planas, se reagrupó por día con las semanas en columnas — lo mismo que se le
+hizo a la rutina asignada el 2026-08-31 y que a la plantilla no se le había
+hecho.
+**Qué NO asumir:** que un número correcto es un número legible. Acá el dato
+estaba bien y el software no tenía bugs, pero la etiqueta invitaba a una
+lectura imposible y le hizo dudar de la importación a la persona que mejor
+conoce el producto. Si el dueño lo leyó mal, un entrenador también.
+
+---
+
+## [2026-09-07] Una columna fija que no se fijaba: `overflow: hidden` mata el `sticky`
+**Estado:** resuelto
+**Impacto:** con 4 semanas la tabla de rutinas tiene 17+ columnas y el scroll
+horizontal deja el nombre del ejercicio fuera de pantalla: las celdas de la
+semana 4 quedan sin referencia. Se le puso `position: sticky` a la columna del
+ejercicio y **no funcionó, sin ningún error**: el estilo computado decía
+`position: sticky`, `left: 0px`, `z-index: 10` y `border-collapse: separate`,
+todo correcto, y la celda igual terminaba en `left: -717px`. La causa es
+`.tabla`, que lleva `overflow-hidden` para que sus esquinas redondeadas
+recorten el contenido: cualquier ancestro con `overflow` distinto de `visible`
+pasa a ser el contenedor de referencia del sticky, y como la tabla no scrollea
+(scrollea `.tabla-scroll`), no hay rango donde pegarse.
+**Resolución:** `.tabla--rutina-semanas` revierte `overflow`/`rounded`/
+`border`/`shadow`, y el marco lo toma `.tabla-scroll:has(...)`.
+**Qué NO asumir — el diagnóstico costó más que el fix:** entre el cambio y el
+navegador hay dos cachés que mienten en silencio. El **service worker** sirve
+el `/static/app.css` viejo (cache-first) y **se vuelve a registrar en cada
+carga**, así que hay que desregistrarlo después de cada rebuild; y un
+`runserver` ya corriendo siguió sirviendo el **template viejo** después de
+editarlo, verificado con `curl` autenticado contra el archivo en disco.
+Reiniciarlo lo resolvió. Antes de sospechar del CSS, comparar lo que sirve el
+servidor con lo que hay en disco, y lo que ve el navegador con lo que sirve el
+servidor.
+
+---
+
 ## [2026-09-07] El importador de PDF daba 500 con un `plan[1].pdf`
 **Estado:** resuelto (con test)
 **Impacto:** el nombre del archivo termina como nombre de la `RutinaPlantilla`

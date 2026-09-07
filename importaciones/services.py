@@ -4,6 +4,7 @@ la confirmación del staff, crea los registros reales. Siempre transaccional
 (`rutinas/models.py`) y `turnos/services.py`."""
 
 import zipfile
+from collections import Counter
 from dataclasses import asdict
 
 from django.db import transaction
@@ -197,6 +198,18 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
                 "items_incompletos": sum(
                     1 for item in items_por_hoja[hoja.nombre_hoja] if not item.esta_completo
                 ),
+                # Cuántas semanas trae el plan y cuántos ejercicios tiene la
+                # semana más cargada. Sin esto la única cifra disponible era
+                # `len(items)`, y el preview la rotulaba "N ejercicios"
+                # cuando en realidad es un item por ejercicio Y POR SEMANA:
+                # un plan de 4 días y 4 semanas decía "172 ejercicios", que
+                # para 4 días es absurdo y hace dudar de la importación.
+                "semanas": len(
+                    {item.semana for item in items_por_hoja[hoja.nombre_hoja]}
+                ),
+                "ejercicios_por_semana": _ejercicios_por_semana(
+                    items_por_hoja[hoja.nombre_hoja]
+                ),
             }
             for hoja in hojas
     ]
@@ -221,6 +234,15 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
         resultado=resultado_json,
         creado_por=usuario,
     )
+
+
+def _ejercicios_por_semana(items):
+    """Los ejercicios de la semana más cargada.
+
+    No es `len(items) / semanas`: un promedio da decimales y miente si el
+    entrenador no programó todos los ejercicios en todas las semanas.
+    """
+    return max(Counter(item.semana for item in items).values(), default=0)
 
 
 def _advertencia_de_incompletos(incompletos):

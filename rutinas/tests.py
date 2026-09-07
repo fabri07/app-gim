@@ -1365,12 +1365,17 @@ class RutinasViewsTests(TestCase):
         else:
             self.assertContains(response, "Sin video")
 
-    def test_plantilla_detail_muestra_columna_semana(self):
+    def test_plantilla_detail_muestra_una_columna_por_semana(self):
+        """Antes la semana era UNA columna con el número en cada fila (tabla
+        plana, una fila por ejercicio y por semana). Desde el 2026-09-07 cada
+        semana es su propio grupo de columnas y el ejercicio ocupa una sola
+        fila."""
         self.client.login(username="staff_a", password="clave12345")
         response = self.client.get(
             reverse("rutinas:plantilla_detalle", args=[self.plantilla_a.pk])
         )
-        self.assertContains(response, "<th>Semana</th>", html=True)
+        self.assertContains(response, "Semana 1")
+        self.assertNotContains(response, "<th>Semana</th>", html=True)
 
     def test_asignada_detail_muestra_semana_actual(self):
         """La semana del ciclo se muestra SOLO si la rutina está vigente.
@@ -2314,8 +2319,12 @@ class BloqueYNombreDeDiaEnLaUITests(RutinasTestCase):
         response = self.client.get(
             reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
         )
-        self.assertContains(response, "<th>Bloque</th>", html=False)
-        self.assertContains(response, "A1")
+        # La columna `<th>Bloque</th>` dejó de existir el 2026-09-07, cuando
+        # esta tabla se reagrupó por ejercicio con las semanas en columnas
+        # (lo mismo que le pasó a la de la rutina asignada el 2026-08-31, ver
+        # el test de abajo). El bloque es ahora un badge al lado del nombre.
+        # Lo que este test garantiza es que el dato SE VE, no en qué elemento.
+        self.assertContains(response, '<span class="badge">A1</span>', html=False)
         self.assertContains(response, "Tren superior")
 
     def test_la_tabla_de_la_rutina_asignada_tambien(self):
@@ -2329,8 +2338,8 @@ class BloqueYNombreDeDiaEnLaUITests(RutinasTestCase):
         badge al lado del nombre -- mismo tratamiento que `mi_dia_detalle.html`
         --, así que la columna dejó de existir a propósito. Lo que este test
         tiene que seguir garantizando es que el dato SE VE, no en qué elemento
-        vive; la tabla de PLANTILLA no cambió y su test sigue exigiendo la
-        columna.
+        vive. La tabla de PLANTILLA recibió la misma reagrupación el
+        2026-09-07, así que su test tampoco exige ya la columna.
         """
         asignada = RutinaAsignada.crear_desde_plantilla(
             gimnasio=self.gimnasio, alumno=self.alumno, plantilla=self.plantilla,
@@ -4276,10 +4285,11 @@ class ItemsACompletarTests(RutinasTestCase):
         response = self.client.get(
             reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
         )
-        self.assertContains(response, "A completar")
         self.assertContains(response, "1 ejercicio para completar")
-        # El item completo no lleva el badge: se cuenta cuántos hay.
-        self.assertEqual(response.content.decode().count("A completar"), 1)
+        # Un badge por CELDA vacía, no uno por fila: al item le faltan las dos
+        # cosas (series y repeticiones), así que el entrenador ve exactamente
+        # cuál de las dos tiene que cargar. El item completo no lleva ninguno.
+        self.assertEqual(response.content.decode().count("A completar"), 2)
         self.assertNotContains(response, "None")
 
     def test_el_detalle_de_una_plantilla_completa_no_muestra_el_aviso(self):
@@ -4306,3 +4316,133 @@ class ItemsACompletarTests(RutinasTestCase):
         with CaptureQueriesContext(connection) as ctx:
             self.client.get(reverse("rutinas:plantilla_listado"))
         self.assertEqual(una, len(ctx))
+
+
+class PlantillaDetalleAgrupadoTests(RutinasTestCase):
+    """La tabla del detalle de plantilla se agrupa por ejercicio, con una
+    columna por semana — la misma reagrupación que recibió la rutina asignada
+    el 2026-08-31, y por el mismo motivo: un plan real de 4 días × 4 semanas
+    son ~172 filas planas.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Plan", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=2,
+        )
+        # El mismo ejercicio progresa a lo largo de 4 semanas, en 2 días.
+        for dia in (1, 2):
+            for semana in (1, 2, 3, 4):
+                RutinaPlantillaItem.objects.create(
+                    rutina=self.plantilla, ejercicio=self.press_banca,
+                    semana=semana, dia=dia, orden=1,
+                    series=3, repeticiones=str(8 + semana), dia_nombre=f"Día {dia}",
+                )
+
+    def _detalle(self):
+        return self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
+        )
+
+    def test_el_ejercicio_ocupa_una_fila_por_dia_no_una_por_semana(self):
+        cuerpo = self._detalle().content.decode()
+        # 8 items en la base, pero el nombre aparece una vez por DÍA.
+        self.assertEqual(self.plantilla.items.count(), 8)
+        self.assertEqual(cuerpo.count("Press de banca"), 2)
+
+    def test_las_cuatro_prescripciones_se_ven_en_la_misma_fila(self):
+        response = self._detalle()
+        for semana in (1, 2, 3, 4):
+            self.assertContains(response, f"Semana {semana}")
+        # La progresión completa vive en UNA fila, una celda por semana.
+        fila = response.context["dias"][0]["ejercicios"][0]
+        self.assertEqual(
+            [(c["numero"], c["item"].repeticiones) for c in fila["semanas"]],
+            [(1, "9"), (2, "10"), (3, "11"), (4, "12")],
+        )
+        for repeticiones in ("9", "10", "11", "12"):
+            self.assertContains(response, repeticiones)
+
+    def test_solo_muestra_las_semanas_que_la_plantilla_tiene(self):
+        """Un plan de 2 semanas no debe mostrar 4 columnas, dos de ellas
+        vacías: `SEMANAS_POR_CICLO` es el máximo, no lo que este plan usa."""
+        self.plantilla.items.filter(semana__gt=2).delete()
+        response = self._detalle()
+        self.assertContains(response, "Semana 2")
+        self.assertNotContains(response, "Semana 3")
+
+    def test_cada_dia_tiene_su_propia_tabla(self):
+        response = self._detalle()
+        self.assertContains(response, "Día 1")
+        self.assertContains(response, "Día 2")
+        self.assertEqual(len(response.context["dias"]), 2)
+
+    def test_el_boton_de_quitar_dice_de_cuantas_semanas(self):
+        self.assertContains(self._detalle(), "Quitar de las 4 semanas")
+
+    def test_con_una_sola_semana_el_boton_no_dice_un_numero(self):
+        self.plantilla.items.filter(semana__gt=1).delete()
+        self.assertContains(self._detalle(), "Quitar de la semana")
+
+    def test_quitar_borra_el_ejercicio_de_todas_las_semanas_de_ese_dia(self):
+        """Hay un solo botón por fila y la fila son las 4 semanas: borrar una
+        sola dejaría las otras tres en pantalla como si no hubiera pasado
+        nada."""
+        item = self.plantilla.items.filter(dia=1, semana=3).get()
+        response = self.client.post(
+            reverse("rutinas:item_eliminar", args=[self.plantilla.pk, item.pk]),
+            follow=True,
+        )
+        self.assertEqual(self.plantilla.items.filter(dia=1).count(), 0)
+        self.assertContains(response, "se quitó del día 1")
+        self.assertContains(response, "4 semanas")
+
+    def test_quitar_no_toca_los_otros_dias(self):
+        item = self.plantilla.items.filter(dia=1, semana=1).get()
+        self.client.post(
+            reverse("rutinas:item_eliminar", args=[self.plantilla.pk, item.pk])
+        )
+        self.assertEqual(self.plantilla.items.filter(dia=2).count(), 4)
+
+    def test_quitar_no_toca_a_otro_ejercicio_del_mismo_dia(self):
+        for semana in (1, 2, 3, 4):
+            RutinaPlantillaItem.objects.create(
+                rutina=self.plantilla, ejercicio=self.sentadilla, semana=semana,
+                dia=1, orden=2, series=4, repeticiones="10",
+            )
+        item = self.plantilla.items.filter(dia=1, ejercicio=self.press_banca).first()
+        self.client.post(
+            reverse("rutinas:item_eliminar", args=[self.plantilla.pk, item.pk])
+        )
+        self.assertEqual(
+            list(self.plantilla.items.filter(dia=1).values_list("ejercicio", flat=True)),
+            [self.sentadilla.pk] * 4,
+        )
+
+    def test_el_costo_en_queries_no_crece_con_los_ejercicios(self):
+        """La pantalla que un cliente real abre con 172 items no puede hacer
+        una query por fila: es el N+1 que este proyecto ya pagó con un 502."""
+        with CaptureQueriesContext(connection) as ctx:
+            self._detalle()
+        pocos = len(ctx)
+        for n in range(15):
+            ejercicio = Ejercicio.objects.create(
+                gimnasio=self.gimnasio, nombre=f"Ejercicio {n}",
+                categoria=CategoriaEjercicio.objects.create(
+                    gimnasio=self.gimnasio, nombre=f"Cat {n}"
+                ),
+            )
+            for semana in (1, 2, 3, 4):
+                RutinaPlantillaItem.objects.create(
+                    rutina=self.plantilla, ejercicio=ejercicio, semana=semana,
+                    dia=1, orden=n + 2, series=3, repeticiones="10",
+                )
+        with CaptureQueriesContext(connection) as ctx:
+            self._detalle()
+        self.assertEqual(pocos, len(ctx))

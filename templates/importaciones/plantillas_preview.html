@@ -23,8 +23,14 @@
            fila equivocada, esto es lo que le permite al entrenador ver si la
            app entendió su archivo ANTES de confirmar.{% endcomment %}
         <p class="texto-suave">
-          {{ hoja.items|length }} ejercicio{{ hoja.items|length|pluralize }} ·
-          {{ hoja.dias_por_semana }} día{{ hoja.dias_por_semana|pluralize }}
+          {% if hoja.semanas %}
+            {{ hoja.dias_por_semana }} día{{ hoja.dias_por_semana|pluralize }} ·
+            {{ hoja.semanas }} semana{{ hoja.semanas|pluralize }} ·
+            {{ hoja.ejercicios_por_semana }} ejercicio{{ hoja.ejercicios_por_semana|pluralize }} por semana
+          {% else %}
+            {{ hoja.items|length }} ejercicio{{ hoja.items|length|pluralize }} ·
+            {{ hoja.dias_por_semana }} día{{ hoja.dias_por_semana|pluralize }}
+          {% endif %}
           {% if hoja.items_incompletos %}
             · <span class="badge badge--urgente">{{ hoja.items_incompletos }} a completar</span>
           {% endif %}
@@ -34,6 +40,13 @@
             con los títulos en la fila {{ hoja.fila_encabezado }}{% endif %}
           {% endif %}
         </p>
+        {% if hoja.semanas > 1 %}
+          <p class="texto-suave text-xs">
+            Son {{ hoja.items|length }} filas en total: cada ejercicio se repite
+            una vez por semana, con su propia progresión de series, repeticiones
+            y kilos.
+          </p>
+        {% endif %}
         {% if hoja.motivo_exclusion %}
           <p class="texto-error">{{ hoja.motivo_exclusion }}</p>
         {% endif %}

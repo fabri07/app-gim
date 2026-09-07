@@ -4466,3 +4466,97 @@ class EncabezadoRepetidoTests(SimpleTestCase):
             [encabezado], [encabezado] + [["1"] + f for f in self.DATOS],
         ]))[0]
         self.assertEqual(hoja.filas_invalidas, [])
+
+
+class CopyDelConteoTests(TestCase):
+    """«172 ejercicios · 4 días» era una lectura imposible: son 43 ejercicios
+    por semana repetidos en 4 semanas. El propio dueño del producto lo leyó
+    como un error del importador, así que el copy dice ahora las tres cifras
+    por separado."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user("staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+
+    def _importar(self, filas, hojas_extra=0):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Plan"
+        ws.append(["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"])
+        for fila in filas:
+            ws.append(fila)
+        for n in range(hojas_extra):
+            wb.create_sheet(f"AUX {n}").append(["nada"])
+        return previsualizar_importacion_plantillas(
+            gimnasio=self.gimnasio, archivo=_archivo_xlsx(wb), usuario=self.staff,
+        )
+
+    # 3 ejercicios por semana, 2 días, 4 semanas = 24 filas.
+    FILAS = [
+        [semana, dia, f"Ejercicio {n}", 3, "10"]
+        for semana in (1, 2, 3, 4) for dia in (1, 2) for n in (1, 2, 3)
+    ]
+
+    def test_el_json_guarda_las_semanas_y_los_ejercicios_por_semana(self):
+        hoja = self._importar(self.FILAS).resultado["hojas"][0]
+        self.assertEqual(len(hoja["items"]), 24)
+        self.assertEqual(hoja["semanas"], 4)
+        self.assertEqual(hoja["ejercicios_por_semana"], 6)
+
+    def test_los_ejercicios_por_semana_son_la_semana_mas_cargada(self):
+        """No un promedio: si el entrenador no programó todos los ejercicios
+        en todas las semanas, `len(items)/semanas` da un decimal que no
+        corresponde a ninguna semana real."""
+        filas = self.FILAS + [[1, 1, "Extra solo en la 1", 3, "10"]]
+        hoja = self._importar(filas).resultado["hojas"][0]
+        self.assertEqual(hoja["ejercicios_por_semana"], 7)
+
+    def test_el_preview_no_dice_que_hay_24_ejercicios(self):
+        importacion = self._importar(self.FILAS)
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "2 días")
+        self.assertContains(response, "4 semanas")
+        self.assertContains(response, "6 ejercicios por semana")
+        self.assertContains(response, "24 filas en total")
+        self.assertNotContains(response, "24 ejercicios")
+
+    def test_con_una_sola_semana_no_aclara_nada_sobre_filas(self):
+        """La aclaración solo hace falta cuando el número total y el de la
+        semana difieren."""
+        importacion = self._importar([[1, 1, f"Ejercicio {n}", 3, "10"] for n in (1, 2, 3)])
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "1 semana")
+        self.assertContains(response, "3 ejercicios por semana")
+        self.assertNotContains(response, "filas en total")
+
+    def test_la_pantalla_de_hojas_tambien_cuenta_por_semana(self):
+        importacion = self._importar(self.FILAS, hojas_extra=1)
+        response = self.client.get(
+            reverse("importaciones:plantillas_hojas", args=[importacion.pk])
+        )
+        self.assertContains(response, "Ejercicios por semana")
+        self.assertContains(response, "<td>6</td>", html=True)
+
+    def test_una_importacion_vieja_sin_las_claves_nuevas_no_rompe(self):
+        """El `resultado` de una `Importacion` EN_REVISION creada antes de
+        este deploy no tiene `semanas` ni `ejercicios_por_semana`."""
+        importacion = self._importar(self.FILAS)
+        for hoja in importacion.resultado["hojas"]:
+            hoja.pop("semanas"), hoja.pop("ejercicios_por_semana")
+        importacion.save(update_fields=["resultado"])
+
+        preview = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        hojas = self.client.get(
+            reverse("importaciones:plantillas_hojas", args=[importacion.pk])
+        )
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(hojas.status_code, 200)
+        self.assertContains(preview, "24 ejercicios")

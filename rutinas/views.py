@@ -28,7 +28,10 @@ from django.views.generic.detail import SingleObjectMixin
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
 from rutinas import progreso, services
-from rutinas.agrupacion import listar_ejercicios_del_dia
+from rutinas.agrupacion import (
+    listar_ejercicios_de_plantilla,
+    listar_ejercicios_del_dia,
+)
 from rutinas.forms import (
     AgregarEjercicioAsignadoForm,
     AsignarRutinaForm,
@@ -106,9 +109,41 @@ class RutinaPlantillaDetailView(StaffRequiredMixin, TenantScopedMixin, DetailVie
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # Ya vienen ordenados por dia/orden (Meta.ordering del modelo).
-        context["items"] = self.object.items.select_related("ejercicio").all()
-        context["incompletos"] = self.object.items_incompletos()
+        # Una sola query trae TODOS los items; el agrupado por día se hace en
+        # Python sobre esa lista. `ejercicio__categoria` no es opcional: la
+        # fila muestra el nombre, la categoría y el video de cada ejercicio,
+        # y sin el `select_related` cada uno sería una query.
+        items = list(self.object.items.select_related("ejercicio__categoria"))
+        # Las semanas que la plantilla TIENE, no siempre 1..4: un plan de dos
+        # semanas no debe mostrar dos columnas vacías.
+        semanas = sorted({item.semana for item in items})
+        context["dias"] = [
+            {
+                "numero": numero,
+                # Misma regla "gana la semana más baja" que ya usa
+                # `agrupacion.py` para este campo denormalizado.
+                "nombre": next(
+                    (
+                        item.dia_nombre
+                        for item in sorted(del_dia, key=lambda i: i.semana)
+                        if item.dia_nombre
+                    ),
+                    "",
+                ),
+                "ejercicios": listar_ejercicios_de_plantilla(
+                    del_dia, semanas=semanas
+                ),
+            }
+            for numero, del_dia in (
+                (n, [i for i in items if i.dia == n])
+                for n in sorted({item.dia for item in items})
+            )
+        ]
+        context["semanas"] = semanas
+        context["total_items"] = len(items)
+        # Sobre la lista que ya está en memoria, no `items_incompletos()`:
+        # sería una query más para contar lo mismo.
+        context["incompletos"] = sum(1 for item in items if not item.esta_completo)
         return context
 
 
@@ -238,12 +273,27 @@ class RutinaPlantillaItemUpdateView(ItemPlantillaMixin, UpdateView):
 
 class RutinaPlantillaItemDeleteView(ItemPlantillaMixin, View):
     """POST-only: no hay página de confirmación por GET, el botón de borrar
-    ya es la confirmación (ver template `plantilla_detail.html`)."""
+    ya es la confirmación (ver template `plantilla_detail.html`).
+
+    Borra el ejercicio de TODAS las semanas de ese día, no solo la del item
+    que se apretó. Desde que la tabla se agrupa por ejercicio (una fila, una
+    columna por semana) hay un solo botón por fila, y ese botón tiene que
+    hacer lo que la fila representa: un borrado de una sola semana dejaría
+    las otras tres en pantalla como si no hubiera pasado nada. Es la misma
+    regla que `services.quitar_ejercicio_asignado` ya aplica en la rutina
+    asignada, y el label del botón dice de cuántas semanas se trata.
+    """
 
     def post(self, request, *args, **kwargs):
         item = get_object_or_404(self.get_queryset(), pk=kwargs["pk"])
-        item.delete()
-        messages.success(request, "Ejercicio eliminado de la plantilla.")
+        borrados, _ = self.get_queryset().filter(
+            dia=item.dia, ejercicio_id=item.ejercicio_id
+        ).delete()
+        messages.success(
+            request,
+            f"«{item.ejercicio.nombre}» se quitó del día {item.dia} "
+            f"({borrados} semana{'s' if borrados != 1 else ''}).",
+        )
         return redirect(self.get_success_url())
 
 

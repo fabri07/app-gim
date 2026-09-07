@@ -37,7 +37,7 @@
           <tr>
             <th>Importar</th>
             <th>Hoja</th>
-            <th>Ejercicios</th>
+            <th>Ejercicios por semana</th>
             <th>Días</th>
             <th>Semanas</th>
           </tr>
@@ -60,7 +60,7 @@
                   <br><span class="texto-suave text-xs">{{ fila.motivo_exclusion }}</span>
                 {% endif %}
               </td>
-              <td>{{ fila.cantidad }}</td>
+              <td>{{ fila.por_semana }}</td>
               <td>{% if fila.cantidad %}{{ fila.dias }}{% else %}—{% endif %}</td>
               <td>{% if fila.cantidad %}{{ fila.semanas }}{% else %}—{% endif %}</td>
             </tr>

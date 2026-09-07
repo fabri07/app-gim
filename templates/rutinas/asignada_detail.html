@@ -125,7 +125,7 @@
         <table class="tabla tabla--rutina-semanas">
           <thead>
             <tr>
-              <th rowspan="2" scope="col">Ejercicio</th>
+              <th rowspan="2" scope="col" class="columna-ejercicio">Ejercicio</th>
               {% for semana in dia.semanas_meta %}
                 <th colspan="5" scope="colgroup"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>
                   Semana {{ semana.numero }}
@@ -148,7 +148,7 @@
           <tbody>
             {% for ejercicio in dia.ejercicios %}
               <tr>
-                <th scope="row">
+                <th scope="row" class="columna-ejercicio">
                   {% if ejercicio.bloque %}<span class="badge">{{ ejercicio.bloque }}</span> {% endif %}
                   {{ ejercicio.nombre }}
                   <br><span class="texto-suave text-xs">{{ ejercicio.categoria_display }}</span>

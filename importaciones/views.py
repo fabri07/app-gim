@@ -114,7 +114,10 @@ class SeleccionHojasView(StaffRequiredMixin, TenantScopedMixin, View):
                 "nombre_hoja": hoja["nombre_hoja"],
                 "cantidad": len(items),
                 "dias": hoja["dias_por_semana"],
-                "semanas": len({i["semana"] for i in items}),
+                # `.get()` con fallback: una `Importacion` EN_REVISION creada
+                # antes del deploy de estas claves no las tiene en su JSON.
+                "semanas": hoja.get("semanas") or len({i["semana"] for i in items}),
+                "por_semana": hoja.get("ejercicios_por_semana") or len(items),
                 "motivo_exclusion": hoja["motivo_exclusion"],
                 "marcada": marcada,
             }

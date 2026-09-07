@@ -64,49 +64,75 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
     if semanas is None:
         semanas = list(range(1, SEMANAS_POR_CICLO + 1))
 
-    por_nombre = {}
+    def describir(por_semana, referencia):
+        return {
+            "nombre": referencia.ejercicio_nombre_snapshot,
+            "categoria_display": (
+                referencia.categoria_snapshot or _SIN_CATEGORIA_DISPLAY
+            ),
+            # El video se busca en TODAS las semanas, no solo en la de
+            # referencia: el snapshot lo copia por item, y una semana cargada
+            # a mano puede haberlo dejado vacío.
+            "video": next(
+                (
+                    item.ejercicio_video_snapshot
+                    for _, item in sorted(por_semana.items())
+                    if item.ejercicio_video_snapshot
+                ),
+                "",
+            ),
+        }
+
+    return _filas_por_ejercicio(
+        items,
+        clave=lambda item: item.ejercicio_nombre_snapshot,
+        describir=describir,
+        semanas=semanas,
+        semana_actual=semana_actual,
+    )
+
+
+def _filas_por_ejercicio(items, *, clave, describir, semanas, semana_actual):
+    """Núcleo compartido por los dos agrupadores: junta los items del mismo
+    ejercicio, elige como representante el de la semana más baja y devuelve
+    una fila por ejercicio con una celda por semana.
+
+    Lo que cambia entre una `RutinaAsignada` y una `RutinaPlantilla` es solo
+    QUÉ identifica al mismo ejercicio (`clave`) y de dónde salen su nombre,
+    su categoría y su video (`describir`) -- el snapshot no tiene FK viva y
+    la plantilla sí. El resto (la regla "gana la semana más baja", el orden y
+    la forma del resultado) es idéntico, y está acá para que las dos vistas
+    no puedan divergir: comparten el template.
+    """
+    por_clave = {}
     for item in items:
-        entrada = por_nombre.setdefault(
-            item.ejercicio_nombre_snapshot,
-            {
-                "nombre": item.ejercicio_nombre_snapshot,
-                "video": "",
-                "semanas": {},
-            },
-        )
-        entrada["semanas"][item.semana] = item
-        if not entrada["video"] and item.ejercicio_video_snapshot:
-            entrada["video"] = item.ejercicio_video_snapshot
+        entrada = por_clave.setdefault(clave(item), {})
+        entrada[item.semana] = item
 
     resultado = []
-    for entrada in por_nombre.values():
-        semana_mas_baja = min(entrada["semanas"])
-        item_semana_mas_baja = entrada["semanas"][semana_mas_baja]
+    for por_semana in por_clave.values():
+        referencia = por_semana[min(por_semana)]
         resultado.append(
             {
-                "nombre": entrada["nombre"],
-                "categoria_display": (
-                    item_semana_mas_baja.categoria_snapshot
-                    or _SIN_CATEGORIA_DISPLAY
-                ),
-                "video": entrada["video"],
-                "orden": item_semana_mas_baja.orden,
+                **describir(por_semana, referencia),
+                "orden": referencia.orden,
                 # Misma regla que `categoria_display`: gana la semana más
                 # baja. `bloque` y `dia_nombre` están denormalizados por item,
                 # así que en teoría podrían diferir entre semanas del mismo
                 # ejercicio; elegir siempre la misma semana evita que el valor
                 # mostrado dependa del orden de iteración.
-                "bloque": item_semana_mas_baja.bloque,
-                "dia_nombre": item_semana_mas_baja.dia_nombre,
+                "bloque": referencia.bloque,
+                "dia_nombre": referencia.dia_nombre,
                 # El mismo item que ya define `orden`, `categoria_display`,
                 # `bloque` y `dia_nombre` de esta fila -- o sea, el
                 # representante del ejercicio. Se expone para que la vista de
                 # staff tenga un pk estable con el que armar los botones de
-                # "editar" y "quitar" de la FILA (que actúan sobre las 4
+                # "editar" y "quitar" de la FILA (que actúan sobre todas las
                 # semanas), sin tener que buscar "la primera celda no vacía"
                 # con lógica de template. El portal del alumno y el PDF lo
                 # ignoran: es un agregado aditivo, no cambia su salida.
-                "item_referencia": item_semana_mas_baja,
+                "item_referencia": referencia,
+                "semanas_cargadas": len(por_semana),
                 # Lista (no dict): los templates de Django no pueden
                 # indexar un dict con una clave dinámica sin un filtro
                 # custom, así que cada celda ya trae su propio número
@@ -115,7 +141,7 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
                 "semanas": [
                     {
                         "numero": semana,
-                        "item": entrada["semanas"].get(semana),
+                        "item": por_semana.get(semana),
                         "es_actual": semana == semana_actual,
                     }
                     for semana in semanas
@@ -124,3 +150,42 @@ def listar_ejercicios_del_dia(items, semanas=None, semana_actual=None):
         )
     resultado.sort(key=lambda ejercicio: ejercicio["orden"])
     return resultado
+
+
+def listar_ejercicios_de_plantilla(items, semanas=None):
+    """La versión para `RutinaPlantillaItem`: misma forma de salida que
+    `listar_ejercicios_del_dia`, para que el detalle de la plantilla y el de
+    la rutina asignada se lean igual.
+
+    Dos diferencias con el snapshot, las dos por la FK viva a `Ejercicio`:
+    identifica "el mismo ejercicio" por `ejercicio_id` (no por nombre, así
+    que renombrar en la biblioteca no parte la fila en dos), y el nombre, la
+    categoría y el video se leen del `Ejercicio` actual. `semana_actual` no
+    existe acá: una plantilla no está asignada a nadie, así que no hay
+    ninguna semana en curso que resaltar.
+
+    El caller tiene que traer los items con
+    `select_related("ejercicio__categoria")`: sin eso, cada fila es una query.
+    """
+    if semanas is None:
+        semanas = list(range(1, SEMANAS_POR_CICLO + 1))
+
+    def describir(por_semana, referencia):
+        ejercicio = referencia.ejercicio
+        return {
+            "nombre": ejercicio.nombre,
+            "categoria_display": (
+                ejercicio.categoria.nombre
+                if ejercicio.categoria_id
+                else _SIN_CATEGORIA_DISPLAY
+            ),
+            "video": ejercicio.url_video,
+        }
+
+    return _filas_por_ejercicio(
+        items,
+        clave=lambda item: item.ejercicio_id,
+        describir=describir,
+        semanas=semanas,
+        semana_actual=None,
+    )

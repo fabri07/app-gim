@@ -47,71 +47,101 @@
       <a class="boton" hx-boost="false" href="{% url 'rutinas:item_crear' plantilla.pk %}">Agregar ejercicio</a>
     </div>
 
-    <div class="tabla-scroll">
-      <table class="tabla">
-        <thead>
-          <tr>
-            <th>Semana</th>
-            <th>Día</th>
-            <th>Bloque</th>
-            <th>Orden</th>
-            <th>Ejercicio</th>
-            <th>Series</th>
-            <th>Repeticiones</th>
-            <th>Kilos</th>
-            <th>Descanso</th>
-            <th>Notas</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in items %}
+    {% comment %}
+      Una fila por EJERCICIO y una columna por semana, no una fila por
+      (ejercicio × semana). Es la misma reagrupación que la rutina asignada
+      recibió el 2026-08-31 y por el mismo motivo: un plan de 4 días × 4
+      semanas son ~172 filas planas, ilegibles, y encima el botón de quitar
+      aparecía repetido en cada semana prometiendo borrar solo la suya.
+      Comparten el agrupador (`rutinas/agrupacion.py`) para que no puedan
+      divergir.
+    {% endcomment %}
+    {% for dia in dias %}
+      <h3>
+        Día {{ dia.numero }}
+        {% if dia.nombre %}<span class="texto-suave">· {{ dia.nombre }}</span>{% endif %}
+      </h3>
+      <div class="tabla-scroll">
+        <table class="tabla tabla--rutina-semanas">
+          <thead>
             <tr>
-              <td>{{ item.semana }}</td>
-              <td>{{ item.dia }}{% if item.dia_nombre %}<br><span class="texto-suave text-xs">{{ item.dia_nombre }}</span>{% endif %}</td>
-              <td>{% if item.bloque %}<span class="badge">{{ item.bloque }}</span>{% else %}<span class="texto-suave">—</span>{% endif %}</td>
-              <td>{{ item.orden }}</td>
-              <td>
-              {{ item.ejercicio.nombre }}
-              {% comment %}
-                El video no es un dato de la plantilla sino del `Ejercicio`
-                de la biblioteca: al asignar, `crear_desde_plantilla` lo
-                copia al snapshot y el alumno lo ve en su día. Se muestra
-                acá para que el staff pueda detectar ANTES de asignar qué
-                ejercicios van a llegarle sin video.
-              {% endcomment %}
-              {% if item.ejercicio.url_video %}
-                <br><a href="{{ item.ejercicio.url_video }}" target="_blank" rel="noopener" class="text-xs">Ver video</a>
-              {% else %}
-                <br><span class="texto-suave text-xs">Sin video</span>
-              {% endif %}
-            </td>
-              {% if item.esta_completo %}
-                <td>{{ item.series }}</td>
-                <td>{{ item.repeticiones }}</td>
-              {% else %}
-                <td colspan="2"><span class="badge badge--urgente">A completar</span></td>
-              {% endif %}
-              <td>{{ item.kilos|default:"—" }}</td>
-              <td>{{ item.descanso|default:"—" }}</td>
-              <td>{{ item.notas|default:"—" }}</td>
-              <td>
-                <a hx-boost="false" href="{% url 'rutinas:item_editar' plantilla.pk item.pk %}">Editar</a>
-                &middot;
-                <form method="post" action="{% url 'rutinas:item_eliminar' plantilla.pk item.pk %}" style="display:inline">
-                  {% csrf_token %}
-                  <button type="submit" class="boton-peligro">Eliminar</button>
-                </form>
-              </td>
+              <th rowspan="2" scope="col" class="columna-ejercicio">Ejercicio</th>
+              {% for semana in semanas %}
+                <th colspan="4" scope="colgroup">Semana {{ semana }}</th>
+              {% endfor %}
+              <th rowspan="2" scope="col">Acciones</th>
             </tr>
-          {% empty %}
             <tr>
-              <td colspan="11" class="texto-suave">Esta plantilla todavía no tiene ejercicios.</td>
+              {% for semana in semanas %}
+                <th scope="col">Series</th>
+                <th scope="col">Reps</th>
+                <th scope="col">Kilos</th>
+                <th scope="col">Descanso</th>
+              {% endfor %}
             </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {% for ejercicio in dia.ejercicios %}
+              <tr>
+                <th scope="row" class="columna-ejercicio">
+                  {% if ejercicio.bloque %}<span class="badge">{{ ejercicio.bloque }}</span> {% endif %}
+                  {{ ejercicio.nombre }}
+                  <br><span class="texto-suave text-xs">{{ ejercicio.categoria_display }}</span>
+                  {% comment %} El video no es un dato de la plantilla sino del
+                    `Ejercicio` de la biblioteca: al asignar,
+                    `crear_desde_plantilla` lo copia al snapshot y el alumno lo
+                    ve en su día. Se muestra acá para que el staff detecte ANTES
+                    de asignar qué ejercicios van a llegarle sin video.
+                  {% endcomment %}
+                  {% if ejercicio.video %}
+                    <br><a href="{{ ejercicio.video }}" target="_blank" rel="noopener" class="text-xs">Ver video</a>
+                  {% else %}
+                    <br><span class="texto-suave text-xs">Sin video</span>
+                  {% endif %}
+                </th>
+
+                {% for semana in ejercicio.semanas %}
+                  {% if semana.item %}
+                    <td>
+                      {% if semana.item.series is not None %}{{ semana.item.series }}
+                      {% else %}<span class="badge badge--urgente">A completar</span>{% endif %}
+                    </td>
+                    <td>
+                      {% if semana.item.repeticiones %}{{ semana.item.repeticiones }}
+                      {% else %}<span class="badge badge--urgente">A completar</span>{% endif %}
+                    </td>
+                    <td>{{ semana.item.kilos|default:"—" }}</td>
+                    <td>
+                      {{ semana.item.descanso|default:"—" }}
+                      <br><a hx-boost="false" href="{% url 'rutinas:item_editar' plantilla.pk semana.item.pk %}" class="text-xs">Editar</a>
+                      {% if semana.item.notas %}
+                        <details>
+                          <summary>Notas</summary>
+                          <p class="texto-suave">{{ semana.item.notas }}</p>
+                        </details>
+                      {% endif %}
+                    </td>
+                  {% else %}
+                    <td colspan="4" class="texto-suave">—</td>
+                  {% endif %}
+                {% endfor %}
+
+                <td>
+                  <form method="post" action="{% url 'rutinas:item_eliminar' plantilla.pk ejercicio.item_referencia.pk %}">
+                    {% csrf_token %}
+                    <button type="submit" class="boton-peligro">
+                      Quitar de {% if ejercicio.semanas_cargadas == 1 %}la semana{% else %}las {{ ejercicio.semanas_cargadas }} semanas{% endif %}
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% empty %}
+      <p class="texto-suave">Esta plantilla todavía no tiene ejercicios.</p>
+    {% endfor %}
   </div>
 </div>
 {% endblock %}
