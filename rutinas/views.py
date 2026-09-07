@@ -16,6 +16,7 @@ de otro gimnasio, eso ya devuelve 404 antes de tocar ningún item.
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -59,6 +60,16 @@ class RutinaPlantillaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
     template_name = "rutinas/plantilla_list.html"
     context_object_name = "plantillas"
 
+    def get_queryset(self):
+        # Cuántos items están "a completar", como agregado en la misma query:
+        # nunca `items_incompletos()` por fila (es el N+1 de siempre).
+        return super().get_queryset().annotate(
+            incompletos=Count(
+                "items",
+                filter=Q(items__series__isnull=True) | Q(items__repeticiones=""),
+            )
+        )
+
 
 class RutinaPlantillaCreateView(StaffRequiredMixin, TenantScopedMixin, CreateView):
     model = RutinaPlantilla
@@ -97,6 +108,7 @@ class RutinaPlantillaDetailView(StaffRequiredMixin, TenantScopedMixin, DetailVie
         context = super().get_context_data(**kwargs)
         # Ya vienen ordenados por dia/orden (Meta.ordering del modelo).
         context["items"] = self.object.items.select_related("ejercicio").all()
+        context["incompletos"] = self.object.items_incompletos()
         return context
 
 

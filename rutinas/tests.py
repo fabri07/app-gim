@@ -4171,3 +4171,138 @@ class PlanPorVencerEnPantallaTests(RutinasTestCase):
             "El listado hace queries de más al crecer la cantidad de alumnos: "
             f"{len(con_pocos)} -> {len(con_muchos)}",
         )
+
+
+class ItemsACompletarTests(RutinasTestCase):
+    """Un item de plantilla puede quedar SIN series o repeticiones ("a
+    completar") -- es lo que permite que el importador de PDF traiga la
+    estructura del plan (ejercicios, días, semanas) aunque no reconozca los
+    detalles. Tres garantías alrededor de eso:
+
+    1. El snapshot que ve el alumno NUNCA nace incompleto:
+       `crear_desde_plantilla` rechaza una plantilla con items a completar
+       (y el form de asignar lo muestra como error de campo).
+    2. El editor de items sigue exigiendo series y repeticiones: editar un
+       item es justamente cómo se completa.
+    3. El staff lo ve: badge en el detalle y conteo en el listado.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+        self.plantilla, self.completo, _ = self.crear_plantilla_con_items()
+        self.incompleto = RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.sentadilla, dia=2, orden=1,
+            series=None, repeticiones="",
+        )
+
+    def test_el_modelo_acepta_series_y_repeticiones_vacias(self):
+        self.incompleto.refresh_from_db()
+        self.assertIsNone(self.incompleto.series)
+        self.assertEqual(self.incompleto.repeticiones, "")
+        self.assertFalse(self.incompleto.esta_completo)
+        self.assertTrue(self.completo.esta_completo)
+        self.assertEqual(self.plantilla.items_incompletos(), 1)
+
+    def test_sin_series_o_sin_repeticiones_cuenta_como_incompleto(self):
+        solo_series = RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.sentadilla, dia=3, orden=1,
+            series=3, repeticiones="",
+        )
+        self.assertFalse(solo_series.esta_completo)
+        self.assertEqual(self.plantilla.items_incompletos(), 2)
+
+    def test_no_se_puede_asignar_una_plantilla_con_items_a_completar(self):
+        with self.assertRaises(ValidationError) as ctx:
+            RutinaAsignada.crear_desde_plantilla(
+                gimnasio=self.gimnasio, alumno=self.alumno,
+                plantilla=self.plantilla, fecha_inicio=timezone.localdate(),
+            )
+        self.assertIn("1 ejercicio", str(ctx.exception))
+        self.assertFalse(RutinaAsignada.objects.exists())
+
+    def test_completar_el_item_destraba_la_asignacion(self):
+        self.incompleto.series = 3
+        self.incompleto.repeticiones = "12"
+        self.incompleto.save()
+        asignada = RutinaAsignada.crear_desde_plantilla(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            plantilla=self.plantilla, fecha_inicio=timezone.localdate(),
+        )
+        self.assertEqual(asignada.items.count(), 3)
+
+    def test_el_form_de_asignar_lo_muestra_como_error_de_campo(self):
+        response = self.client.post(reverse("rutinas:asignar"), {
+            "alumno": self.alumno.pk, "plantilla": self.plantilla.pk,
+            "fecha_inicio": timezone.localdate().isoformat(),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertFormError(
+            response.context["form"], "plantilla",
+            "Esta plantilla tiene 1 ejercicio sin series o repeticiones. "
+            "Completalo antes de asignarla.",
+        )
+        self.assertFalse(RutinaAsignada.objects.exists())
+
+    def test_duplicar_conserva_el_estado_a_completar(self):
+        copia = self.plantilla.duplicar()
+        self.assertEqual(copia.items_incompletos(), 1)
+
+    def test_el_editor_sigue_exigiendo_series_y_repeticiones(self):
+        """Completar es editar: si el form los dejara vacíos, "a completar"
+        sería un estado del que no hay forma de salir."""
+        response = self.client.post(
+            reverse("rutinas:item_editar", args=[self.plantilla.pk, self.incompleto.pk]),
+            {
+                "ejercicio": self.sentadilla.pk, "semana": 1, "dia": 2,
+                "dia_nombre": "", "bloque": "", "orden": 1,
+                "series": "", "repeticiones": "", "kilos": "", "descanso": "",
+                "notas": "",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFormError(response.context["form"], "series", "Este campo es obligatorio.")
+        self.assertFormError(
+            response.context["form"], "repeticiones", "Este campo es obligatorio."
+        )
+        self.incompleto.refresh_from_db()
+        self.assertIsNone(self.incompleto.series)
+
+    def test_el_detalle_marca_los_items_a_completar(self):
+        response = self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
+        )
+        self.assertContains(response, "A completar")
+        self.assertContains(response, "1 ejercicio para completar")
+        # El item completo no lleva el badge: se cuenta cuántos hay.
+        self.assertEqual(response.content.decode().count("A completar"), 1)
+        self.assertNotContains(response, "None")
+
+    def test_el_detalle_de_una_plantilla_completa_no_muestra_el_aviso(self):
+        self.incompleto.delete()
+        response = self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
+        )
+        self.assertNotContains(response, "para completar")
+
+    def test_el_listado_muestra_cuantos_faltan_por_plantilla(self):
+        response = self.client.get(reverse("rutinas:plantilla_listado"))
+        self.assertContains(response, "1 a completar")
+
+    def test_el_listado_cuenta_en_una_sola_query_agregada(self):
+        """Una plantilla más no puede costar una query más (patrón N+1 que
+        este proyecto ya pagó con un 502)."""
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse("rutinas:plantilla_listado"))
+        una = len(ctx)
+        for i in range(5):
+            copia = self.plantilla.duplicar()
+            copia.nombre = f"Copia {i}"
+            copia.save()
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(reverse("rutinas:plantilla_listado"))
+        self.assertEqual(una, len(ctx))

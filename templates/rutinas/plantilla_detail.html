@@ -32,6 +32,15 @@
     </p>
   </div>
 
+  {% if incompletos %}
+    <div class="aviso-urgente">
+      <strong>{{ incompletos }} ejercicio{{ incompletos|pluralize }} para completar</strong>
+      (sin series o repeticiones). Vienen así de una importación desde PDF:
+      editá cada uno para cargarle series y repeticiones. Hasta entonces esta
+      plantilla no se puede asignar a un alumno.
+    </div>
+  {% endif %}
+
   <div class="tarjeta">
     <div class="acciones-lista">
       <h2>Ejercicios</h2>
@@ -77,8 +86,12 @@
                 <br><span class="texto-suave text-xs">Sin video</span>
               {% endif %}
             </td>
-              <td>{{ item.series }}</td>
-              <td>{{ item.repeticiones }}</td>
+              {% if item.esta_completo %}
+                <td>{{ item.series }}</td>
+                <td>{{ item.repeticiones }}</td>
+              {% else %}
+                <td colspan="2"><span class="badge badge--urgente">A completar</span></td>
+              {% endif %}
               <td>{{ item.kilos|default:"—" }}</td>
               <td>{{ item.descanso|default:"—" }}</td>
               <td>{{ item.notas|default:"—" }}</td>

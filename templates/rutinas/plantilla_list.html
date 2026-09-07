@@ -36,6 +36,9 @@
               {% else %}
                 <span class="badge badge--riesgo">Inactiva</span>
               {% endif %}
+              {% if plantilla.incompletos %}
+                <span class="badge badge--urgente">{{ plantilla.incompletos }} a completar</span>
+              {% endif %}
             </td>
             <td>
               <a href="{% url 'rutinas:plantilla_detalle' plantilla.pk %}">Ver</a>

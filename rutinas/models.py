@@ -63,6 +63,14 @@ class RutinaPlantilla(TenantOwnedModel):
     def __str__(self):
         return self.nombre
 
+    def items_incompletos(self):
+        """Cuántos items están "a completar" (sin series o sin repeticiones).
+        Una query; el listado usa la misma condición como `Count` anotado
+        (`RutinaPlantillaListView`), no este método por fila."""
+        return self.items.filter(
+            models.Q(series__isnull=True) | models.Q(repeticiones="")
+        ).count()
+
     def duplicar(self):
         """Crea una copia independiente de esta plantilla y sus items.
 
@@ -105,6 +113,15 @@ class RutinaPlantilla(TenantOwnedModel):
         return copia
 
 
+def mensaje_plantilla_incompleta(cantidad):
+    """Mismo texto en el modelo y en `AsignarRutinaForm`."""
+    plural = "s" if cantidad != 1 else ""
+    return (
+        f"Esta plantilla tiene {cantidad} ejercicio{plural} sin series o "
+        f"repeticiones. Completalo{plural} antes de asignarla."
+    )
+
+
 class RutinaPlantillaItem(TimeStampedModel):
     """Un ejercicio dentro de un día de una `RutinaPlantilla`."""
 
@@ -132,9 +149,18 @@ class RutinaPlantillaItem(TimeStampedModel):
         help_text="Día N de la rutina (1..dias_por_semana), no día de la semana."
     )
     orden = models.PositiveSmallIntegerField(help_text="Orden dentro del día.")
-    series = models.PositiveSmallIntegerField()
+    # `series`/`repeticiones` son obligatorios en `RutinaPlantillaItemForm` y
+    # en el snapshot del alumno (`RutinaAsignadaItem`), pero acá pueden quedar
+    # vacíos: el importador de PDF (2026-09-07) trae la ESTRUCTURA del plan
+    # -- qué ejercicios, en qué día, en qué semanas -- aunque no reconozca los
+    # detalles, y el entrenador los completa desde el editor. Un item así está
+    # "a completar" (`esta_completo`), y `RutinaAsignada.crear_desde_plantilla`
+    # se niega a asignar la plantilla hasta que no quede ninguno: al alumno
+    # nunca le llega una fila vacía.
+    series = models.PositiveSmallIntegerField(null=True, blank=True)
     repeticiones = models.CharField(
         max_length=20,
+        blank=True,
         help_text='Notación libre: "10", "8-12", "AMRAP", etc.',
     )
     kilos = models.CharField(
@@ -170,6 +196,11 @@ class RutinaPlantillaItem(TimeStampedModel):
         verbose_name = "item de plantilla"
         verbose_name_plural = "items de plantilla"
         ordering = ["semana", "dia", "orden"]
+
+    @property
+    def esta_completo(self):
+        """Falso cuando faltan series o repeticiones ("a completar")."""
+        return self.series is not None and bool(self.repeticiones)
 
     def __str__(self):
         return f"Día {self.dia} · {self.ejercicio.nombre}"
@@ -430,6 +461,14 @@ class RutinaAsignada(TenantOwnedModel):
             raise ValidationError(
                 "La plantilla y el alumno deben pertenecer al gimnasio indicado."
             )
+
+        # El snapshot del alumno nunca nace incompleto: `RutinaAsignadaItem`
+        # exige series y repeticiones, y una fila vacía en el portal es lo que
+        # la obligatoriedad de esos campos siempre evitó. El form de asignar
+        # repite el chequeo para mostrarlo como error de campo.
+        incompletos = plantilla.items_incompletos()
+        if incompletos:
+            raise ValidationError(mensaje_plantilla_incompleta(incompletos))
 
         # Una rutina que arranca ANTES que la vigente nunca sería elegida por
         # `vigente_de` (que toma la más reciente): quedaría como una fila
