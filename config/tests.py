@@ -26,6 +26,16 @@ class DatabaseConfigTests(SimpleTestCase):
         self.assertIs(cfg["CONN_HEALTH_CHECKS"], True)
         self.assertEqual(cfg["CONN_MAX_AGE"], 600)
 
+    def test_postgres_desactiva_los_cursores_de_servidor(self):
+        """Producción entra a Neon por el pooler (PgBouncer en modo transacción).
+        Django exige `DISABLE_SERVER_SIDE_CURSORS` con ese tipo de pooler: un
+        cursor con nombre (`DECLARE`) puede caer en otra conexión del pool que
+        el `FETCH`. Se descubrió el 2026-09-07 con un worker de gunicorn muerto
+        por timeout dentro de `ModelChoiceIterator` (que usa `.iterator()`)
+        al renderizar el preview del importador."""
+        cfg = database_config(URL_POSTGRES, debug=False, base_dir=Path("/tmp"))
+        self.assertIs(cfg["DISABLE_SERVER_SIDE_CURSORS"], True)
+
     def test_postgres_exige_ssl_fuera_de_debug(self):
         cfg = database_config(URL_POSTGRES, debug=False, base_dir=Path("/tmp"))
         self.assertEqual(cfg["OPTIONS"]["sslmode"], "require")
