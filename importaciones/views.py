@@ -66,6 +66,15 @@ class SubirPlantillasView(StaffRequiredMixin, TenantScopedMixin, FormView):
         except ImportacionInvalida as exc:
             form.add_error(None, str(exc))
             return self.form_invalid(form)
+        # Con una sola hoja (todo PDF, y el Excel de una hoja) no hay nada que
+        # elegir: la pantalla de hojas sería un "Continuar" obligatorio.
+        hojas = importacion.resultado["hojas"]
+        if len(hojas) == 1 and hojas[0]["items"]:
+            importacion.resultado = {
+                **importacion.resultado, "hojas_elegidas": [hojas[0]["nombre_hoja"]],
+            }
+            importacion.save(update_fields=["resultado"])
+            return redirect("importaciones:plantillas_preview", pk=importacion.pk)
         return redirect("importaciones:plantillas_hojas", pk=importacion.pk)
 
 

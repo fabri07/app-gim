@@ -15,21 +15,27 @@ from rutinas.models import RutinaPlantilla
 
 
 class SubirArchivoForm(forms.Form):
-    archivo = forms.FileField(
-        validators=[FileExtensionValidator(allowed_extensions=["xlsx"])]
-    )
-
     def __init__(self, *args, gimnasio, **kwargs):
         super().__init__(*args, **kwargs)
         self.gimnasio = gimnasio
 
 
 class SubirPlantillasForm(SubirArchivoForm):
-    pass
+    # `.pdf` solo acá: un plan en PDF se lee en modo tolerante (ver
+    # `parsing/pdf.py`); la biblioteca sigue siendo solo Excel, nadie lo pidió.
+    archivo = forms.FileField(
+        label="Archivo",
+        validators=[FileExtensionValidator(allowed_extensions=["xlsx", "pdf"])],
+        widget=forms.ClearableFileInput(attrs={"accept": ".xlsx,.pdf"}),
+    )
 
 
 class SubirBibliotecaForm(SubirArchivoForm):
-    pass
+    archivo = forms.FileField(
+        label="Archivo",
+        validators=[FileExtensionValidator(allowed_extensions=["xlsx"])],
+        widget=forms.ClearableFileInput(attrs={"accept": ".xlsx"}),
+    )
 
 
 class HojaMetadataForm(forms.Form):

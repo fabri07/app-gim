@@ -19,6 +19,10 @@ from importaciones.matching import (
 )
 from importaciones.models import Importacion
 from importaciones.parsing import (
+    ERRORES_PDF,
+    MAX_PAGINAS_PDF,
+    PdfDemasiadoLargo,
+    PdfSinTexto,
     ALIAS_PLANTILLA,
     FILAS_BUSQUEDA_ENCABEZADO,
     ColumnaRequeridaFaltante,
@@ -38,7 +42,7 @@ from rutinas.models import (
 # InvalidFileException (formato no reconocido) o BadZipFile (un .xlsx es
 # un zip; si el contenido no es un zip válido, falla ahí). Ambas se tratan
 # igual: mensaje en español, no un 500.
-ERRORES_ARCHIVO_INVALIDO = (InvalidFileException, KeyError, zipfile.BadZipFile)
+ERRORES_ARCHIVO_INVALIDO = (InvalidFileException, KeyError, zipfile.BadZipFile) + ERRORES_PDF
 
 
 class ImportacionInvalida(Exception):
@@ -120,9 +124,20 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
     recién al confirmar (fuera del alcance de esta función)."""
     try:
         hojas = parsear_archivo_plantillas(archivo)
+    except PdfSinTexto:
+        raise ImportacionInvalida(
+            "Este PDF es una imagen (foto o escaneo) y no tiene texto que se "
+            "pueda leer. Exportalo desde Excel o Google Sheets como PDF, o "
+            "subí el .xlsx."
+        )
+    except PdfDemasiadoLargo as exc:
+        raise ImportacionInvalida(
+            f"El PDF tiene {exc.paginas} páginas; un plan de entrenamiento no "
+            f"debería pasar de {MAX_PAGINAS_PDF}."
+        )
     except ERRORES_ARCHIVO_INVALIDO:
         raise ImportacionInvalida(
-            "No se pudo leer el archivo. Verificá que sea un .xlsx válido."
+            "No se pudo leer el archivo. Verificá que sea un .xlsx o un .pdf válido."
         )
 
     # Antes de resolver nada contra el catálogo, se descartan las filas que no
@@ -178,6 +193,11 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
                 "motivo_exclusion": hoja.motivo_exclusion,
                 "layout": hoja.layout,
                 "fila_encabezado": hoja.fila_encabezado,
+                # Solo la lectura tolerante (PDF) deja items sin series o
+                # repeticiones; el preview lo muestra por hoja.
+                "items_incompletos": sum(
+                    1 for item in items_por_hoja[hoja.nombre_hoja] if not item.esta_completo
+                ),
             }
             for hoja in hojas
         ],
@@ -187,7 +207,7 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
         # biblioteca (un solo archivo/hoja).
         "advertencias_columnas": [
             advertencia for hoja in hojas for advertencia in hoja.advertencias_columnas
-        ],
+        ] + _advertencia_de_incompletos(items_por_hoja),
     }
 
     return Importacion.objects.create(
@@ -197,6 +217,24 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
         resultado=resultado_json,
         creado_por=usuario,
     )
+
+
+def _advertencia_de_incompletos(items_por_hoja):
+    """Un aviso a nivel archivo si la lectura tolerante dejó items sin series
+    o repeticiones, con el camino para terminarlos."""
+    incompletos = sum(
+        1 for items in items_por_hoja.values() for item in items if not item.esta_completo
+    )
+    if not incompletos:
+        return []
+    plural = "s" if incompletos != 1 else ""
+    verbo = "entraron" if incompletos != 1 else "entró"
+    return [
+        f"{incompletos} ejercicio{plural} {verbo} sin series o repeticiones "
+        f"(el PDF no las tenía o no se pudieron leer). Después de confirmar, "
+        f"completalo{plural} desde la plantilla: van marcados «A completar» y "
+        f"hasta entonces la plantilla no se puede asignar."
+    ]
 
 
 def construir_ejemplo_plantillas():
@@ -239,6 +277,9 @@ def construir_ejemplo_plantillas():
     for campo, alias in ALIAS_PLANTILLA.items():
         ayuda.append([campo, ", ".join(alias)])
     ayuda.append([])
+    ayuda.append(["También se puede subir el plan en PDF (exportado desde Excel o"])
+    ayuda.append(["Google Sheets, con texto, no una foto): se toman los ejercicios,"])
+    ayuda.append(["los días y las semanas, y lo que falte se completa después."])
     ayuda.append(["También se puede importar una planilla con las semanas a lo ancho"])
     ayuda.append(["(SEMANA 1, SEMANA 2... como encabezados de grupo), que es el"])
     ayuda.append(["formato de la mayoría de las planillas compradas."])

@@ -12,7 +12,9 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
+from django.utils import timezone
 
+from alumnos.models import Alumno
 from ejercicios.models import CategoriaEjercicio, Ejercicio
 from importaciones.matching import (
     resolver_categorias,
@@ -35,7 +37,10 @@ from importaciones.parsing import (
     mejor_encabezado_parcial,
     leer_hoja_biblioteca,
     leer_hoja_plantilla,
+    MAX_PAGINAS_PDF,
     normalizar_texto,
+    PdfDemasiadoLargo,
+    PdfSinTexto,
     parsear_archivo_biblioteca,
     parsear_archivo_plantillas,
 )
@@ -47,7 +52,7 @@ from importaciones.services import (
     previsualizar_importacion_biblioteca,
     previsualizar_importacion_plantillas,
 )
-from rutinas.models import RutinaPlantilla, RutinaPlantillaItem
+from rutinas.models import RutinaAsignada, RutinaPlantilla, RutinaPlantillaItem
 from tenants.models import Gimnasio, Perfil
 
 
@@ -999,19 +1004,10 @@ class ImportacionPlantillasViewsTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         importacion = Importacion.objects.get()
-        self.assertRedirects(
-            response, reverse("importaciones:plantillas_hojas", args=[importacion.pk])
-        )
-
-        # Paso nuevo: elegir qué hojas del archivo son planes.
-        response = self.client.get(response.url)
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Hombres")
-
-        response = self.client.post(
-            reverse("importaciones:plantillas_hojas", args=[importacion.pk]),
-            {"hojas": ["Hombres"]},
-        )
+        # Con una sola hoja no hay nada que elegir: va directo al preview
+        # (2026-09-07). El paso de hojas se ejercita con archivos de varias
+        # hojas en `SeleccionDeHojasTests` e `ImportarPdfFlujoTests`.
+        self.assertEqual(importacion.resultado["hojas_elegidas"], ["Hombres"])
         self.assertRedirects(
             response, reverse("importaciones:plantillas_preview", args=[importacion.pk])
         )
@@ -4041,3 +4037,346 @@ class LecturaToleranteTests(SimpleTestCase):
 
     def test_items_incompletos_es_cero_en_una_hoja_normal(self):
         self.assertEqual(leer_hoja_plantilla(_hoja_plantilla_basica()).items_incompletos, 0)
+
+
+# ---------------------------------------------------------------------------
+# Planes en PDF (2026-09-07)
+# ---------------------------------------------------------------------------
+
+def _pdf_a_upload(pdf, nombre="plan.pdf"):
+    return SimpleUploadedFile(nombre, bytes(pdf.output()), content_type="application/pdf")
+
+
+def _nuevo_pdf():
+    from fpdf import FPDF
+    pdf = FPDF(orientation="L")
+    pdf.set_auto_page_break(auto=True, margin=10)
+    pdf.set_font("Helvetica", size=7)
+    return pdf
+
+
+def _pdf_con_tabla(filas, *, paginas=1, nombre="plan.pdf"):
+    """Un PDF con la tabla dibujada con bordes (como exporta Excel). Con
+    `paginas > 1` las filas de datos se reparten y las DOS primeras filas
+    (el encabezado) se repiten en cada página, como hace Excel con "repetir
+    filas de título"."""
+    pdf = _nuevo_pdf()
+    encabezado, datos = filas[:2], filas[2:]
+    por_pagina = -(-len(datos) // paginas)
+    for i in range(paginas):
+        pdf.add_page()
+        with pdf.table(first_row_as_headings=False) as tabla:
+            for fila in encabezado + datos[i * por_pagina:(i + 1) * por_pagina]:
+                celda = tabla.row()
+                for valor in fila:
+                    celda.cell("" if valor is None else str(valor))
+    return _pdf_a_upload(pdf, nombre)
+
+
+def _pdf_con_texto(lineas, nombre="plan.pdf"):
+    """Un PDF de texto suelto, sin bordes ni celdas: lo que sale de un plan
+    escrito en Word o de una planilla exportada sin líneas de cuadrícula."""
+    pdf = _nuevo_pdf()
+    pdf.add_page()
+    for linea in lineas:
+        pdf.multi_cell(0, 4, linea, new_x="LMARGIN", new_y="NEXT")
+    return _pdf_a_upload(pdf, nombre)
+
+
+FILAS_ANCHA_PDF = [
+    ["", "", "EJERCICIOS", "SEMANA 1", "", "", "", "SEMANA 2", "", "", ""],
+    ["", "", "", "Series", "Reps", "Carga", "RPE", "Series", "Reps", "Carga", "RPE"],
+    ["DIA 1\n- CORE", "A1.", "Plancha", "4", "20", "", "", "4", "25", "", ""],
+    ["", "A2.", "Press Pallof", "3", "12", "10KG", "", "3", "15", "12KG", ""],
+    ["", "B1.", "Sentadilla goblet", "4", "10", "16KG", "", "4", "12", "16KG", ""],
+    ["DIA 2\n- TREN SUPERIOR", "A1.", "Press banca", "4", "8", "40KG", "", "4", "8", "42KG", ""],
+    ["", "A2.", "Remo con barra", "4", "10", "30KG", "", "4", "10", "32KG", ""],
+]
+
+
+class LeerPdfTests(SimpleTestCase):
+    """El PDF no tiene celdas: se reconstruye la tabla con pdfplumber y se
+    la pasa por los MISMOS lectores del Excel (en modo tolerante). Si no hay
+    tabla que reconstruir, se lee el texto línea por línea priorizando lo que
+    importa: ejercicios, días y semanas."""
+
+    def _leer(self, archivo):
+        return parsear_archivo_plantillas(archivo)[0]
+
+    def test_una_tabla_ancha_se_lee_como_el_excel(self):
+        hoja = self._leer(_pdf_con_tabla(FILAS_ANCHA_PDF))
+        self.assertEqual(hoja.layout, "ancha")
+        self.assertEqual(hoja.filas_invalidas, [])
+        self.assertEqual(len(hoja.items), 10)
+        self.assertEqual(hoja.dias_por_semana, 2)
+        pallof = [i for i in hoja.items if i.ejercicio_original == "Press Pallof"]
+        self.assertEqual(
+            [(i.semana, i.dia, i.bloque, i.series, i.repeticiones, i.kilos, i.dia_nombre) for i in pallof],
+            [(1, 1, "A2", 3, "12", "10KG", "CORE"), (2, 1, "A2", 3, "15", "12KG", "CORE")],
+        )
+
+    def test_un_nombre_ajustado_al_ancho_de_la_celda_se_lee_entero(self):
+        """Con el Excel real exportado a PDF, pdfplumber devuelve los nombres
+        largos con saltos de línea donde la celda los cortó ("PUENTE\\nSUPINO
+        \\nUNILATERAL"). El salto seguido de viñeta del marcador de día sí es
+        un renglón real y se conserva."""
+        filas = [list(f) for f in FILAS_ANCHA_PDF]
+        filas[4][2] = "PUENTE\nSUPINO\nUNILATERAL"
+        filas[5][0] = "DIA 2\n- TREN\nSUPERIOR\n- CORE"
+        hoja = self._leer(_pdf_con_tabla(filas))
+        nombres = {i.ejercicio_original for i in hoja.items}
+        self.assertIn("PUENTE SUPINO UNILATERAL", nombres)
+        self.assertEqual(
+            {i.dia_nombre for i in hoja.items if i.dia == 2}, {"TREN SUPERIOR · CORE"}
+        )
+
+    def test_la_hoja_se_llama_como_el_archivo(self):
+        hoja = self._leer(_pdf_con_tabla(FILAS_ANCHA_PDF, nombre="Plan de Eve.pdf"))
+        self.assertEqual(hoja.nombre_hoja, "Plan de Eve")
+
+    def test_una_tabla_larga_se_lee_como_tabla_simple(self):
+        hoja = self._leer(_pdf_con_tabla([
+            ["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"],
+            ["1", "1", "Press de banca", "4", "8-12"],
+            ["1", "1", "Sentadilla", "3", "10"],
+            ["1", "2", "Peso muerto", "3", "6"],
+        ]))
+        self.assertEqual(hoja.layout, "tabular")
+        self.assertEqual([(i.dia, i.ejercicio_original, i.series) for i in hoja.items],
+                         [(1, "Press de banca", 4), (1, "Sentadilla", 3), (2, "Peso muerto", 3)])
+
+    def test_el_encabezado_repetido_en_cada_pagina_no_genera_filas(self):
+        una = self._leer(_pdf_con_tabla(FILAS_ANCHA_PDF, paginas=1))
+        dos = self._leer(_pdf_con_tabla(FILAS_ANCHA_PDF, paginas=2))
+        self.assertEqual(dos.filas_invalidas, [])
+        self.assertEqual(
+            [(i.semana, i.dia, i.ejercicio_original, i.series) for i in dos.items],
+            [(i.semana, i.dia, i.ejercicio_original, i.series) for i in una.items],
+        )
+
+    def test_un_detalle_ilegible_deja_el_item_a_completar(self):
+        filas = [list(f) for f in FILAS_ANCHA_PDF]
+        filas[3][3] = "muchas"   # series de la semana 1 de Press Pallof
+        hoja = self._leer(_pdf_con_tabla(filas))
+        self.assertEqual(hoja.filas_invalidas, [])
+        pallof_s1 = next(i for i in hoja.items if i.ejercicio_original == "Press Pallof" and i.semana == 1)
+        self.assertIsNone(pallof_s1.series)
+        self.assertEqual(pallof_s1.repeticiones, "12")
+        self.assertEqual(hoja.items_incompletos, 1)
+
+    def test_texto_sin_bordes_reconoce_dias_semanas_y_ejercicios(self):
+        hoja = self._leer(_pdf_con_texto([
+            "PLAN DE ENTRENAMIENTO - AGOSTO",
+            "EJERCICIOS SEMANA 1 SEMANA 2",
+            "Series Reps Carga RPE Series Reps Carga RPE",
+            "DIA 1 - CORE",
+            "A1. Plancha 4 20 4 25",
+            "A2. Press Pallof 3 12 10KG 3 15 12KG",
+            "B1. Sentadilla bulgara",
+            "DIA 2",
+            "- TREN SUPERIOR",
+            "A1. Press banca 4x8 40kg 4x8 42kg",
+            "Remo con barra 4 10",
+        ]))
+        self.assertEqual(hoja.layout, "pdf_texto")
+        self.assertEqual(hoja.dias_por_semana, 2)
+        self.assertEqual(hoja.motivo_exclusion, None)
+        por_nombre = {}
+        for i in hoja.items:
+            por_nombre.setdefault(i.ejercicio_original, []).append(i)
+        self.assertEqual(
+            set(por_nombre),
+            {"Plancha", "Press Pallof", "Sentadilla bulgara", "Press banca", "Remo con barra"},
+        )
+        self.assertEqual(
+            [(i.semana, i.dia, i.bloque, i.series, i.repeticiones, i.dia_nombre) for i in por_nombre["Plancha"]],
+            [(1, 1, "A1", 4, "20", "CORE"), (2, 1, "A1", 4, "25", "CORE")],
+        )
+        self.assertEqual(
+            [(i.semana, i.series, i.repeticiones, i.kilos) for i in por_nombre["Press Pallof"]],
+            [(1, 3, "12", "10KG"), (2, 3, "15", "12KG")],
+        )
+        # Sin números: está en el plan, en las dos semanas, a completar.
+        self.assertEqual(
+            [(i.semana, i.series, i.repeticiones) for i in por_nombre["Sentadilla bulgara"]],
+            [(1, None, ""), (2, None, "")],
+        )
+        self.assertEqual(
+            [(i.semana, i.dia, i.series, i.repeticiones, i.kilos, i.dia_nombre) for i in por_nombre["Press banca"]],
+            [(1, 2, 4, "8", "40kg", "TREN SUPERIOR"), (2, 2, 4, "8", "42kg", "TREN SUPERIOR")],
+        )
+        # Números para una sola semana: la otra queda a completar.
+        self.assertEqual(
+            [(i.semana, i.series, i.repeticiones, i.bloque) for i in por_nombre["Remo con barra"]],
+            [(1, 4, "10", ""), (2, None, "", "")],
+        )
+        self.assertEqual(hoja.items_incompletos, 3)
+
+    def test_texto_sin_semanas_entra_todo_en_la_semana_1(self):
+        hoja = self._leer(_pdf_con_texto([
+            "DIA 1", "Sentadilla 3x10", "Press banca 3 8-12", "DIA 2", "Peso muerto 3 6",
+        ]))
+        self.assertEqual({i.semana for i in hoja.items}, {1})
+        self.assertEqual(
+            [(i.dia, i.ejercicio_original, i.series, i.repeticiones) for i in hoja.items],
+            [(1, "Sentadilla", 3, "10"), (1, "Press banca", 3, "8-12"), (2, "Peso muerto", 3, "6")],
+        )
+
+    def test_texto_sin_nada_reconocible_se_excluye_con_motivo(self):
+        hoja = self._leer(_pdf_con_texto(["Hola", "1 2 3", "Series Reps"]))
+        self.assertEqual(hoja.items, [])
+        self.assertIn("no reconocí", hoja.motivo_exclusion)
+
+    def test_un_pdf_que_es_solo_imagen_se_rechaza(self):
+        from PIL import Image
+        pdf = _nuevo_pdf()
+        pdf.add_page()
+        imagen = io.BytesIO()
+        Image.new("RGB", (200, 100), "white").save(imagen, format="PNG")
+        imagen.seek(0)
+        pdf.image(imagen, x=10, y=10, w=100)
+        with self.assertRaises(PdfSinTexto):
+            parsear_archivo_plantillas(_pdf_a_upload(pdf))
+
+    def test_un_pdf_demasiado_largo_se_rechaza_antes_de_leerlo(self):
+        pdf = _nuevo_pdf()
+        for _ in range(MAX_PAGINAS_PDF + 1):
+            pdf.add_page()
+            pdf.cell(0, 5, "DIA 1")
+        with self.assertRaises(PdfDemasiadoLargo):
+            parsear_archivo_plantillas(_pdf_a_upload(pdf))
+
+
+class ImportarPdfFlujoTests(TestCase):
+    """De punta a punta: subir el PDF, confirmar, ver los items a completar
+    en la plantilla, completarlos y recién ahí poder asignarla."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.categoria = CategoriaEjercicio.objects.create(gimnasio=self.gimnasio, nombre="Core")
+        self.staff = User.objects.create_user("staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+
+    def _subir(self, archivo):
+        return self.client.post(reverse("importaciones:plantillas_subir"), {"archivo": archivo})
+
+    def test_un_archivo_de_una_sola_hoja_va_directo_al_preview(self):
+        response = self._subir(_pdf_con_tabla(FILAS_ANCHA_PDF))
+        importacion = Importacion.objects.get()
+        self.assertRedirects(
+            response, reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertEqual(importacion.resultado["hojas_elegidas"], ["plan"])
+
+    def test_un_xlsx_de_una_sola_hoja_tambien_va_directo_al_preview(self):
+        wb = openpyxl.Workbook()
+        wb.active.title = "plan agosto"
+        for fila in [["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"], [1, 1, "Sentadilla", 3, "10"]]:
+            wb.active.append(fila)
+        response = self._subir(_archivo_xlsx(wb))
+        importacion = Importacion.objects.get()
+        self.assertRedirects(
+            response, reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+
+    def test_un_xlsx_de_varias_hojas_sigue_pasando_por_elegir_hojas(self):
+        wb = openpyxl.Workbook()
+        wb.active.title = "plan"
+        for fila in [["Semana", "Dia", "Ejercicio", "Series", "Repeticiones"], [1, 1, "Sentadilla", 3, "10"]]:
+            wb.active.append(fila)
+        wb.create_sheet("AUX").append(["cualquier cosa"])
+        response = self._subir(_archivo_xlsx(wb))
+        importacion = Importacion.objects.get()
+        self.assertRedirects(
+            response, reverse("importaciones:plantillas_hojas", args=[importacion.pk])
+        )
+
+    def test_el_preview_avisa_cuantos_quedan_a_completar(self):
+        self._subir(_pdf_con_texto(["DIA 1", "Sentadilla 3x10", "Press banca"]))
+        importacion = Importacion.objects.get()
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "1 ejercicio entró sin series o repeticiones")
+        self.assertContains(response, "1 a completar")
+        self.assertNotContains(response, "None")
+
+    def test_confirmar_crea_la_plantilla_con_items_a_completar_y_asignar_espera(self):
+        self._subir(_pdf_con_texto(["DIA 1", "Sentadilla 3x10", "Press banca"]))
+        importacion = Importacion.objects.get()
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "0",
+            "form-0-nombre_hoja": "plan", "form-0-incluir": "on",
+            "form-0-objetivo": "Fuerza", "form-0-nivel": "principiante",
+            "ejercicios-TOTAL_FORMS": "2", "ejercicios-INITIAL_FORMS": "0",
+        }
+        for i, nombre in enumerate(["sentadilla", "press banca"]):
+            datos[f"ejercicios-{i}-nombre_normalizado"] = nombre
+            datos[f"ejercicios-{i}-accion"] = "crear_nuevo"
+            datos[f"ejercicios-{i}-categoria"] = self.categoria.pk
+        response = self.client.post(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk]), datos
+        )
+        self.assertRedirects(response, reverse("rutinas:plantilla_listado"))
+
+        plantilla = RutinaPlantilla.objects.get()
+        self.assertEqual(plantilla.nombre, "plan")
+        self.assertEqual(plantilla.items_incompletos(), 1)
+        press = plantilla.items.get(ejercicio__nombre="Press banca")
+        self.assertIsNone(press.series)
+        self.assertEqual(press.repeticiones, "")
+
+        detalle = self.client.get(reverse("rutinas:plantilla_detalle", args=[plantilla.pk]))
+        self.assertContains(detalle, "A completar")
+        self.assertContains(detalle, "1 ejercicio para completar")
+
+        alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="P")
+        asignar = self.client.post(reverse("rutinas:asignar"), {
+            "alumno": alumno.pk, "plantilla": plantilla.pk,
+            "fecha_inicio": timezone.localdate().isoformat(),
+        })
+        self.assertEqual(asignar.status_code, 200)
+        self.assertFalse(RutinaAsignada.objects.exists())
+
+        completar = self.client.post(
+            reverse("rutinas:item_editar", args=[plantilla.pk, press.pk]),
+            {
+                "ejercicio": press.ejercicio_id, "semana": 1, "dia": 1, "dia_nombre": "",
+                "bloque": "", "orden": press.orden, "series": 3, "repeticiones": "8",
+                "kilos": "", "descanso": "", "notas": "",
+            },
+        )
+        self.assertEqual(completar.status_code, 302)
+        asignar = self.client.post(reverse("rutinas:asignar"), {
+            "alumno": alumno.pk, "plantilla": plantilla.pk,
+            "fecha_inicio": timezone.localdate().isoformat(),
+        })
+        self.assertEqual(asignar.status_code, 302)
+        self.assertEqual(RutinaAsignada.objects.get().items.count(), 2)
+
+    def test_un_pdf_que_es_solo_imagen_muestra_el_mensaje_de_foto(self):
+        from PIL import Image
+        pdf = _nuevo_pdf()
+        pdf.add_page()
+        imagen = io.BytesIO()
+        Image.new("RGB", (200, 100), "white").save(imagen, format="PNG")
+        imagen.seek(0)
+        pdf.image(imagen, x=10, y=10, w=100)
+        response = self._subir(_pdf_a_upload(pdf))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "foto o escaneo")
+        self.assertFalse(Importacion.objects.exists())
+
+    def test_un_pdf_corrupto_no_da_500(self):
+        response = self._subir(SimpleUploadedFile("plan.pdf", b"%PDF-1.4 basura basura basura"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "No se pudo leer el archivo")
+        self.assertFalse(Importacion.objects.exists())
+
+    def test_la_biblioteca_sigue_rechazando_pdf(self):
+        response = self.client.post(
+            reverse("importaciones:biblioteca_subir"), {"archivo": _pdf_con_tabla(FILAS_ANCHA_PDF)}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Importacion.objects.exists())

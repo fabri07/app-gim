@@ -25,10 +25,13 @@
         <p class="texto-suave">
           {{ hoja.items|length }} ejercicio{{ hoja.items|length|pluralize }} ·
           {{ hoja.dias_por_semana }} día{{ hoja.dias_por_semana|pluralize }}
+          {% if hoja.items_incompletos %}
+            · <span class="badge badge--urgente">{{ hoja.items_incompletos }} a completar</span>
+          {% endif %}
           {% if hoja.items %}
             · leído como
-            {% if hoja.layout == "ancha" %}tabla con las semanas a lo ancho{% else %}tabla simple{% endif %},
-            con los títulos en la fila {{ hoja.fila_encabezado }}
+            {% if hoja.layout == "ancha" %}tabla con las semanas a lo ancho{% elif hoja.layout == "pdf_texto" %}texto de un PDF, sin tabla{% else %}tabla simple{% endif %}{% if hoja.fila_encabezado %},
+            con los títulos en la fila {{ hoja.fila_encabezado }}{% endif %}
           {% endif %}
         </p>
         {% if hoja.motivo_exclusion %}
@@ -52,8 +55,8 @@
                     <td>{{ item.semana }}</td>
                     <td>{% if item.bloque %}<span class="badge">{{ item.bloque }}</span>{% else %}<span class="texto-suave">—</span>{% endif %}</td>
                     <td>{{ item.ejercicio_original }}</td>
-                    <td>{{ item.series }}</td>
-                    <td>{{ item.repeticiones }}</td>
+                    <td>{% if item.series is not None %}{{ item.series }}{% else %}<span class="badge badge--urgente">a completar</span>{% endif %}</td>
+                    <td>{% if item.repeticiones %}{{ item.repeticiones }}{% else %}<span class="badge badge--urgente">a completar</span>{% endif %}</td>
                     <td>{% if item.kilos %}{{ item.kilos }}{% else %}<span class="texto-suave">—</span>{% endif %}</td>
                   </tr>
                 {% endfor %}
