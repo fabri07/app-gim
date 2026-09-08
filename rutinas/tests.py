@@ -4804,3 +4804,80 @@ class GuardarDiaDePlantillaTests(RutinasTestCase):
         response = self._guardar(1, filas)
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.plantilla.items.count(), 200)
+
+
+class ReducirDiasDeLaPlantillaTests(RutinasTestCase):
+    """Bajar `dias_por_semana` deja los ejercicios de los días que sobran
+    fuera de la grilla. Antes seguían en la base, invisibles, y le llegaban
+    igual al alumno al asignar."""
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+        self.plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Plan", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=3,
+        )
+        for dia in (1, 2, 3):
+            RutinaPlantillaItem.objects.create(
+                rutina=self.plantilla, ejercicio=self.press_banca, semana=1,
+                dia=dia, orden=1, series=3, repeticiones="10",
+            )
+
+    def _editar(self, dias, confirmar=False):
+        datos = {
+            "nombre": "Plan", "objetivo": "Fuerza",
+            "nivel": RutinaPlantilla.Nivel.INTERMEDIO,
+            "dias_por_semana": dias, "activa": "on",
+        }
+        if confirmar:
+            datos["confirmar_borrado_de_dias"] = "1"
+        return self.client.post(
+            reverse("rutinas:plantilla_editar", args=[self.plantilla.pk]), datos
+        )
+
+    def test_bajar_los_dias_pide_confirmacion_y_no_borra_nada(self):
+        response = self._editar(2)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "1 ejercicio")
+        self.assertContains(response, "día 3")
+        self.plantilla.refresh_from_db()
+        self.assertEqual(self.plantilla.dias_por_semana, 3)
+        self.assertEqual(self.plantilla.items.count(), 3)
+
+    def test_confirmar_baja_los_dias_y_borra_lo_que_sobra(self):
+        response = self._editar(2, confirmar=True)
+        self.assertEqual(response.status_code, 302)
+        self.plantilla.refresh_from_db()
+        self.assertEqual(self.plantilla.dias_por_semana, 2)
+        self.assertEqual(
+            sorted(self.plantilla.items.values_list("dia", flat=True)), [1, 2]
+        )
+
+    def test_bajar_los_dias_sin_ejercicios_afectados_guarda_directo(self):
+        """Sin nada que perder no hay nada que confirmar."""
+        self.plantilla.items.filter(dia=3).delete()
+        response = self._editar(2)
+        self.assertEqual(response.status_code, 302)
+        self.plantilla.refresh_from_db()
+        self.assertEqual(self.plantilla.dias_por_semana, 2)
+
+    def test_subir_los_dias_nunca_pide_confirmacion(self):
+        response = self._editar(5)
+        self.assertEqual(response.status_code, 302)
+        self.plantilla.refresh_from_db()
+        self.assertEqual(self.plantilla.dias_por_semana, 5)
+        self.assertEqual(self.plantilla.items.count(), 3)
+
+    def test_la_confirmacion_dice_cuantos_ejercicios_y_de_que_dias(self):
+        RutinaPlantillaItem.objects.create(
+            rutina=self.plantilla, ejercicio=self.sentadilla, semana=2,
+            dia=3, orden=2, series=4, repeticiones="12",
+        )
+        response = self._editar(1)
+        self.assertContains(response, "3 ejercicios")
+        self.assertContains(response, "días 2 y 3")

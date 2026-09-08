@@ -93,14 +93,52 @@ class RutinaPlantillaCreateView(StaffRequiredMixin, TenantScopedMixin, CreateVie
 
 
 class RutinaPlantillaUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
+    """Editar los datos de la plantilla.
+
+    Bajar `dias_por_semana` deja los ejercicios de los días que sobran fuera
+    de la grilla, pero seguirían en la base y le llegarían igual al alumno al
+    asignar: invisibles y activos, que es la peor combinación. Antes de
+    guardar se cuenta lo que se perdería y se pide confirmación, con el molde
+    de `core/borrado.py` -- explicar el costo antes de borrar.
+    """
+
     model = RutinaPlantilla
     form_class = RutinaPlantillaForm
     template_name = "rutinas/plantilla_form.html"
 
     def form_valid(self, form):
-        response = super().form_valid(form)
+        sobrantes = self._items_que_sobran(form.cleaned_data["dias_por_semana"])
+        if sobrantes and not self.request.POST.get("confirmar_borrado_de_dias"):
+            return self.render_to_response(
+                self.get_context_data(form=form, **self._aviso(sobrantes))
+            )
+
+        with transaction.atomic():
+            response = super().form_valid(form)
+            if sobrantes:
+                sobrantes.delete()
         messages.success(self.request, "Plantilla actualizada correctamente.")
         return response
+
+    def _items_que_sobran(self, dias):
+        return self.object.items.filter(dia__gt=dias)
+
+    @staticmethod
+    def _aviso(sobrantes):
+        cantidad = sobrantes.count()
+        dias = sorted({dia for dia in sobrantes.values_list("dia", flat=True)})
+        if len(dias) == 1:
+            listado = f"día {dias[0]}"
+        else:
+            listado = "días " + ", ".join(map(str, dias[:-1])) + f" y {dias[-1]}"
+        return {
+            "confirmar_borrado_de_dias": True,
+            "aviso_dias": (
+                f"Se van a borrar {cantidad} ejercicio{'s' if cantidad != 1 else ''} "
+                f"cargado{'s' if cantidad != 1 else ''} en el {listado}, que "
+                f"quedan fuera del plan. No se puede deshacer."
+            ),
+        }
 
     def get_success_url(self):
         return reverse("rutinas:plantilla_detalle", args=[self.object.pk])
