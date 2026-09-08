@@ -46,7 +46,7 @@ SENALES_POR_RPE = {
         flecha="↑", accion="Subir la carga", badge="badge badge--ok"
     ),
     RutinaAsignadaItem.RPE.SEGUIR_INTENSIDAD: SenalDeCarga(
-        flecha="=", accion="Mantener", badge="badge"
+        flecha="=", accion="Mantener", badge="badge badge--neutro"
     ),
     RutinaAsignadaItem.RPE.AL_LIMITE: SenalDeCarga(
         flecha="=", accion="Mantener, está al límite", badge="badge badge--alerta"

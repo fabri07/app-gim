@@ -6,13 +6,14 @@
 <div class="contenido--ancho">
   <h1>Revisar antes de confirmar</h1>
   {% if importacion.resultado.advertencias_columnas %}
-    <div class="tarjeta">
+    <div class="tarjeta aviso-urgente">
+      <h2>Revisá cómo se leyó el archivo</h2>
       {% for advertencia in importacion.resultado.advertencias_columnas %}
-        <p class="texto-suave">Advertencia: {{ advertencia }}</p>
+        <p>{{ advertencia }}</p>
       {% endfor %}
     </div>
   {% endif %}
-  <form method="post" hx-boost="false">
+  <form method="post" hx-boost="false" id="importacion-confirmar">
     {% csrf_token %}
     {{ hoja_formset.management_form }}
     {% for hoja, hoja_form in hojas_con_form %}
@@ -66,7 +67,7 @@
                     <td class="texto-suave">{{ item.fila_excel }}</td>
                     <td>{{ item.dia }}{% if item.dia_nombre %} <span class="texto-suave text-xs">{{ item.dia_nombre }}</span>{% endif %}</td>
                     <td>{{ item.semana }}</td>
-                    <td>{% if item.bloque %}<span class="badge">{{ item.bloque }}</span>{% else %}<span class="texto-suave">—</span>{% endif %}</td>
+                    <td>{% if item.bloque %}<span class="badge badge--neutro">{{ item.bloque }}</span>{% else %}<span class="texto-suave">—</span>{% endif %}</td>
                     <td>{{ item.ejercicio_original }}</td>
                     <td>{% if item.series is not None %}{{ item.series }}{% else %}<span class="badge badge--urgente">a completar</span>{% endif %}</td>
                     <td>{% if item.repeticiones %}{{ item.repeticiones }}{% else %}<span class="badge badge--urgente">a completar</span>{% endif %}</td>
@@ -115,7 +116,13 @@
           {% endfor %}
         </div>
         {% for info, f in ejercicios_con_form %}
-          <div class="tarjeta">
+          {% comment %}
+            `.pendiente-fila` y no otra `.tarjeta`: una tarjeta blanca adentro
+            de otra tarjeta blanca, repetida por ejercicio, es puro marco sin
+            información. Es el mismo molde que usa `biblioteca_preview.html`
+            para esta misma lista.
+          {% endcomment %}
+          <div class="pendiente-fila">
             <p>
               <strong>{{ info.nombre_original }}</strong>
               {% if info.tipo == "ambiguo" %}
@@ -205,11 +212,19 @@
       </div>
     {% endif %}
 
-    <button type="submit" class="boton">Confirmar importación</button>
   </form>
-  <form method="post" action="{% url 'importaciones:plantillas_descartar' importacion.pk %}" hx-boost="false">
+  <form method="post" action="{% url 'importaciones:plantillas_descartar' importacion.pk %}"
+        hx-boost="false" id="importacion-descartar">
     {% csrf_token %}
-    <button type="submit" class="boton-peligro">Descartar</button>
   </form>
+  {% comment %}
+    Los dos botones son de <form> distintos y se enganchan al suyo con `form=`
+    (HTML5): así viven en una sola fila en vez de apilados, y descartar deja de
+    ser un bloque rojo pegado abajo del botón principal.
+  {% endcomment %}
+  <div class="acciones-formulario">
+    <button type="submit" form="importacion-confirmar" class="boton">Confirmar importación</button>
+    <button type="submit" form="importacion-descartar" class="boton-quitar">Descartar</button>
+  </div>
 </div>
 {% endblock %}

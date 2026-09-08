@@ -405,6 +405,13 @@ escalón intermedio.
 - **State:** tres variantes fijas — `--ok` (verde), `--alerta` (ámbar),
   `--riesgo` (rojo) — nunca un cuarto color; el estado que no encaja en
   ninguna se omite, no se inventa una variante nueva.
+- **Neutro (`--neutro`, gris):** para lo que **no es un estado** — el código de
+  bloque de una superserie (`A1`), un "Ya existe" del importador, un plan
+  "Finalizada". No es el cuarto color de estado: los estados siguen siendo
+  tres, y esta variante existe justamente para no teñir de verde/ámbar/rojo
+  una etiqueta que no comunica ninguno. Antes esos cinco lugares usaban
+  `.badge` a secas, que solo aporta forma: salían como texto suelto con un
+  padding raro.
 
 ### Cards / Containers
 - **Corner Style:** `rounded-2xl` (16px).

@@ -47,7 +47,9 @@ class HojaMetadataForm(forms.Form):
     # <select> -- sin esto el HTML no tiene ninguna opción "sin elegir" y
     # el browser simplemente muestra/envía la primera de la lista (mismo
     # bug que `categoria` en `ResolucionEjercicioForm`, ver ahí).
-    nivel = forms.ChoiceField(choices=BLANK_CHOICE_DASH + RutinaPlantilla.Nivel.choices)
+    nivel = forms.ChoiceField(
+        choices=[("", "Elegí un nivel")] + RutinaPlantilla.Nivel.choices
+    )
 
 
 HojaMetadataFormSet = forms.formset_factory(HojaMetadataForm, extra=0)
@@ -78,7 +80,7 @@ class ResolucionEjercicioForm(forms.Form):
     # `confirmar_importacion_plantillas` contra la base -- mismo criterio que
     # `ResolucionesJSONForm`.
     categoria = forms.TypedChoiceField(
-        choices=BLANK_CHOICE_DASH,
+        choices=[("", "Elegí una categoría")],
         coerce=int,
         empty_value=None,
         required=False,
@@ -87,7 +89,7 @@ class ResolucionEjercicioForm(forms.Form):
 
     def __init__(self, *args, categorias=(), **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["categoria"].choices = BLANK_CHOICE_DASH + [
+        self.fields["categoria"].choices = [("", "Elegí una categoría")] + [
             (c.pk, c.nombre) for c in categorias
         ]
 

@@ -1175,7 +1175,10 @@ class RutinasViewsTests(TestCase):
         response = self.client.get(
             reverse("rutinas:asignada_detalle", args=[asignada.pk])
         )
-        self.assertContains(response, "Semana 2 de 4")
+        # La ficha de datos separa etiqueta y valor, así que el dato ya no es
+        # una sola cadena "Semana 2 de 4".
+        self.assertContains(response, "<dt>Semana</dt>", html=False)
+        self.assertContains(response, "2 de 4")
         self.assertContains(response, "Vigente")
 
     def test_asignada_detail_no_muestra_semana_en_una_rutina_terminada(self):
@@ -1598,7 +1601,7 @@ class RutinaMiDiaDetailViewTests(TestCase):
         self.item_dia1_semana1.rpe = RutinaAsignadaItem.RPE.SEGUIR_INTENSIDAD
         self.item_dia1_semana1.save()
         response = self.client.get(self._url(1))
-        self.assertContains(response, "✓ Hecho")
+        self.assertContains(response, "Calificado")
 
     def test_marca_la_semana_actual(self):
         self.client.login(username="usuario_alumno", password="clave-123456")
@@ -1642,12 +1645,15 @@ class RutinaMiDiaDetailViewTests(TestCase):
         sola celda -- pedido explícito tras ver la app real."""
         self.client.login(username="usuario_alumno", password="clave-123456")
         response = self.client.get(self._url(1))
-        self.assertContains(response, "<th scope=\"col\">Series</th>", html=True)
+        # "Series" y la primera celda de cada semana llevan `borde-grupo` (el
+        # separador visual entre grupos de semana), así que la aserción va
+        # contra el contenido de la celda y no contra el `<th>` completo.
+        self.assertContains(response, ">Series</th>", html=False)
         self.assertContains(response, "<th scope=\"col\">Reps</th>", html=True)
         self.assertContains(response, "<th scope=\"col\">Kilos</th>", html=True)
         self.assertContains(response, "<th scope=\"col\">Descanso</th>", html=True)
         self.assertContains(response, "Calificación")
-        self.assertContains(response, "<td>3</td>", html=True)
+        self.assertContains(response, ">3</td>", html=False)
         self.assertContains(response, "<td>10</td>", html=True)
 
 
@@ -2129,7 +2135,7 @@ class BloqueYNombreDeDiaEnLaUITests(RutinasTestCase):
         response = self.client.get(
             reverse("rutinas:asignada_detalle", args=[asignada.pk])
         )
-        self.assertContains(response, '<span class="badge">A1</span>', html=False)
+        self.assertContains(response, '<span class="badge badge--neutro">A1</span>', html=False)
         self.assertContains(response, "Tren superior")
 
     def test_el_portal_del_alumno_titula_el_dia(self):
@@ -3038,7 +3044,7 @@ class AsignadaDetailPanelTests(RutinasTestCase):
         RutinaAsignadaDiaCompletado.objects.create(
             rutina_asignada=self.asignada, dia=1, semana=1
         )
-        self.assertContains(self._get(), "✓ Entrenado")
+        self.assertContains(self._get(), "Entrenado")
 
     def test_muestra_la_senal_de_carga_del_rpe(self):
         item = self.asignada.items.filter(dia=1, semana=1).first()

@@ -6,13 +6,18 @@
 <div class="contenido--ancho">
   <div class="acciones-lista">
     <h1>{{ asignada.nombre_snapshot }}</h1>
-    <div class="flex gap-2">
+    {% comment %}
+      Archivar NO es destructivo -- el mismo botón desarchiva, y el plan sigue
+      entero. En `.boton-peligro` (rojo sólido) era lo más fuerte de la
+      pantalla y se leía como "Eliminar".
+    {% endcomment %}
+    <div class="flex flex-wrap items-center gap-2">
       <a class="boton-secundario" hx-boost="false" href="{% url 'rutinas:asignada_pdf' asignada.pk %}">Descargar PDF</a>
       <a class="boton-secundario" href="{% url 'alumnos:detalle' asignada.alumno.pk %}">Ver alumno</a>
       <form method="post" action="{% url 'rutinas:asignada_archivar' asignada.pk %}">
         {% csrf_token %}
         {% if asignada.activa %}
-          <button type="submit" class="boton-peligro">Archivar</button>
+          <button type="submit" class="boton-secundario">Archivar</button>
         {% else %}
           <button type="submit" class="boton-secundario">Desarchivar</button>
         {% endif %}
@@ -21,30 +26,51 @@
   </div>
 
   <div class="tarjeta">
-    <p>Alumno: {{ asignada.alumno }}</p>
-    <p>Objetivo: {{ asignada.objetivo_snapshot }}</p>
-    <p>Ciclo: {{ asignada.fecha_inicio }} al {{ asignada.ultimo_dia }}</p>
-    {% if asignada.esta_vigente %}
-      <p>Semana {{ asignada.semana_actual }} de 4</p>
-    {% endif %}
-    <p>
-      Estado:
-      {% comment %}
-        El estado sale de las FECHAS, no del flag `activa`: con planes que
-        conviven, "Activa" aparecería en todas las rutinas históricas del
-        alumno, y "Semana 4 de 4" quedaría clavado para siempre en una de
-        hace un año.
-      {% endcomment %}
-      {% if not asignada.activa %}
-        <span class="badge badge--riesgo">Archivada</span>
-      {% elif asignada.es_futura %}
-        <span class="badge badge--alerta">Programada</span>
-      {% elif asignada.ya_termino %}
-        <span class="badge">Finalizada</span>
-      {% else %}
-        <span class="badge badge--ok">Vigente</span>
+    <dl class="ficha-datos">
+      <div>
+        <dt>Alumno</dt>
+        <dd>{{ asignada.alumno }}</dd>
+      </div>
+      <div>
+        <dt>Objetivo</dt>
+        <dd>{{ asignada.objetivo_snapshot|default:"—" }}</dd>
+      </div>
+      <div>
+        <dt>Ciclo</dt>
+        <dd>{{ asignada.fecha_inicio }} al {{ asignada.ultimo_dia }}</dd>
+      </div>
+      {% if asignada.esta_vigente %}
+        <div>
+          <dt>Semana</dt>
+          <dd>{{ asignada.semana_actual }} de 4</dd>
+        </div>
       {% endif %}
-    </p>
+      <div>
+        <dt>Estado</dt>
+        <dd>
+          {% comment %}
+            El estado sale de las FECHAS, no del flag `activa`: con planes que
+            conviven, "Activa" aparecería en todas las rutinas históricas del
+            alumno, y "Semana 4 de 4" quedaría clavado para siempre en una de
+            hace un año.
+          {% endcomment %}
+          {% if not asignada.activa %}
+            <span class="badge badge--riesgo">Archivada</span>
+          {% elif asignada.es_futura %}
+            <span class="badge badge--alerta">Programada</span>
+          {% elif asignada.ya_termino %}
+            {% comment %}
+              "Finalizada" no es ni bueno ni malo, así que no le toca ninguno de
+              los tres colores de estado; con `.badge` a secas salía como texto
+              suelto con padding, ni etiqueta ni texto corrido.
+            {% endcomment %}
+            <span class="badge badge--neutro">Finalizada</span>
+          {% else %}
+            <span class="badge badge--ok">Vigente</span>
+          {% endif %}
+        </dd>
+      </div>
+    </dl>
     {% if not es_la_que_ve_el_alumno %}
       {% comment %}
         Reemplaza al aviso de "rutinas activas duplicadas". Esta pantalla es la
@@ -127,17 +153,17 @@
             <tr>
               <th rowspan="2" scope="col" class="columna-ejercicio">Ejercicio</th>
               {% for semana in dia.semanas_meta %}
-                <th colspan="5" scope="colgroup"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>
+                <th colspan="5" scope="colgroup" class="borde-grupo{% if semana.es_actual %} rutina-semana-columna--actual{% endif %}">
                   Semana {{ semana.numero }}
                   {% if semana.es_actual %}<span class="badge badge--alerta">Actual</span>{% endif %}
-                  {% if semana.entrenada %}<span class="badge badge--ok">✓ Entrenado</span>{% endif %}
+                  {% if semana.entrenada %}<span class="badge badge--ok">Entrenado</span>{% endif %}
                 </th>
               {% endfor %}
               <th rowspan="2" scope="col">Acciones</th>
             </tr>
             <tr>
               {% for semana in dia.semanas_meta %}
-                <th scope="col"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>Series</th>
+                <th scope="col" class="borde-grupo{% if semana.es_actual %} rutina-semana-columna--actual{% endif %}">Series</th>
                 <th scope="col"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>Reps</th>
                 <th scope="col"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>Kilos</th>
                 <th scope="col"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>Descanso</th>
@@ -149,7 +175,7 @@
             {% for ejercicio in dia.ejercicios %}
               <tr>
                 <th scope="row" class="columna-ejercicio">
-                  {% if ejercicio.bloque %}<span class="badge">{{ ejercicio.bloque }}</span> {% endif %}
+                  {% if ejercicio.bloque %}<span class="badge badge--neutro">{{ ejercicio.bloque }}</span> {% endif %}
                   {{ ejercicio.nombre }}
                   <br><span class="texto-suave text-xs">{{ ejercicio.categoria_display }}</span>
                   {% if ejercicio.video %}
@@ -159,11 +185,11 @@
 
                 {% for semana in ejercicio.semanas %}
                   {% if semana.item %}
-                    <td{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>{{ semana.item.series }}</td>
+                    <td class="borde-grupo{% if semana.es_actual %} rutina-semana-columna--actual{% endif %}">{{ semana.item.series }}</td>
                     <td{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>{{ semana.item.repeticiones }}</td>
                     <td{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>{{ semana.item.kilos|default:"—" }}</td>
                     <td{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>{{ semana.item.descanso|default:"—" }}</td>
-                    <td{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>
+                    <td class="celda-calificacion{% if semana.es_actual %} rutina-semana-columna--actual{% endif %}">
                       {% if semana.senal %}
                         {{ semana.item.get_rpe_display }}
                         <br><span class="{{ semana.senal.badge }}">{{ semana.senal.flecha }} {{ semana.senal.accion }}</span>
@@ -180,14 +206,14 @@
                       {% endif %}
                     </td>
                   {% else %}
-                    <td colspan="5" class="texto-suave{% if semana.es_actual %} rutina-semana-columna--actual{% endif %}">—</td>
+                    <td colspan="5" class="borde-grupo texto-suave{% if semana.es_actual %} rutina-semana-columna--actual{% endif %}">—</td>
                   {% endif %}
                 {% endfor %}
 
-                <td>
+                <td class="celda-quitar">
                   <form method="post" action="{% url 'rutinas:asignada_item_eliminar' asignada.pk ejercicio.item_referencia.pk %}">
                     {% csrf_token %}
-                    <button type="submit" class="boton-peligro">Quitar de las 4 semanas</button>
+                    <button type="submit" class="boton-quitar">Quitar de las 4 semanas</button>
                   </form>
                 </td>
               </tr>
