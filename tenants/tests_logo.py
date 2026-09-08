@@ -17,7 +17,9 @@ reusa esa solución: URL versionada por `gimnasio.modificado` + respuesta
 con un cache viejo y no hace falta invalidar nada.
 """
 
+from datetime import timedelta
 from io import BytesIO
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -52,10 +54,18 @@ class LogoUrlVersionadaTests(TestCase):
     def test_la_url_cambia_al_guardar_el_gimnasio_de_nuevo(self):
         """`modificado` es `auto_now`, así que subir un logo nuevo (o cualquier
         edición) invalida la URL sola. Es el mecanismo que hace segura la
-        respuesta `immutable`."""
+        respuesta `immutable`.
+
+        El reloj se congela un minuto adelante en vez de confiar en que los dos
+        `save()` caigan en milisegundos distintos: `version_media` tiene
+        resolución de milisegundos y en la suite los dos guardados caen seguido
+        en el mismo. Sin esto el test fallaba 2 de cada 8 corridas -- flaky, y
+        por una razón que no tiene nada que ver con lo que prueba."""
         antes = self.gimnasio.logo_url_cacheable
-        self.gimnasio.nombre = "Vida Plena Centro"
-        self.gimnasio.save()
+        un_minuto_despues = self.gimnasio.modificado + timedelta(minutes=1)
+        with patch("django.utils.timezone.now", return_value=un_minuto_despues):
+            self.gimnasio.nombre = "Vida Plena Centro"
+            self.gimnasio.save()
         self.assertNotEqual(antes, self.gimnasio.logo_url_cacheable)
 
     def test_un_gimnasio_sin_logo_no_expone_ninguna_url(self):
