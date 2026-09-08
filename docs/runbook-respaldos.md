@@ -211,6 +211,17 @@ En orden, cada uno desde Actions → *Run workflow* (`workflow_dispatch`):
 
 ## Paso 6 — Rotar la contraseña de Neon
 
+> **CERRADO el 2026-09-08 por la migración de región.** Producción usa un
+> proyecto Neon nuevo (`aws-us-east-1`) cuya credencial nunca se expuso, y la
+> del proyecto viejo se rotó — así cualquier consumidor que hubiera quedado
+> apuntando ahí falla a los gritos en vez de trabajar en silencio sobre datos
+> muertos. Esa rotación, además, es lo que permitió **verificar** que los dos
+> secrets quedaron bien: con la credencial vieja muerta, un backup en verde
+> solo puede significar que apuntan a la base nueva. Los conteos no servían
+> para eso — las dos bases eran idénticas. Lo de abajo queda como
+> procedimiento para la próxima vez que haya que rotar.
+
+
 Recién ahora, con todo lo demás cargado y funcionando. La contraseña actual
 estuvo expuesta en texto plano en un chat.
 

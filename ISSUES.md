@@ -112,7 +112,9 @@ haciéndolas.
    calentamiento antes del `CaptureQueriesContext`: con el `Client` reusado la
    captura da 0 queries.
 
-**Resolución:** `.github/workflows/migrar-neon.yml` (temporal) hace inventario →
+**Resolución:** `.github/workflows/migrar-neon.yml` (borrado al terminar, junto
+con su secret `NEON_MIGRACION_DESTINO_DIRECT`; recuperable en el historial de
+git si alguna vez hay que migrar de región otra vez) hizo inventario →
 dump → restore → diff con cuatro compuertas: que el destino no tenga filas de
 dominio antes de vaciarlo (lo único que separa "restauro en la nueva" de "vacío
 producción" es qué URL quedó en un secret, así que no se confía en el secret: se
