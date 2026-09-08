@@ -428,8 +428,9 @@ prueba el modelo, no el producto.
 
 ## [2026-09-03] Migración a cuotas por ciclo de 28 días + bloqueo por falta de pago
 
-**Estado:** resuelto (código); **pendiente el despliegue**, que tiene pasos que no
-se pueden saltear (ver abajo).
+**Estado:** resuelto y **desplegado el 2026-09-08**. Los pasos de despliegue de
+más abajo se cumplieron; ver la entrada del 2026-09-08 para qué pasó realmente
+con cada uno (dos de los riesgos que los justificaban no existían en esta base).
 
 **Contexto.** El dueño preguntó qué hacía «Día límite de pago mensual» y quedó a
 la vista que no hacía nada útil: vencía cuotas y mandaba un push, pero un alumno
