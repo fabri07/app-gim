@@ -1,0 +1,170 @@
+# Migración de la base de Neon a otra región (sa-east-1 -> us-east-1).
+#
+# TEMPORAL: este workflow y sus dos secrets se borran cuando la migración
+# termina. Ver el plan de la sesión del 2026-09-08.
+#
+# Por qué acá y no en la máquina de nadie:
+#  - Reusa la receta de cliente 18 de `backup.yml`, con el `$GITHUB_PATH` que
+#    resuelve la trampa que ya nos costó dos commits: el runner de Ubuntu trae
+#    un `pg_dump` más viejo primero en el PATH, y la verificación de versión
+#    reportaba un binario distinto del que después se usaba. `pg_dump` no
+#    puede volcar un servidor de una major posterior a la suya.
+#  - Las URLs con contraseña quedan en secrets y no pasan por ninguna terminal
+#    ni por un chat -- la regla de `docs/runbook-respaldos.md`, que existe
+#    porque la contraseña de Neon ya se filtró así una vez.
+#  - El diff de conteos se calcula acá, no a ojo.
+#
+# Las dos URLs son las **DIRECTAS** (sin `-pooler`): el pooler no sostiene la
+# sesión larga de un dump, y con PgBouncer en modo transacción un restore
+# tampoco es confiable.
+
+name: Migrar Neon de region
+
+on:
+  workflow_dispatch:
+    inputs:
+      accion:
+        description: "inventario (solo lee el origen) | migrar (dump + restore + diff)"
+        required: true
+        default: inventario
+        type: choice
+        options: [inventario, migrar]
+
+permissions: {}
+
+concurrency:
+  group: migrar-neon
+  cancel-in-progress: false
+
+jobs:
+  migrar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Idéntico a backup.yml:38-57. La major va fija en 18 porque es la que
+      # corre Neon; si el proyecto NUEVO se creara con otra, hay que
+      # actualizar acá, en backup.yml y en backup-verify.yml.
+      - name: Instalar postgresql-client 18
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/18/bin:$PATH"
+          pg_dump --version
+          pg_restore --version
+
+      # `query_to_xml` da el conteo EXACTO de cada tabla en una sola consulta.
+      # `pg_class.reltuples` no sirve: es una estimación, y en una base recién
+      # restaurada da 0 hasta que corra un ANALYZE -- o sea que el diff daría
+      # "todo bien" justo cuando no hay que confiar.
+      - name: Inventario del ORIGEN
+        env:
+          ORIGEN: ${{ secrets.NEON_MIGRACION_ORIGEN_DIRECT }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/inventario.sql <<'SQL'
+          SELECT relname || '|' || (xpath('/row/c/text()', x))[1]::text
+          FROM (
+            SELECT c.relname,
+                   query_to_xml(format('SELECT count(*) AS c FROM public.%I', c.relname),
+                                false, true, '') AS x
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public' AND c.relkind = 'r'
+          ) t
+          ORDER BY relname;
+          SQL
+          psql "$ORIGEN" -qAtX -f /tmp/inventario.sql > /tmp/conteos_origen.txt
+          psql "$ORIGEN" -qAtX -F'|' -c \
+            "SELECT sequencename, last_value FROM pg_sequences WHERE schemaname='public' ORDER BY 1" \
+            > /tmp/secuencias_origen.txt
+
+          echo "### Origen" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "tablas:     $(wc -l < /tmp/conteos_origen.txt)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "filas:      $(awk -F'|' '{s+=$2} END {print s}' /tmp/conteos_origen.txt)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "secuencias: $(wc -l < /tmp/secuencias_origen.txt)" | tee -a "$GITHUB_STEP_SUMMARY"
+          psql "$ORIGEN" -qAtX -c \
+            "SELECT 'tamaño:     ' || pg_size_pretty(pg_database_size(current_database()))" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          psql "$ORIGEN" -qAtX -c \
+            "SELECT 'version:    ' || current_setting('server_version') || '  collate: ' || datcollate || '  ctype: ' || datctype FROM pg_database WHERE datname = current_database()" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "--- conteos por tabla ---"
+          cat /tmp/conteos_origen.txt
+          echo "--- claves cuyo valor delata una env var mal copiada ---"
+          psql "$ORIGEN" -qAtX -c "SELECT 'google calendar conectados: ' || count(*) FROM calendario_googlecalendarcredential WHERE refresh_token <> '' AND revoked_at IS NULL" || true
+          psql "$ORIGEN" -qAtX -c "SELECT 'suscripciones push activas: ' || count(*) FROM notificaciones_suscripcionpush WHERE activa" || true
+          psql "$ORIGEN" -qAtX -c "SELECT 'sesiones vigentes:          ' || count(*) FROM django_session WHERE expire_date > now()" || true
+
+      - name: Dump del origen
+        if: inputs.accion == 'migrar'
+        env:
+          ORIGEN: ${{ secrets.NEON_MIGRACION_ORIGEN_DIRECT }}
+        run: |
+          set -euo pipefail
+          time pg_dump --format=custom --no-owner --no-privileges \
+            --file=/tmp/migracion.dump "$ORIGEN"
+          ls -lh /tmp/migracion.dump
+
+      # `--single-transaction --exit-on-error`: o entra entero, o la base queda
+      # intacta. Sin esto un restore a medias deja el esquema creado y
+      # `django_migrations` vacía -- y el `buildCommand` de Render corre
+      # `migrate`, así que la app levantaría en 200 con CERO datos y sin un
+      # solo error. Es el peor escenario de toda la migración.
+      - name: Restore en el DESTINO
+        if: inputs.accion == 'migrar'
+        env:
+          DESTINO: ${{ secrets.NEON_MIGRACION_DESTINO_DIRECT }}
+        run: |
+          set -euo pipefail
+          time pg_restore --no-owner --no-privileges \
+            --single-transaction --exit-on-error \
+            --dbname "$DESTINO" /tmp/migracion.dump
+
+      - name: Diff del inventario (compuerta)
+        if: inputs.accion == 'migrar'
+        env:
+          DESTINO: ${{ secrets.NEON_MIGRACION_DESTINO_DIRECT }}
+        run: |
+          set -euo pipefail
+          psql "$DESTINO" -qAtX -f /tmp/inventario.sql > /tmp/conteos_destino.txt
+          psql "$DESTINO" -qAtX -F'|' -c \
+            "SELECT sequencename, last_value FROM pg_sequences WHERE schemaname='public' ORDER BY 1" \
+            > /tmp/secuencias_destino.txt
+
+          echo "### Diff origen -> destino" >> "$GITHUB_STEP_SUMMARY"
+          fallo=0
+          for cual in conteos secuencias; do
+            if diff -u "/tmp/${cual}_origen.txt" "/tmp/${cual}_destino.txt" > "/tmp/${cual}.diff"; then
+              echo "- $cual: **OK**" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- $cual: **NO COINCIDEN**" >> "$GITHUB_STEP_SUMMARY"
+              echo '```diff' >> "$GITHUB_STEP_SUMMARY"
+              head -40 "/tmp/${cual}.diff" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"
+              cat "/tmp/${cual}.diff"
+              fallo=1
+            fi
+          done
+
+          # El collation no se compara con `diff` porque puede diferir
+          # legítimamente entre proveedores; se muestra para decidir a ojo.
+          # Si cambia, el `ORDER BY nombre` de los listados cambia con acentos
+          # y mayúsculas, en silencio.
+          psql "$DESTINO" -qAtX -c \
+            "SELECT 'destino  version: ' || current_setting('server_version') || '  collate: ' || datcollate || '  ctype: ' || datctype FROM pg_database WHERE datname = current_database()" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+          if [ "$fallo" = "1" ]; then
+            echo "::error::El inventario no coincide. NO apuntes DATABASE_URL al destino."
+            exit 1
+          fi
+          echo "::notice::Inventario idéntico. Falta migrate --check antes del switch."
