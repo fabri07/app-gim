@@ -4131,6 +4131,37 @@ class PlantillaDetalleAgrupadoTests(RutinasTestCase):
             reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
         )
 
+
+    def test_el_buscador_de_ejercicio_cuelga_su_lista_del_body(self):
+        """La lista de resultados del buscador NO puede vivir dentro de la
+        tabla: se ve cortada después del primer renglón y el entrenador no
+        puede saber si está buscando bien el ejercicio.
+
+        Son DOS ancestros los que la tapan, y hace falta salir de los dos:
+
+        1. Cada celda de ejercicio es `position: sticky; z-index: 10` (la
+           columna que queda fija al scrollear a lo ancho). Todas comparten el
+           mismo z-index, así que el orden de pintado lo decide el orden en el
+           DOM y la celda de la fila SIGUIENTE se pinta encima de la lista de
+           la fila actual. Verificado en el navegador con `elementFromPoint`
+           sobre la lista abierta: devolvía la celda de abajo, no la opción.
+        2. `.tabla-scroll` lleva `overflow-x: auto`, y el CSS convierte el
+           `visible` del otro eje en `auto`: también recorta a lo alto. La
+           última fila de un día termina a 16px de ese borde.
+
+        Este test es la contraparte de esas dos reglas de CSS: si alguien saca
+        esa opción, la lista vuelve a quedar tapada y nada más lo avisa —
+        ninguna aserción de servidor puede ver un problema de pintado.
+
+        La aserción incluye la coma final a propósito: busca la LÍNEA DE
+        CONFIGURACIÓN, no la prosa. La primera versión de este test matcheaba
+        contra el comentario que explica el porqué, así que pasaba en verde con
+        la opción borrada.
+        """
+        respuesta = self._detalle()
+
+        self.assertContains(respuesta, 'dropdownParent: "body",')
+
     def test_el_ejercicio_ocupa_una_fila_por_dia_no_una_por_semana(self):
         """8 ítems en la base, pero el ejercicio ocupa UNA fila por día, con
         sus semanas en columnas."""

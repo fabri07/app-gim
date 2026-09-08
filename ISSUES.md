@@ -20,6 +20,51 @@ del log.
 
 ---
 
+## [2026-09-08] La lista del buscador de ejercicios se veía cortada en el primer renglón
+**Estado:** resuelto (con test)
+**Impacto:** armando una planilla, al buscar un ejercicio la lista de
+resultados se veía cortada después del primer renglón: no había forma de saber
+si la búsqueda estaba encontrando lo correcto. Reportado como "debería
+desplegarse hacia arriba".
+**Causa (medida, no deducida):** no es la dirección del desplegable. Son DOS
+ancestros que lo tapan, y el segundo aparece recién en la última fila de cada
+día:
+1. Cada celda de ejercicio es `position: sticky; z-index: 10` — la columna que
+   queda fija al scrollear a lo ancho, agregada el 2026-09-07. Como TODAS
+   tienen el mismo z-index, el orden de pintado lo decide el orden en el DOM:
+   la celda de la fila SIGUIENTE se pinta encima de la lista de la fila actual.
+   Confirmado con `document.elementFromPoint()` sobre la lista abierta:
+   devolvía `columna-ejercicio` (la celda de abajo), no `option`. Subir a mano
+   el z-index de esa celda a 30 mostraba las 4 opciones completas.
+2. `.tabla-scroll` lleva `overflow-x: auto`, y el CSS convierte el `visible`
+   del otro eje en `auto`: el contenedor **también recorta a lo alto**
+   (`overflowY` computado = `auto`). La última fila de un día termina a 16px
+   de ese borde, así que ahí la lista queda recortada aunque se arregle el
+   z-index.
+**Resolución:** `dropdownParent: "body"` en la config de TomSelect
+(`rutinas/plantilla_detail.html`). Colgando la lista del `<body>` sale de los
+dos ancestros. Verificado en el peor caso (última fila del día): las 4
+opciones visibles, la lista sigue al control al scrollear, y elegir una sigue
+actualizando `data-ejercicio-id` (52 → 68), que es de donde sale el id al
+guardar.
+**Por qué NO se abre hacia arriba:** funcionaría de casualidad — las filas de
+ARRIBA se pintan antes, así que la lista les gana. Falla justo en el primer
+ejercicio de cada día, y no resuelve nada del recorte del contenedor.
+**Riesgo evaluado y descartado:** se probó agregar `body > .ts-dropdown
+{ z-index: 30 }` para que la lista no pase por debajo del topbar (`sticky
+z-20`). Se sacó: no hace falta (la lista sigue al control, así que nunca lo
+tapa) y **no funcionaba igual** — las reglas dentro de `@layer components`
+pierden contra las reglas SIN capa, sin importar la especificidad, y la hoja
+de TomSelect se inyecta sin capa.
+**Qué NO asumir:** que un test de regresión que pasa está probando algo. El
+primero que se escribió acá matcheaba `dropdownParent: "body"` contra el
+COMENTARIO que explica el porqué, así que pasaba en verde con la opción
+borrada. Se corrigió reescribiendo el comentario para que no repita el literal
+y asertando la línea de configuración con su coma final; recién ahí falló sin
+el fix.
+
+---
+
 ## [2026-09-08] Pasada de pulido visual sobre las cuatro pantallas de rutinas e importación
 **Estado:** resuelto
 **Impacto:** cuatro defectos que se veían como "la app está a medio hacer", y

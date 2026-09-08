@@ -295,6 +295,27 @@
         create: false,
         maxOptions: 50,
         placeholder: "Buscá un ejercicio…",
+        // Colgar la lista del `<body>` NO es cosmético: sin esto se ve cortada
+        // después del primer renglón y no hay forma de saber si estás buscando
+        // bien el ejercicio. Son DOS ancestros los que la tapan, y el segundo
+        // aparece recién en la última fila de cada día:
+        //
+        // 1. Cada celda de ejercicio es `position: sticky; z-index: 10` (la
+        //    columna que queda fija al scrollear a lo ancho). Como TODAS tienen
+        //    el mismo z-index, el orden de pintado lo decide el orden en el
+        //    DOM: la celda de la fila siguiente se pinta ENCIMA del desplegable
+        //    de la fila actual. Medido con `elementFromPoint` sobre la lista
+        //    abierta: devolvía la celda de abajo, no la opción.
+        // 2. `.tabla-scroll` lleva `overflow-x: auto`, y el CSS convierte el
+        //    `visible` del otro eje en `auto`: el contenedor también recorta a
+        //    lo ALTO. La última fila de un día termina a 16px de ese borde, así
+        //    que ahí la lista queda recortada aunque se resuelva el z-index.
+        //
+        // Colgando la lista del `<body>` sale de los dos. Abrirla hacia arriba
+        // (que es lo que parece el arreglo mirando la pantalla) solo funciona
+        // de casualidad, porque las filas de arriba se pintan ANTES: falla
+        // justo en el primer ejercicio de cada día.
+        dropdownParent: "body",
         onChange: function (valor) {
           var fila = select.closest(".js-fila");
           if (fila) { fila.dataset.ejercicioId = valor || ""; }
