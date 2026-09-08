@@ -134,12 +134,48 @@ jobs:
               'pagos_pagomensual','pagos_cuota')")"
           MIGRACIONES="$(Q "select count(*) from django_migrations")"
           USUARIOS="$(Q "select count(*) from auth_user")"
+          # El total de tablas y de filas es COMPLEMENTARIO a las 10 por
+          # nombre, no un reemplazo: las 10 detectan que falte justo la que
+          # importa, y el total detecta que falte una de las otras ~24, que
+          # hasta ahora no tenían ninguna cobertura. Un dump truncado o con un
+          # filtro de más se ve acá y en ningún otro lado.
+          # `query_to_xml` da el conteo exacto por tabla en una sola consulta;
+          # `reltuples` no sirve porque es una estimación y en una base recién
+          # restaurada da 0 hasta que corra un ANALYZE.
+          TOTAL_TABLAS="$(Q "select count(*) from information_schema.tables
+            where table_schema='public' and table_type='BASE TABLE'")"
+          TOTAL_FILAS="$(Q "select coalesce(sum((xpath('/row/c/text()', x))[1]::text::bigint), 0)
+            from (
+              select query_to_xml(format('select count(*) as c from public.%I', c.relname),
+                                  false, true, '') as x
+              from pg_class c join pg_namespace n on n.oid = c.relnamespace
+              where n.nspname = 'public' and c.relkind = 'r'
+            ) t")"
           echo "tablas_esenciales=$ESENCIALES migraciones=$MIGRACIONES usuarios=$USUARIOS"
-          # Se nombran las tablas esenciales en vez de exigir un total >= N:
+          echo "tablas_totales=$TOTAL_TABLAS filas_totales=$TOTAL_FILAS"
+          {
+            echo "### Contenido restaurado"
+            echo '```'
+            echo "tablas esenciales: $ESENCIALES / 10"
+            echo "tablas totales:    $TOTAL_TABLAS"
+            echo "filas totales:     $TOTAL_FILAS"
+            echo "migraciones:       $MIGRACIONES"
+            echo "usuarios:          $USUARIOS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Se nombran las tablas esenciales en vez de exigir SOLO un total >= N:
           # un umbral numérico pasa igual si falta justo la tabla que importa.
           # Son 10 aunque la lista tenga 11 nombres: los dos de la tabla de
           # cuotas son mutuamente excluyentes (ver el comentario de arriba).
           test "$ESENCIALES" -eq 10
+          # El piso del total va HOLGADO a propósito (hoy hay 34): el número
+          # real sube con cada app nueva, y un piso ajustado convertiría cada
+          # migración en un workflow roto -- fricción que entrena a ignorar la
+          # alerta. Está para atajar un dump truncado o filtrado, no para
+          # auditar el esquema. Si alguna vez baja de acá, es que el respaldo
+          # dejó de contener la base.
+          test "$TOTAL_TABLAS" -ge 25
+          test "$TOTAL_FILAS" -ge 1
           # django_migrations poblada = el esquema se restauró completo. No se
           # pinea el nombre de la última migración: cambia en cada feature y
           # volvería frágil la verificación.
