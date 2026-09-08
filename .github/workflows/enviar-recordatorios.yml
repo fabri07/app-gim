@@ -14,16 +14,20 @@
 
 name: Enviar recordatorios push
 
-# ⛔ CRON DESACTIVADO A PROPÓSITO — migración a cuotas por ciclo de 28 días.
-# Estos workflows hacen `checkout` de `main` y corren contra la base de
-# PRODUCCIÓN sin correr `migrate` (Render migra dentro de su `buildCommand`),
-# así que entre el merge y el deploy verde hay una ventana de código nuevo
-# sobre esquema viejo. REACTIVAR (descomentar el `schedule`) recién con el
-# deploy de Render en verde — es un paso numerado del procedimiento, no un
-# supuesto. Mientras tanto queda `workflow_dispatch` para correrlo a mano.
+# Reactivado el 2026-09-08, cerrando la migración a cuotas por ciclo de 28
+# días. Estuvo apagado a propósito entre el merge y el deploy: este workflow
+# hace `checkout` de `main` y corre contra la base de PRODUCCIÓN sin correr
+# `migrate` (Render migra dentro de su `buildCommand`), así que en esa ventana
+# habría corrido código nuevo sobre esquema viejo. Si volvés a hacer una
+# migración destructiva, volvé a comentar el `schedule` antes del merge.
+#
+# Las 3 VAPID_* se cargaron como secrets del repo el 2026-09-08: hasta ese día
+# faltaban, así que `PUSH_ENABLED` era False y este cron corría en verde sin
+# entregar NINGÚN push. Si algún día los recordatorios "dejan de llegar",
+# mirá primero que los tres secrets sigan cargados.
 on:
-  # schedule:
-  #   - cron: "*/15 * * * *"
+  schedule:
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
