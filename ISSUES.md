@@ -20,6 +20,71 @@ del log.
 
 ---
 
+## [2026-09-08] El push nunca había funcionado en producción (VAPID sin cargar)
+**Estado:** resuelto
+**Impacto:** las notificaciones push **jamás se entregaron en producción**, ni
+las del cron (cuota por vencer/vencida, turno próximo, novedad programada,
+rutina iniciada, acceso bloqueado) ni las de la app (nueva reserva, rutina
+asignada, comprobante subido). La PWA sí se instalaba: eso no depende de estas
+claves.
+
+**Por qué nadie se enteró — la parte importante.** Las 3 `VAPID_*` no estaban
+cargadas **en ningún lado**: ni en Render ni como secrets del repo. Cuando
+faltan las TRES, `_bandera_todo_o_nada` devuelve `False` en silencio (solo
+lanza `ImproperlyConfigured` si están *parciales*), así que `PUSH_ENABLED`
+quedaba en `False`, `_enviar` cortaba antes de la red y
+`enviar-recordatorios.yml` terminaba en verde cada 15 minutos reportando
+`0 novedades, 0 pagos por vencer, ...`. Ningún error, ningún log, ninguna
+alerta. El diseño todo-o-nada es correcto —la app tiene que poder correr sin
+push—, pero su modo degradado es indistinguible de "no había nada que avisar".
+
+**Cómo apareció:** de casualidad. Buscando cómo evitar la ráfaga de «tu cuota
+está vencida» del despliegue de cuotas por ciclo, se revisó qué secrets tenía
+`enviar-recordatorios.yml` y las `VAPID_*` no estaban. La ironía es que la
+ráfaga que motivaba todo el cuidado tampoco podía salir.
+
+**Cómo se verificó, sin acceso a la base:** `base.html` renderiza
+`data-vapid-public-key` en el `<body>`, así que un `curl` a la página de login
+de producción lo muestra. Antes: `data-vapid-public-key=""`. Después de
+cargarlas en Render: 86 caracteres con el mismo prefijo que el entorno local,
+o sea que se copiaron las claves existentes en vez de generar unas nuevas.
+
+**Resolución:** las 3 claves cargadas en Render Y como secrets del repo (son
+sistemas separados, cada uno necesita su copia; y tienen que ser las MISMAS o
+los alumnos suscriptos con una dejan de recibir los push firmados con la otra).
+`docs/runbook-respaldos.md` documentaba 9 secrets cuando el proyecto necesita
+13 — ahí faltaban las tres, y también `HEALTHCHECKS_URL_GENERAR_PAGOS`.
+
+**Regla que deja:** si una integración opcional usa `_bandera_todo_o_nada`, su
+estado apagado no se distingue del estado sano por los logs. Verificala contra
+un efecto observable (acá, el atributo en el HTML), no contra "el workflow
+terminó en verde".
+
+## [2026-09-08] Despliegue de cuotas por ciclo: qué pasó de verdad
+**Estado:** resuelto — desplegado y con los crons reactivados.
+
+Cierra el procedimiento que dejó anotado la entrada del 2026-09-03. Los seis
+pasos se cumplieron; lo que importa es que **dos de los riesgos que
+justificaban tanto cuidado no existían en esta base**:
+
+- **Ráfaga de «tu cuota está vencida»: cero.** `marcar_vencidos` no venció
+  ninguna cuota en la primera pasada (`Cuotas emitidas: 0. Cuotas marcadas como
+  vencidas: 0`), así que nunca hizo falta la pasada con `PUSH_ENABLED=False`.
+- **Suscripciones push en producción: cero**, consecuencia directa del bug de
+  arriba — con la clave pública vacía el navegador no podía suscribir a nadie.
+  Reactivar los crons no le entregó nada a nadie.
+
+Verificado antes de mergear: backup restaurado **de verdad** en un Postgres
+descartable (`app-gim-20260904T234822Z.dump.gpg`, `tablas_esenciales=10`), y la
+Shell de Render respondiendo —el rollback documentado depende de ella—. Después
+del deploy: las 6 migraciones aplicadas, y 20 chequeos seguidos en HTTP 200
+durante la ventana de build.
+
+**El bloqueo por falta de pago se probó en `gimnasio-verificacion-r2`**
+(tolerancia 10) y **NO se prendió en `vida-plena`**: prenderlo es un cambio de
+política comercial del gimnasio, no un paso de despliegue, y lo decide su
+dueño. Arranca apagado en todos.
+
 ## [2026-09-08] La lista del buscador de ejercicios se veía cortada en el primer renglón
 **Estado:** resuelto (con test)
 **Impacto:** armando una planilla, al buscar un ejercicio la lista de
