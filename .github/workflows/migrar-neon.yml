@@ -128,12 +128,53 @@ jobs:
       # `django_migrations` vacía -- y el `buildCommand` de Render corre
       # `migrate`, así que la app levantaría en 200 con CERO datos y sin un
       # solo error. Es el peor escenario de toda la migración.
+      # El guard más importante del workflow: lo único que separa "restauro en
+      # la base nueva" de "vacío la base de producción" es qué URL quedó
+      # pegada en un secret. Así que no se confía en el secret -- se le
+      # pregunta a la base si tiene datos.
+      #
+      # El destino legítimo está vacío, o tiene solo el esquema que le creó el
+      # `migrate` del primer build de Render (`django_migrations` poblada y
+      # todo lo demás en cero). Cualquier fila en una tabla de dominio
+      # significa que este secret NO apunta a donde creemos.
+      - name: Verificar que el DESTINO no tenga datos
+        if: inputs.accion == 'migrar'
+        env:
+          DESTINO: ${{ secrets.NEON_MIGRACION_DESTINO_DIRECT }}
+        run: |
+          set -euo pipefail
+          FILAS_DOMINIO="$(psql "$DESTINO" -qAtX -c "
+            SELECT coalesce(sum((xpath('/row/c/text()', x))[1]::text::bigint), 0)
+            FROM (
+              SELECT query_to_xml(format('select count(*) as c from public.%I', c.relname),
+                                  false, true, '') AS x
+              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE n.nspname = 'public' AND c.relkind = 'r'
+                AND c.relname NOT IN ('django_migrations', 'django_content_type',
+                                      'auth_permission', 'django_session')
+            ) t")"
+          echo "filas en tablas de dominio del destino: $FILAS_DOMINIO"
+          if [ "$FILAS_DOMINIO" != "0" ]; then
+            echo "::error::El DESTINO tiene $FILAS_DOMINIO filas de dominio. O el secret apunta a la base equivocada, o esta migración ya corrió. ABORTADO sin tocar nada."
+            exit 1
+          fi
+          # Las 4 excluidas arriba las puebla `migrate` solo, así que tenerlas
+          # con filas es normal en un destino legítimo; se informan aparte.
+          psql "$DESTINO" -qAtX -c "SELECT 'migraciones ya aplicadas en el destino: ' || count(*) FROM django_migrations" 2>/dev/null || echo "sin django_migrations (base virgen)"
+
       - name: Restore en el DESTINO
         if: inputs.accion == 'migrar'
         env:
           DESTINO: ${{ secrets.NEON_MIGRACION_DESTINO_DIRECT }}
         run: |
           set -euo pipefail
+          # Vaciar el esquema es obligatorio: el `buildCommand` de Render corre
+          # `migrate`, así que el primer deploy del servicio nuevo deja las 67
+          # migraciones aplicadas y las tablas creadas -- y el dump trae esas
+          # mismas tablas, con lo que el restore chocaría. Es seguro porque el
+          # paso anterior ya probó que acá no hay ni una fila de dominio.
+          psql "$DESTINO" -qAtX -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+          echo "esquema del destino vaciado"
           time pg_restore --no-owner --no-privileges \
             --single-transaction --exit-on-error \
             --dbname "$DESTINO" /tmp/migracion.dump
