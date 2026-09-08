@@ -658,7 +658,54 @@ como error de campo, mismo patrón que el guard de fecha anterior a la
 vigente). El detalle marca cada ítem con «A completar» y el listado cuenta
 cuántos faltan con un `Count` anotado, nunca `items_incompletos()` por fila.
 
-**El detalle de la plantilla se agrupa por día, un ejercicio por fila y una
+### El editor de plantillas (2026-09-07)
+
+**El detalle de la plantilla ES la grilla editable**: un día por tarjeta
+plegable, un ejercicio por fila, las 4 semanas en columnas y un botón
+«Guardar» por día. Reemplazó al alta de a uno (`item_crear`/`item_editar`/
+`item_eliminar`, `RutinaPlantillaItemForm` e `item_form.html`, todos
+**retirados**): armar el plan real del primer cliente eran 172 formularios.
+
+- **Las celdas viajan en UN campo JSON, nunca en un formset.** 50 ejercicios ×
+  4 semanas × 5 campos son 1000 campos, justo contra
+  `DATA_UPLOAD_MAX_NUMBER_FIELDS` — el límite que ya produjo un
+  `TooManyFieldsSent` (`ISSUES.md [2026-07-28]`). Molde:
+  `importaciones.forms.ResolucionesJSONForm`. Los controles de la grilla **no
+  llevan `name`**; un listener de `submit` los serializa al hidden.
+- **`DiaDePlantillaForm` valida la FORMA** (`clean()` con `add_error(None,…)`,
+  porque un error de campo sobre un hidden no se ve en ninguna pantalla), y la
+  **vista valida la tenencia**: los `ejercicio_id` se resuelven de una sola vez
+  con `in_bulk` contra el catálogo del gimnasio. Nunca una query por fila.
+- **Guardar reemplaza el día** dentro de una transacción. Es seguro porque
+  `RutinaPlantillaItem` no tiene ninguna FK entrante viva.
+- **Si el payload no valida NO se redirige**: los valores viven en el JSON y no
+  en el HTML, así que un redirect le haría perder al entrenador todo lo
+  cargado. Se re-renderiza con `filas_previas` y el JS repuebla el día.
+- **`orden` es la posición de la fila** (antes se tipeaba y el form hacía
+  `max+1`), y **`dia_nombre` es un campo por día** que se estampa en todos sus
+  ítems (antes se heredaba con la regla de la semana más baja).
+- **Un ejercicio no puede repetirse en el mismo día.** `agrupacion.py` agrupa
+  por `ejercicio_id`, así que dos filas iguales se fusionarían al releer y una
+  se perdería en silencio. Lo encontró la prueba en el navegador, no la suite.
+- **Dos interfaces desde el mismo HTML.** En computadora la tabla ancha; abajo
+  de 640px las celdas se reorganizan en una tarjeta por ejercicio, con los
+  cinco campos de cada semana en una fila (`grid-cols-5`). Apilarlos daba 20
+  campos por ejercicio, o sea 220 en un día de 11. **No renderizar dos bloques
+  distintos**: serían dos controles por dato y una serialización ambigua.
+- **El buscador**: el catálogo viaja una vez por `json_script` y Tom Select se
+  inicializa **al recibir el foco**. Un `<select>` completo por fila serían más
+  de 30.000 `<option>` con una biblioteca real. Y **su CSS se inyecta desde el
+  JS**, no por `{% templatetag openblock %} block extra_style {% templatetag closeblock %}`: ese bloque vive en el
+  `<head>`, que `hx-boost` nunca reemplaza. Así el gotcha deja de aplicar a
+  esta pantalla en vez de repetir `hx-boost="false"` en cada link entrante.
+- **Bajar `dias_por_semana` pide confirmación y borra** los ejercicios de los
+  días que sobran: si no, quedaban invisibles en la grilla pero
+  `crear_desde_plantilla` se los seguía dando al alumno.
+- **Se puede crear una plantilla desde la pantalla de asignar**: el alumno
+  viaja en la query string por las tres pantallas y vuelve con la plantilla ya
+  elegida.
+
+**Historia previa de esta tabla: se agrupó por día un ejercicio por fila y una
 columna por semana** (2026-09-07) — la misma reagrupación que recibió
 `asignada_detail.html` el 2026-08-31 y por el mismo motivo: el plan real del
 primer cliente son 43 ejercicios por semana × 4 semanas = 172 filas planas,

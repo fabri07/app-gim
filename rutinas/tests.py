@@ -981,10 +981,6 @@ class RutinasViewsTests(TestCase):
             reverse("rutinas:plantilla_crear"),
             reverse("rutinas:plantilla_detalle", args=[self.plantilla_a.pk]),
             reverse("rutinas:plantilla_editar", args=[self.plantilla_a.pk]),
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
-            reverse(
-                "rutinas:item_editar", args=[self.plantilla_a.pk, self.item_a.pk]
-            ),
             reverse("rutinas:asignar"),
             reverse("rutinas:asignada_detalle", args=[self.asignada_a.pk]),
             reverse("rutinas:asignada_pdf", args=[self.asignada_a.pk]),
@@ -1076,274 +1072,56 @@ class RutinasViewsTests(TestCase):
 
     # 3. Items: CRUD dentro de la plantilla correcta; 404 cross-tenant vía el
     # lookup del padre (ni siquiera llega a consultar el item).
-    def test_item_crud_dentro_de_la_plantilla_correcta(self):
+    def test_el_ciclo_de_carga_de_un_dia_queda_en_su_plantilla(self):
+        """Antes esto ejercitaba las tres vistas de item suelto
+        (`item_crear`/`item_editar`/`item_eliminar`), retiradas el 2026-09-07
+        cuando la grilla las reemplazó. El invariante que fijaba sigue siendo
+        el mismo: lo que se carga cae en la plantilla correcta, se puede
+        cambiar y se puede vaciar."""
         self.client.login(username="staff_a", password="clave12345")
+        url = reverse("rutinas:dia_guardar", args=[self.plantilla_a.pk, 2])
+        celda = {"series": "3", "repeticiones": "10", "kilos": "", "descanso": "60s", "notas": ""}
 
-        datos = {
-            "ejercicio": self.ejercicio_a.pk,
-            "semana": 2,
-            "dia": 2,
-            "orden": 1,
-            "series": 3,
-            "repeticiones": "10",
-            "descanso": "60s",
-            "notas": "",
-        }
-        response = self.client.post(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]), datos
-        )
-        self.assertEqual(response.status_code, 302)
-        nuevo_item = RutinaPlantillaItem.objects.get(rutina=self.plantilla_a, dia=2)
-        self.assertEqual(nuevo_item.ejercicio, self.ejercicio_a)
-        self.assertEqual(nuevo_item.semana, 2)
+        respuesta = self.client.post(url, {
+            "dia_nombre": "",
+            "filas": json.dumps([{
+                "ejercicio_id": self.ejercicio_a.pk, "bloque": "",
+                "semanas": {"2": celda},
+            }]),
+        })
+        self.assertEqual(respuesta.status_code, 302)
+        item = RutinaPlantillaItem.objects.get(rutina=self.plantilla_a, dia=2)
+        self.assertEqual(item.ejercicio, self.ejercicio_a)
+        self.assertEqual(item.semana, 2)
 
-        response = self.client.get(
-            reverse(
-                "rutinas:item_editar", args=[self.plantilla_a.pk, nuevo_item.pk]
-            )
-        )
-        self.assertEqual(response.status_code, 200)
+        self.client.post(url, {
+            "dia_nombre": "",
+            "filas": json.dumps([{
+                "ejercicio_id": self.ejercicio_a.pk, "bloque": "",
+                "semanas": {"3": {**celda, "series": "9"}},
+            }]),
+        })
+        item = RutinaPlantillaItem.objects.get(rutina=self.plantilla_a, dia=2)
+        self.assertEqual((item.series, item.semana), (9, 3))
 
-        datos["series"] = 9
-        datos["semana"] = 3
-        response = self.client.post(
-            reverse(
-                "rutinas:item_editar", args=[self.plantilla_a.pk, nuevo_item.pk]
-            ),
-            datos,
-        )
-        self.assertEqual(response.status_code, 302)
-        nuevo_item.refresh_from_db()
-        self.assertEqual(nuevo_item.series, 9)
-        self.assertEqual(nuevo_item.semana, 3)
-
-        eliminar_url = reverse(
-            "rutinas:item_eliminar", args=[self.plantilla_a.pk, nuevo_item.pk]
-        )
-        response = self.client.get(eliminar_url)
-        self.assertEqual(response.status_code, 405)
-
-        response = self.client.post(eliminar_url)
-        self.assertEqual(response.status_code, 302)
+        self.client.post(url, {"dia_nombre": "", "filas": "[]"})
         self.assertFalse(
-            RutinaPlantillaItem.objects.filter(pk=nuevo_item.pk).exists()
+            RutinaPlantillaItem.objects.filter(rutina=self.plantilla_a, dia=2).exists()
         )
 
-    def test_item_de_otro_gimnasio_no_es_accesible_desde_plantilla_ajena(self):
+    def test_no_se_puede_cargar_un_dia_de_una_plantilla_ajena(self):
+        """El aislamiento lo da el lookup del padre, que 404ea antes de tocar
+        ningún item. Antes se probaba sobre las tres vistas de item suelto;
+        desde 2026-09-07 el único camino de escritura es el guardado del día."""
         self.client.login(username="staff_a", password="clave12345")
-
-        # La plantilla del kwarg es de OTRO gimnasio: 404 antes de tocar el item.
-        response = self.client.get(
-            reverse("rutinas:item_crear", args=[self.plantilla_b.pk])
+        respuesta = self.client.post(
+            reverse("rutinas:dia_guardar", args=[self.plantilla_b.pk, 1]),
+            {"dia_nombre": "", "filas": "[]"},
         )
-        self.assertEqual(response.status_code, 404)
-
-        response = self.client.get(
-            reverse("rutinas:item_editar", args=[self.plantilla_b.pk, self.item_b.pk])
+        self.assertEqual(respuesta.status_code, 404)
+        self.assertTrue(
+            RutinaPlantillaItem.objects.filter(rutina=self.plantilla_b).exists()
         )
-        self.assertEqual(response.status_code, 404)
-
-        response = self.client.post(
-            reverse(
-                "rutinas:item_eliminar", args=[self.plantilla_b.pk, self.item_b.pk]
-            )
-        )
-        self.assertEqual(response.status_code, 404)
-        self.assertTrue(RutinaPlantillaItem.objects.filter(pk=self.item_b.pk).exists())
-
-    # --- Alta de items: qué puede quedar en blanco -----------------------
-    #
-    # Reporte real del primer cliente pago: armaba una plantilla desde cero,
-    # dejaba casilleros vacíos, guardaba, y la plantilla quedaba SIEMPRE
-    # vacía. El form devolvía "Este campo es obligatorio" para `dia` y
-    # `orden`, pero `.errorlist` no tenía ningún estilo en el proyecto, así
-    # que el mensaje salía en negro, del mismo tamaño que las ayudas grises y
-    # ARRIBA de la etiqueta: se leía como una instrucción más.
-    #
-    # `orden` es un número administrativo que el sistema puede deducir --
-    # `services.agregar_ejercicio_asignado` ya lo hacía así (`max + 1`) para
-    # el otro flujo. `series`/`repeticiones` siguen obligatorios: son la
-    # prescripción del entrenamiento y no hay valor sensato que inventar.
-
-    def test_orden_en_blanco_se_asigna_al_final_del_dia(self):
-        self.client.login(username="staff_a", password="clave12345")
-        RutinaPlantillaItem.objects.create(
-            rutina=self.plantilla_a, ejercicio=self.ejercicio_a,
-            semana=1, dia=1, orden=7, series=3, repeticiones="10",
-        )
-
-        response = self.client.post(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
-            {
-                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 1,
-                "orden": "", "series": 4, "repeticiones": "12",
-                "kilos": "", "descanso": "", "notas": "",
-                "bloque": "", "dia_nombre": "",
-            },
-        )
-
-        self.assertEqual(response.status_code, 302)
-        creado = RutinaPlantillaItem.objects.filter(
-            rutina=self.plantilla_a, dia=1, repeticiones="12"
-        ).get()
-        self.assertEqual(creado.orden, 8)
-
-    def test_orden_en_blanco_en_un_dia_vacio_arranca_en_uno(self):
-        self.client.login(username="staff_a", password="clave12345")
-
-        response = self.client.post(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
-            {
-                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 5,
-                "orden": "", "series": 3, "repeticiones": "10",
-                "kilos": "", "descanso": "", "notas": "",
-                "bloque": "", "dia_nombre": "",
-            },
-        )
-
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(
-            RutinaPlantillaItem.objects.get(rutina=self.plantilla_a, dia=5).orden, 1
-        )
-
-    def test_el_orden_se_cuenta_por_dia_no_por_plantilla(self):
-        """Dos días distintos numeran desde 1 cada uno: `orden` es "orden
-        dentro del día" (ver el help_text del modelo), no un contador global.
-        Sin el filtro por día, el primer ejercicio del día 2 arrancaría en 8.
-        """
-        self.client.login(username="staff_a", password="clave12345")
-        RutinaPlantillaItem.objects.create(
-            rutina=self.plantilla_a, ejercicio=self.ejercicio_a,
-            semana=1, dia=1, orden=7, series=3, repeticiones="10",
-        )
-
-        self.client.post(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
-            {
-                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 2,
-                "orden": "", "series": 3, "repeticiones": "10",
-                "kilos": "", "descanso": "", "notas": "",
-                "bloque": "", "dia_nombre": "",
-            },
-        )
-
-        self.assertEqual(
-            RutinaPlantillaItem.objects.get(rutina=self.plantilla_a, dia=2).orden, 1
-        )
-
-    def test_series_y_repeticiones_siguen_siendo_obligatorias(self):
-        """Decisión de producto: son el contenido real del ejercicio. Un item
-        sin ellas le llegaría al alumno como una fila vacía, en el portal y
-        en el PDF."""
-        self.client.login(username="staff_a", password="clave12345")
-
-        response = self.client.post(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
-            {
-                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 1,
-                "orden": "", "series": "", "repeticiones": "",
-                "kilos": "", "descanso": "", "notas": "",
-                "bloque": "", "dia_nombre": "",
-            },
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("series", response.context["form"].errors)
-        self.assertIn("repeticiones", response.context["form"].errors)
-
-    def test_el_form_llega_precargado_con_el_proximo_dia_y_orden(self):
-        """Que los casilleros nunca aparezcan vacíos es la mitad preventiva:
-        cargar cinco ejercicios seguidos del día 2 no debería obligar a
-        retipear el "2" cada vez."""
-        self.client.login(username="staff_a", password="clave12345")
-        RutinaPlantillaItem.objects.create(
-            rutina=self.plantilla_a, ejercicio=self.ejercicio_a,
-            semana=1, dia=3, orden=2, series=3, repeticiones="10",
-        )
-
-        response = self.client.get(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk])
-        )
-
-        initial = response.context["form"].initial
-        self.assertEqual(initial["dia"], 3)
-        self.assertEqual(initial["orden"], 3)
-
-    def test_el_form_de_una_plantilla_vacia_arranca_en_dia_uno(self):
-        self.client.login(username="staff_a", password="clave12345")
-        RutinaPlantillaItem.objects.filter(rutina=self.plantilla_a).delete()
-
-        response = self.client.get(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk])
-        )
-
-        initial = response.context["form"].initial
-        self.assertEqual(initial["dia"], 1)
-        self.assertEqual(initial["orden"], 1)
-
-    def test_dia_nombre_en_blanco_hereda_el_nombre_del_dia(self):
-        """Mismo criterio que `services.agregar_ejercicio_asignado`:
-        `dia_nombre` está denormalizado por item, y dejar el item nuevo como
-        el único sin etiqueta rompe la regla de lectura de `agrupacion.py`
-        ("gana la semana más baja")."""
-        self.client.login(username="staff_a", password="clave12345")
-        RutinaPlantillaItem.objects.create(
-            rutina=self.plantilla_a, ejercicio=self.ejercicio_a,
-            semana=1, dia=1, orden=1, series=3, repeticiones="10",
-            dia_nombre="Tren superior",
-        )
-
-        self.client.post(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
-            {
-                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 1,
-                "orden": "", "series": 3, "repeticiones": "15",
-                "kilos": "", "descanso": "", "notas": "",
-                "bloque": "", "dia_nombre": "",
-            },
-        )
-
-        creado = RutinaPlantillaItem.objects.get(
-            rutina=self.plantilla_a, dia=1, repeticiones="15"
-        )
-        self.assertEqual(creado.dia_nombre, "Tren superior")
-
-    def test_los_errores_del_form_de_item_se_ven_como_errores(self):
-        """`{{ form.as_p }}` pintaba "Este campo es obligatorio" en negro,
-        del mismo tamaño que las ayudas y arriba de la etiqueta -- se leía
-        como una instrucción, y por eso el cliente creía haber guardado."""
-        self.client.login(username="staff_a", password="clave12345")
-
-        response = self.client.post(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]),
-            {
-                "ejercicio": self.ejercicio_a.pk, "semana": 1, "dia": 1,
-                "orden": "", "series": "", "repeticiones": "",
-                "kilos": "", "descanso": "", "notas": "",
-                "bloque": "", "dia_nombre": "",
-            },
-        )
-
-        self.assertContains(response, "config-error")
-
-    def test_el_form_de_item_no_queda_boosteado(self):
-        """Los dos links que llevan acá ya tenían `hx-boost="false"` por el
-        CSS de Tom Select que vive en <head>; al form le faltaba. Con el swap
-        boosteado, el camino de ERROR (que vuelve a renderizar esta misma
-        pantalla) inicializaba TomSelect dos veces y dejaba el <select> crudo
-        visible al lado del buscador."""
-        self.client.login(username="staff_a", password="clave12345")
-        response = self.client.get(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk])
-        )
-        self.assertContains(response, '<form method="post" novalidate hx-boost="false">')
-
-    def test_la_pantalla_de_item_no_filtra_lenguaje_de_programador(self):
-        self.client.login(username="staff_a", password="clave12345")
-        response = self.client.get(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk])
-        )
-        self.assertNotContains(response, "dias_por_semana")
 
     def test_plantilla_detail_muestra_el_video_de_cada_ejercicio(self):
         """El dueño preguntó por qué no veía el video en la plantilla. El
@@ -1436,38 +1214,40 @@ class RutinasViewsTests(TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
-    # 4. El campo `ejercicio` del form de item solo ofrece ejercicios del
-    # propio gimnasio -- el cierre del hueco de FK-injection.
-    def test_ejercicio_del_form_de_item_esta_scopeado_al_gimnasio(self):
+    # 4. La grilla solo ofrece ejercicios del propio gimnasio, y postear el
+    # id de uno ajeno no crea nada -- el cierre del hueco de FK-injection.
+    def test_el_catalogo_de_la_grilla_esta_scopeado_al_gimnasio(self):
+        """Antes esto se probaba sobre el `<select>` del formulario de item;
+        desde 2026-09-07 el catálogo viaja una sola vez por pantalla y la
+        barrera vive en el guardado del día, contra un queryset scopeado."""
         self.client.login(username="staff_a", password="clave12345")
 
         response = self.client.get(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk])
+            reverse("rutinas:plantilla_detalle", args=[self.plantilla_a.pk])
         )
-        queryset = response.context["form"].fields["ejercicio"].queryset
-        self.assertIn(self.ejercicio_a, queryset)
-        self.assertNotIn(self.ejercicio_b, queryset)
+        ids = [e["id"] for e in response.context["catalogo_ejercicios"]]
+        self.assertIn(self.ejercicio_a.pk, ids)
+        self.assertNotIn(self.ejercicio_b.pk, ids)
 
-        # Postear directamente el id de un ejercicio de otro gimnasio: form
-        # inválido, no un item creado a medio camino.
-        datos = {
-            "ejercicio": self.ejercicio_b.pk,
-            "dia": 1,
-            "orden": 9,
-            "series": 3,
-            "repeticiones": "10",
-            "descanso": "",
-            "notas": "",
-        }
+        # Postear directamente el id de un ejercicio de otro gimnasio: no se
+        # crea nada y el día queda como estaba.
+        antes = RutinaPlantillaItem.objects.filter(rutina=self.plantilla_a).count()
         response = self.client.post(
-            reverse("rutinas:item_crear", args=[self.plantilla_a.pk]), datos
+            reverse("rutinas:dia_guardar", args=[self.plantilla_a.pk, 1]),
+            {"dia_nombre": "", "filas": json.dumps([{
+                "ejercicio_id": self.ejercicio_b.pk, "bloque": "",
+                "semanas": {"1": {"series": "3", "repeticiones": "10",
+                                  "kilos": "", "descanso": "", "notas": ""}},
+            }])},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertIn("ejercicio", response.context["form"].errors)
         self.assertFalse(
             RutinaPlantillaItem.objects.filter(
                 rutina=self.plantilla_a, ejercicio=self.ejercicio_b
             ).exists()
+        )
+        self.assertEqual(
+            RutinaPlantillaItem.objects.filter(rutina=self.plantilla_a).count(), antes
         )
 
     # 5. Duplicar (POST-only) crea una copia independiente y redirige a ella;
@@ -4261,25 +4041,19 @@ class ItemsACompletarTests(RutinasTestCase):
         copia = self.plantilla.duplicar()
         self.assertEqual(copia.items_incompletos(), 1)
 
-    def test_el_editor_sigue_exigiendo_series_y_repeticiones(self):
-        """Completar es editar: si el form los dejara vacíos, "a completar"
-        sería un estado del que no hay forma de salir."""
-        response = self.client.post(
-            reverse("rutinas:item_editar", args=[self.plantilla.pk, self.incompleto.pk]),
-            {
-                "ejercicio": self.sentadilla.pk, "semana": 1, "dia": 2,
-                "dia_nombre": "", "bloque": "", "orden": 1,
-                "series": "", "repeticiones": "", "kilos": "", "descanso": "",
-                "notas": "",
-            },
+    def test_completar_el_item_desde_la_grilla_lo_destraba(self):
+        """«A completar» tiene que tener salida: cargar series y repeticiones
+        en la grilla y guardar el día alcanza."""
+        respuesta = self.client.post(
+            reverse("rutinas:dia_guardar", args=[self.plantilla.pk, 2]),
+            {"dia_nombre": "", "filas": json.dumps([{
+                "ejercicio_id": self.sentadilla.pk, "bloque": "",
+                "semanas": {"1": {"series": "3", "repeticiones": "12",
+                                  "kilos": "", "descanso": "", "notas": ""}},
+            }])},
         )
-        self.assertEqual(response.status_code, 200)
-        self.assertFormError(response.context["form"], "series", "Este campo es obligatorio.")
-        self.assertFormError(
-            response.context["form"], "repeticiones", "Este campo es obligatorio."
-        )
-        self.incompleto.refresh_from_db()
-        self.assertIsNone(self.incompleto.series)
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(self.plantilla.items_incompletos(), 0)
 
     def test_el_detalle_marca_los_items_a_completar(self):
         response = self.client.get(
@@ -4421,40 +4195,43 @@ class PlantillaDetalleAgrupadoTests(RutinasTestCase):
         self.assertEqual(filas, 2)
         self.assertContains(response, "js-quitar-fila")
 
-    def test_quitar_borra_el_ejercicio_de_todas_las_semanas_de_ese_dia(self):
-        """Hay un solo botón por fila y la fila son las 4 semanas: borrar una
-        sola dejaría las otras tres en pantalla como si no hubiera pasado
-        nada."""
-        item = self.plantilla.items.filter(dia=1, semana=3).get()
-        response = self.client.post(
-            reverse("rutinas:item_eliminar", args=[self.plantilla.pk, item.pk]),
+    def _guardar_dia(self, dia, filas):
+        return self.client.post(
+            reverse("rutinas:dia_guardar", args=[self.plantilla.pk, dia]),
+            {"dia_nombre": "", "filas": json.dumps(filas)},
             follow=True,
         )
-        self.assertEqual(self.plantilla.items.filter(dia=1).count(), 0)
-        self.assertContains(response, "se quitó del día 1")
-        self.assertContains(response, "4 semanas")
 
-    def test_quitar_no_toca_los_otros_dias(self):
-        item = self.plantilla.items.filter(dia=1, semana=1).get()
-        self.client.post(
-            reverse("rutinas:item_eliminar", args=[self.plantilla.pk, item.pk])
-        )
+    def _fila_de(self, ejercicio):
+        return {
+            "ejercicio_id": ejercicio.pk, "bloque": "",
+            "semanas": {
+                str(s): {"series": "3", "repeticiones": "10", "kilos": "",
+                         "descanso": "", "notas": ""}
+                for s in (1, 2, 3, 4)
+            },
+        }
+
+    def test_quitar_una_fila_saca_el_ejercicio_de_todas_las_semanas(self):
+        """La fila de la grilla ES el ejercicio en todas sus semanas: sacarla
+        y guardar tiene que llevarse las cuatro. Antes esto era un POST a una
+        vista propia por item, retirada el 2026-09-07."""
+        respuesta = self._guardar_dia(1, [])
+        self.assertEqual(self.plantilla.items.filter(dia=1).count(), 0)
+        self.assertContains(respuesta, "Día 1 guardado")
+
+    def test_quitar_una_fila_no_toca_los_otros_dias(self):
+        self._guardar_dia(1, [])
         self.assertEqual(self.plantilla.items.filter(dia=2).count(), 4)
 
-    def test_quitar_no_toca_a_otro_ejercicio_del_mismo_dia(self):
-        for semana in (1, 2, 3, 4):
-            RutinaPlantillaItem.objects.create(
-                rutina=self.plantilla, ejercicio=self.sentadilla, semana=semana,
-                dia=1, orden=2, series=4, repeticiones="10",
-            )
-        item = self.plantilla.items.filter(dia=1, ejercicio=self.press_banca).first()
-        self.client.post(
-            reverse("rutinas:item_eliminar", args=[self.plantilla.pk, item.pk])
-        )
+    def test_quitar_una_fila_no_toca_a_otro_ejercicio_del_mismo_dia(self):
+        self._guardar_dia(1, [self._fila_de(self.press_banca), self._fila_de(self.sentadilla)])
+        self._guardar_dia(1, [self._fila_de(self.sentadilla)])
         self.assertEqual(
-            list(self.plantilla.items.filter(dia=1).values_list("ejercicio", flat=True)),
-            [self.sentadilla.pk] * 4,
+            sorted(set(self.plantilla.items.filter(dia=1).values_list("ejercicio", flat=True))),
+            [self.sentadilla.pk],
         )
+        self.assertEqual(self.plantilla.items.filter(dia=1).count(), 4)
 
     def test_el_costo_en_queries_no_crece_con_los_ejercicios(self):
         """La pantalla que un cliente real abre con 172 items no puede hacer

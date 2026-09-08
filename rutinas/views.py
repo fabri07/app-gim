@@ -11,7 +11,8 @@ Los items (`RutinaPlantillaItem`) NO son `TenantOwnedModel` -- no tienen
 tenant para sus vistas se logra resolviendo PRIMERO la `RutinaPlantilla`
 padre con `RutinaPlantilla.objects.for_gimnasio(gimnasio)`: si la plantilla es
 de otro gimnasio, eso ya devuelve 404 antes de tocar ningún item.
-`ItemPlantillaMixin` centraliza esa resolución.
+`GuardarDiaDePlantillaView.get_plantilla()` e `ItemAsignadaMixin` hacen esa
+resolución, cada uno para su modelo.
 """
 
 from django.contrib import messages
@@ -39,7 +40,6 @@ from rutinas.forms import (
     DiaDePlantillaForm,
     RutinaAsignadaItemForm,
     RutinaPlantillaForm,
-    RutinaPlantillaItemForm,
 )
 from alumnos.models import Alumno
 from ejercicios.models import Ejercicio
@@ -267,56 +267,6 @@ class RutinaPlantillaDuplicarView(
 # ---------------------------------------------------------------------------
 
 
-class EjercicioAjeno(Exception):
-    """Un `ejercicio_id` de la grilla que no pertenece al gimnasio. Se levanta
-    para abortar la transacción entera: el día no se toca."""
-
-
-class ItemPlantillaMixin(StaffRequiredMixin, TenantScopedMixin):
-    """Mixin común a los views de `RutinaPlantillaItem`.
-
-    Resuelve la `RutinaPlantilla` padre (URL kwarg `plantilla_pk`) acotada al
-    gimnasio del staff logueado -- ESE lookup es lo que aísla por tenant,
-    porque 404ea antes de que se llegue a consultar ningún item. A partir de
-    ahí se opera siempre sobre `self.plantilla.items`, nunca sobre
-    `RutinaPlantillaItem.objects` directo (que no tiene scoping propio).
-    """
-
-    def get_plantilla(self):
-        if not hasattr(self, "_plantilla"):
-            self._plantilla = get_object_or_404(
-                RutinaPlantilla.objects.for_gimnasio(self.gimnasio),
-                pk=self.kwargs["plantilla_pk"],
-            )
-        return self._plantilla
-
-    @property
-    def plantilla(self):
-        return self.get_plantilla()
-
-    def get_queryset(self):
-        # Reemplaza a TenantScopedMixin.get_queryset(): RutinaPlantillaItem no
-        # es TenantOwnedModel y no tiene `for_gimnasio()`.
-        return self.plantilla.items.all()
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["plantilla"] = self.plantilla
-        return context
-
-    def get_success_url(self):
-        return reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
-
-    def get_form_kwargs(self):
-        # El form necesita la plantilla para calcular `orden` y heredar
-        # `dia_nombre`: `form.instance.rutina` recién se asigna en
-        # `form_valid`, o sea después de validar. Mismo patrón que
-        # `ItemAsignadaMixin`, que ya inyecta `asignada`.
-        kwargs = super().get_form_kwargs()
-        kwargs["plantilla"] = self.plantilla
-        return kwargs
-
-
 class RutinaPlantillaDeleteView(
     StaffRequiredMixin, TenantScopedMixin, BorrarConExplicacionView
 ):
@@ -338,66 +288,9 @@ class RutinaPlantillaDeleteView(
         return reverse("rutinas:plantilla_listado")
 
 
-class RutinaPlantillaItemCreateView(ItemPlantillaMixin, CreateView):
-    model = RutinaPlantillaItem
-    form_class = RutinaPlantillaItemForm
-    template_name = "rutinas/item_form.html"
-
-    def get_initial(self):
-        """Los casilleros llegan con el próximo valor razonable en vez de
-        vacíos: cargar cinco ejercicios seguidos del día 2 no debería obligar
-        a retipear el "2" cada vez. Es un default VISIBLE (se ve en el campo
-        y se puede cambiar), no una regla oculta."""
-        initial = super().get_initial()
-        ultimo = self.plantilla.items.order_by("-dia", "-orden").first()
-        if ultimo is None:
-            initial.update(dia=1, orden=1)
-        else:
-            initial.update(dia=ultimo.dia, orden=ultimo.orden + 1)
-        return initial
-
-    def form_valid(self, form):
-        form.instance.rutina = self.plantilla
-        self.object = form.save()
-        messages.success(self.request, "Ejercicio agregado a la plantilla.")
-        return redirect(self.get_success_url())
-
-
-class RutinaPlantillaItemUpdateView(ItemPlantillaMixin, UpdateView):
-    model = RutinaPlantillaItem
-    form_class = RutinaPlantillaItemForm
-    template_name = "rutinas/item_form.html"
-
-    def form_valid(self, form):
-        self.object = form.save()
-        messages.success(self.request, "Ejercicio actualizado.")
-        return redirect(self.get_success_url())
-
-
-class RutinaPlantillaItemDeleteView(ItemPlantillaMixin, View):
-    """POST-only: no hay página de confirmación por GET, el botón de borrar
-    ya es la confirmación (ver template `plantilla_detail.html`).
-
-    Borra el ejercicio de TODAS las semanas de ese día, no solo la del item
-    que se apretó. Desde que la tabla se agrupa por ejercicio (una fila, una
-    columna por semana) hay un solo botón por fila, y ese botón tiene que
-    hacer lo que la fila representa: un borrado de una sola semana dejaría
-    las otras tres en pantalla como si no hubiera pasado nada. Es la misma
-    regla que `services.quitar_ejercicio_asignado` ya aplica en la rutina
-    asignada, y el label del botón dice de cuántas semanas se trata.
-    """
-
-    def post(self, request, *args, **kwargs):
-        item = get_object_or_404(self.get_queryset(), pk=kwargs["pk"])
-        borrados, _ = self.get_queryset().filter(
-            dia=item.dia, ejercicio_id=item.ejercicio_id
-        ).delete()
-        messages.success(
-            request,
-            f"«{item.ejercicio.nombre}» se quitó del día {item.dia} "
-            f"({borrados} semana{'s' if borrados != 1 else ''}).",
-        )
-        return redirect(self.get_success_url())
+class EjercicioAjeno(Exception):
+    """Un `ejercicio_id` de la grilla que no pertenece al gimnasio. Se levanta
+    para abortar la transacción entera: el día no se toca."""
 
 
 class GuardarDiaDePlantillaView(StaffRequiredMixin, TenantScopedMixin, View):
@@ -504,6 +397,7 @@ class GuardarDiaDePlantillaView(StaffRequiredMixin, TenantScopedMixin, View):
         with transaction.atomic():
             plantilla.items.filter(dia=dia).delete()
             RutinaPlantillaItem.objects.bulk_create(items)
+
 
 # ---------------------------------------------------------------------------
 # Asignación de rutina
@@ -638,7 +532,7 @@ class RutinaAsignadaDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView
 
 
 class ItemAsignadaMixin(StaffRequiredMixin, TenantScopedMixin):
-    """Mismo mecanismo de aislamiento que `ItemPlantillaMixin`, para el otro
+    """Mismo mecanismo de aislamiento que `GuardarDiaDePlantillaView`, para el otro
     par de modelos.
 
     `RutinaAsignadaItem` tampoco es `TenantOwnedModel` y no tiene

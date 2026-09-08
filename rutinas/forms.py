@@ -1,11 +1,15 @@
 """
 Forms de gestión de rutinas (Fase 2).
 
-`RutinaPlantillaForm` y `RutinaPlantillaItemForm` heredan de
-`TenantScopedModelForm`: cierran automáticamente el hueco de FK-injection en
-cualquier campo `ModelChoice*Field` cuyo modelo sea `TenantOwnedModel` (en
-`RutinaPlantillaItemForm`, el campo `ejercicio` -- ver docstring de
-`core.forms.TenantScopedModelForm`).
+`RutinaPlantillaForm` y `RutinaAsignadaItemForm` heredan de
+`TenantScopedModelForm`, que cierra automáticamente el hueco de FK-injection
+en cualquier campo `ModelChoice*Field` cuyo modelo sea `TenantOwnedModel`
+(ver su docstring en `core.forms`).
+
+`DiaDePlantillaForm` es la excepción: la grilla de la plantilla manda todas
+sus celdas en un único campo JSON, así que no hay `ModelChoiceField` que
+scopear y la barrera de tenant vive en la vista, que resuelve los ejercicios
+contra un queryset acotado al gimnasio.
 
 `AsignarRutinaForm` es un `forms.Form` plano (no `ModelForm`): `RutinaAsignada`
 se crea vía `RutinaAsignada.crear_desde_plantilla`, no vía `form.save()` (ver
@@ -17,7 +21,6 @@ un `ModelForm`.
 import json
 
 from django import forms
-from django.db.models import Max
 from django.utils import timezone
 
 from alumnos.models import Alumno
@@ -38,113 +41,6 @@ class RutinaPlantillaForm(TenantScopedModelForm):
     class Meta:
         model = RutinaPlantilla
         fields = ["nombre", "objetivo", "nivel", "dias_por_semana", "activa"]
-
-
-class RutinaPlantillaItemForm(TenantScopedModelForm):
-    """Agrega o edita UN ejercicio de una plantilla.
-
-    Recibe `plantilla` (lo inyecta `ItemPlantillaMixin.get_form_kwargs`)
-    porque dos de sus reglas dependen de lo que ya hay cargado en ese día, y
-    el `form.instance.rutina` recién se asigna en `form_valid`, después de
-    validar:
-
-    - **`orden` es opcional y se calcula al final del día** (`max + 1`).
-      Es un número administrativo que el sistema puede deducir; obligarlo a
-      tipearlo era la causa de que un cliente real guardara y la plantilla le
-      quedara vacía. Misma regla que `services.agregar_ejercicio_asignado`
-      para el otro flujo, y el mismo motivo para no renumerar insertando:
-      reordenar está fuera de alcance.
-    - **`dia_nombre` en blanco hereda el del día.** Está denormalizado por
-      item (ver el modelo), y dejar el nuevo como el único sin etiqueta rompe
-      la regla de lectura de `agrupacion.py` ("gana la semana más baja").
-
-    `series` y `repeticiones` siguen obligatorios a propósito: son la
-    prescripción del entrenamiento, no hay valor sensato que inventar, y un
-    item sin ellas le llega al alumno como una fila vacía en el portal y en
-    el PDF. En el MODELO son opcionales desde 2026-09-07 (el importador de
-    PDF deja items "a completar"), así que el form los vuelve a exigir
-    explícitamente en `__init__`: editar un item es justamente cómo se
-    completa, y si el form los dejara vacíos ese estado no tendría salida.
-    """
-
-    class Meta:
-        model = RutinaPlantillaItem
-        fields = [
-            "ejercicio",
-            "semana",
-            "dia",
-            "dia_nombre",
-            "orden",
-            "bloque",
-            "series",
-            "repeticiones",
-            "kilos",
-            "descanso",
-            "notas",
-        ]
-        labels = {
-            "dia": "Día",
-            "dia_nombre": "Nombre del día",
-            "kilos": "Kilos",
-        }
-        help_texts = {
-            # El help_text del modelo dice "1..dias_por_semana": el nombre de
-            # un campo del código, que no significa nada para un dueño de
-            # gimnasio. Los `help_texts` del form pisan los del modelo.
-            "dia": "Día 1, 2, 3... de la rutina (no el día de la semana).",
-            "orden": "Posición dentro del día. Si lo dejás vacío, se agrega al final.",
-            "dia_nombre": 'Opcional. Por ejemplo: "Tren superior · Core".',
-        }
-
-    def __init__(self, *args, plantilla=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.plantilla = plantilla
-        # El modelo permite vacíos (items "a completar" del importador de
-        # PDF); el form no. Ver el docstring.
-        self.fields["series"].required = True
-        self.fields["repeticiones"].required = True
-        self.fields["orden"].required = False
-
-    def _items_del_dia(self, dia):
-        """Items ya cargados en ese día de esta plantilla, excluyendo el que
-        se está editando (si no, editar sin tocar `orden` lo empujaría al
-        final una y otra vez)."""
-        if self.plantilla is None:
-            return RutinaPlantillaItem.objects.none()
-        queryset = self.plantilla.items.filter(dia=dia)
-        if self.instance.pk:
-            queryset = queryset.exclude(pk=self.instance.pk)
-        return queryset
-
-    def clean(self):
-        cleaned_data = super().clean()
-        dia = cleaned_data.get("dia")
-        if dia is None:
-            # `dia` ya tiene su propio error; sin él no hay día contra el cual
-            # contar el orden ni del cual heredar el nombre.
-            return cleaned_data
-
-        del_dia = self._items_del_dia(dia)
-
-        if cleaned_data.get("orden") is None:
-            cleaned_data["orden"] = (
-                del_dia.aggregate(Max("orden"))["orden__max"] or 0
-            ) + 1
-
-        if not cleaned_data.get("dia_nombre"):
-            heredado = next(
-                (
-                    nombre
-                    for nombre in del_dia.order_by("semana", "orden").values_list(
-                        "dia_nombre", flat=True
-                    )
-                    if nombre
-                ),
-                "",
-            )
-            cleaned_data["dia_nombre"] = heredado
-
-        return cleaned_data
 
 
 class AsignarRutinaForm(forms.Form):
