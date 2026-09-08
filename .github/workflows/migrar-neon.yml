@@ -101,6 +101,10 @@ jobs:
           psql "$ORIGEN" -qAtX -c \
             "SELECT 'version:    ' || current_setting('server_version') || '  collate: ' || datcollate || '  ctype: ' || datctype FROM pg_database WHERE datname = current_database()" \
             | tee -a "$GITHUB_STEP_SUMMARY"
+          # Viaja al paso del diff, donde collate/ctype/major son compuerta.
+          # La major va sin el minor a proposito: 18.6 -> 18.7 en el destino es
+          # inofensivo, 18 -> 17 no.
+          echo "COLLATE_ORIGEN=$(psql "$ORIGEN" -qAtX -F'|' -c "SELECT datcollate, datctype, split_part(current_setting('server_version'), '.', 1) FROM pg_database WHERE datname = current_database()")" >> "$GITHUB_ENV"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           echo "--- conteos por tabla ---"
           cat /tmp/conteos_origen.txt
@@ -160,16 +164,22 @@ jobs:
             fi
           done
 
-          # El collation no se compara con `diff` porque puede diferir
-          # legítimamente entre proveedores; se muestra para decidir a ojo.
-          # Si cambia, el `ORDER BY nombre` de los listados cambia con acentos
-          # y mayúsculas, en silencio.
-          psql "$DESTINO" -qAtX -c \
-            "SELECT 'destino  version: ' || current_setting('server_version') || '  collate: ' || datcollate || '  ctype: ' || datctype FROM pg_database WHERE datname = current_database()" \
-            | tee -a "$GITHUB_STEP_SUMMARY"
+          # Collation y major SON compuerta, no un dato informativo. Si el
+          # collate difiere, el `ORDER BY nombre` de todos los listados cambia
+          # con acentos y mayúsculas -- en silencio, sin ningún error, y con
+          # los índices de texto reconstruidos bajo otra regla. Y si la major
+          # difiere, además hay que actualizar los 5 pines de `backup.yml` y
+          # `backup-verify.yml` o el respaldo deja de poder volcar la base.
+          COLLATE_DESTINO="$(psql "$DESTINO" -qAtX -F'|' -c "SELECT datcollate, datctype, split_part(current_setting('server_version'), '.', 1) FROM pg_database WHERE datname = current_database()")"
+          echo "- collate/major destino: \`$COLLATE_DESTINO\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- collate/major origen:  \`$COLLATE_ORIGEN\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$COLLATE_DESTINO" != "$COLLATE_ORIGEN" ]; then
+            echo "::error::collate/ctype/major distintos entre origen y destino ($COLLATE_ORIGEN vs $COLLATE_DESTINO). El ORDER BY sobre texto cambiaria en silencio."
+            fallo=1
+          fi
 
           if [ "$fallo" = "1" ]; then
-            echo "::error::El inventario no coincide. NO apuntes DATABASE_URL al destino."
+            echo "::error::Verificacion fallida. NO apuntes DATABASE_URL al destino."
             exit 1
           fi
-          echo "::notice::Inventario idéntico. Falta migrate --check antes del switch."
+          echo "::notice::Inventario, secuencias y collate idénticos. Falta migrate --check antes del switch."
