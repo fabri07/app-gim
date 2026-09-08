@@ -3594,10 +3594,15 @@ def _ensuciar(gimnasio, staff, marca="X"):
     from importaciones.models import Importacion
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
-    from pagos.models import MedioCobro
-    from rutinas.models import RutinaPlantilla, RutinaPlantillaItem
+    from pagos.models import Cuota, MedioCobro
+    from rutinas.models import RutinaAsignada, RutinaPlantilla, RutinaPlantillaItem
     from tenants.models import RegistroSuplantacion
-    from turnos.models import ConfiguracionTurnos, CupoExcepcion, HorarioAtencion
+    from turnos.models import (
+        ConfiguracionTurnos,
+        CupoExcepcion,
+        HorarioAtencion,
+        Reserva,
+    )
 
     alumno = Alumno.objects.create(
         gimnasio=gimnasio, nombre=f"Cargado{marca}", apellido="A mano"
@@ -3635,6 +3640,24 @@ def _ensuciar(gimnasio, staff, marca="X"):
     )
     RegistroSuplantacion.objects.create(
         gimnasio=gimnasio, staff_usuario=staff, alumno=alumno
+    )
+    # Las tres que cuelgan del alumno con `PROTECT` (`Cuota`, `RutinaAsignada`)
+    # o con `CASCADE` (`Reserva`). Son las que de verdad ejercitan el orden de
+    # borrado: sin ellas, `alumnos.delete()` nunca choca contra nada y mover
+    # los deletes de lugar no rompe ningún test.
+    RutinaAsignada.crear_desde_plantilla(
+        gimnasio=gimnasio, plantilla=plantilla, alumno=alumno,
+        fecha_inicio=timezone.localdate(),
+    )
+    crear_cuota(
+        gimnasio=gimnasio,
+        alumno=alumno,
+        inicio=timezone.localdate() - timedelta(days=3),
+        estado=Cuota.Estado.PENDIENTE,
+    )
+    Reserva.objects.create(
+        gimnasio=gimnasio, alumno=alumno,
+        fecha=timezone.localdate(), hora_inicio=time(9),
     )
     return alumno
 
@@ -3698,23 +3721,50 @@ class VaciarGimnasioTests(TestCase):
         despues = {m: m.objects.for_gimnasio(self.real).count() for m in _modelos_tenant_owned()}
         self.assertEqual(antes, despues)
 
+    def test_ensuciar_cubre_todos_los_modelos_tenant_owned(self):
+        """La mitad que hace honesta a la de abajo, y la que de verdad atrapa
+        un modelo nuevo.
+
+        "Todo quedó en cero" se cumple solo cuando nunca hubo nada: un
+        `TenantOwnedModel` que nadie agregue ni a `_ensuciar` ni a
+        `vaciar_gimnasio` cuenta 0 antes y 0 después, y el test de abajo pasa
+        dejando los datos de un prospecto a la vista del siguiente. Enumerar
+        con `apps.get_models()` para SOLO contar hace que la aserción parezca
+        exhaustiva sin serlo.
+
+        Acá se exige lo contrario: que todo modelo tenant-owned tenga al menos
+        una fila antes del barrido. Uno nuevo rompe ESTE test primero, obliga a
+        agregarlo a `_ensuciar`, y recién ahí el de abajo puede detectar que
+        falta barrerlo.
+        """
+        _ensuciar(self.demo, self.staff_demo)
+
+        sin_filas = [
+            m._meta.label
+            for m in _modelos_tenant_owned()
+            if not m.objects.for_gimnasio(self.demo).exists()
+        ]
+
+        self.assertEqual(
+            sin_filas,
+            [],
+            "Estos modelos no los crea `_ensuciar`, así que el test de barrido "
+            "no puede probar nada sobre ellos: agregalos ahí y a "
+            "`vaciar_gimnasio`.",
+        )
+
     def test_deja_en_cero_todos_los_modelos_tenant_owned(self):
-        """Cobertura por introspección: un `TenantOwnedModel` nuevo que nadie
-        agregue al barrido rompe este test, que es exactamente lo que se
-        busca."""
+        """Que el barrido no se olvide de ninguno. Vale como cobertura sólo
+        junto con el test de arriba, que garantiza que había algo que barrer."""
         from tenants.demo import vaciar_gimnasio
 
         _ensuciar(self.demo, self.staff_demo)
-        modelos = _modelos_tenant_owned()
-        # Sin esta aserción el test sería vacuo si `_ensuciar` dejara de crear
-        # cosas: "todo en cero" se cumple solo cuando nunca hubo nada.
-        self.assertTrue(any(m.objects.for_gimnasio(self.demo).exists() for m in modelos))
 
         vaciar_gimnasio(gimnasio=self.demo)
 
         restantes = {
             m._meta.label: m.objects.for_gimnasio(self.demo).count()
-            for m in modelos
+            for m in _modelos_tenant_owned()
             if m.objects.for_gimnasio(self.demo).exists()
         }
         self.assertEqual(restantes, {})
@@ -3899,6 +3949,49 @@ class RestaurarDemoTests(TestCase):
         self.assertEqual(self.demo.nombre, "Gimnasio Demo")
         self.assertEqual(self.demo.paleta, Gimnasio.Paleta.BOSQUE)
         self.assertEqual(self.demo.link_instagram, "")
+
+    def test_restaurar_dos_veces_seguidas_funciona(self):
+        """El estado estacionario, que es TODO lo que hace el cron a partir de
+        la segunda corrida: vaciar un gimnasio ya sembrado, con cuotas, rutinas
+        asignadas y cientos de reservas colgando de cada alumno.
+
+        Ese es el camino donde importa el orden de borrado (`Cuota` y
+        `RutinaAsignada` tienen `PROTECT` sobre `Alumno`). Probando una sola
+        restauración sobre datos armados a mano, mover `alumnos.delete()` unas
+        líneas más arriba no rompía ningún test y el cron reventaba en
+        producción con `ProtectedError`, dejando la demo sin restaurar hasta
+        que saltara la alerta de Healthchecks horas después.
+        """
+        from alumnos.models import Alumno
+        from pagos.models import Cuota
+        from rutinas.models import RutinaAsignada
+        from turnos.models import Reserva
+
+        self._restaurar(alumnos=4, meses=2)
+        sembrados = {
+            "alumnos": Alumno.objects.for_gimnasio(self.demo).count(),
+            "cuotas": Cuota.objects.for_gimnasio(self.demo).count(),
+            "rutinas": RutinaAsignada.objects.for_gimnasio(self.demo).count(),
+        }
+        self.assertTrue(all(sembrados.values()))
+        self.assertTrue(Reserva.objects.for_gimnasio(self.demo).exists())
+
+        # La segunda corrida arranca desde un gimnasio lleno, no desde uno
+        # recién creado: es la que ejercita el vaciado de verdad.
+        self._restaurar(alumnos=4, meses=2)
+
+        self.assertEqual(
+            {
+                "alumnos": Alumno.objects.for_gimnasio(self.demo).count(),
+                "cuotas": Cuota.objects.for_gimnasio(self.demo).count(),
+                "rutinas": RutinaAsignada.objects.for_gimnasio(self.demo).count(),
+            },
+            sembrados,
+            "La segunda restauración tiene que dejar el mismo gimnasio que la "
+            "primera: si acumula o pierde filas, la demo se degrada corrida a "
+            "corrida.",
+        )
+        self.assertTrue(User.objects.filter(pk=self.staff.pk).exists())
 
     def test_no_toca_el_slug_ni_la_marca_de_demo(self):
         """El slug es la URL pública que se le pasa a los prospectos, y

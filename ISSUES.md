@@ -50,9 +50,14 @@ los dos campos del `Gimnasio` que la propia siembra muta
 - Si la restauración cae mientras alguien está probando, pierde lo que cargó.
   Lo mitiga el banner, no lo elimina. Alternativa descartada: restaurar una vez
   por día de madrugada, que deja la cuenta rota durante toda una jornada.
-- Los blobs de R2 quedan huérfanos (un logo o un fondo que subió un prospecto,
-  los comprobantes de pago): se limpia la fila, no el archivo. Mismo criterio
-  ya aceptado para el bucket compartido con dev.
+- Los blobs de R2 quedan huérfanos: se limpia la fila, no el archivo. Son el
+  logo y el fondo que suba un prospecto, los comprobantes de pago y el `.xlsx`
+  de cada `Importacion` — **cuatro restauraciones por día, indefinidamente**, en
+  `app-gim-media`, el mismo bucket que comparten producción y dev. Se acepta:
+  el cron no lleva las `R2_*` (a propósito, ver el workflow), así que hoy
+  tampoco podría borrarlos; y son archivos chicos sin ninguna fila que los
+  referencie. Si algún día molesta, la salida es un bucket aparte para la demo,
+  no darle credenciales de escritura al cron.
 - «Olvidé mi contraseña» sigue habilitado para la cuenta demo. Se dejó así
   porque explotarlo exige acceso a la casilla de email de la cuenta, que no
   tiene ninguno de los que la prueban.

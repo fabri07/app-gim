@@ -598,11 +598,24 @@ y no revierte los dos campos del `Gimnasio` que la propia siembra muta
   corren al cerrarse el más externo). `slug` y `es_demo` nunca están en el
   estado canónico: el slug es la URL pública, y pisar `es_demo` desarmaría el
   candado.
-- **Cobertura por introspección**: `VaciarGimnasioTests.
-  test_deja_en_cero_todos_los_modelos_tenant_owned` recorre
-  `apps.get_models()` filtrando `TenantOwnedModel`. **Un modelo tenant-owned
-  nuevo que no se agregue al barrido rompe ese test**, en vez de dejar datos de
-  un prospecto en la cuenta que ve el siguiente.
+- **La cobertura son DOS tests y sólo sirven juntos**, lección de un
+  `/code-review`. `test_deja_en_cero_todos_los_modelos_tenant_owned` recorre
+  `apps.get_models()` filtrando `TenantOwnedModel`, pero enumerar para sólo
+  CONTAR hace que la aserción parezca exhaustiva sin serlo: un modelo nuevo que
+  nadie agregue ni al barrido ni al fixture cuenta 0 antes y 0 después, y pasa.
+  Por eso `test_ensuciar_cubre_todos_los_modelos_tenant_owned` exige que
+  `_ensuciar` deje al menos una fila de CADA modelo tenant-owned: un modelo
+  nuevo rompe ése primero, obliga a sumarlo al fixture, y recién ahí el otro
+  puede ver que falta barrerlo. **Si agregás un `TenantOwnedModel`, va a los
+  dos lugares.**
+- **El fixture tiene que crear `Cuota`, `RutinaAsignada` y `Reserva`**, y hay un
+  test que restaura DOS veces seguidas (`test_restaurar_dos_veces_seguidas_
+  funciona`). Es el estado estacionario —todo lo que hace el cron desde la
+  segunda corrida— y el único camino donde el orden de borrado importa de
+  verdad: sin eso, mover `alumnos.delete()` unas líneas más arriba no rompía
+  NINGÚN test (se verificó: 317 en verde) y el cron reventaba en producción con
+  `ProtectedError`, dejando la demo sin restaurar hasta que saltara Healthchecks
+  horas después. Con los dos tests, ese mismo cambio rompe ocho.
 - Lo corre `.github/workflows/restaurar-demo.yml` cada 6 h, con el **mismo
   `concurrency.group` que `sembrar-demo.yml`** para que una siembra manual no se
   solape con la automática. Alta de la cuenta:
