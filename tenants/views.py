@@ -7,14 +7,16 @@ hace con `manage.py crear_gimnasio` (ver `tenants/services.py`).
 """
 
 import logging
+import mimetypes
 from datetime import datetime
 
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import REDIRECT_FIELD_NAME, get_user_model, login, views as auth_views
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
-from django.http import JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -476,6 +478,41 @@ def gimnasio_activo_o_404(slug):
     puedan divergir en este criterio (antes vivía solo en
     `GimnasioLandingView.get_queryset`)."""
     return get_object_or_404(Gimnasio, slug=slug, activo=True)
+
+
+class LogoGimnasioView(View):
+    """Sirve el logo del gimnasio con la respuesta cacheable para siempre.
+
+    Pública, sin login: la landing y `g/<slug>/login/` pintan el logo antes de
+    que haya sesión, y un logo no es dato sensible (a diferencia de un
+    comprobante de pago, que es el otro archivo que vive en R2).
+
+    La URL lleva `?v=<versión>` (ver `Gimnasio.logo_url_cacheable`) y el valor
+    no se valida a propósito: siempre se sirve el logo actual. Eso es lo que
+    permite responder `immutable` sin riesgo -- cambiar el logo cambia
+    `modificado`, o sea la URL, y una URL nueva nunca choca con un cache
+    viejo. Mismo diseño que `notificaciones.views.IconoGimnasioView`.
+
+    El contenido se cachea del lado del servidor además del navegador: en
+    producción cada miss significa bajar el archivo de R2, y el logo aparece
+    en el topbar de todas las páginas."""
+
+    def get(self, request, slug):
+        gimnasio = gimnasio_activo_o_404(slug)
+        if not gimnasio.logo:
+            raise Http404
+        clave = f"logo-gimnasio-{gimnasio.pk}-{gimnasio.version_media}"
+        guardado = cache.get(clave)
+        if guardado is None:
+            with gimnasio.logo.open("rb") as archivo:
+                contenido = archivo.read()
+            tipo = mimetypes.guess_type(gimnasio.logo.name)[0] or "image/png"
+            guardado = (contenido, tipo)
+            cache.set(clave, guardado, timeout=60 * 60 * 24)
+        contenido, tipo = guardado
+        respuesta = HttpResponse(contenido, content_type=tipo)
+        respuesta["Cache-Control"] = "public, max-age=31536000, immutable"
+        return respuesta
 
 
 class GimnasioLandingView(DetailView):

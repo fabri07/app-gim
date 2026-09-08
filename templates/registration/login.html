@@ -63,7 +63,7 @@
     {% if gimnasio %}
       {% if gimnasio.logo %}
         <span class="landing__logo-marco">
-          <img src="{{ gimnasio.logo.url }}" alt="{{ gimnasio.nombre }}" class="landing__logo">
+          <img src="{{ gimnasio.logo_url_cacheable }}" alt="{{ gimnasio.nombre }}" class="landing__logo">
         </span>
       {% endif %}
       <h1 class="auth-hero__titulo">{{ gimnasio.nombre }}</h1>

@@ -174,9 +174,12 @@ def generar_icono(gimnasio, size: int, maskable: bool = False) -> bytes:
 
 
 def version_icono(gimnasio) -> int:
-    """Milisegundos, no segundos: dos guardados en el mismo segundo (pasa en
-    los tests, y en un doble submit) compartirían clave de cache y URL."""
-    return int(gimnasio.modificado.timestamp() * 1000)
+    """Delega en `Gimnasio.version_media`, que es la misma versión con la que
+    se sirve el logo (`tenants.views.LogoGimnasioView`): la regla vive en un
+    solo lugar. Milisegundos y no segundos: dos guardados en el mismo segundo
+    (pasa en los tests, y en un doble submit) compartirían clave de cache y
+    URL."""
+    return gimnasio.version_media
 
 
 def icono_pwa_url(gimnasio, size: int = 192, maskable: bool = False) -> str:

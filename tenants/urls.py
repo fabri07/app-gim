@@ -11,6 +11,7 @@ from tenants.views import (
     GoogleLoginRedirectView,
     HomeView,
     LoginView,
+    LogoGimnasioView,
     LogoSugerirPaisajeView,
     StaffPasswordChangeDoneView,
     StaffPasswordChangeView,
@@ -103,5 +104,6 @@ urlpatterns = [
     # (Django exige match completo, "g/<slug>/" no matchea "g/<slug>/login/"),
     # mismo criterio de "ruta más específica primero" que el resto del archivo.
     path("g/<slug:slug>/login/", GimnasioLoginView.as_view(), name="login_gimnasio"),
+    path("g/<slug:slug>/logo/", LogoGimnasioView.as_view(), name="logo_gimnasio"),
     path("g/<slug:slug>/", GimnasioLandingView.as_view(), name="landing_gimnasio"),
 ]
