@@ -468,6 +468,109 @@
     @apply rounded-2xl border border-gray-200 shadow-sm;
   }
 
+  /* La grilla editable: los controles ocupan la celda entera y sin el margen
+     que el reset global le pone a todo input, que en una tabla de 22 columnas
+     se acumula en un alto de fila enorme. */
+  .tabla--editable input,
+  .tabla--editable select {
+    @apply w-full mb-0 min-w-24;
+  }
+
+  .tabla--editable .columna-ejercicio {
+    @apply min-w-56;
+  }
+
+  /* El nombre, la categoría y el link al video van uno debajo del otro: son
+     inline por naturaleza y se montaban sobre la columna de al lado. */
+  .tabla--editable .columna-ejercicio > span,
+  .tabla--editable .columna-ejercicio > a {
+    @apply block leading-tight;
+  }
+
+  /* Una celda que el importador dejó sin cargar. En una grilla de 43 filas el
+     aviso de arriba dice cuántas faltan, pero no dónde están. */
+  .celda-a-completar {
+    @apply bg-amber-50 border-amber-300;
+  }
+
+  .grilla-dia__titulo {
+    @apply cursor-pointer select-none;
+  }
+
+  /* En pantalla angosta la tabla no entra: las mismas celdas se reorganizan
+     en una tarjeta por ejercicio, con la etiqueta de cada campo delante. Es
+     el mismo HTML -- renderizar dos bloques distintos duplicaría cada control
+     y volvería ambiguo cuál de los dos vale al serializar. */
+  /* En pantalla angosta la tabla no entra. Las mismas celdas se reorganizan
+     en una tarjeta por ejercicio, y los cinco campos de cada semana quedan en
+     una fila compacta: apilarlos uno debajo del otro daba 20 campos por
+     ejercicio, o sea 220 en un día de 11 -- inusable en un celular. Es el
+     mismo HTML: renderizar dos bloques distintos duplicaría cada control y
+     volvería ambiguo cuál de los dos vale al serializar. */
+  @media (max-width: 640px) {
+    .tabla--editable,
+    .tabla--editable tbody,
+    .tabla--editable th,
+    .tabla--editable td {
+      @apply block;
+    }
+
+    .tabla--editable thead {
+      @apply hidden;
+    }
+
+    /* Cinco columnas: los campos de una semana entran en una sola fila y el
+       flujo natural del grid las agrupa de a cinco. */
+    .tabla--editable tr {
+      @apply grid grid-cols-5 gap-x-2 gap-y-1 mb-4 rounded-2xl border border-gray-200 p-3;
+    }
+
+    .tabla--editable th,
+    .tabla--editable td {
+      @apply border-0 px-0 py-0 whitespace-normal;
+    }
+
+    /* El nombre del ejercicio necesita aire antes del campo de bloque: la
+       categoría y el link al video quedan pegados al borde de arriba. */
+    .tabla--editable tr > th {
+      @apply pb-2;
+    }
+
+    /* El ejercicio, el bloque y el botón de quitar ocupan la fila entera. */
+    .tabla--editable tr > th,
+    .tabla--editable tr > td:nth-child(2),
+    .tabla--editable tr > td:last-child {
+      @apply col-span-5;
+    }
+
+    /* La columna del ejercicio deja de estar fija: en una tarjeta ya es lo
+       primero que se lee. */
+    .tabla--editable .columna-ejercicio {
+      @apply static;
+    }
+
+    /* Una línea divisoria antes del primer campo de cada semana (los `td`
+       3, 8, 13 y 18: los dos primeros hijos son el ejercicio y el bloque). */
+    .tabla--editable tr > td:nth-child(5n + 3) {
+      @apply border-t border-gray-100 pt-2 mt-1;
+    }
+
+    .tabla--editable td[data-corto]::before {
+      content: attr(data-corto);
+      @apply block text-xs text-gray-500;
+    }
+
+    .tabla--editable td[data-corto="Series"]::before {
+      content: attr(data-label);
+      @apply font-semibold text-gray-600;
+    }
+
+    .tabla--editable input,
+    .tabla--editable select {
+      @apply min-w-0 text-sm;
+    }
+  }
+
   .tabla--rutina-semanas details {
     @apply mt-1;
   }

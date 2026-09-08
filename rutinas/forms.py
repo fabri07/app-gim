@@ -14,6 +14,8 @@ mano acá, replicando lo que `TenantScopedModelForm` hace automáticamente para
 un `ModelForm`.
 """
 
+import json
+
 from django import forms
 from django.db.models import Max
 from django.utils import timezone
@@ -23,6 +25,7 @@ from core.forms import TenantScopedModelForm
 from ejercicios.models import Ejercicio
 from rutinas import services
 from rutinas.models import (
+    SEMANAS_POR_CICLO,
     RutinaAsignada,
     RutinaAsignadaItem,
     RutinaPlantilla,
@@ -383,3 +386,166 @@ class AgregarEjercicioAsignadoForm(TenantScopedModelForm):
                 "rutina. Editá el que ya está en vez de agregarlo de nuevo."
             )
         return ejercicio
+
+
+class DiaDePlantillaForm(forms.Form):
+    """Un día completo de la grilla de plantilla, en un solo campo JSON.
+
+    **No es un formset a propósito.** Un día real son ~11 ejercicios × 4
+    semanas × 5 campos; con 50 ejercicios serían 1000 campos de POST, justo
+    contra `DATA_UPLOAD_MAX_NUMBER_FIELDS`, que ya produjo un
+    `TooManyFieldsSent` documentado en `ISSUES.md [2026-07-28]`. Con un único
+    hidden el conteo de campos es constante y el límite que aplica pasa a ser
+    `DATA_UPLOAD_MAX_MEMORY_SIZE` (2,5 MB), que un JSON de celdas cortas no
+    roza. Mismo molde que `importaciones.forms.ResolucionesJSONForm`.
+
+    Payload:
+
+        [{"ejercicio_id": 12, "bloque": "A1",
+          "semanas": {"1": {"series": "4", "repeticiones": "10",
+                            "kilos": "20kg", "descanso": "60s",
+                            "notas": ""}, ...}}, ...]
+
+    Acá se valida solo la FORMA. Que el `ejercicio_id` pertenezca al gimnasio
+    lo chequea la vista contra un queryset scopeado: un id de otro tenant
+    tiene que morir contra la base, no contra una lista que este form haya
+    cacheado.
+    """
+
+    CAMPOS_DE_SEMANA = ("series", "repeticiones", "kilos", "descanso", "notas")
+
+    dia_nombre = forms.CharField(
+        required=False,
+        max_length=RutinaPlantillaItem._meta.get_field("dia_nombre").max_length,
+        label="Nombre del día",
+        help_text='Opcional. Por ejemplo: "Tren superior · Core".',
+    )
+    filas = forms.CharField(widget=forms.HiddenInput, required=False)
+
+    def clean(self):
+        # Todo en `clean()` y no en `clean_filas()`: `filas` es un
+        # `HiddenInput` y un error de campo suyo no se ve en ninguna pantalla.
+        # Con `add_error(None, ...)` cae en `non_field_errors`, que el
+        # template sí renderiza -- si no, un bug del JS de serialización
+        # devolvería un 200 mudo y el staff creería que guardó.
+        cleaned = super().clean()
+        try:
+            crudas = json.loads(cleaned.get("filas") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            return self._invalido(cleaned, "No se pudo leer la grilla. Recargá la página y probá de nuevo.")
+        if not isinstance(crudas, list):
+            return self._invalido(cleaned, "No se pudo leer la grilla. Recargá la página y probá de nuevo.")
+
+        filas = []
+        for cruda in crudas:
+            if not isinstance(cruda, dict):
+                return self._invalido(cleaned, "No se pudo leer la grilla. Recargá la página y probá de nuevo.")
+
+            ejercicio_id = cruda.get("ejercicio_id")
+            # Una fila recién agregada y nunca completada no es un error: se
+            # descarta en silencio, igual que una fila vacía de un Excel.
+            if ejercicio_id in (None, ""):
+                continue
+            # `isinstance(True, int)` es True en Python: sin el guard de bool,
+            # un `ejercicio_id: true` entraría como el pk 1.
+            if isinstance(ejercicio_id, bool) or not isinstance(ejercicio_id, int):
+                return self._invalido(cleaned, "Hay un ejercicio inválido en la grilla.")
+
+            bloque = self._texto(cruda.get("bloque"))
+            error = self._error_de_largo("bloque", bloque, "El código de bloque")
+            if error:
+                return self._invalido(cleaned, error)
+
+            semanas = cruda.get("semanas") or {}
+            if not isinstance(semanas, dict):
+                return self._invalido(cleaned, "No se pudo leer la grilla. Recargá la página y probá de nuevo.")
+
+            limpias = {}
+            for clave, celda in semanas.items():
+                numero = self._numero_de_semana(clave)
+                if numero is None:
+                    return self._invalido(
+                        cleaned,
+                        f"Una rutina tiene {SEMANAS_POR_CICLO} semanas, de la 1 a la {SEMANAS_POR_CICLO}.",
+                    )
+                if not isinstance(celda, dict):
+                    return self._invalido(cleaned, "No se pudo leer la grilla. Recargá la página y probá de nuevo.")
+
+                valores = {campo: self._texto(celda.get(campo)) for campo in self.CAMPOS_DE_SEMANA}
+                # Una semana sin NADA cargado no es un item: ese ejercicio no
+                # está programado esa semana. Se descarta antes de validar
+                # nada más, para que una celda vacía nunca sea un error.
+                if not any(valores.values()):
+                    continue
+
+                for campo in ("repeticiones", "kilos", "descanso"):
+                    error = self._error_de_largo(campo, valores[campo], f"El campo «{campo}»")
+                    if error:
+                        return self._invalido(cleaned, error)
+
+                series = valores["series"]
+                if series == "":
+                    # Sin series pero con algo cargado: entra "a completar",
+                    # igual que lo que deja el importador de PDF.
+                    valores["series"] = None
+                else:
+                    try:
+                        valores["series"] = int(series)
+                    except (TypeError, ValueError):
+                        return self._invalido(cleaned, "Las series tienen que ser un número entero.")
+                    if valores["series"] < 0:
+                        return self._invalido(cleaned, "Las series no pueden ser un número negativo.")
+                limpias[numero] = valores
+
+            filas.append({"ejercicio_id": ejercicio_id, "bloque": bloque, "semanas": limpias})
+
+        # Dos filas con el mismo ejercicio en el mismo día se fusionarían al
+        # releer, porque `listar_ejercicios_de_plantilla` agrupa por
+        # `ejercicio_id`: una de las dos se perdería en silencio. Se rechaza
+        # con un mensaje en vez de aceptarlo y perder datos. Lo encontró la
+        # prueba en el navegador, no la suite.
+        vistos = set()
+        for fila in filas:
+            if fila["ejercicio_id"] in vistos:
+                return self._invalido(
+                    cleaned,
+                    "Hay un ejercicio repetido en este día. Cada ejercicio "
+                    "puede estar una sola vez; usá las columnas de semana "
+                    "para variar series, repeticiones y kilos.",
+                )
+            vistos.add(fila["ejercicio_id"])
+
+        cleaned["filas"] = filas
+        return cleaned
+
+    def _invalido(self, cleaned, mensaje):
+        self.add_error(None, mensaje)
+        return cleaned
+
+    @staticmethod
+    def _texto(valor):
+        return "" if valor is None else str(valor).strip()
+
+    @staticmethod
+    def _numero_de_semana(clave):
+        """El número de semana llega como clave de un objeto JSON, o sea
+        siempre como texto. `bulk_create` no corre validadores, así que una
+        semana fuera del ciclo entraría a la base salteándose el
+        `MaxValueValidator` del modelo."""
+        try:
+            numero = int(clave)
+        except (TypeError, ValueError):
+            return None
+        return numero if 1 <= numero <= SEMANAS_POR_CICLO else None
+
+    @staticmethod
+    def _error_de_largo(campo, valor, etiqueta):
+        """Los límites se LEEN del modelo, no se copian. Postgres rechaza un
+        `varchar` desbordado con un `DataError` que voltea la transacción
+        entera; SQLite no valida largos, así que sin este chequeo el problema
+        aparecería recién en producción (ya pasó con `url_video`, ver
+        `ISSUES.md [2026-08-27]`)."""
+        maximo = RutinaPlantillaItem._meta.get_field(campo).max_length
+        if len(valor) > maximo:
+            return f"{etiqueta} tiene {len(valor)} caracteres y el máximo es {maximo}."
+        return None

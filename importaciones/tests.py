@@ -4328,8 +4328,10 @@ class ImportarPdfFlujoTests(TestCase):
         self.assertEqual(press.repeticiones, "")
 
         detalle = self.client.get(reverse("rutinas:plantilla_detalle", args=[plantilla.pk]))
-        self.assertContains(detalle, "A completar")
         self.assertContains(detalle, "1 ejercicio para completar")
+        # En el editor (2026-09-07) la celda vacía ES el campo a completar, y
+        # se marca con color en vez de un badge.
+        self.assertContains(detalle, "celda-a-completar")
 
         alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="P")
         asignar = self.client.post(reverse("rutinas:asignar"), {

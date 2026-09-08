@@ -7,7 +7,7 @@
   <div class="acciones-lista">
     <h1>{{ plantilla.nombre }}</h1>
     <div>
-      <a class="boton-secundario" href="{% url 'rutinas:plantilla_editar' plantilla.pk %}">Editar</a>
+      <a class="boton-secundario" href="{% url 'rutinas:plantilla_editar' plantilla.pk %}">Editar datos</a>
       <form method="post" action="{% url 'rutinas:plantilla_duplicar' plantilla.pk %}" style="display:inline">
         {% csrf_token %}
         <button type="submit" class="boton-secundario">Duplicar</button>
@@ -35,113 +35,332 @@
   {% if incompletos %}
     <div class="aviso-urgente">
       <strong>{{ incompletos }} ejercicio{{ incompletos|pluralize }} para completar</strong>
-      (sin series o repeticiones). Vienen así de una importación desde PDF:
-      editá cada uno para cargarle series y repeticiones. Hasta entonces esta
-      plantilla no se puede asignar a un alumno.
+      (sin series o repeticiones). Cargales series y repeticiones en la grilla:
+      hasta entonces esta plantilla no se puede asignar a un alumno.
     </div>
   {% endif %}
 
-  <div class="tarjeta">
-    <div class="acciones-lista">
-      <h2>Ejercicios</h2>
-      <a class="boton" hx-boost="false" href="{% url 'rutinas:item_crear' plantilla.pk %}">Agregar ejercicio</a>
-    </div>
-
+  {% comment %}
+    El catálogo de ejercicios viaja UNA sola vez por pantalla, no un `<select>`
+    con todo el catálogo por fila: un gimnasio real tiene 748 ejercicios y 43
+    filas serían más de 30.000 `<option>`. El buscador de cada fila se arma
+    con esta lista recién cuando esa fila recibe el foco.
+  {% endcomment %}
+  {{ catalogo_ejercicios|json_script:"catalogo-ejercicios" }}
+  {% if filas_previas %}
     {% comment %}
-      Una fila por EJERCICIO y una columna por semana, no una fila por
-      (ejercicio × semana). Es la misma reagrupación que la rutina asignada
-      recibió el 2026-08-31 y por el mismo motivo: un plan de 4 días × 4
-      semanas son ~172 filas planas, ilegibles, y encima el botón de quitar
-      aparecía repetido en cada semana prometiendo borrar solo la suya.
-      Comparten el agrupador (`rutinas/agrupacion.py`) para que no puedan
-      divergir.
+      El payload crudo del día que no validó. Los valores de la grilla viven
+      en el JSON serializado, no en el HTML, así que sin esto el entrenador
+      perdería todo lo que acababa de cargar. Mismo mecanismo que
+      `importaciones/views.py::_resoluciones_previas`.
     {% endcomment %}
-    {% for dia in dias %}
-      <h3>
-        Día {{ dia.numero }}
+    {{ filas_previas|json_script:"filas-previas" }}
+    <span hidden id="dia-con-error" data-dia="{{ dia_con_error }}"></span>
+  {% endif %}
+
+  {% for dia in dias %}
+    <details class="tarjeta grilla-dia" id="dia-{{ dia.numero }}"
+             {% if dia.con_error or forloop.first and not dia_con_error %}open{% endif %}>
+      <summary class="grilla-dia__titulo">
+        <strong>Día {{ dia.numero }}</strong>
         {% if dia.nombre %}<span class="texto-suave">· {{ dia.nombre }}</span>{% endif %}
-      </h3>
-      <div class="tabla-scroll">
-        <table class="tabla tabla--rutina-semanas">
-          <thead>
-            <tr>
-              <th rowspan="2" scope="col" class="columna-ejercicio">Ejercicio</th>
-              {% for semana in semanas %}
-                <th colspan="4" scope="colgroup">Semana {{ semana }}</th>
-              {% endfor %}
-              <th rowspan="2" scope="col">Acciones</th>
-            </tr>
-            <tr>
-              {% for semana in semanas %}
-                <th scope="col">Series</th>
-                <th scope="col">Reps</th>
-                <th scope="col">Kilos</th>
-                <th scope="col">Descanso</th>
-              {% endfor %}
-            </tr>
-          </thead>
-          <tbody>
-            {% for ejercicio in dia.ejercicios %}
+        <span class="texto-suave text-xs">
+          · {{ dia.ejercicios|length }} ejercicio{{ dia.ejercicios|length|pluralize }}
+        </span>
+        {% if dia.fuera_del_plan %}
+          <span class="badge badge--urgente">Fuera del plan</span>
+        {% endif %}
+      </summary>
+
+      {% if dia.fuera_del_plan %}
+        <p class="texto-error">
+          Este día quedó fuera del plan: la plantilla está configurada con
+          {{ plantilla.dias_por_semana }} día{{ plantilla.dias_por_semana|pluralize }}.
+          Estos ejercicios igual se le asignan al alumno. Vaciá el día o subí la
+          cantidad de días desde «Editar datos».
+        </p>
+      {% endif %}
+
+      <form method="post" hx-boost="false" class="js-form-dia" data-dia="{{ dia.numero }}"
+            action="{% url 'rutinas:dia_guardar' plantilla.pk dia.numero %}{% if alumno_destino %}?alumno={{ alumno_destino.pk }}{% endif %}">
+        {% csrf_token %}
+        {% comment %} Todas las celdas viajan acá adentro, serializadas al enviar. {% endcomment %}
+        <input type="hidden" name="filas" class="js-filas" value="">
+
+        <div class="form-campo">
+          <label for="dia-nombre-{{ dia.numero }}">Nombre del día</label>
+          <input type="text" id="dia-nombre-{{ dia.numero }}" name="dia_nombre"
+                 maxlength="80" value="{{ dia.nombre }}"
+                 placeholder="Por ejemplo: Tren superior · Core">
+        </div>
+
+        <div class="tabla-scroll">
+          <table class="tabla tabla--rutina-semanas tabla--editable">
+            <thead>
               <tr>
-                <th scope="row" class="columna-ejercicio">
-                  {% if ejercicio.bloque %}<span class="badge">{{ ejercicio.bloque }}</span> {% endif %}
-                  {{ ejercicio.nombre }}
-                  <br><span class="texto-suave text-xs">{{ ejercicio.categoria_display }}</span>
-                  {% comment %} El video no es un dato de la plantilla sino del
-                    `Ejercicio` de la biblioteca: al asignar,
-                    `crear_desde_plantilla` lo copia al snapshot y el alumno lo
-                    ve en su día. Se muestra acá para que el staff detecte ANTES
-                    de asignar qué ejercicios van a llegarle sin video.
-                  {% endcomment %}
-                  {% if ejercicio.video %}
-                    <br><a href="{{ ejercicio.video }}" target="_blank" rel="noopener" class="text-xs">Ver video</a>
-                  {% else %}
-                    <br><span class="texto-suave text-xs">Sin video</span>
-                  {% endif %}
-                </th>
-
-                {% for semana in ejercicio.semanas %}
-                  {% if semana.item %}
-                    <td>
-                      {% if semana.item.series is not None %}{{ semana.item.series }}
-                      {% else %}<span class="badge badge--urgente">A completar</span>{% endif %}
-                    </td>
-                    <td>
-                      {% if semana.item.repeticiones %}{{ semana.item.repeticiones }}
-                      {% else %}<span class="badge badge--urgente">A completar</span>{% endif %}
-                    </td>
-                    <td>{{ semana.item.kilos|default:"—" }}</td>
-                    <td>
-                      {{ semana.item.descanso|default:"—" }}
-                      <br><a hx-boost="false" href="{% url 'rutinas:item_editar' plantilla.pk semana.item.pk %}" class="text-xs">Editar</a>
-                      {% if semana.item.notas %}
-                        <details>
-                          <summary>Notas</summary>
-                          <p class="texto-suave">{{ semana.item.notas }}</p>
-                        </details>
-                      {% endif %}
-                    </td>
-                  {% else %}
-                    <td colspan="4" class="texto-suave">—</td>
-                  {% endif %}
+                <th rowspan="2" scope="col" class="columna-ejercicio">Ejercicio</th>
+                <th rowspan="2" scope="col">Bloque</th>
+                {% for semana in semanas %}
+                  <th colspan="5" scope="colgroup">Semana {{ semana }}</th>
                 {% endfor %}
-
-                <td>
-                  <form method="post" action="{% url 'rutinas:item_eliminar' plantilla.pk ejercicio.item_referencia.pk %}">
-                    {% csrf_token %}
-                    <button type="submit" class="boton-peligro">
-                      Quitar de {% if ejercicio.semanas_cargadas == 1 %}la semana{% else %}las {{ ejercicio.semanas_cargadas }} semanas{% endif %}
-                    </button>
-                  </form>
-                </td>
+                <th rowspan="2" scope="col"></th>
               </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% empty %}
-      <p class="texto-suave">Esta plantilla todavía no tiene ejercicios.</p>
-    {% endfor %}
-  </div>
+              <tr>
+                {% for semana in semanas %}
+                  <th scope="col">Series</th>
+                  <th scope="col">Reps</th>
+                  <th scope="col">Kilos</th>
+                  <th scope="col">Descanso</th>
+                  <th scope="col">Notas</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody class="js-filas-cuerpo">
+              {% for ejercicio in dia.ejercicios %}
+                <tr class="js-fila" data-ejercicio-id="{{ ejercicio.item_referencia.ejercicio_id }}">
+                  <th scope="row" class="columna-ejercicio" data-label="Ejercicio">
+                    <select class="js-ejercicio" aria-label="Ejercicio">
+                      <option value="{{ ejercicio.item_referencia.ejercicio_id }}" selected>{{ ejercicio.nombre }}</option>
+                    </select>
+                    <span class="texto-suave text-xs">{{ ejercicio.categoria_display }}</span>
+                    {% comment %}
+                      El video es del `Ejercicio` de la biblioteca, no de la
+                      plantilla: al asignar, `crear_desde_plantilla` lo copia
+                      al snapshot y el alumno lo ve en su día. Se muestra acá
+                      para detectar ANTES de asignar qué ejercicios van a
+                      llegarle sin video.
+                    {% endcomment %}
+                    {% if ejercicio.video %}
+                      <a href="{{ ejercicio.video }}" target="_blank" rel="noopener" class="text-xs">Ver video</a>
+                    {% else %}
+                      <span class="texto-suave text-xs">Sin video</span>
+                    {% endif %}
+                  </th>
+                  <td data-label="Bloque">
+                    <input type="text" class="js-bloque" maxlength="10" value="{{ ejercicio.bloque }}"
+                           aria-label="Código de bloque" placeholder="A1">
+                  </td>
+                  {% for semana in ejercicio.semanas %}
+                    <td data-label="Semana {{ semana.numero }} · Series" data-corto="Series">
+                      <input type="number" min="0" data-semana="{{ semana.numero }}" data-campo="series"
+                             class="js-celda{% if semana.item and semana.item.series is None %} celda-a-completar{% endif %}"
+                             aria-label="Series de la semana {{ semana.numero }}"
+                             value="{% if semana.item.series is not None %}{{ semana.item.series }}{% endif %}">
+                    </td>
+                    <td data-label="Semana {{ semana.numero }} · Reps" data-corto="Reps">
+                      <input type="text" maxlength="20" data-semana="{{ semana.numero }}" data-campo="repeticiones"
+                             class="js-celda{% if semana.item and not semana.item.repeticiones %} celda-a-completar{% endif %}"
+                             aria-label="Repeticiones de la semana {{ semana.numero }}"
+                             value="{{ semana.item.repeticiones|default_if_none:'' }}">
+                    </td>
+                    <td data-label="Semana {{ semana.numero }} · Kilos" data-corto="Kilos">
+                      <input type="text" maxlength="30" class="js-celda" data-semana="{{ semana.numero }}" data-campo="kilos"
+                             aria-label="Kilos de la semana {{ semana.numero }}"
+                             value="{{ semana.item.kilos|default_if_none:'' }}">
+                    </td>
+                    <td data-label="Semana {{ semana.numero }} · Descanso" data-corto="Descanso">
+                      <input type="text" maxlength="30" class="js-celda" data-semana="{{ semana.numero }}" data-campo="descanso"
+                             aria-label="Descanso de la semana {{ semana.numero }}"
+                             value="{{ semana.item.descanso|default_if_none:'' }}">
+                    </td>
+                    <td data-label="Semana {{ semana.numero }} · Notas" data-corto="Notas">
+                      <input type="text" class="js-celda" data-semana="{{ semana.numero }}" data-campo="notas"
+                             aria-label="Notas de la semana {{ semana.numero }}"
+                             value="{{ semana.item.notas|default_if_none:'' }}">
+                    </td>
+                  {% endfor %}
+                  <td data-label="">
+                    <button type="button" class="boton-peligro js-quitar-fila">Quitar</button>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="acciones-lista">
+          <button type="button" class="boton-secundario js-agregar-fila">Agregar ejercicio</button>
+          <button type="submit" class="boton">Guardar el día {{ dia.numero }}</button>
+        </div>
+      </form>
+    </details>
+  {% endfor %}
+
+  {% comment %}
+    Molde de fila vacía. Va una sola vez para toda la pantalla: el JS lo clona
+    y le ajusta el día. Dentro de un `<template>` el navegador no lo renderiza
+    ni manda sus campos.
+  {% endcomment %}
+  <template id="molde-de-fila">
+    <tr class="js-fila" data-ejercicio-id="">
+      <th scope="row" class="columna-ejercicio" data-label="Ejercicio">
+        <select class="js-ejercicio" aria-label="Ejercicio"></select>
+      </th>
+      <td data-label="Bloque">
+        <input type="text" class="js-bloque" maxlength="10" aria-label="Código de bloque" placeholder="A1">
+      </td>
+      {% for semana in semanas %}
+        <td data-label="Semana {{ semana }} · Series" data-corto="Series">
+          <input type="number" min="0" class="js-celda" data-semana="{{ semana }}" data-campo="series"
+                 aria-label="Series de la semana {{ semana }}">
+        </td>
+        <td data-label="Semana {{ semana }} · Reps" data-corto="Reps">
+          <input type="text" maxlength="20" class="js-celda" data-semana="{{ semana }}" data-campo="repeticiones"
+                 aria-label="Repeticiones de la semana {{ semana }}">
+        </td>
+        <td data-label="Semana {{ semana }} · Kilos" data-corto="Kilos">
+          <input type="text" maxlength="30" class="js-celda" data-semana="{{ semana }}" data-campo="kilos"
+                 aria-label="Kilos de la semana {{ semana }}">
+        </td>
+        <td data-label="Semana {{ semana }} · Descanso" data-corto="Descanso">
+          <input type="text" maxlength="30" class="js-celda" data-semana="{{ semana }}" data-campo="descanso"
+                 aria-label="Descanso de la semana {{ semana }}">
+        </td>
+        <td data-label="Semana {{ semana }} · Notas" data-corto="Notas">
+          <input type="text" class="js-celda" data-semana="{{ semana }}" data-campo="notas"
+                 aria-label="Notas de la semana {{ semana }}">
+        </td>
+      {% endfor %}
+      <td data-label="">
+        <button type="button" class="boton-peligro js-quitar-fila">Quitar</button>
+      </td>
+    </tr>
+  </template>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2/dist/js/tom-select.complete.min.js"></script>
+<script>
+  (function editorDePlantilla() {
+    // Sin DOMContentLoaded, mismo criterio que el resto de los scripts inline
+    // del proyecto: en una navegación boosteada por htmx ese evento no vuelve
+    // a dispararse.
+    var contenedor = document.getElementById("catalogo-ejercicios");
+    if (!contenedor) { return; }
+    var catalogo = JSON.parse(contenedor.textContent);
+
+    // El CSS de TomSelect se inyecta desde acá y NO por `{% templatetag openblock %} block extra_style {% templatetag closeblock %}`:
+    // ese bloque vive en el <head>, que hx-boost nunca reemplaza, así que
+    // llegar a esta pantalla por una navegación boosteada dejaba el buscador
+    // sin estilos. Es el gotcha que ya rompió más de diez veces en el
+    // proyecto; inyectarlo desde el <body> lo cierra para siempre acá.
+    if (!document.getElementById("tom-select-css")) {
+      var hoja = document.createElement("link");
+      hoja.id = "tom-select-css";
+      hoja.rel = "stylesheet";
+      hoja.href = "https://cdn.jsdelivr.net/npm/tom-select@2/dist/css/tom-select.default.min.css";
+      document.head.appendChild(hoja);
+    }
+
+    // ---- Buscador de ejercicio, perezoso -------------------------------
+    // Se construye recién cuando la fila recibe el foco: con 4 días abiertos
+    // serían decenas de instancias, cada una indexando el catálogo entero.
+    function activarBuscador(select) {
+      if (select.tomselect || typeof TomSelect === "undefined") { return; }
+      new TomSelect(select, {
+        options: catalogo,
+        valueField: "id",
+        labelField: "nombre",
+        searchField: "nombre",
+        create: false,
+        maxOptions: 50,
+        placeholder: "Buscá un ejercicio…",
+        onChange: function (valor) {
+          var fila = select.closest(".js-fila");
+          if (fila) { fila.dataset.ejercicioId = valor || ""; }
+        },
+      });
+      select.tomselect.focus();
+    }
+
+    document.addEventListener("focusin", function (evento) {
+      var select = evento.target.closest && evento.target.closest("select.js-ejercicio");
+      if (select) { activarBuscador(select); }
+    });
+
+    // ---- Agregar y quitar filas ----------------------------------------
+    var molde = document.getElementById("molde-de-fila");
+
+    document.addEventListener("click", function (evento) {
+      var agregar = evento.target.closest(".js-agregar-fila");
+      if (agregar) {
+        var cuerpo = agregar.closest("form").querySelector(".js-filas-cuerpo");
+        cuerpo.appendChild(molde.content.cloneNode(true));
+        var nueva = cuerpo.lastElementChild;
+        activarBuscador(nueva.querySelector("select.js-ejercicio"));
+        return;
+      }
+      var quitar = evento.target.closest(".js-quitar-fila");
+      if (quitar) {
+        var fila = quitar.closest(".js-fila");
+        var seleccionado = fila.querySelector("select.js-ejercicio");
+        // TomSelect deja su UI colgada si se borra el select sin destruirlo.
+        if (seleccionado && seleccionado.tomselect) { seleccionado.tomselect.destroy(); }
+        fila.remove();
+      }
+    });
+
+    // ---- Serialización al enviar ---------------------------------------
+    // Los controles de la grilla NO tienen `name`: no viajan como campos del
+    // POST. Todo se manda en un único hidden, así el conteo de campos no
+    // crece con el tamaño del día (con un formset, 50 ejercicios x 4 semanas
+    // x 5 campos son 1000 campos, justo contra DATA_UPLOAD_MAX_NUMBER_FIELDS).
+    function serializar(form) {
+      var filas = [];
+      form.querySelectorAll(".js-fila").forEach(function (fila) {
+        var semanas = {};
+        fila.querySelectorAll(".js-celda").forEach(function (celda) {
+          var numero = celda.dataset.semana;
+          if (!semanas[numero]) { semanas[numero] = {}; }
+          semanas[numero][celda.dataset.campo] = celda.value;
+        });
+        var bloque = fila.querySelector(".js-bloque");
+        var id = parseInt(fila.dataset.ejercicioId, 10);
+        filas.push({
+          ejercicio_id: isNaN(id) ? null : id,
+          bloque: bloque ? bloque.value : "",
+          semanas: semanas,
+        });
+      });
+      form.querySelector(".js-filas").value = JSON.stringify(filas);
+    }
+
+    document.addEventListener("submit", function (evento) {
+      var form = evento.target.closest(".js-form-dia");
+      if (form) { serializar(form); }
+    });
+
+    // ---- Repoblado tras un envío rechazado ------------------------------
+    var previas = document.getElementById("filas-previas");
+    var marcador = document.getElementById("dia-con-error");
+    if (previas && marcador) {
+      var form = document.querySelector('.js-form-dia[data-dia="' + marcador.dataset.dia + '"]');
+      var datos = JSON.parse(JSON.parse(previas.textContent) || "[]");
+      if (form && datos.length) {
+        var cuerpo = form.querySelector(".js-filas-cuerpo");
+        cuerpo.innerHTML = "";
+        datos.forEach(function (fila) {
+          cuerpo.appendChild(molde.content.cloneNode(true));
+          var nueva = cuerpo.lastElementChild;
+          nueva.dataset.ejercicioId = fila.ejercicio_id === null ? "" : fila.ejercicio_id;
+          if (fila.ejercicio_id !== null) {
+            var encontrado = catalogo.filter(function (e) { return e.id === fila.ejercicio_id; })[0];
+            if (encontrado) {
+              var opcion = document.createElement("option");
+              opcion.value = encontrado.id;
+              opcion.textContent = encontrado.nombre;
+              opcion.selected = true;
+              nueva.querySelector("select.js-ejercicio").appendChild(opcion);
+            }
+          }
+          var bloque = nueva.querySelector(".js-bloque");
+          if (bloque) { bloque.value = fila.bloque || ""; }
+          nueva.querySelectorAll(".js-celda").forEach(function (celda) {
+            var semana = (fila.semanas || {})[celda.dataset.semana];
+            if (semana) { celda.value = semana[celda.dataset.campo] || ""; }
+          });
+        });
+      }
+    }
+  })();
+</script>
 {% endblock %}
