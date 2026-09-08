@@ -555,6 +555,59 @@ el producto se veía como un formulario en blanco.
   `.lower()` a mano, "Tracción" se guardaba como "traccion" y la segunda
   corrida reventaba contra la `UniqueConstraint`.
 
+## Cuenta de demostración compartida (`Gimnasio.es_demo`)
+
+Agregado el 2026-09-08: se le pasa UNA misma cuenta de staff (slug `demo`) a
+varios dueños de gimnasio para que prueben la app. `Gimnasio.es_demo` es el
+único flag y hace **dos** cosas, a propósito:
+
+- **Bloquea el cambio de contraseña** (`tenants/mixins.py::
+  BloqueadoEnCuentaDemoMixin`, aplicado a `StaffPasswordChangeView` y a su
+  pantalla `Done`). Sin esto, el primero que la cambia deja afuera a todos los
+  demás: `update_session_auth_hash` salva **sólo** la sesión de quien la
+  cambió. El link se oculta en `gimnasio_form.html`, pero **la defensa es el
+  403** — bajo el `hx-boost` global un botón ausente no impide tipear la URL.
+- **Autoriza el vaciado.** `tenants/demo.py::vaciar_gimnasio` levanta
+  `ValueError` si el gimnasio no lo tiene: es lo único que separa "vacío la
+  cuenta de prueba" de "le borro el gimnasio entero a un cliente que paga", y
+  por eso el guard vive en la FUNCIÓN y no en el comando.
+
+**`sembrar_demo --borrar` no sirve para restaurar.** Saca sólo los alumnos con
+`observaciones == "[demo]"` y lo que cuelga de ellos; deja intactos ejercicios,
+categorías, plantillas, novedades, config de turnos, medios de cobro,
+importaciones y las `SuscripcionPush` del staff — nada de eso lleva la marca —
+y no revierte los dos campos del `Gimnasio` que la propia siembra muta
+(`dias_tolerancia_pago` y `fecha_activacion_bloqueo`). De ahí `vaciar_gimnasio`.
+
+- **El orden de borrado lo imponen los `PROTECT` y no es reordenable**:
+  `RegistroSuplantacion`/`RutinaAsignada`/`Cuota` antes que `Alumno`,
+  `RutinaPlantilla` antes que `Ejercicio`, `Ejercicio` antes que
+  `CategoriaEjercicio`. Los `User` de los alumnos se anotan **antes** del
+  borrado (`Alumno.perfil` es `SET_NULL`), filtrando por `rol=ALUMNO`: **el
+  `User` del staff no se toca nunca**, es la cuenta compartida cuya contraseña
+  ya circula.
+- **Las credenciales de Google van PRIMERO.** `calendario/signals.py::
+  sync_reserva_borrada` es un `pre_delete` sobre `Reserva` que llama a la API de
+  Google **una vez por reserva**; sin credencial el receiver corta en la primera
+  línea. Segundo candado: el workflow no le pasa las `GOOGLE_*`.
+- **Borrar las `SuscripcionPush` del staff resuelve de paso el push cruzado**:
+  cuelgan del `User`, así que si dos dueños activan notificaciones en la cuenta
+  compartida, cada uno recibe en su celular lo que dispara el otro.
+- `restaurar_demo` = vaciar + reaplicar `_gimnasio_canonico()` + `sembrar_demo`,
+  con el `silenciado()` del push **por fuera** del `atomic` (los `on_commit`
+  corren al cerrarse el más externo). `slug` y `es_demo` nunca están en el
+  estado canónico: el slug es la URL pública, y pisar `es_demo` desarmaría el
+  candado.
+- **Cobertura por introspección**: `VaciarGimnasioTests.
+  test_deja_en_cero_todos_los_modelos_tenant_owned` recorre
+  `apps.get_models()` filtrando `TenantOwnedModel`. **Un modelo tenant-owned
+  nuevo que no se agregue al barrido rompe ese test**, en vez de dejar datos de
+  un prospecto en la cuenta que ve el siguiente.
+- Lo corre `.github/workflows/restaurar-demo.yml` cada 6 h, con el **mismo
+  `concurrency.group` que `sembrar-demo.yml`** para que una siembra manual no se
+  solape con la automática. Alta de la cuenta:
+  `manage.py crear_gimnasio ... --demo`.
+
 ## Borrar: `core/borrado.py` + `BorrarConExplicacionView`
 
 Agregado el 2026-09-02 a pedido del dueño (eliminar plantillas, ejercicios y

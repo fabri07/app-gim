@@ -114,6 +114,33 @@
   {% elif gimnasio %}
     {% include 'partials/pwa_splash.html' with gimnasio_splash=gimnasio %}
   {% endif %}
+  {% if user.is_authenticated and user.perfil.gimnasio.es_demo %}
+    {% comment %}
+      Cuenta de demostración compartida: sus datos se vacían y se vuelven a
+      sembrar cada 6 horas (.github/workflows/restaurar-demo.yml). Sin este
+      aviso, alguien que carga sus alumnos de verdad los pierde sin entender
+      por qué.
+
+      Va DENTRO de <body> y no como un data-* del tag, que es lo que ya rompió
+      el tour de onboarding: hx-boost reemplaza el contenido de <body> en cada
+      navegación boosteada, pero nunca los atributos del tag.
+
+      No cuesta ninguna query extra: el <head> ya resolvió
+      `user.perfil.gimnasio` para el manifest y los colores, y el ORM cachea
+      las dos relaciones en la instancia.
+
+      Se muestra también durante una suplantación y para el rol alumno, a
+      propósito: el prospecto puede entrar al portal del alumno con las
+      credenciales de demo, y ahí el aviso hace la misma falta.
+    {% endcomment %}
+    <div class="banner-demo">
+      <span>
+        <strong>Cuenta de demostración.</strong>
+        Probá todo lo que quieras: los datos se restauran automáticamente cada
+        6 horas, así que lo que cargues acá no se conserva.
+      </span>
+    </div>
+  {% endif %}
   {% if request.session.suplantacion %}
     {% comment %}
       Se lee de la sesión y no del usuario logueado a propósito: mientras dura

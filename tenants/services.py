@@ -59,7 +59,9 @@ def generar_password():
 
 
 @transaction.atomic
-def crear_gimnasio(nombre, email, slug=None, password=None, sin_password=False):
+def crear_gimnasio(
+    nombre, email, slug=None, password=None, sin_password=False, es_demo=False
+):
     """Da de alta un gimnasio y la cuenta staff de su dueño.
 
     Devuelve `(gimnasio, usuario, password)`. `password` es `None` cuando la
@@ -74,6 +76,12 @@ def crear_gimnasio(nombre, email, slug=None, password=None, sin_password=False):
     default sigue siendo generar una contraseña provisoria (`sin_password`
     es opt-in, no default) — decisión explícita del dueño del producto, no
     una limitación técnica pendiente.
+
+    `es_demo=True` marca la cuenta como la de demostración compartida: no
+    podrá cambiar su contraseña y `tenants.demo.restaurar_demo` va a vaciarla y
+    resembrarla cada pocas horas. Es un parámetro del alta, y no algo que se
+    tilde después en `/admin/`, para que dar de alta esa cuenta sea un solo
+    comando -- y para no tener que abrir el admin de producción por un booleano.
 
     Atómico: si algo falla no queda ni un gimnasio huérfano ni un usuario sin
     perfil.
@@ -99,6 +107,7 @@ def crear_gimnasio(nombre, email, slug=None, password=None, sin_password=False):
     gimnasio = Gimnasio.objects.create(
         nombre=nombre,
         slug=slug or slug_disponible(nombre),
+        es_demo=es_demo,
     )
     usuario.save()
     Perfil.objects.create(usuario=usuario, gimnasio=gimnasio, rol=Perfil.Rol.STAFF)

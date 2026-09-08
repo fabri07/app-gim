@@ -183,6 +183,16 @@
       px-4 py-2 text-sm;
   }
 
+  /* Cuenta de demostración compartida. Misma forma que el de suplantación,
+     pero en gris y no en ámbar a propósito: el ámbar de este proyecto
+     significa "hay algo para hacer" (.aviso-urgente, .badge--urgente), y esto
+     es puramente informativo -- no hay ninguna acción que tomar. */
+  .banner-demo {
+    @apply flex flex-wrap items-center justify-between gap-3
+      bg-slate-100 border-b border-slate-300 text-slate-700
+      px-4 py-2 text-sm;
+  }
+
   /* Cards */
   .tarjeta {
     @apply bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6;

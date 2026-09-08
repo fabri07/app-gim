@@ -36,6 +36,41 @@ class StaffRequiredMixin(LoginRequiredMixin):
         return super().dispatch(request, *args, **kwargs)
 
 
+class BloqueadoEnCuentaDemoMixin:
+    """403 si el gimnasio del usuario es la cuenta de demostración compartida.
+
+    La cuenta demo se le pasa a varios dueños de gimnasio a la vez. Si uno
+    cambia la contraseña, `update_session_auth_hash` salva SU sesión y deja
+    afuera a todos los demás, que ya no tienen la clave nueva: un click de un
+    desconocido rompe la demo para el resto.
+
+    Va como mixin y no como un `dispatch` copiado en cada vista porque son dos
+    las vistas a proteger (el form y su pantalla de confirmación), y duplicar
+    un guard es cómo se termina con una de las dos sin él -- el mismo criterio
+    que llevó `sincronizar_acceso_con_estado` a una señal en vez de a las tres
+    vistas que escriben `Alumno.estado`.
+
+    NO hereda de `LoginRequiredMixin`: se combina con `StaffRequiredMixin`, que
+    ya lo trae, y va DESPUÉS de él en la lista de bases para que el anónimo sea
+    redirigido y el rol validado antes de que acá se toque `perfil.gimnasio`.
+    Igual se chequea `is_authenticated` y se atrapa `ObjectDoesNotExist`, para
+    que el mixin sea correcto por sí solo si alguien lo usa en otro orden.
+    """
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            try:
+                gimnasio = request.user.perfil.gimnasio
+            except ObjectDoesNotExist:
+                gimnasio = None
+            if gimnasio is not None and gimnasio.es_demo:
+                raise PermissionDenied(
+                    "La cuenta de demostración no puede cambiar su contraseña: "
+                    "la comparten varias personas a la vez."
+                )
+        return super().dispatch(request, *args, **kwargs)
+
+
 class AlumnoRequiredMixin(LoginRequiredMixin):
     """Simétrico a StaffRequiredMixin: 403 si no hay Perfil o el rol no es ALUMNO.
 

@@ -548,3 +548,184 @@ def borrar_demo(*, gimnasio):
         # El `Perfil` se va en cascada con el `User` (su FK es CASCADE).
         get_user_model().objects.filter(pk__in=usuarios).delete()
     return borrados
+
+
+#: Estado visual de fábrica de la cuenta de demostración. `restaurar_demo` lo
+#: reaplica en cada corrida porque el prospecto que la prueba también toca
+#: «Mi gimnasio»: le cambia el nombre, le sube su propio logo, le elige otra
+#: paleta. Sin esto, el siguiente que entra ve el gimnasio de otro.
+#:
+#: `slug` y `es_demo` NO están acá y no deben agregarse: el slug es la
+#: identidad y la URL pública de la cuenta (`/g/<slug>/`), y `es_demo` es lo
+#: único que autoriza el vaciado -- pisarlo desde acá sería la forma de
+#: desarmar el candado sin querer.
+#:
+#: `dias_tolerancia_pago` vuelve a None (y no a 5) a propósito: `sembrar_demo`
+#: lo configura por su cuenta junto con `fecha_activacion_bloqueo`, y dejar que
+#: lo haga él mantiene una sola fuente de verdad para esa pareja de campos.
+_GIMNASIO_CANONICO = {
+    "nombre": "Gimnasio Demo",
+    "texto_bienvenida": "Entrená con nosotros. Mirá tu rutina, reservá tu turno y "
+    "seguí tu progreso desde el celular.",
+    "contacto": "",
+    "link_instagram": "",
+    "link_whatsapp": "",
+    "link_facebook": "",
+    "logo": "",
+    "fondo_imagen": "",
+    "dias_tolerancia_pago": None,
+    "fecha_activacion_bloqueo": None,
+}
+
+#: Los que son choices van aparte para resolverse contra el modelo en vez de
+#: repetir los strings a mano: si mañana se renombra un valor de `Paleta`, esto
+#: sigue apuntando al mismo lugar.
+def _gimnasio_canonico():
+    from tenants.models import Gimnasio
+
+    return {
+        **_GIMNASIO_CANONICO,
+        "paleta": Gimnasio.Paleta.BOSQUE,
+        "tipografia": Gimnasio.Tipografia.PLUS_JAKARTA,
+        "fondo_tipo": Gimnasio.FondoTipo.DOODLE,
+        "fondo_doodle": Gimnasio.Doodle.MANCUERNAS,
+        "tipo_publico": Gimnasio.TipoPublico.MIXTO,
+    }
+
+
+def vaciar_gimnasio(*, gimnasio):
+    """Borra TODOS los datos operativos de un gimnasio de demostración.
+
+    Distinto de `borrar_demo`, que saca únicamente los alumnos marcados con
+    `MARCA` y lo que cuelga de ellos: eso alcanza para deshacer una siembra,
+    pero no para deshacer lo que hizo una persona usando la app. Un prospecto
+    borra los ejercicios, edita la plantilla, carga alumnos propios, agrega un
+    medio de cobro -- nada de eso lleva la marca, y `borrar_demo` lo deja
+    intacto.
+
+    **El guard vive acá adentro, no en el comando.** Es la única barrera entre
+    "vacío la cuenta de prueba" y "le borro el gimnasio entero a un cliente que
+    paga", así que no puede depender de que el llamador se acuerde.
+
+    Lo que NO se toca: el `Gimnasio` en sí, y el `User`/`Perfil` del staff --
+    es la cuenta compartida cuya contraseña ya está circulando, recrearla
+    invalidaría el acceso de todos los que la están probando.
+
+    El orden es el que imponen los `on_delete=PROTECT` del proyecto y no es
+    reordenable: `Cuota`/`RutinaAsignada`/`RegistroSuplantacion` protegen a
+    `Alumno`, `RutinaPlantillaItem` protege a `Ejercicio`, y `Ejercicio`
+    protege a `CategoriaEjercicio`.
+    """
+    from django.contrib.auth import get_user_model
+
+    from alumnos.models import Alumno
+    from calendario.models import GoogleCalendarCredential
+    from ejercicios.models import CategoriaEjercicio, Ejercicio
+    from importaciones.models import Importacion
+    from notificaciones.models import RecordatorioEnviado, SuscripcionPush
+    from novedades.models import Novedad
+    from pagos.models import Cuota, MedioCobro
+    from rutinas.models import RutinaAsignada, RutinaPlantilla
+    from tenants.models import Perfil, RegistroSuplantacion
+    from turnos.models import (
+        ConfiguracionTurnos,
+        CupoExcepcion,
+        HorarioAtencion,
+        Reserva,
+    )
+
+    if not gimnasio.es_demo:
+        raise ValueError(
+            f"«{gimnasio.nombre}» ({gimnasio.slug}) no está marcado como cuenta "
+            f"de demostración (es_demo=False). Vaciar un gimnasio real le "
+            f"borraría a un cliente todos sus alumnos, rutinas y cobros."
+        )
+
+    with transaction.atomic():
+        alumnos = Alumno.objects.for_gimnasio(gimnasio)
+
+        # PRIMERO las credenciales de Google, antes que cualquier reserva:
+        # `calendario/signals.py::sync_reserva_borrada` es un `pre_delete` sobre
+        # `Reserva` que, por cada una, pide el evento a la API de Google. Con
+        # cientos de reservas sembradas eso son cientos de llamadas HTTP. Sin
+        # credencial, `_credencial_conectada` devuelve None y el receiver corta
+        # en la primera línea. (Segundo candado: el workflow no le pasa las
+        # GOOGLE_*, así que `integracion_activa()` también da False.)
+        GoogleCalendarCredential.objects.filter(alumno__in=alumnos).delete()
+
+        # Los `User` se anotan ANTES de borrar los alumnos, por el `SET_NULL`
+        # de `Alumno.perfil` -- mismo motivo que en `borrar_demo`. Se filtra
+        # por rol ALUMNO: el `User` del staff es la cuenta compartida y no se
+        # toca nunca.
+        usuarios_de_alumnos = list(
+            Perfil.objects.filter(
+                gimnasio=gimnasio, rol=Perfil.Rol.ALUMNO
+            ).values_list("usuario_id", flat=True)
+        )
+
+        # PROTECT hacia `Alumno` (y hacia el `User` del staff, en el caso del
+        # registro de suplantación).
+        RegistroSuplantacion.objects.for_gimnasio(gimnasio).delete()
+        RutinaAsignada.objects.for_gimnasio(gimnasio).delete()
+        Cuota.objects.for_gimnasio(gimnasio).delete()
+
+        # Cascadean solos desde `Alumno`, pero se borran explícitamente para no
+        # depender de por dónde entra la cascada: `Reserva` arrastra su
+        # `ReservaCalendarEvent` y `Novedad` sus `NovedadLeida`.
+        Reserva.objects.for_gimnasio(gimnasio).delete()
+        Novedad.objects.for_gimnasio(gimnasio).delete()
+        alumnos.delete()
+        # Cascadea `Perfil` y `SuscripcionPush` de cada alumno.
+        get_user_model().objects.filter(pk__in=usuarios_de_alumnos).delete()
+
+        # La plantilla antes que los ejercicios: sus items tienen PROTECT sobre
+        # `Ejercicio`. Y los ejercicios antes que las categorías, por lo mismo.
+        RutinaPlantilla.objects.for_gimnasio(gimnasio).delete()
+        Ejercicio.objects.for_gimnasio(gimnasio).delete()
+        CategoriaEjercicio.objects.for_gimnasio(gimnasio).delete()
+
+        # Sin relaciones entrantes: cualquier orden sirve.
+        Importacion.objects.for_gimnasio(gimnasio).delete()
+        MedioCobro.objects.for_gimnasio(gimnasio).delete()
+        CupoExcepcion.objects.for_gimnasio(gimnasio).delete()
+        HorarioAtencion.objects.for_gimnasio(gimnasio).delete()
+        ConfiguracionTurnos.objects.for_gimnasio(gimnasio).delete()
+
+        # Las que quedan son las del staff. Borrarlas es lo que evita el push
+        # cruzado: `SuscripcionPush` cuelga del `User`, así que si dos dueños
+        # activan notificaciones en la cuenta compartida, cada uno recibe en su
+        # celular lo que dispara el otro. `RecordatorioEnviado` son filas de
+        # dedup que quedaron apuntando (por un entero suelto, sin FK) a cuotas
+        # y reservas que ya no existen.
+        SuscripcionPush.objects.for_gimnasio(gimnasio).delete()
+        RecordatorioEnviado.objects.for_gimnasio(gimnasio).delete()
+
+
+def restaurar_demo(*, gimnasio, cantidad_alumnos=24, meses=6):
+    """Deja la cuenta de demostración como recién creada: la vacía, le devuelve
+    su estética de fábrica y la vuelve a sembrar.
+
+    Lo corre un cron cada 6 horas (`.github/workflows/restaurar-demo.yml`)
+    porque la cuenta se comparte con varios dueños de gimnasio a la vez: uno
+    puede borrar todos los alumnos, y sin esto el siguiente prospecto entra a
+    una app en blanco -- exactamente el problema que `sembrar_demo` vino a
+    resolver.
+
+    El silenciado del push va POR FUERA del `atomic` de `sembrar_demo`, no
+    adentro: los `transaction.on_commit` de los signals corren recién al
+    cerrarse el atomic más externo, así que ese cierre tiene que pasar dentro
+    del context manager o cada reserva sembrada dispara una notificación real.
+    """
+    from notificaciones import services as notificaciones
+
+    with notificaciones.silenciado():
+        with transaction.atomic():
+            vaciar_gimnasio(gimnasio=gimnasio)
+            for campo, valor in _gimnasio_canonico().items():
+                setattr(gimnasio, campo, valor)
+            gimnasio.save()
+            return sembrar_demo(
+                gimnasio=gimnasio,
+                cantidad_alumnos=cantidad_alumnos,
+                meses=meses,
+            )

@@ -54,6 +54,30 @@ class Gimnasio(TimeStampedModel):
     nombre = models.CharField(max_length=120)
     slug = models.SlugField(max_length=140, unique=True)
     activo = models.BooleanField(default=True)
+    #: Cuenta de demostración compartida: un mismo usuario de staff que se le
+    #: pasa a varios dueños de gimnasio para que prueben la app. Va acá arriba
+    #: junto a `activo` y NO en el bloque de personalización de más abajo,
+    #: porque es gestión de la plataforma y no algo que el dueño edite desde su
+    #: panel (`GimnasioForm.Meta.fields` lo deja afuera, igual que `slug`).
+    #:
+    #: Hace dos cosas, y las dos son "sólo para esta cuenta":
+    #:
+    #: 1. Bloquea el cambio de contraseña (`tenants.mixins.
+    #:    BloqueadoEnCuentaDemoMixin`). Con la cuenta compartida, el que la
+    #:    cambia deja afuera a todos los demás: `update_session_auth_hash`
+    #:    salva únicamente su propia sesión.
+    #: 2. Es lo ÚNICO que autoriza `tenants.demo.vaciar_gimnasio`, que borra
+    #:    todos los datos operativos del gimnasio para volver a sembrarlo. Sin
+    #:    el flag esa función se niega, así que un slug tipeado mal no puede
+    #:    vaciar el gimnasio de un cliente que paga.
+    es_demo = models.BooleanField(
+        default=False,
+        verbose_name="cuenta de demostración",
+        help_text=(
+            "Cuenta compartida de prueba: no puede cambiar su contraseña y sus "
+            "datos se restauran automáticamente."
+        ),
+    )
 
     class TipoPublico(models.TextChoices):
         """A qué público atiende el gimnasio.

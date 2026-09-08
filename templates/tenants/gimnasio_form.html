@@ -15,7 +15,16 @@
       </p>
     </div>
     <a class="boton-secundario" href="{% url 'pagos:medios_listado' %}">Medios de cobro</a>
-    <a class="boton-secundario" href="{% url 'password_change' %}">Cambiar contraseña</a>
+    {% comment %}
+      La cuenta de demostración es compartida por varios dueños de gimnasio a
+      la vez: si uno cambia la contraseña, deja afuera a todos los demás. El
+      botón oculto NO es la defensa (la URL se tipea a mano y hx-boost se come
+      el click sin mensaje) -- la defensa es el 403 de
+      BloqueadoEnCuentaDemoMixin. Esto es para no ofrecer algo que no anda.
+    {% endcomment %}
+    {% if not object.es_demo %}
+      <a class="boton-secundario" href="{% url 'password_change' %}">Cambiar contraseña</a>
+    {% endif %}
   </div>
 
   <div class="config-layout">

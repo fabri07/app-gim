@@ -46,6 +46,15 @@ class Command(BaseCommand):
             help="Contraseña provisoria. Si se omite, se genera una al azar.",
         )
         parser.add_argument(
+            "--demo",
+            action="store_true",
+            help=(
+                "Marca la cuenta como la de demostración compartida: no podrá "
+                "cambiar su contraseña, y un cron le vacía y resiembra los "
+                "datos cada pocas horas."
+            ),
+        )
+        parser.add_argument(
             "--sin-password",
             action="store_true",
             help=(
@@ -63,6 +72,7 @@ class Command(BaseCommand):
                 slug=options["slug"],
                 password=options["password"],
                 sin_password=options["sin_password"],
+                es_demo=options["demo"],
             )
         except ValidationError as exc:
             # `CommandError` sale por stderr con exit code 1, sin traceback:
@@ -75,6 +85,15 @@ class Command(BaseCommand):
                 f"Staff: {usuario.username}."
             )
         )
+        if gimnasio.es_demo:
+            self.stdout.write(
+                self.style.WARNING(
+                    "Marcado como CUENTA DE DEMOSTRACIÓN: no puede cambiar su "
+                    "contraseña y sus datos se restauran solos.\n"
+                    f"Sembrala con: manage.py restaurar_demo --gimnasio "
+                    f"{gimnasio.slug}"
+                )
+            )
         if password is None:
             self.stdout.write(
                 "Sin contraseña usable: solo puede entrar con Google."

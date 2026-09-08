@@ -1,0 +1,94 @@
+# Deja la cuenta de demostración compartida como recién creada: la vacía, le
+# devuelve su estética de fábrica y la vuelve a sembrar.
+#
+# Por qué existe: esa cuenta se le pasa a varios dueños de gimnasio a la vez
+# para que prueben la app. Cualquiera puede borrar los alumnos o vaciar la
+# biblioteca de ejercicios, y el siguiente prospecto entra a una pantalla en
+# blanco. Sin esto, la demo se degrada sola y nadie se entera hasta la próxima
+# reunión de venta.
+#
+# Vive acá y no en render.yaml por el mismo motivo que generar-pagos.yml: el
+# plan free de Render no incluye cron jobs.
+
+name: Restaurar cuenta demo
+
+on:
+  schedule:
+    # Cada 6 horas. Ojo: GitHub retrasa mucho los `schedule` de repos free --
+    # en este repo, un cron que pedía correr cada 15 min corría cada 2 a 4
+    # horas. O sea que esto va a correr más bien cada 6-10 h. Está elegido
+    # sabiendo eso: el requisito era "no más de un día".
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      gimnasio:
+        description: "Slug de la cuenta de demostración"
+        required: true
+        default: "demo"
+
+permissions:
+  contents: read
+
+# EL MISMO grupo que sembrar-demo.yml, a propósito: las dos corridas escriben
+# sobre el mismo gimnasio de la misma base, y solapar un `--borrar` manual con
+# una restauración automática es la forma de terminar con la cuenta a medio
+# sembrar.
+concurrency:
+  group: sembrar-demo-production
+  cancel-in-progress: false
+
+jobs:
+  restaurar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # SHA pineado, no tag: un tag es mutable y puede reapuntarse a otro commit.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      # Las variables que NO se pasan son parte del diseño, no un olvido:
+      #
+      #   VAPID_*   -> PUSH_ENABLED queda en False. Segundo candado sobre el
+      #                `notificaciones.silenciado()` que ya usa el comando: sin
+      #                ninguno de los dos, sembrar manda cientos de push (71
+      #                medidos con sólo 4 alumnos).
+      #   GOOGLE_*  -> `calendario.services.integracion_activa()` da False.
+      #                Segundo candado sobre el borrado de credenciales que
+      #                hace `vaciar_gimnasio`: el `pre_delete` de `Reserva`
+      #                llama a la API de Google una vez POR RESERVA borrada.
+      #   R2_*      -> este comando no toca ningún archivo. Django cae a
+      #                FileSystemStorage y no pasa nada.
+      #
+      # DJANGO_DEBUG sí hace falta: `config/db.py` usa `ssl_require=not debug`
+      # para exigir TLS contra Neon. Y va la URL POOLED (no la directa, que es
+      # sólo para el pg_dump del backup): son conexiones cortas.
+      - name: Restaurar la cuenta demo
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_POOLED }}
+          DJANGO_DEBUG: "False"
+          # `inputs.gimnasio` viene vacío en las corridas por `schedule` (no hay
+          # formulario), así que el fallback es el que usa el cron.
+          GIMNASIO: ${{ inputs.gimnasio || 'demo' }}
+        run: python manage.py restaurar_demo --gimnasio "$GIMNASIO"
+
+      # Mismo criterio que el resto de los crons: se alerta por AUSENCIA de
+      # ping, que es lo único que cubre a la vez el comando fallido, el
+      # workflow desactivado por inactividad del repo y GitHub Actions caído.
+      # El check va en modo Simple (Period 1 día, Grace 6 h) y no en modo Cron,
+      # justamente por el retraso de los `schedule` explicado arriba.
+      #
+      # `if: secrets.X != ''` no es válido en GitHub Actions (los secrets no se
+      # pueden evaluar en `if`), así que el guard va adentro del paso.
+      - name: Avisar a Healthchecks
+        env:
+          PING: ${{ secrets.HEALTHCHECKS_URL_RESTAURAR_DEMO }}
+        run: |
+          if [ -n "$PING" ]; then
+            curl -fsS -m 10 --retry 3 "$PING"
+          else
+            echo "HEALTHCHECKS_URL_RESTAURAR_DEMO sin cargar: se saltea el ping."
+          fi
