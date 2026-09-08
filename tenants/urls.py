@@ -4,6 +4,7 @@ from django.views.generic import TemplateView
 
 from tenants.forms import ResetPasswordStaffForm
 from tenants.views import (
+    FondoGimnasioView,
     GimnasioLandingView,
     GimnasioLoginView,
     GimnasioUpdateView,
@@ -105,5 +106,6 @@ urlpatterns = [
     # mismo criterio de "ruta más específica primero" que el resto del archivo.
     path("g/<slug:slug>/login/", GimnasioLoginView.as_view(), name="login_gimnasio"),
     path("g/<slug:slug>/logo/", LogoGimnasioView.as_view(), name="logo_gimnasio"),
+    path("g/<slug:slug>/fondo/", FondoGimnasioView.as_view(), name="fondo_gimnasio"),
     path("g/<slug:slug>/", GimnasioLandingView.as_view(), name="landing_gimnasio"),
 ]

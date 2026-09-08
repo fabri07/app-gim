@@ -291,18 +291,27 @@ class Gimnasio(TimeStampedModel):
         delega acá para que la regla viva en un solo lugar."""
         return int(self.modificado.timestamp() * 1000)
 
+    def _url_de_archivo(self, campo, nombre_de_ruta):
+        """URL versionada de uno de los archivos del gimnasio, servido por su
+        vista propia en vez del storage.
+
+        **No usar `<campo>.url` en los templates.** Con el bucket de R2
+        privado, `AWS_QUERYSTRING_AUTH` re-firma esa URL en CADA render, así
+        que el navegador la ve distinta siempre y vuelve a bajar el archivo en
+        cada navegación. Medido en producción: 62 KB del logo + 189 KB del
+        fondo = 251 KB por click. Ver el docstring de
+        `tenants/tests_logo.py`."""
+        if not getattr(self, campo):
+            return ""
+        return f"{reverse(nombre_de_ruta, args=[self.slug])}?v={self.version_media}"
+
     @property
     def logo_url_cacheable(self):
-        """URL del logo, servida por `tenants.views.LogoGimnasioView`.
+        return self._url_de_archivo("logo", "logo_gimnasio")
 
-        **No usar `logo.url` en los templates.** Con el bucket de R2 privado,
-        `AWS_QUERYSTRING_AUTH` re-firma esa URL en CADA render, así que el
-        navegador la ve distinta siempre y vuelve a bajar el archivo en cada
-        navegación: 62 KB y ~458 ms por click, medidos en producción. Ver el
-        docstring de `tenants/tests_logo.py`."""
-        if not self.logo:
-            return ""
-        return f"{reverse('logo_gimnasio', args=[self.slug])}?v={self.version_media}"
+    @property
+    def fondo_imagen_url_cacheable(self):
+        return self._url_de_archivo("fondo_imagen", "fondo_gimnasio")
 
 
 class Perfil(TimeStampedModel):

@@ -118,6 +118,75 @@ class LogoGimnasioViewTests(TestCase):
         self.assertEqual(respuesta.status_code, 404)
 
 
+class FondoImagenUrlVersionadaTests(TestCase):
+    """`fondo_imagen` tiene EXACTAMENTE el mismo problema que el logo, y es
+    peor: la imagen de fondo del gimnasio de Vida Plena pesa 189 KB contra los
+    62 KB del logo, y se pinta en `base.html` (todas las páginas), en la
+    landing y en el login. Entre las dos se re-descargaban 251 KB en cada
+    navegación.
+
+    Se detectó al verificar el arreglo del logo en producción: quedaba una
+    ocurrencia de `X-Amz-Signature` en el HTML, y era ésta."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Vida Plena",
+            slug="vida-plena",
+            fondo_tipo=Gimnasio.FondoTipo.IMAGEN,
+            fondo_imagen=_logo(nombre="fondo.jpg", formato="JPEG"),
+        )
+        self.ruta = reverse("fondo_gimnasio", args=[self.gimnasio.slug])
+
+    def test_la_url_apunta_a_la_vista_propia_y_lleva_version(self):
+        url = self.gimnasio.fondo_imagen_url_cacheable
+        self.assertIn(self.ruta, url)
+        self.assertIn("?v=", url)
+
+    def test_un_gimnasio_sin_fondo_no_expone_ninguna_url(self):
+        sin_fondo = Gimnasio.objects.create(nombre="Sin Fondo", slug="sin-fondo")
+        self.assertEqual(sin_fondo.fondo_imagen_url_cacheable, "")
+
+    def test_la_vista_sirve_el_fondo_cacheable_para_siempre(self):
+        respuesta = self.client.get(self.ruta)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta["Content-Type"].startswith("image/"))
+        self.assertIn("immutable", respuesta["Cache-Control"])
+        self.assertIn("max-age=31536000", respuesta["Cache-Control"])
+
+    def test_un_gimnasio_sin_fondo_da_404(self):
+        Gimnasio.objects.create(nombre="Sin Fondo", slug="sin-fondo")
+        respuesta = self.client.get(reverse("fondo_gimnasio", args=["sin-fondo"]))
+        self.assertEqual(respuesta.status_code, 404)
+
+    def test_un_gimnasio_inactivo_da_404(self):
+        self.gimnasio.activo = False
+        self.gimnasio.save()
+        self.assertEqual(self.client.get(self.ruta).status_code, 404)
+
+    def test_la_landing_usa_la_url_versionada(self):
+        html = self.client.get(
+            reverse("landing_gimnasio", args=[self.gimnasio.slug])
+        ).content.decode()
+        self.assertIn(f"{self.ruta}?v=", html)
+
+    def test_el_login_por_gimnasio_usa_la_url_versionada(self):
+        html = self.client.get(
+            reverse("login_gimnasio", args=[self.gimnasio.slug])
+        ).content.decode()
+        self.assertIn(f"{self.ruta}?v=", html)
+
+    def test_el_fondo_de_toda_la_app_usa_la_url_versionada(self):
+        """`base.html` lo pinta en el `<style>` del `<head>`, así que aplica a
+        cualquier pantalla autenticada."""
+        usuario = User.objects.create_user("dueno-fondo", password="clave-123456")
+        Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.force_login(usuario)
+        html = self.client.get(reverse("home")).content.decode()
+        self.assertIn(f"{self.ruta}?v=", html)
+
+
 class LogoEnLasPantallasTests(TestCase):
     """Las tres pantallas que muestran el logo tienen que usar la URL
     versionada. El topbar es la que importa: está en todas las páginas."""

@@ -24,7 +24,7 @@
           URL firmada de R2 sale como entidad HTML dentro de <style> (raw text,
           sin decodificación de entidades) y la firma llega rota.
           {% endcomment %}
-          url("{{ gimnasio.fondo_imagen.url|safe }}");
+          url("{{ gimnasio.fondo_imagen_url_cacheable }}");
         background-size: cover;
         background-position: center;
         background-attachment: scroll;

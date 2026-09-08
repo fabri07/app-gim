@@ -480,39 +480,59 @@ def gimnasio_activo_o_404(slug):
     return get_object_or_404(Gimnasio, slug=slug, activo=True)
 
 
-class LogoGimnasioView(View):
-    """Sirve el logo del gimnasio con la respuesta cacheable para siempre.
+class ArchivoDeGimnasioView(View):
+    """Sirve uno de los archivos de imagen del gimnasio (logo, fondo) con la
+    respuesta cacheable para siempre.
 
-    Pública, sin login: la landing y `g/<slug>/login/` pintan el logo antes de
-    que haya sesión, y un logo no es dato sensible (a diferencia de un
-    comprobante de pago, que es el otro archivo que vive en R2).
+    Existe porque `FileField.url` sobre R2 privado sale **firmada y con una
+    expiración de 1 h, recalculada en cada render**: el navegador ve una URL
+    distinta siempre y nunca reusa su copia. Medido en producción: 62 KB del
+    logo + 189 KB del fondo re-descargados en CADA navegación, y con
+    `hx-boost` eso es cada click.
 
-    La URL lleva `?v=<versión>` (ver `Gimnasio.logo_url_cacheable`) y el valor
-    no se valida a propósito: siempre se sirve el logo actual. Eso es lo que
-    permite responder `immutable` sin riesgo -- cambiar el logo cambia
+    Pública, sin login: la landing y `g/<slug>/login/` pintan las dos
+    imágenes antes de que haya sesión, y ninguna es dato sensible (a
+    diferencia del comprobante de pago, el otro archivo que vive en R2 -- ese
+    sigue saliendo firmado, y así tiene que quedar).
+
+    La URL lleva `?v=<versión>` (ver `Gimnasio._url_de_archivo`) y el valor no
+    se valida a propósito: siempre se sirve el archivo actual. Eso es lo que
+    permite responder `immutable` sin riesgo -- cambiar la imagen cambia
     `modificado`, o sea la URL, y una URL nueva nunca choca con un cache
-    viejo. Mismo diseño que `notificaciones.views.IconoGimnasioView`.
+    viejo. Mismo diseño, y por el mismo motivo, que
+    `notificaciones.views.IconoGimnasioView`.
 
-    El contenido se cachea del lado del servidor además del navegador: en
-    producción cada miss significa bajar el archivo de R2, y el logo aparece
-    en el topbar de todas las páginas."""
+    El contenido se cachea también del lado del servidor: cada miss significa
+    bajar el archivo de R2, y estas imágenes aparecen en todas las páginas."""
+
+    #: Nombre del `ImageField` de `Gimnasio` que sirve esta vista.
+    campo = None
 
     def get(self, request, slug):
         gimnasio = gimnasio_activo_o_404(slug)
-        if not gimnasio.logo:
+        imagen = getattr(gimnasio, self.campo)
+        if not imagen:
             raise Http404
-        clave = f"logo-gimnasio-{gimnasio.pk}-{gimnasio.version_media}"
+        clave = f"archivo-gimnasio-{self.campo}-{gimnasio.pk}-{gimnasio.version_media}"
         guardado = cache.get(clave)
         if guardado is None:
-            with gimnasio.logo.open("rb") as archivo:
+            with imagen.open("rb") as archivo:
                 contenido = archivo.read()
-            tipo = mimetypes.guess_type(gimnasio.logo.name)[0] or "image/png"
+            tipo = mimetypes.guess_type(imagen.name)[0] or "image/png"
             guardado = (contenido, tipo)
             cache.set(clave, guardado, timeout=60 * 60 * 24)
         contenido, tipo = guardado
         respuesta = HttpResponse(contenido, content_type=tipo)
         respuesta["Cache-Control"] = "public, max-age=31536000, immutable"
         return respuesta
+
+
+class LogoGimnasioView(ArchivoDeGimnasioView):
+    campo = "logo"
+
+
+class FondoGimnasioView(ArchivoDeGimnasioView):
+    campo = "fondo_imagen"
 
 
 class GimnasioLandingView(DetailView):

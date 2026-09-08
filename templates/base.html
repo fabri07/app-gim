@@ -51,7 +51,7 @@
               por get_valid_filename() del storage, que no deja comillas ni
               "<".
               {% endcomment %}
-              url("{{ gimnasio.fondo_imagen.url|safe }}");
+              url("{{ gimnasio.fondo_imagen_url_cacheable }}");
             background-size: cover;
             background-position: center;
             background-attachment: scroll;

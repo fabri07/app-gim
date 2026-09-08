@@ -1643,15 +1643,24 @@ class GimnasioUpdateViewTests(TestCase):
         self.gimnasio.save()
         self.client.login(username="dueno", password="clave-123456")
         response = self.client.get(reverse("home"))
-        self.assertContains(response, 'url("/media/fondos/')
+        self.assertContains(response, f'url("{reverse("fondo_gimnasio", args=[self.gimnasio.slug])}')
 
-    def test_url_firmada_de_r2_no_sale_html_escapada(self):
-        """En producción R2 va con AWS_QUERYSTRING_AUTH, así que `.url` trae
-        query string firmada. Dentro de <style> (raw text) el navegador no
-        decodifica entidades, así que un "&" autoescapado a "&amp;" rompe la
-        firma y R2 responde 403 -- el fondo simplemente no carga. La suite usa
-        InMemoryStorage (URLs sin query string), por eso hace falta simular la
-        URL firmada a mano acá."""
+    def test_el_fondo_no_sale_con_la_url_firmada_del_storage(self):
+        """El fondo se sirve por `fondo_gimnasio`, nunca por `fondo_imagen.url`.
+
+        Sobre R2 privado, `.url` sale firmada y **re-firmada en cada render**:
+        el navegador ve una URL distinta siempre y volvía a bajar los 189 KB de
+        la imagen en cada navegación. Ver `tenants/tests_logo.py`.
+
+        El patch fuerza al storage a devolver una URL firmada, así que si
+        alguien vuelve a poner `.url` en el template, aparece en el HTML y este
+        test falla.
+
+        Antes acá se verificaba lo CONTRARIO: que la firma no saliera
+        HTML-escapada, porque dentro de `<style>` (raw text) el navegador no
+        decodifica entidades y un `&` convertido en `&amp;` rompía la firma y
+        R2 devolvía 403. Ese riesgo desapareció junto con la query string
+        firmada -- la URL nueva no tiene ningún `&` que escapar."""
         firmada = "https://r2.example/fondos/x.png?X-Amz-Expires=3600&X-Amz-Signature=abc"
         self.gimnasio.fondo_tipo = Gimnasio.FondoTipo.IMAGEN
         self.gimnasio.fondo_imagen = _imagen_subida((0x1D, 0x6F, 0x56))
@@ -1662,8 +1671,8 @@ class GimnasioUpdateViewTests(TestCase):
             return_value=firmada,
         ):
             response = self.client.get(reverse("home"))
-        self.assertContains(response, f'url("{firmada}")')
-        self.assertNotContains(response, "X-Amz-Expires=3600&amp;")
+        self.assertNotContains(response, "X-Amz-Signature")
+        self.assertContains(response, f'url("{self.gimnasio.fondo_imagen_url_cacheable}")')
 
     def test_doodle_sin_archivo_estatico_no_rompe_la_pantalla_de_configuracion(self):
         """Fuera de DEBUG, `{% static %}` sobre un archivo ausente del manifest
