@@ -7,6 +7,25 @@
 # plan free en Render — se resolvió moviéndolo a GitHub Actions, ver
 # .github/workflows/generar-pagos.yml.
 #
+# ⚠️ ESTADO AL 2026-09-08: el servicio que sirve `www.tugimapp.com` es
+# **`app-gim-virginia`** (región Virginia, plan Starter), y NO está manejado
+# por este Blueprint -- se creó a mano en el dashboard. Se migró de región
+# porque el web estaba en Oregón y la base en `sa-east-1`, y cada query pagaba
+# 182 ms de ida y vuelta: el panel de inicio tardaba ~5,6 s. Hoy el RTT es de
+# ~2 ms. Ver `ISSUES.md`.
+#
+# Por qué a mano y no por Blueprint: la región de un servicio NO es editable
+# después de crearlo, y `generateValue: true` sobre `DJANGO_SECRET_KEY` le
+# habría generado una clave nueva, deslogueando a todos. Este archivo sigue
+# describiendo el servicio VIEJO (`app-gim`, Oregón), que queda prendido y sin
+# dominio como vuelta atrás. **Por eso `region:` no se toca acá**: un sync
+# contra un servicio ya creado no puede cambiarla.
+#
+# Lo que este archivo sí garantiza, y es su valor hoy: la lista completa de
+# variables que la app necesita. `config/tests.py::
+# BlueprintDeclaraLoQueSettingsLeeTests` falla si `settings.py` lee una que
+# acá no está.
+#
 # La BASE DE DATOS ya no la maneja Render: vive en Neon (free permanente). El
 # Postgres free de Render expiraba a los 30 días + 14 de gracia, y después
 # Render borra los datos -- por eso se migró el 2026-07-29 (ver ISSUES.md).
@@ -67,4 +86,35 @@ services:
       - key: GOOGLE_OAUTH_REDIRECT_URI
         sync: false
       - key: GOOGLE_TOKEN_ENCRYPTION_KEY
+        sync: false
+      # Frente C: login con Google para staff. Comparte CLIENT_ID/SECRET con
+      # Calendar y agrega su propio redirect. Faltaba en este archivo, y no
+      # era un olvido inofensivo: con los otros dos del grupo declarados y
+      # este no, el grupo queda 2 de 3 y `_bandera_todo_o_nada` lanza
+      # `ImproperlyConfigured` -- el servicio NO ARRANCA. Se descubrió
+      # recreando el servicio en otra región (2026-09-08).
+      # GOOGLE_LOGIN_REDIRECT_URI = https://<dominio>/accounts/google/callback/
+      - key: GOOGLE_LOGIN_REDIRECT_URI
+        sync: false
+      # "Olvidé mi contraseña" por email (SMTP de Resend), SOLO para staff.
+      # Las 4 o ninguna: sin ellas el link queda oculto y `EMAIL_BACKEND` cae
+      # al de consola. `EMAIL_PORT`/`EMAIL_USE_TLS` NO van acá: son
+      # constantes fijas en settings.py.
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      # Web Push (PWA). Las 3 o ninguna -> `PUSH_ENABLED`. El par
+      # público/privado tiene que ser IDÉNTICO al de los secrets de GitHub
+      # Actions, o las suscripciones creadas con una clave se rechazan al
+      # firmar con la otra: el cron termina en verde y no entrega nada.
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_ADMIN_EMAIL
         sync: false

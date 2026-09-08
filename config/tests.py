@@ -1,6 +1,8 @@
-"""Tests de la configuración: conexión a la base (`config/db.py`) y
-aislamiento del storage de media durante la suite."""
+"""Tests de la configuración: conexión a la base (`config/db.py`), aislamiento
+del storage de media durante la suite, y que el Blueprint de Render declare
+todas las variables de entorno que `settings.py` lee."""
 
+import re
 from pathlib import Path
 
 from django.conf import settings
@@ -71,3 +73,72 @@ class StorageDeTestsAisladoTests(SimpleTestCase):
             self.assertFalse(Path(default_storage.path(nombre)).exists())
         finally:
             default_storage.delete(nombre)
+
+
+class BlueprintDeclaraLoQueSettingsLeeTests(SimpleTestCase):
+    """`render.yaml` tiene que declarar toda variable de entorno que
+    `settings.py` lee.
+
+    No es prolijidad: es el agujero que dejó el Blueprint sin
+    `GOOGLE_LOGIN_REDIRECT_URI` mientras sí declaraba los otros dos del grupo
+    de login con Google. Un grupo a medias hace que
+    `_bandera_todo_o_nada` lance `ImproperlyConfigured` y el servicio **no
+    arranque** -- y eso se descubre recreando el servicio, que es justo el
+    momento de menos ganas de depurar. Los grupos que quedan en CERO degradan
+    peor todavía: en silencio (R2 al disco efímero, push apagado, "olvidé mi
+    contraseña" oculto).
+
+    Se parsea con expresiones regulares y no con un parser de YAML a propósito:
+    no hay `pyyaml` en `requirements.txt` y no vale agregar una dependencia
+    para un test.
+    """
+
+    #: En el Blueprint pero fuera de `settings.py`: las lee Render, no Django.
+    SOLO_DE_RENDER = {"PYTHON_VERSION"}
+
+    def _declaradas(self):
+        contenido = (Path(settings.BASE_DIR) / "render.yaml").read_text()
+        return set(re.findall(r"^\s*-\s*key:\s*([A-Z0-9_]+)\s*$", contenido, re.M))
+
+    #: Las cuatro formas en que `settings.py` lee el entorno. Si aparece una
+    #: quinta, el segundo test de esta clase la detecta: va a reportar la
+    #: variable como "declarada y que nadie lee", que es la pista de que el
+    #: lector se quedó corto y no de que la variable sobre.
+    NOMBRE = r"""["']([A-Z][A-Z0-9_]*)["']"""
+
+    def _leidas(self):
+        texto = (Path(settings.BASE_DIR) / "config" / "settings.py").read_text()
+        leidas = set()
+        # 1) os.environ.get("X")  2) os.environ["X"]  3) _env_bool("X", ...)
+        for patron in (
+            r"os\.environ(?:\.get)?\(\s*" + self.NOMBRE,
+            r"os\.environ\[\s*" + self.NOMBRE,
+            r"_env_bool\(\s*" + self.NOMBRE,
+        ):
+            leidas |= set(re.findall(patron, texto))
+        # 4) los grupos todo-o-nada reciben la lista de nombres, no los leen
+        #    de a uno: `_bandera_todo_o_nada(["R2_BUCKET_NAME", ...], ...)`
+        for bloque in re.findall(
+            r"_bandera_todo_o_nada\(\s*\[(.*?)\]", texto, re.S
+        ):
+            leidas |= set(re.findall(self.NOMBRE, bloque))
+        return leidas
+
+    def test_el_blueprint_declara_todo_lo_que_settings_lee(self):
+        faltan = self._leidas() - self._declaradas()
+        self.assertEqual(
+            faltan,
+            set(),
+            "render.yaml no declara estas variables que config/settings.py lee: "
+            f"{sorted(faltan)}. Agregalas con `sync: false` -- si pertenecen a "
+            "un grupo todo-o-nada y el grupo queda incompleto, el servicio no "
+            "arranca.",
+        )
+
+    def test_el_blueprint_no_declara_variables_que_nadie_lee(self):
+        """Una variable de más es una que alguien va a cargar creyendo que
+        hace algo."""
+        sobran = self._declaradas() - self._leidas() - self.SOLO_DE_RENDER
+        self.assertEqual(
+            sobran, set(), f"render.yaml declara variables que nadie lee: {sorted(sobran)}"
+        )
