@@ -567,6 +567,13 @@ varios dueños de gimnasio para que prueben la app. `Gimnasio.es_demo` es el
   demás: `update_session_auth_hash` salva **sólo** la sesión de quien la
   cambió. El link se oculta en `gimnasio_form.html`, pero **la defensa es el
   403** — bajo el `hx-boost` global un botón ausente no impide tipear la URL.
+  **Son DOS puertas, no una**: `ResetPasswordStaffForm.get_users()` también
+  excluye la cuenta demo (`perfil__gimnasio__es_demo=False`), porque su
+  username ES el email y cualquiera que tenga las credenciales puede pedir el
+  reset. Lo encontró un `/code-review`, y el argumento decisivo es que **la
+  contraseña es lo ÚNICO del estado de la demo que `restaurar_demo` no sana**:
+  todo lo demás se vacía y se resiembra cada 6 h, esa no — se revierte sólo por
+  Shell o por `/admin/`.
 - **Autoriza el vaciado.** `tenants/demo.py::vaciar_gimnasio` levanta
   `ValueError` si el gimnasio no lo tiene: es lo único que separa "vacío la
   cuenta de prueba" de "le borro el gimnasio entero a un cliente que paga", y

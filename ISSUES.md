@@ -58,9 +58,12 @@ los dos campos del `Gimnasio` que la propia siembra muta
   tampoco podría borrarlos; y son archivos chicos sin ninguna fila que los
   referencie. Si algún día molesta, la salida es un bucket aparte para la demo,
   no darle credenciales de escritura al cron.
-- «Olvidé mi contraseña» sigue habilitado para la cuenta demo. Se dejó así
-  porque explotarlo exige acceso a la casilla de email de la cuenta, que no
-  tiene ninguno de los que la prueban.
+- ~~«Olvidé mi contraseña» sigue habilitado para la cuenta demo.~~ **Cerrado**:
+  se descartó por bajo (exige acceso a la casilla de email) y un `/code-review`
+  aportó el argumento que faltaba — la contraseña es lo único del estado de la
+  demo que `restaurar_demo` NO sana, así que un cambio ahí es el único daño
+  permanente que puede hacer un prospecto. `ResetPasswordStaffForm.get_users()`
+  ahora filtra `perfil__gimnasio__es_demo=False`.
 - El cron corre `checkout` de `main` contra la base de PRODUCCIÓN sin correr
   `migrate` (Render migra en su `buildCommand`), igual que `generar-pagos.yml`:
   ante una migración destructiva hay que comentar el `schedule` antes del merge.
