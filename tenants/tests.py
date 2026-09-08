@@ -3015,6 +3015,129 @@ class StaffPasswordChangeViewTests(TestCase):
         self.assertTrue(self.staff.check_password("clave-vieja-123"))
 
 
+class CuentaDemoNoCambiaPasswordTests(TestCase):
+    """La cuenta de demostración se comparte con varios dueños de gimnasio a la
+    vez. Si uno cambia la contraseña, `update_session_auth_hash` salva SU
+    sesión y deja afuera a todos los demás, que ya no tienen la clave nueva.
+
+    Lo que estos tests fijan es que la defensa es el 403, no el botón oculto:
+    bajo el `hx-boost` global un link que no está igual se puede tipear a mano.
+    """
+
+    def setUp(self):
+        self.demo = Gimnasio.objects.create(
+            nombre="Gimnasio Demo", slug="demo", es_demo=True
+        )
+        self.staff_demo = User.objects.create_user(
+            "dueno-demo", password="clave-demo-123"
+        )
+        Perfil.objects.create(
+            usuario=self.staff_demo, gimnasio=self.demo, rol=Perfil.Rol.STAFF
+        )
+
+        self.normal = Gimnasio.objects.create(nombre="Gimnasio Real", slug="real")
+        self.staff_normal = User.objects.create_user(
+            "dueno-real", password="clave-real-123"
+        )
+        Perfil.objects.create(
+            usuario=self.staff_normal, gimnasio=self.normal, rol=Perfil.Rol.STAFF
+        )
+
+    def test_get_a_password_change_da_403(self):
+        self.client.login(username="dueno-demo", password="clave-demo-123")
+
+        response = self.client.get(reverse("password_change"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_post_a_password_change_no_cambia_la_contraseña(self):
+        """El test que de verdad importa: ocultar el botón no es la defensa."""
+        self.client.login(username="dueno-demo", password="clave-demo-123")
+
+        response = self.client.post(
+            reverse("password_change"),
+            {
+                "old_password": "clave-demo-123",
+                "new_password1": "clave-nueva-456!",
+                "new_password2": "clave-nueva-456!",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.staff_demo.refresh_from_db()
+        self.assertTrue(self.staff_demo.check_password("clave-demo-123"))
+
+    def test_password_change_done_tambien_da_403(self):
+        """Sin esto, tipear la URL de "done" a mano muestra una pantalla que
+        afirma que la contraseña se cambió cuando no pasó nada."""
+        self.client.login(username="dueno-demo", password="clave-demo-123")
+
+        response = self.client.get(reverse("password_change_done"))
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_el_link_no_se_ofrece_en_mi_gimnasio(self):
+        self.client.login(username="dueno-demo", password="clave-demo-123")
+
+        response = self.client.get(reverse("gimnasio_editar"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, reverse("password_change"))
+
+    def test_un_gimnasio_normal_no_se_ve_afectado(self):
+        """`es_demo` es False por default: ningún gimnasio existente cambia."""
+        self.client.login(username="dueno-real", password="clave-real-123")
+
+        self.assertContains(
+            self.client.get(reverse("gimnasio_editar")), reverse("password_change")
+        )
+        self.assertEqual(self.client.get(reverse("password_change")).status_code, 200)
+
+        response = self.client.post(
+            reverse("password_change"),
+            {
+                "old_password": "clave-real-123",
+                "new_password1": "clave-nueva-456!",
+                "new_password2": "clave-nueva-456!",
+            },
+        )
+
+        self.assertRedirects(response, reverse("password_change_done"))
+        self.staff_normal.refresh_from_db()
+        self.assertTrue(self.staff_normal.check_password("clave-nueva-456!"))
+
+    def test_no_se_puede_apagar_es_demo_desde_mi_gimnasio(self):
+        """`GimnasioForm.Meta.fields` es una lista explícita, así que `es_demo`
+        no entra al form. Se fija con un test porque el día que alguien pase a
+        `__all__` el campo aparecería solo, y apagarlo destraba el cambio de
+        contraseña Y deja la cuenta sin restaurar (`vaciar_gimnasio` se niega
+        sin el flag)."""
+        self.client.login(username="dueno-demo", password="clave-demo-123")
+
+        self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Gimnasio Demo",
+                "tipo_publico": Gimnasio.TipoPublico.MIXTO,
+                "paleta": Gimnasio.Paleta.BOSQUE,
+                "tipografia": Gimnasio.Tipografia.PLUS_JAKARTA,
+                "fondo_tipo": Gimnasio.FondoTipo.COLOR,
+                "es_demo": "",
+            },
+        )
+
+        self.demo.refresh_from_db()
+        self.assertTrue(self.demo.es_demo)
+
+    def test_el_banner_avisa_que_los_datos_se_reinician(self):
+        self.client.login(username="dueno-demo", password="clave-demo-123")
+        self.assertContains(self.client.get(reverse("home")), "banner-demo")
+
+        self.client.logout()
+        self.client.login(username="dueno-real", password="clave-real-123")
+        self.assertNotContains(self.client.get(reverse("home")), "banner-demo")
+
+
 class SembrarDemoTests(TestCase):
     """`manage.py sembrar_demo`: llenar una cuenta de PRUEBA para poder
     mostrar la app. Lo que más importa acá no es lo que crea, sino que no
@@ -3456,6 +3579,468 @@ class SembrarDemoSinPushTests(TransactionTestCase):
         ):
             call_command(
                 "sembrar_demo", gimnasio="prueba-push", alumnos=4, meses=1,
+                stdout=StringIO(),
+            )
+
+        webpush.assert_not_called()
+
+
+def _ensuciar(gimnasio, staff, marca="X"):
+    """Deja en `gimnasio` una fila de cada cosa que un prospecto podría crear
+    usando la app, incluidas las que `sembrar_demo --borrar` NO toca (esos son
+    justamente los que motivan `vaciar_gimnasio`)."""
+    from alumnos.models import Alumno
+    from ejercicios.models import CategoriaEjercicio, Ejercicio
+    from importaciones.models import Importacion
+    from notificaciones.models import RecordatorioEnviado, SuscripcionPush
+    from novedades.models import Novedad
+    from pagos.models import Cuota, MedioCobro
+    from rutinas.models import RutinaAsignada, RutinaPlantilla, RutinaPlantillaItem
+    from tenants.models import RegistroSuplantacion
+    from turnos.models import (
+        ConfiguracionTurnos,
+        CupoExcepcion,
+        HorarioAtencion,
+        Reserva,
+    )
+
+    alumno = Alumno.objects.create(
+        gimnasio=gimnasio, nombre=f"Cargado{marca}", apellido="A mano"
+    )
+    categoria = CategoriaEjercicio.objects.create(
+        gimnasio=gimnasio, nombre=f"Categoria {marca}"
+    )
+    ejercicio = Ejercicio.objects.create(
+        gimnasio=gimnasio, nombre=f"Ejercicio {marca}", categoria=categoria
+    )
+    plantilla = RutinaPlantilla.objects.create(
+        gimnasio=gimnasio, nombre=f"Plantilla {marca}", dias_por_semana=1
+    )
+    RutinaPlantillaItem.objects.create(
+        rutina=plantilla, ejercicio=ejercicio, dia=1, semana=1,
+        orden=1, series=3, repeticiones="10",
+    )
+    Novedad.objects.create(gimnasio=gimnasio, titulo=f"Aviso {marca}", mensaje="hola")
+    MedioCobro.objects.create(gimnasio=gimnasio, alias=f"alias.{marca}")
+    ConfiguracionTurnos.objects.create(gimnasio=gimnasio)
+    HorarioAtencion.objects.create(
+        gimnasio=gimnasio, dia_semana=0, hora_desde=time(8), hora_hasta=time(20)
+    )
+    CupoExcepcion.objects.create(
+        gimnasio=gimnasio, dia_semana=0, hora_inicio=time(8), vacantes=0
+    )
+    Importacion.objects.create(
+        gimnasio=gimnasio, tipo="plantillas", archivo="importaciones/x.xlsx",
+        resultado={},
+    )
+    RecordatorioEnviado.objects.create(gimnasio=gimnasio, tipo="pago_vencido", objeto_id=1)
+    SuscripcionPush.objects.create(
+        gimnasio=gimnasio, usuario=staff,
+        endpoint=f"https://push.example.com/{marca}", p256dh="k", auth="a",
+    )
+    RegistroSuplantacion.objects.create(
+        gimnasio=gimnasio, staff_usuario=staff, alumno=alumno
+    )
+    # Las tres que cuelgan del alumno con `PROTECT` (`Cuota`, `RutinaAsignada`)
+    # o con `CASCADE` (`Reserva`). Son las que de verdad ejercitan el orden de
+    # borrado: sin ellas, `alumnos.delete()` nunca choca contra nada y mover
+    # los deletes de lugar no rompe ningún test.
+    RutinaAsignada.crear_desde_plantilla(
+        gimnasio=gimnasio, plantilla=plantilla, alumno=alumno,
+        fecha_inicio=timezone.localdate(),
+    )
+    crear_cuota(
+        gimnasio=gimnasio,
+        alumno=alumno,
+        inicio=timezone.localdate() - timedelta(days=3),
+        estado=Cuota.Estado.PENDIENTE,
+    )
+    Reserva.objects.create(
+        gimnasio=gimnasio, alumno=alumno,
+        fecha=timezone.localdate(), hora_inicio=time(9),
+    )
+    return alumno
+
+
+def _modelos_tenant_owned():
+    """Todos los `TenantOwnedModel` del proyecto, leídos del registro de apps.
+
+    Se enumeran en vez de listarse a mano justamente para que un modelo nuevo
+    entre solo: si alguien agrega uno y se olvida de sumarlo a
+    `vaciar_gimnasio`, el test de cobertura falla en vez de dejar datos de un
+    prospecto en la cuenta que ve el siguiente.
+    """
+    from django.apps import apps
+
+    from core.models import TenantOwnedModel
+
+    return [
+        modelo
+        for modelo in apps.get_models()
+        if issubclass(modelo, TenantOwnedModel) and not modelo._meta.abstract
+    ]
+
+
+class VaciarGimnasioTests(TestCase):
+    """`tenants.demo.vaciar_gimnasio`: borrar TODO lo operativo de la cuenta de
+    demostración compartida.
+
+    Distinto de `borrar_demo`, que saca sólo los alumnos marcados `[demo]`:
+    eso deshace una siembra, pero no deshace lo que hizo una persona usando la
+    app (ejercicios borrados, plantillas editadas, alumnos propios, el nombre
+    del gimnasio cambiado).
+    """
+
+    def setUp(self):
+        self.demo = Gimnasio.objects.create(
+            nombre="Gimnasio Demo", slug="demo", es_demo=True
+        )
+        self.staff_demo = User.objects.create_user("staff-demo", password="c-123456")
+        Perfil.objects.create(
+            usuario=self.staff_demo, gimnasio=self.demo, rol=Perfil.Rol.STAFF
+        )
+        self.real = Gimnasio.objects.create(nombre="Cliente Real", slug="real")
+        self.staff_real = User.objects.create_user("staff-real", password="c-123456")
+        Perfil.objects.create(
+            usuario=self.staff_real, gimnasio=self.real, rol=Perfil.Rol.STAFF
+        )
+
+    def test_se_niega_si_el_gimnasio_no_es_demo(self):
+        """El guard más importante del cambio: sin `es_demo`, esto le borraría
+        a un cliente que paga todos sus alumnos, rutinas y cobros. Vive en la
+        función y no sólo en el comando para que ningún llamador lo saltee."""
+        from tenants.demo import vaciar_gimnasio
+
+        _ensuciar(self.real, self.staff_real)
+        antes = {m: m.objects.for_gimnasio(self.real).count() for m in _modelos_tenant_owned()}
+
+        with self.assertRaises(ValueError) as error:
+            vaciar_gimnasio(gimnasio=self.real)
+
+        self.assertIn("es_demo", str(error.exception))
+        despues = {m: m.objects.for_gimnasio(self.real).count() for m in _modelos_tenant_owned()}
+        self.assertEqual(antes, despues)
+
+    def test_ensuciar_cubre_todos_los_modelos_tenant_owned(self):
+        """La mitad que hace honesta a la de abajo, y la que de verdad atrapa
+        un modelo nuevo.
+
+        "Todo quedó en cero" se cumple solo cuando nunca hubo nada: un
+        `TenantOwnedModel` que nadie agregue ni a `_ensuciar` ni a
+        `vaciar_gimnasio` cuenta 0 antes y 0 después, y el test de abajo pasa
+        dejando los datos de un prospecto a la vista del siguiente. Enumerar
+        con `apps.get_models()` para SOLO contar hace que la aserción parezca
+        exhaustiva sin serlo.
+
+        Acá se exige lo contrario: que todo modelo tenant-owned tenga al menos
+        una fila antes del barrido. Uno nuevo rompe ESTE test primero, obliga a
+        agregarlo a `_ensuciar`, y recién ahí el de abajo puede detectar que
+        falta barrerlo.
+        """
+        _ensuciar(self.demo, self.staff_demo)
+
+        sin_filas = [
+            m._meta.label
+            for m in _modelos_tenant_owned()
+            if not m.objects.for_gimnasio(self.demo).exists()
+        ]
+
+        self.assertEqual(
+            sin_filas,
+            [],
+            "Estos modelos no los crea `_ensuciar`, así que el test de barrido "
+            "no puede probar nada sobre ellos: agregalos ahí y a "
+            "`vaciar_gimnasio`.",
+        )
+
+    def test_deja_en_cero_todos_los_modelos_tenant_owned(self):
+        """Que el barrido no se olvide de ninguno. Vale como cobertura sólo
+        junto con el test de arriba, que garantiza que había algo que barrer."""
+        from tenants.demo import vaciar_gimnasio
+
+        _ensuciar(self.demo, self.staff_demo)
+
+        vaciar_gimnasio(gimnasio=self.demo)
+
+        restantes = {
+            m._meta.label: m.objects.for_gimnasio(self.demo).count()
+            for m in _modelos_tenant_owned()
+            if m.objects.for_gimnasio(self.demo).exists()
+        }
+        self.assertEqual(restantes, {})
+
+    def test_el_gimnasio_real_queda_intacto(self):
+        """"Que sólo aplique para esta cuenta": vaciar la demo no puede tocar
+        ni una fila de ningún otro gimnasio."""
+        from tenants.demo import vaciar_gimnasio
+
+        _ensuciar(self.demo, self.staff_demo, marca="D")
+        _ensuciar(self.real, self.staff_real, marca="R")
+        antes = {
+            m._meta.label: m.objects.for_gimnasio(self.real).count()
+            for m in _modelos_tenant_owned()
+        }
+
+        vaciar_gimnasio(gimnasio=self.demo)
+
+        despues = {
+            m._meta.label: m.objects.for_gimnasio(self.real).count()
+            for m in _modelos_tenant_owned()
+        }
+        self.assertEqual(antes, despues)
+        self.assertTrue(User.objects.filter(pk=self.staff_real.pk).exists())
+
+    def test_el_staff_de_la_demo_sobrevive(self):
+        """Es la cuenta compartida cuya contraseña ya circula: recrearla
+        invalidaría el acceso de todos los que la están probando."""
+        from tenants.demo import vaciar_gimnasio
+
+        _ensuciar(self.demo, self.staff_demo)
+
+        vaciar_gimnasio(gimnasio=self.demo)
+
+        self.assertTrue(User.objects.filter(pk=self.staff_demo.pk).exists())
+        self.assertTrue(
+            Perfil.objects.filter(
+                usuario=self.staff_demo, gimnasio=self.demo, rol=Perfil.Rol.STAFF
+            ).exists()
+        )
+        self.assertTrue(Gimnasio.objects.filter(pk=self.demo.pk).exists())
+        self.assertTrue(
+            self.client.login(username="staff-demo", password="c-123456")
+        )
+
+    def test_borra_los_usuarios_de_los_alumnos(self):
+        """Si quedaran, son logins que funcionan y no aparecen en ningún panel
+        -- el mismo problema que `borrar_demo` ya resuelve anotándolos antes."""
+        from alumnos.services import crear_acceso
+        from tenants.demo import vaciar_gimnasio
+
+        alumno = _ensuciar(self.demo, self.staff_demo)
+        crear_acceso(alumno, TIPO_EMAIL, "al@ejemplo.com")
+        alumno.refresh_from_db()
+        usuario_alumno = alumno.perfil.usuario
+
+        vaciar_gimnasio(gimnasio=self.demo)
+
+        self.assertFalse(User.objects.filter(pk=usuario_alumno.pk).exists())
+
+    def test_no_le_pide_nada_a_google_calendar(self):
+        """`calendario/signals.py::sync_reserva_borrada` es un `pre_delete`
+        sobre `Reserva` que llama a la API de Google una vez POR RESERVA. Con
+        cientos de reservas sembradas eso son cientos de llamadas HTTP a la
+        cuenta de un tercero. Por eso las credenciales se borran PRIMERO."""
+        from calendario.models import GoogleCalendarCredential, ReservaCalendarEvent
+        from tenants.demo import vaciar_gimnasio
+        from turnos.models import Reserva
+
+        alumno = _ensuciar(self.demo, self.staff_demo)
+        GoogleCalendarCredential.objects.create(
+            alumno=alumno, refresh_token="t", google_calendar_id="cal"
+        )
+        reserva = Reserva.objects.create(
+            gimnasio=self.demo, alumno=alumno,
+            fecha=timezone.localdate(), hora_inicio=time(8),
+        )
+        # El `ReservaCalendarEvent` con su `google_event_id` no es decorado:
+        # sin él, `sync_reserva_borrada` corta en el
+        # `except ReservaCalendarEvent.DoesNotExist` y el test pasaría igual
+        # con el borrado de credenciales sacado -- o sea, no probaría nada.
+        ReservaCalendarEvent.objects.create(
+            reserva=reserva, google_event_id="evento-google-1"
+        )
+
+        # `captureOnCommitCallbacks(execute=True)` es imprescindible: el
+        # receiver difiere la llamada con `transaction.on_commit`, y un
+        # `TestCase` envuelve el test en una transacción que nunca commitea, así
+        # que sin esto los callbacks no corren NUNCA y el test pasa aunque el
+        # borrado previo de credenciales no exista.
+        with patch("calendario.services.integracion_activa", return_value=True), patch(
+            "calendario.services.borrar_evento"
+        ) as borrar_evento:
+            with self.captureOnCommitCallbacks(execute=True):
+                vaciar_gimnasio(gimnasio=self.demo)
+
+        borrar_evento.assert_not_called()
+
+
+class RestaurarDemoTests(TestCase):
+    """`manage.py restaurar_demo`: dejar la cuenta compartida como recién
+    creada. Corre por cron cada 6 h porque la comparten varios dueños de
+    gimnasio y cualquiera puede vaciarla."""
+
+    def setUp(self):
+        self.demo = Gimnasio.objects.create(
+            nombre="Gimnasio Demo", slug="demo", es_demo=True
+        )
+        self.staff = User.objects.create_user("staff-demo", password="c-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.demo, rol=Perfil.Rol.STAFF
+        )
+
+    def _restaurar(self, slug="demo", **kwargs):
+        salida = StringIO()
+        call_command("restaurar_demo", gimnasio=slug, stdout=salida, **kwargs)
+        return salida.getvalue()
+
+    def test_el_comando_se_niega_si_no_es_cuenta_demo(self):
+        Gimnasio.objects.create(nombre="Cliente Real", slug="real")
+
+        with self.assertRaises(CommandError) as error:
+            self._restaurar(slug="real")
+
+        self.assertIn("demostración", str(error.exception))
+
+    def test_el_comando_explica_como_crear_la_cuenta_si_no_existe(self):
+        with self.assertRaises(CommandError) as error:
+            self._restaurar(slug="no-existe")
+
+        self.assertIn("crear_gimnasio", str(error.exception))
+
+    def test_vuelve_a_dejar_datos_en_todas_las_secciones(self):
+        from alumnos.models import Alumno
+        from ejercicios.models import Ejercicio
+        from pagos.models import Cuota
+        from rutinas.models import RutinaAsignada, RutinaPlantilla
+        from turnos.models import Reserva
+
+        _ensuciar(self.demo, self.staff)
+
+        self._restaurar(alumnos=4, meses=2)
+
+        self.assertEqual(Alumno.objects.for_gimnasio(self.demo).count(), 4)
+        self.assertTrue(Ejercicio.objects.for_gimnasio(self.demo).exists())
+        self.assertTrue(RutinaPlantilla.objects.for_gimnasio(self.demo).exists())
+        self.assertTrue(RutinaAsignada.objects.for_gimnasio(self.demo).exists())
+        self.assertTrue(Cuota.objects.for_gimnasio(self.demo).exists())
+        self.assertTrue(Reserva.objects.for_gimnasio(self.demo).exists())
+
+    def test_borra_lo_que_habia_cargado_el_prospecto(self):
+        """Lo que `sembrar_demo --borrar` NO saca: los alumnos sin la marca
+        `[demo]`, y los catálogos que puede haber editado alguien."""
+        from alumnos.models import Alumno
+        from ejercicios.models import Ejercicio
+
+        _ensuciar(self.demo, self.staff, marca="P")
+
+        self._restaurar(alumnos=4, meses=2)
+
+        self.assertFalse(
+            Alumno.objects.for_gimnasio(self.demo).filter(nombre="CargadoP").exists()
+        )
+        self.assertFalse(
+            Ejercicio.objects.for_gimnasio(self.demo)
+            .filter(nombre="Ejercicio P")
+            .exists()
+        )
+
+    def test_devuelve_la_estetica_de_fabrica(self):
+        """El prospecto también toca «Mi gimnasio»: le cambia el nombre, le
+        elige otra paleta, le sube su logo. Sin restaurar esto, el siguiente
+        que entra ve el gimnasio de otro."""
+        self.demo.nombre = "Gimnasio de Pepe"
+        self.demo.paleta = Gimnasio.Paleta.PIZARRA
+        self.demo.link_instagram = "https://instagram.com/pepe"
+        self.demo.save()
+
+        self._restaurar(alumnos=3, meses=1)
+
+        self.demo.refresh_from_db()
+        self.assertEqual(self.demo.nombre, "Gimnasio Demo")
+        self.assertEqual(self.demo.paleta, Gimnasio.Paleta.BOSQUE)
+        self.assertEqual(self.demo.link_instagram, "")
+
+    def test_restaurar_dos_veces_seguidas_funciona(self):
+        """El estado estacionario, que es TODO lo que hace el cron a partir de
+        la segunda corrida: vaciar un gimnasio ya sembrado, con cuotas, rutinas
+        asignadas y cientos de reservas colgando de cada alumno.
+
+        Ese es el camino donde importa el orden de borrado (`Cuota` y
+        `RutinaAsignada` tienen `PROTECT` sobre `Alumno`). Probando una sola
+        restauración sobre datos armados a mano, mover `alumnos.delete()` unas
+        líneas más arriba no rompía ningún test y el cron reventaba en
+        producción con `ProtectedError`, dejando la demo sin restaurar hasta
+        que saltara la alerta de Healthchecks horas después.
+        """
+        from alumnos.models import Alumno
+        from pagos.models import Cuota
+        from rutinas.models import RutinaAsignada
+        from turnos.models import Reserva
+
+        self._restaurar(alumnos=4, meses=2)
+        sembrados = {
+            "alumnos": Alumno.objects.for_gimnasio(self.demo).count(),
+            "cuotas": Cuota.objects.for_gimnasio(self.demo).count(),
+            "rutinas": RutinaAsignada.objects.for_gimnasio(self.demo).count(),
+        }
+        self.assertTrue(all(sembrados.values()))
+        self.assertTrue(Reserva.objects.for_gimnasio(self.demo).exists())
+
+        # La segunda corrida arranca desde un gimnasio lleno, no desde uno
+        # recién creado: es la que ejercita el vaciado de verdad.
+        self._restaurar(alumnos=4, meses=2)
+
+        self.assertEqual(
+            {
+                "alumnos": Alumno.objects.for_gimnasio(self.demo).count(),
+                "cuotas": Cuota.objects.for_gimnasio(self.demo).count(),
+                "rutinas": RutinaAsignada.objects.for_gimnasio(self.demo).count(),
+            },
+            sembrados,
+            "La segunda restauración tiene que dejar el mismo gimnasio que la "
+            "primera: si acumula o pierde filas, la demo se degrada corrida a "
+            "corrida.",
+        )
+        self.assertTrue(User.objects.filter(pk=self.staff.pk).exists())
+
+    def test_no_toca_el_slug_ni_la_marca_de_demo(self):
+        """El slug es la URL pública que se le pasa a los prospectos, y
+        `es_demo` es lo único que autoriza el vaciado: pisarlo desde el estado
+        canónico sería desarmar el candado sin querer."""
+        self._restaurar(alumnos=3, meses=1)
+
+        self.demo.refresh_from_db()
+        self.assertEqual(self.demo.slug, "demo")
+        self.assertTrue(self.demo.es_demo)
+
+
+class RestaurarDemoSinPushTests(TransactionTestCase):
+    """Restaurar la demo no le manda una notificación a nadie.
+
+    Es un test de RESULTADO, no de implementación, y hoy la propiedad se
+    sostiene por dos motivos independientes: `restaurar_demo` corre dentro de
+    `notificaciones.silenciado()`, y además `vaciar_gimnasio` borra todas las
+    `SuscripcionPush` del gimnasio ANTES de resembrar, así que al momento de
+    crear las reservas no hay a quién notificar. Sacar cualquiera de los dos
+    solo no rompe este test -- lo que fija es que no se puedan sacar los dos, o
+    que no se reordene el vaciado para que las suscripciones sobrevivan a la
+    siembra. Que las suscripciones se borren lo prueba aparte, y sí de forma
+    ajustada, `VaciarGimnasioTests.test_deja_en_cero_todos_los_modelos_tenant_owned`.
+
+    Las tres trampas del molde (`SembrarDemoSinPushTests`) valen igual:
+    `TransactionTestCase` (los `on_commit` no corren en un `TestCase`),
+    parchear `webpush` y no `_enviar` (ahí vive el chequeo del silenciado), y
+    `PUSH_ENABLED=True` (la suite lo apaga por la bandera `TESTING`)."""
+
+    @override_settings(PUSH_ENABLED=True, VAPID_ADMIN_EMAIL="admin@ejemplo.com")
+    def test_restaurar_no_envia_ninguna_push(self):
+        from notificaciones.models import SuscripcionPush
+
+        gimnasio = Gimnasio.objects.create(
+            nombre="Demo", slug="demo-push", es_demo=True
+        )
+        staff = User.objects.create_user("staff-push", password="clave-123456")
+        Perfil.objects.create(usuario=staff, gimnasio=gimnasio, rol=Perfil.Rol.STAFF)
+        SuscripcionPush.objects.create(
+            gimnasio=gimnasio, usuario=staff,
+            endpoint="https://push.example.com/abc", p256dh="k", auth="a",
+        )
+
+        with patch("notificaciones.services.webpush") as webpush, patch(
+            "notificaciones.services._get_vapid", return_value=object()
+        ):
+            call_command(
+                "restaurar_demo", gimnasio="demo-push", alumnos=4, meses=1,
                 stdout=StringIO(),
             )
 

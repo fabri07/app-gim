@@ -28,7 +28,7 @@ from django.views.generic.detail import SingleObjectMixin
 from core.mixins import TenantScopedMixin
 from tenants import google_login, paisaje_matching, suplantacion
 from tenants.forms import GimnasioForm, ResetPasswordStaffForm
-from tenants.mixins import StaffRequiredMixin
+from tenants.mixins import BloqueadoEnCuentaDemoMixin, StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil, doodle_static_url
 
 logger = logging.getLogger(__name__)
@@ -784,7 +784,9 @@ class StaffPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
         return response
 
 
-class StaffPasswordChangeView(StaffRequiredMixin, auth_views.PasswordChangeView):
+class StaffPasswordChangeView(
+    StaffRequiredMixin, BloqueadoEnCuentaDemoMixin, auth_views.PasswordChangeView
+):
     """Permite que un staff YA LOGUEADO cambie su propia contraseña de
     forma proactiva -- distinto de "olvidé mi contraseña" (por email, para
     quien ya perdió el acceso) y de la regeneración que el staff hace sobre
@@ -796,13 +798,18 @@ class StaffPasswordChangeView(StaffRequiredMixin, auth_views.PasswordChangeView)
 
     Django llama `update_session_auth_hash()` internamente al cambiar la
     contraseña (`PasswordChangeView.form_valid`), así que el usuario sigue
-    autenticado después -- no hace falta overridear nada de eso acá."""
+    autenticado después -- no hace falta overridear nada de eso acá. Eso
+    mismo es lo que obliga a `BloqueadoEnCuentaDemoMixin`: en la cuenta
+    compartida salva SOLO la sesión de quien la cambió, y deja afuera a todos
+    los otros dueños que la estaban probando."""
 
     template_name = "registration/password_change_form.html"
     success_url = reverse_lazy("password_change_done")
 
 
-class StaffPasswordChangeDoneView(StaffRequiredMixin, auth_views.PasswordChangeDoneView):
+class StaffPasswordChangeDoneView(
+    StaffRequiredMixin, BloqueadoEnCuentaDemoMixin, auth_views.PasswordChangeDoneView
+):
     """Pantalla de confirmación tras `StaffPasswordChangeView`."""
 
     template_name = "registration/password_change_done.html"

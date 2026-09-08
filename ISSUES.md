@@ -20,6 +20,61 @@ del log.
 
 ---
 
+## [2026-09-08] Cuenta demo compartida entre varios dueños de gimnasio
+**Estado:** aceptado
+**Impacto:** se comparte UNA cuenta de staff (slug `demo`, `Gimnasio.es_demo`)
+con varios dueños de gimnasio para que prueben la app. Dos cosas se rompían
+solas y ninguna tenía defensa:
+
+1. Cualquiera podía **cambiar la contraseña** y dejar afuera a todos los demás:
+   `update_session_auth_hash` salva únicamente la sesión de quien la cambió.
+2. Cualquiera podía **vaciar la cuenta** (desde el 2026-09-02 hay borrado real
+   de alumnos, plantillas y ejercicios), y el siguiente prospecto entraba a una
+   app en blanco — justo lo contrario de lo que una demo tiene que mostrar.
+
+**Resolución:** `Gimnasio.es_demo` hace las dos cosas. Bloquea
+`password_change`/`password_change_done` con 403
+(`tenants.mixins.BloqueadoEnCuentaDemoMixin`) y es lo ÚNICO que autoriza
+`tenants.demo.vaciar_gimnasio`, que borra todo lo operativo del gimnasio para
+que `restaurar_demo` lo vuelva a sembrar. Corre por cron cada 6 h
+(`.github/workflows/restaurar-demo.yml`). Un banner en `base.html` avisa que
+los datos se reinician.
+
+`sembrar_demo --borrar` NO servía para esto: sólo saca los alumnos marcados
+`[demo]` y lo que cuelga de ellos, dejando intactos ejercicios, categorías,
+plantillas, novedades, turnos, medios de cobro e importaciones — y sin revertir
+los dos campos del `Gimnasio` que la propia siembra muta
+(`dias_tolerancia_pago`, `fecha_activacion_bloqueo`).
+
+**Riesgos aceptados a propósito:**
+- Si la restauración cae mientras alguien está probando, pierde lo que cargó.
+  Lo mitiga el banner, no lo elimina. Alternativa descartada: restaurar una vez
+  por día de madrugada, que deja la cuenta rota durante toda una jornada.
+- Los blobs de R2 quedan huérfanos: se limpia la fila, no el archivo. Son el
+  logo y el fondo que suba un prospecto, los comprobantes de pago y el `.xlsx`
+  de cada `Importacion` — **cuatro restauraciones por día, indefinidamente**, en
+  `app-gim-media`, el mismo bucket que comparten producción y dev. Se acepta:
+  el cron no lleva las `R2_*` (a propósito, ver el workflow), así que hoy
+  tampoco podría borrarlos; y son archivos chicos sin ninguna fila que los
+  referencie. Si algún día molesta, la salida es un bucket aparte para la demo,
+  no darle credenciales de escritura al cron.
+- ~~«Olvidé mi contraseña» sigue habilitado para la cuenta demo.~~ **Cerrado**:
+  se descartó por bajo (exige acceso a la casilla de email) y un `/code-review`
+  aportó el argumento que faltaba — la contraseña es lo único del estado de la
+  demo que `restaurar_demo` NO sana, así que un cambio ahí es el único daño
+  permanente que puede hacer un prospecto. `ResetPasswordStaffForm.get_users()`
+  ahora filtra `perfil__gimnasio__es_demo=False`.
+- El cron corre `checkout` de `main` contra la base de PRODUCCIÓN sin correr
+  `migrate` (Render migra en su `buildCommand`), igual que `generar-pagos.yml`:
+  ante una migración destructiva hay que comentar el `schedule` antes del merge.
+
+**Dos trampas que costaron tests vacuos** (los dos pasaban SIN el fix):
+- El `pre_delete` de `Reserva` que llama a Google Calendar difiere con
+  `transaction.on_commit`, y un `TestCase` nunca commitea: hace falta
+  `captureOnCommitCallbacks(execute=True)` o el test no prueba nada.
+- El receiver corta antes si la reserva no tiene `ReservaCalendarEvent`, así
+  que el fixture tiene que crearlo con un `google_event_id`.
+
 ## [2026-09-08] La navegación era lenta: el web y la base en regiones distintas
 **Estado:** resuelto
 **Impacto:** cada pantalla tardaba entre 1,5 s y 5,6 s. El web service estaba en

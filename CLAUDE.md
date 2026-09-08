@@ -555,6 +555,79 @@ el producto se veía como un formulario en blanco.
   `.lower()` a mano, "Tracción" se guardaba como "traccion" y la segunda
   corrida reventaba contra la `UniqueConstraint`.
 
+## Cuenta de demostración compartida (`Gimnasio.es_demo`)
+
+Agregado el 2026-09-08: se le pasa UNA misma cuenta de staff (slug `demo`) a
+varios dueños de gimnasio para que prueben la app. `Gimnasio.es_demo` es el
+único flag y hace **dos** cosas, a propósito:
+
+- **Bloquea el cambio de contraseña** (`tenants/mixins.py::
+  BloqueadoEnCuentaDemoMixin`, aplicado a `StaffPasswordChangeView` y a su
+  pantalla `Done`). Sin esto, el primero que la cambia deja afuera a todos los
+  demás: `update_session_auth_hash` salva **sólo** la sesión de quien la
+  cambió. El link se oculta en `gimnasio_form.html`, pero **la defensa es el
+  403** — bajo el `hx-boost` global un botón ausente no impide tipear la URL.
+  **Son DOS puertas, no una**: `ResetPasswordStaffForm.get_users()` también
+  excluye la cuenta demo (`perfil__gimnasio__es_demo=False`), porque su
+  username ES el email y cualquiera que tenga las credenciales puede pedir el
+  reset. Lo encontró un `/code-review`, y el argumento decisivo es que **la
+  contraseña es lo ÚNICO del estado de la demo que `restaurar_demo` no sana**:
+  todo lo demás se vacía y se resiembra cada 6 h, esa no — se revierte sólo por
+  Shell o por `/admin/`.
+- **Autoriza el vaciado.** `tenants/demo.py::vaciar_gimnasio` levanta
+  `ValueError` si el gimnasio no lo tiene: es lo único que separa "vacío la
+  cuenta de prueba" de "le borro el gimnasio entero a un cliente que paga", y
+  por eso el guard vive en la FUNCIÓN y no en el comando.
+
+**`sembrar_demo --borrar` no sirve para restaurar.** Saca sólo los alumnos con
+`observaciones == "[demo]"` y lo que cuelga de ellos; deja intactos ejercicios,
+categorías, plantillas, novedades, config de turnos, medios de cobro,
+importaciones y las `SuscripcionPush` del staff — nada de eso lleva la marca —
+y no revierte los dos campos del `Gimnasio` que la propia siembra muta
+(`dias_tolerancia_pago` y `fecha_activacion_bloqueo`). De ahí `vaciar_gimnasio`.
+
+- **El orden de borrado lo imponen los `PROTECT` y no es reordenable**:
+  `RegistroSuplantacion`/`RutinaAsignada`/`Cuota` antes que `Alumno`,
+  `RutinaPlantilla` antes que `Ejercicio`, `Ejercicio` antes que
+  `CategoriaEjercicio`. Los `User` de los alumnos se anotan **antes** del
+  borrado (`Alumno.perfil` es `SET_NULL`), filtrando por `rol=ALUMNO`: **el
+  `User` del staff no se toca nunca**, es la cuenta compartida cuya contraseña
+  ya circula.
+- **Las credenciales de Google van PRIMERO.** `calendario/signals.py::
+  sync_reserva_borrada` es un `pre_delete` sobre `Reserva` que llama a la API de
+  Google **una vez por reserva**; sin credencial el receiver corta en la primera
+  línea. Segundo candado: el workflow no le pasa las `GOOGLE_*`.
+- **Borrar las `SuscripcionPush` del staff resuelve de paso el push cruzado**:
+  cuelgan del `User`, así que si dos dueños activan notificaciones en la cuenta
+  compartida, cada uno recibe en su celular lo que dispara el otro.
+- `restaurar_demo` = vaciar + reaplicar `_gimnasio_canonico()` + `sembrar_demo`,
+  con el `silenciado()` del push **por fuera** del `atomic` (los `on_commit`
+  corren al cerrarse el más externo). `slug` y `es_demo` nunca están en el
+  estado canónico: el slug es la URL pública, y pisar `es_demo` desarmaría el
+  candado.
+- **La cobertura son DOS tests y sólo sirven juntos**, lección de un
+  `/code-review`. `test_deja_en_cero_todos_los_modelos_tenant_owned` recorre
+  `apps.get_models()` filtrando `TenantOwnedModel`, pero enumerar para sólo
+  CONTAR hace que la aserción parezca exhaustiva sin serlo: un modelo nuevo que
+  nadie agregue ni al barrido ni al fixture cuenta 0 antes y 0 después, y pasa.
+  Por eso `test_ensuciar_cubre_todos_los_modelos_tenant_owned` exige que
+  `_ensuciar` deje al menos una fila de CADA modelo tenant-owned: un modelo
+  nuevo rompe ése primero, obliga a sumarlo al fixture, y recién ahí el otro
+  puede ver que falta barrerlo. **Si agregás un `TenantOwnedModel`, va a los
+  dos lugares.**
+- **El fixture tiene que crear `Cuota`, `RutinaAsignada` y `Reserva`**, y hay un
+  test que restaura DOS veces seguidas (`test_restaurar_dos_veces_seguidas_
+  funciona`). Es el estado estacionario —todo lo que hace el cron desde la
+  segunda corrida— y el único camino donde el orden de borrado importa de
+  verdad: sin eso, mover `alumnos.delete()` unas líneas más arriba no rompía
+  NINGÚN test (se verificó: 317 en verde) y el cron reventaba en producción con
+  `ProtectedError`, dejando la demo sin restaurar hasta que saltara Healthchecks
+  horas después. Con los dos tests, ese mismo cambio rompe ocho.
+- Lo corre `.github/workflows/restaurar-demo.yml` cada 6 h, con el **mismo
+  `concurrency.group` que `sembrar-demo.yml`** para que una siembra manual no se
+  solape con la automática. Alta de la cuenta:
+  `manage.py crear_gimnasio ... --demo`.
+
 ## Borrar: `core/borrado.py` + `BorrarConExplicacionView`
 
 Agregado el 2026-09-02 a pedido del dueño (eliminar plantillas, ejercicios y

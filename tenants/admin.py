@@ -5,7 +5,7 @@ from tenants.models import Gimnasio, Perfil, RegistroSuplantacion
 
 @admin.register(Gimnasio)
 class GimnasioAdmin(admin.ModelAdmin):
-    list_display = ("nombre", "slug", "activo", "creado")
+    list_display = ("nombre", "slug", "activo", "es_demo", "creado")
     search_fields = ("nombre", "slug")
     prepopulated_fields = {"slug": ("nombre",)}
 

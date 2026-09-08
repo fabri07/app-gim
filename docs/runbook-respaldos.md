@@ -76,7 +76,7 @@ workflows. Si se compromete el token de la app, no alcanza los respaldos.
 
 ---
 
-## Paso 3 — Healthchecks.io: los dos checks
+## Paso 3 — Healthchecks.io: los checks
 
 Plan Hobbyist (gratis permanente, 20 checks). Esto **no** vigila que el backup
 sea bueno — vigila que el backup **haya ocurrido**.
@@ -87,13 +87,14 @@ commits), un chequeo que corriera adentro tampoco correría, y la alerta que
 justifica todo el mecanismo nunca llegaría. Tiene que ser un tercero el que note
 la ausencia.
 
-Creá tres checks y anotá la **ping URL** de cada uno:
+Creá cuatro checks y anotá la **ping URL** de cada uno:
 
 | Check | Período | Gracia | Secret |
 |---|---|---|---|
 | Backup diario | 1 día | 6 horas | `HEALTHCHECKS_URL_BACKUP` |
 | Verificación mensual | 30 días | 3 días | `HEALTHCHECKS_URL_VERIFY` |
 | Generar pagos | 1 día | 6 horas | `HEALTHCHECKS_URL_GENERAR_PAGOS` |
+| Restaurar cuenta demo | 1 día | 6 horas | `HEALTHCHECKS_URL_RESTAURAR_DEMO` |
 
 **La gracia de 6 horas no es exceso de prudencia:** GitHub no garantiza
 puntualidad en los `schedule` de repos free y los retrasa bastante — se midió
@@ -105,6 +106,13 @@ ignorarlas, que es justo lo que hace inútil a un monitor.
 cuotas por ciclo de 28 días, ese cron es el ÚNICO emisor de facturación *y* el
 insumo del bloqueo por falta de pago. Que se caiga en silencio es un gimnasio
 que deja de cobrar sin enterarse.
+
+**«Restaurar cuenta demo» pide correr cada 6 horas, pero su check va en modo
+Simple con período de 1 día**, por el mismo retraso de los `schedule`: en modo
+Cron alertaría todo el tiempo sin que nada esté roto. Lo que vigila es que la
+cuenta que se les muestra a los prospectos no quede vacía o llena de datos de
+otro — es la menos crítica de las cuatro, pero es la única que se rompe sola
+por el uso normal.
 
 Configurá el mail de notificación a una casilla que leas de verdad.
 

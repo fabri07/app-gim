@@ -261,10 +261,20 @@ class ResetPasswordStaffForm(PasswordResetForm):
     recomendado por la propia documentación de Django para restringir el
     reset a un subconjunto de usuarios.
 
-    Un email que no matchea (no existe, es de un alumno, está inactivo, o
-    no tiene contraseña usable) sigue mostrando la misma pantalla genérica
-    de "si el email existe, te mandamos instrucciones" -- comportamiento
-    anti-enumeración que Django ya trae por default, sin tocar nada acá.
+    **La cuenta de demostración compartida queda afuera también**
+    (`perfil__gimnasio__es_demo`). Su contraseña la conocen varios dueños de
+    gimnasio a la vez y su username ES el email, así que cualquiera de ellos
+    puede pedir el reset de esa cuenta. Y es lo ÚNICO del estado de la demo que
+    `tenants.demo.restaurar_demo` no sana: todo lo demás se vacía y se
+    resiembra cada 6 horas, la contraseña no. Cambiarla deja afuera a todos los
+    demás y sólo se puede revertir por Shell o por `/admin/` -- justamente lo
+    que `BloqueadoEnCuentaDemoMixin` bloquea por la puerta de adelante.
+
+    Un email que no matchea (no existe, es de un alumno, es de la cuenta de
+    demostración, está inactivo, o no tiene contraseña usable) sigue mostrando
+    la misma pantalla genérica de "si el email existe, te mandamos
+    instrucciones" -- comportamiento anti-enumeración que Django ya trae por
+    default, sin tocar nada acá.
     """
 
     def get_users(self, email):
@@ -274,6 +284,7 @@ class ResetPasswordStaffForm(PasswordResetForm):
                 f"{UserModel.get_email_field_name()}__iexact": email,
                 "is_active": True,
                 "perfil__rol": Perfil.Rol.STAFF,
+                "perfil__gimnasio__es_demo": False,
             }
         )
         return (u for u in activos if u.has_usable_password())

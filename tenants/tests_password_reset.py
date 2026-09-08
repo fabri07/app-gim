@@ -117,6 +117,29 @@ class PasswordResetFlowTests(TestCase):
         self.assertRedirects(response, reverse("password_reset_done"))
         self.assertEqual(len(mail.outbox), 0)
 
+    def test_pedir_reset_de_la_cuenta_demo_no_manda_mail(self):
+        """La cuenta de demostración la comparten varios dueños de gimnasio y
+        su username ES el email, así que cualquiera de ellos podría pedirle el
+        reset. Es lo único del estado de la demo que `restaurar_demo` no sana:
+        todo lo demás se resiembra cada 6 horas, la contraseña no. Cambiarla
+        deja afuera al resto -- justo lo que `BloqueadoEnCuentaDemoMixin`
+        bloquea por la puerta de adelante."""
+        demo = Gimnasio.objects.create(nombre="Demo", slug="demo", es_demo=True)
+        staff_demo = User.objects.create_user(
+            "demo@ejemplo.com", email="demo@ejemplo.com", password="clave-123456"
+        )
+        Perfil.objects.create(
+            usuario=staff_demo, gimnasio=demo, rol=Perfil.Rol.STAFF
+        )
+
+        response = self.client.post(
+            reverse("password_reset"), {"email": "demo@ejemplo.com"}
+        )
+
+        # Misma pantalla genérica que en los otros casos: anti-enumeración.
+        self.assertRedirects(response, reverse("password_reset_done"))
+        self.assertEqual(len(mail.outbox), 0)
+
     def test_flujo_completo_confirma_loguea_y_setea_cookie(self):
         self.client.post(reverse("password_reset"), {"email": "dueno@ejemplo.com"})
         self.assertEqual(len(mail.outbox), 1)
