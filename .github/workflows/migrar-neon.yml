@@ -168,11 +168,17 @@ jobs:
           DESTINO: ${{ secrets.NEON_MIGRACION_DESTINO_DIRECT }}
         run: |
           set -euo pipefail
+          # El servicio de Render que apunta a esta base mantiene conexiones
+          # abiertas (`CONN_MAX_AGE = 600`), y `DROP SCHEMA CASCADE` necesita
+          # locks exclusivos sobre cada tabla: sin cerrarlas antes, este paso
+          # se queda esperando hasta el timeout del job. Es lo mismo que hace
+          # `dropdb --force`, y es seguro acá porque el paso anterior ya probó
+          # que esta base no tiene ni una fila de dominio.
+          psql "$DESTINO" -qAtX -c "SELECT count(*) || ' conexiones ajenas cerradas' FROM (SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid()) t"
           # Vaciar el esquema es obligatorio: el `buildCommand` de Render corre
           # `migrate`, así que el primer deploy del servicio nuevo deja las 67
           # migraciones aplicadas y las tablas creadas -- y el dump trae esas
-          # mismas tablas, con lo que el restore chocaría. Es seguro porque el
-          # paso anterior ya probó que acá no hay ni una fila de dominio.
+          # mismas tablas, con lo que el restore chocaría.
           psql "$DESTINO" -qAtX -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
           echo "esquema del destino vaciado"
           time pg_restore --no-owner --no-privileges \
