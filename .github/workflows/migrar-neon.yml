@@ -17,6 +17,11 @@
 # Las dos URLs son las **DIRECTAS** (sin `-pooler`): el pooler no sostiene la
 # sesión larga de un dump, y con PgBouncer en modo transacción un restore
 # tampoco es confiable.
+#
+# El ORIGEN reusa `NEON_DATABASE_URL_DIRECT`, el secret que ya usa
+# `backup.yml`: así el modo `inventario` corre sin cargar nada nuevo, y nadie
+# tiene que volver a copiar y pegar una URL con contraseña adentro. El único
+# secret nuevo es el del destino.
 
 name: Migrar Neon de region
 
@@ -65,7 +70,7 @@ jobs:
       # "todo bien" justo cuando no hay que confiar.
       - name: Inventario del ORIGEN
         env:
-          ORIGEN: ${{ secrets.NEON_MIGRACION_ORIGEN_DIRECT }}
+          ORIGEN: ${{ secrets.NEON_DATABASE_URL_DIRECT }}
         run: |
           set -euo pipefail
           cat > /tmp/inventario.sql <<'SQL'
@@ -107,7 +112,7 @@ jobs:
       - name: Dump del origen
         if: inputs.accion == 'migrar'
         env:
-          ORIGEN: ${{ secrets.NEON_MIGRACION_ORIGEN_DIRECT }}
+          ORIGEN: ${{ secrets.NEON_DATABASE_URL_DIRECT }}
         run: |
           set -euo pipefail
           time pg_dump --format=custom --no-owner --no-privileges \
