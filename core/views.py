@@ -29,7 +29,7 @@ class BorrarConExplicacionView(DetailView):
 
     GET muestra la confirmación; POST borra. La confirmación NO es opcional:
     el precedente de POST-sin-confirmación del proyecto es
-    `rutinas:item_eliminar`, un ejercicio suelto dentro de una plantilla --
+    `rutinas:dia_guardar`, que reemplaza un día entero de una plantilla --
     acá se borra un alumno o un plan entero, y un click accidental no se
     deshace.
 

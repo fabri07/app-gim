@@ -7,7 +7,21 @@
   <form method="post" novalidate>
     {% csrf_token %}
     {{ form.as_p }}
-    <button type="submit" class="boton">Guardar</button>
+    {% if confirmar_borrado_de_dias %}
+      {% comment %}
+        Bajar los días deja ejercicios fuera de la grilla: seguirían en la
+        base, invisibles, y le llegarían igual al alumno al asignar. Se
+        explica el costo antes de borrar, mismo criterio que `core/borrado.py`.
+      {% endcomment %}
+      <div class="aviso-urgente">
+        <strong>{{ aviso_dias }}</strong>
+      </div>
+      <button type="submit" name="confirmar_borrado_de_dias" value="1" class="boton-peligro">
+        Guardar y borrar esos ejercicios
+      </button>
+    {% else %}
+      <button type="submit" class="boton">Guardar</button>
+    {% endif %}
     {% if object %}
       <a class="boton-secundario" href="{% url 'rutinas:plantilla_detalle' object.pk %}">Cancelar</a>
     {% else %}

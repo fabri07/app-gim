@@ -11,11 +11,13 @@ Los items (`RutinaPlantillaItem`) NO son `TenantOwnedModel` -- no tienen
 tenant para sus vistas se logra resolviendo PRIMERO la `RutinaPlantilla`
 padre con `RutinaPlantilla.objects.for_gimnasio(gimnasio)`: si la plantilla es
 de otro gimnasio, eso ya devuelve 404 antes de tocar ningún item.
-`ItemPlantillaMixin` centraliza esa resolución.
+`GuardarDiaDePlantillaView.get_plantilla()` e `ItemAsignadaMixin` hacen esa
+resolución, cada uno para su modelo.
 """
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -35,10 +37,12 @@ from rutinas.agrupacion import (
 from rutinas.forms import (
     AgregarEjercicioAsignadoForm,
     AsignarRutinaForm,
+    DiaDePlantillaForm,
     RutinaAsignadaItemForm,
     RutinaPlantillaForm,
-    RutinaPlantillaItemForm,
 )
+from alumnos.models import Alumno
+from ejercicios.models import Ejercicio
 from pagos import acceso
 from pagos.models import MedioCobro
 from rutinas.models import (
@@ -75,6 +79,13 @@ class RutinaPlantillaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
 
 
 class RutinaPlantillaCreateView(StaffRequiredMixin, TenantScopedMixin, CreateView):
+    """Crear una plantilla.
+
+    `?alumno=` llega desde «Crear una plantilla nueva» en la pantalla de
+    asignar y se arrastra hasta la grilla, para poder volver a asignar sin
+    tener que buscar al alumno de nuevo.
+    """
+
     model = RutinaPlantilla
     form_class = RutinaPlantillaForm
     template_name = "rutinas/plantilla_form.html"
@@ -85,21 +96,132 @@ class RutinaPlantillaCreateView(StaffRequiredMixin, TenantScopedMixin, CreateVie
         return response
 
     def get_success_url(self):
-        return reverse("rutinas:plantilla_detalle", args=[self.object.pk])
+        url = reverse("rutinas:plantilla_detalle", args=[self.object.pk])
+        alumno = self.request.GET.get("alumno")
+        return f"{url}?alumno={alumno}" if alumno else url
 
 
 class RutinaPlantillaUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
+    """Editar los datos de la plantilla.
+
+    Bajar `dias_por_semana` deja los ejercicios de los días que sobran fuera
+    de la grilla, pero seguirían en la base y le llegarían igual al alumno al
+    asignar: invisibles y activos, que es la peor combinación. Antes de
+    guardar se cuenta lo que se perdería y se pide confirmación, con el molde
+    de `core/borrado.py` -- explicar el costo antes de borrar.
+    """
+
     model = RutinaPlantilla
     form_class = RutinaPlantillaForm
     template_name = "rutinas/plantilla_form.html"
 
     def form_valid(self, form):
-        response = super().form_valid(form)
+        sobrantes = self._items_que_sobran(form.cleaned_data["dias_por_semana"])
+        if sobrantes and not self.request.POST.get("confirmar_borrado_de_dias"):
+            return self.render_to_response(
+                self.get_context_data(form=form, **self._aviso(sobrantes))
+            )
+
+        with transaction.atomic():
+            response = super().form_valid(form)
+            if sobrantes:
+                sobrantes.delete()
         messages.success(self.request, "Plantilla actualizada correctamente.")
         return response
 
+    def _items_que_sobran(self, dias):
+        return self.object.items.filter(dia__gt=dias)
+
+    @staticmethod
+    def _aviso(sobrantes):
+        cantidad = sobrantes.count()
+        dias = sorted({dia for dia in sobrantes.values_list("dia", flat=True)})
+        if len(dias) == 1:
+            listado = f"día {dias[0]}"
+        else:
+            listado = "días " + ", ".join(map(str, dias[:-1])) + f" y {dias[-1]}"
+        return {
+            "confirmar_borrado_de_dias": True,
+            "aviso_dias": (
+                f"Se van a borrar {cantidad} ejercicio{'s' if cantidad != 1 else ''} "
+                f"cargado{'s' if cantidad != 1 else ''} en el {listado}, que "
+                f"quedan fuera del plan. No se puede deshacer."
+            ),
+        }
+
     def get_success_url(self):
         return reverse("rutinas:plantilla_detalle", args=[self.object.pk])
+
+
+def contexto_de_la_grilla(plantilla, *, alumno=None, dia_con_error=None, filas_previas=""):
+    """El contexto del editor de plantillas.
+
+    Vive como función y no dentro de la `DetailView` porque la vista que
+    guarda un día necesita **re-renderizar esta misma pantalla** cuando el
+    payload no valida: si redirigiera, el entrenador perdería todo lo que
+    acababa de cargar en la grilla (los valores viven en el JSON serializado,
+    no en el HTML). `filas_previas` es ese payload crudo, que el JS usa para
+    repoblar el día que falló -- mismo mecanismo que
+    `importaciones/views.py::_resoluciones_previas`.
+    """
+    # Una sola query trae TODOS los items; el agrupado por día se hace en
+    # Python sobre esa lista. `ejercicio__categoria` no es opcional: la fila
+    # muestra el nombre, la categoría y el video de cada ejercicio, y sin el
+    # `select_related` cada uno sería una query.
+    items = list(plantilla.items.select_related("ejercicio__categoria"))
+    # En el EDITOR se muestran siempre las 4 semanas, no solo las que la
+    # plantilla ya tiene: hay que poder cargar la semana 3 de un ejercicio que
+    # hoy no la tiene.
+    semanas = list(range(1, SEMANAS_POR_CICLO + 1))
+    por_dia = {}
+    for item in items:
+        por_dia.setdefault(item.dia, []).append(item)
+
+    # Los días del plan, tengan items o no. Si hay items en un día que quedó
+    # fuera de `dias_por_semana` igual se listan: si no, serían ejercicios
+    # invisibles que el alumno recibiría al asignar.
+    numeros = sorted(set(range(1, plantilla.dias_por_semana + 1)) | set(por_dia))
+    dias = []
+    for numero in numeros:
+        del_dia = por_dia.get(numero, [])
+        dias.append({
+            "numero": numero,
+            # Misma regla "gana la semana más baja" que ya usa `agrupacion.py`
+            # para este campo denormalizado.
+            "nombre": next(
+                (
+                    item.dia_nombre
+                    for item in sorted(del_dia, key=lambda i: i.semana)
+                    if item.dia_nombre
+                ),
+                "",
+            ),
+            "ejercicios": listar_ejercicios_de_plantilla(del_dia, semanas=semanas),
+            "fuera_del_plan": numero > plantilla.dias_por_semana,
+            "con_error": numero == dia_con_error,
+        })
+
+    return {
+        "plantilla": plantilla,
+        "dias": dias,
+        "semanas": semanas,
+        "total_items": len(items),
+        # Sobre la lista que ya está en memoria, no `items_incompletos()`:
+        # sería una query más para contar lo mismo.
+        "incompletos": sum(1 for item in items if not item.esta_completo),
+        # El catálogo viaja UNA vez por pantalla, no un `<select>` con todo el
+        # catálogo por fila: un gimnasio real tiene 748 ejercicios y 43 filas
+        # serían más de 30.000 `<option>`.
+        "catalogo_ejercicios": [
+            {"id": e.pk, "nombre": e.nombre}
+            for e in Ejercicio.objects.for_gimnasio(plantilla.gimnasio)
+            .filter(activo=True)
+            .order_by("nombre")
+        ],
+        "alumno_destino": alumno,
+        "dia_con_error": dia_con_error,
+        "filas_previas": filas_previas,
+    }
 
 
 class RutinaPlantillaDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView):
@@ -109,42 +231,18 @@ class RutinaPlantillaDetailView(StaffRequiredMixin, TenantScopedMixin, DetailVie
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # Una sola query trae TODOS los items; el agrupado por día se hace en
-        # Python sobre esa lista. `ejercicio__categoria` no es opcional: la
-        # fila muestra el nombre, la categoría y el video de cada ejercicio,
-        # y sin el `select_related` cada uno sería una query.
-        items = list(self.object.items.select_related("ejercicio__categoria"))
-        # Las semanas que la plantilla TIENE, no siempre 1..4: un plan de dos
-        # semanas no debe mostrar dos columnas vacías.
-        semanas = sorted({item.semana for item in items})
-        context["dias"] = [
-            {
-                "numero": numero,
-                # Misma regla "gana la semana más baja" que ya usa
-                # `agrupacion.py` para este campo denormalizado.
-                "nombre": next(
-                    (
-                        item.dia_nombre
-                        for item in sorted(del_dia, key=lambda i: i.semana)
-                        if item.dia_nombre
-                    ),
-                    "",
-                ),
-                "ejercicios": listar_ejercicios_de_plantilla(
-                    del_dia, semanas=semanas
-                ),
-            }
-            for numero, del_dia in (
-                (n, [i for i in items if i.dia == n])
-                for n in sorted({item.dia for item in items})
-            )
-        ]
-        context["semanas"] = semanas
-        context["total_items"] = len(items)
-        # Sobre la lista que ya está en memoria, no `items_incompletos()`:
-        # sería una query más para contar lo mismo.
-        context["incompletos"] = sum(1 for item in items if not item.esta_completo)
+        context.update(
+            contexto_de_la_grilla(self.object, alumno=self._alumno_destino())
+        )
         return context
+
+    def _alumno_destino(self):
+        """`?alumno=` llega desde «Crear una plantilla nueva» en la pantalla
+        de asignar: se conserva para poder volver ahí al terminar."""
+        pk = self.request.GET.get("alumno")
+        if not pk:
+            return None
+        return Alumno.objects.for_gimnasio(self.gimnasio).filter(pk=pk).first()
 
 
 class RutinaPlantillaDuplicarView(
@@ -169,51 +267,6 @@ class RutinaPlantillaDuplicarView(
 # ---------------------------------------------------------------------------
 
 
-class ItemPlantillaMixin(StaffRequiredMixin, TenantScopedMixin):
-    """Mixin común a los views de `RutinaPlantillaItem`.
-
-    Resuelve la `RutinaPlantilla` padre (URL kwarg `plantilla_pk`) acotada al
-    gimnasio del staff logueado -- ESE lookup es lo que aísla por tenant,
-    porque 404ea antes de que se llegue a consultar ningún item. A partir de
-    ahí se opera siempre sobre `self.plantilla.items`, nunca sobre
-    `RutinaPlantillaItem.objects` directo (que no tiene scoping propio).
-    """
-
-    def get_plantilla(self):
-        if not hasattr(self, "_plantilla"):
-            self._plantilla = get_object_or_404(
-                RutinaPlantilla.objects.for_gimnasio(self.gimnasio),
-                pk=self.kwargs["plantilla_pk"],
-            )
-        return self._plantilla
-
-    @property
-    def plantilla(self):
-        return self.get_plantilla()
-
-    def get_queryset(self):
-        # Reemplaza a TenantScopedMixin.get_queryset(): RutinaPlantillaItem no
-        # es TenantOwnedModel y no tiene `for_gimnasio()`.
-        return self.plantilla.items.all()
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["plantilla"] = self.plantilla
-        return context
-
-    def get_success_url(self):
-        return reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
-
-    def get_form_kwargs(self):
-        # El form necesita la plantilla para calcular `orden` y heredar
-        # `dia_nombre`: `form.instance.rutina` recién se asigna en
-        # `form_valid`, o sea después de validar. Mismo patrón que
-        # `ItemAsignadaMixin`, que ya inyecta `asignada`.
-        kwargs = super().get_form_kwargs()
-        kwargs["plantilla"] = self.plantilla
-        return kwargs
-
-
 class RutinaPlantillaDeleteView(
     StaffRequiredMixin, TenantScopedMixin, BorrarConExplicacionView
 ):
@@ -235,66 +288,115 @@ class RutinaPlantillaDeleteView(
         return reverse("rutinas:plantilla_listado")
 
 
-class RutinaPlantillaItemCreateView(ItemPlantillaMixin, CreateView):
-    model = RutinaPlantillaItem
-    form_class = RutinaPlantillaItemForm
-    template_name = "rutinas/item_form.html"
-
-    def get_initial(self):
-        """Los casilleros llegan con el próximo valor razonable en vez de
-        vacíos: cargar cinco ejercicios seguidos del día 2 no debería obligar
-        a retipear el "2" cada vez. Es un default VISIBLE (se ve en el campo
-        y se puede cambiar), no una regla oculta."""
-        initial = super().get_initial()
-        ultimo = self.plantilla.items.order_by("-dia", "-orden").first()
-        if ultimo is None:
-            initial.update(dia=1, orden=1)
-        else:
-            initial.update(dia=ultimo.dia, orden=ultimo.orden + 1)
-        return initial
-
-    def form_valid(self, form):
-        form.instance.rutina = self.plantilla
-        self.object = form.save()
-        messages.success(self.request, "Ejercicio agregado a la plantilla.")
-        return redirect(self.get_success_url())
+class EjercicioAjeno(Exception):
+    """Un `ejercicio_id` de la grilla que no pertenece al gimnasio. Se levanta
+    para abortar la transacción entera: el día no se toca."""
 
 
-class RutinaPlantillaItemUpdateView(ItemPlantillaMixin, UpdateView):
-    model = RutinaPlantillaItem
-    form_class = RutinaPlantillaItemForm
-    template_name = "rutinas/item_form.html"
+class GuardarDiaDePlantillaView(StaffRequiredMixin, TenantScopedMixin, View):
+    """Guarda un día completo de la grilla de plantilla. POST-only.
 
-    def form_valid(self, form):
-        self.object = form.save()
-        messages.success(self.request, "Ejercicio actualizado.")
-        return redirect(self.get_success_url())
+    Reemplaza los ítems de ESE día: se borran y se recrean dentro de una
+    transacción. Es seguro porque `RutinaPlantillaItem` no tiene ninguna FK
+    entrante viva -- `RutinaAsignada` es un snapshot congelado, sin FK a la
+    plantilla --, así que ningún pk de item se referencia desde ningún lado.
 
-
-class RutinaPlantillaItemDeleteView(ItemPlantillaMixin, View):
-    """POST-only: no hay página de confirmación por GET, el botón de borrar
-    ya es la confirmación (ver template `plantilla_detail.html`).
-
-    Borra el ejercicio de TODAS las semanas de ese día, no solo la del item
-    que se apretó. Desde que la tabla se agrupa por ejercicio (una fila, una
-    columna por semana) hay un solo botón por fila, y ese botón tiene que
-    hacer lo que la fila representa: un borrado de una sola semana dejaría
-    las otras tres en pantalla como si no hubiera pasado nada. Es la misma
-    regla que `services.quitar_ejercicio_asignado` ya aplica en la rutina
-    asignada, y el label del botón dice de cuántas semanas se trata.
+    Si dos personas editan el mismo día a la vez gana la última en guardar,
+    que es el criterio del resto del proyecto.
     """
 
-    def post(self, request, *args, **kwargs):
-        item = get_object_or_404(self.get_queryset(), pk=kwargs["pk"])
-        borrados, _ = self.get_queryset().filter(
-            dia=item.dia, ejercicio_id=item.ejercicio_id
-        ).delete()
-        messages.success(
-            request,
-            f"«{item.ejercicio.nombre}» se quitó del día {item.dia} "
-            f"({borrados} semana{'s' if borrados != 1 else ''}).",
+    def get_plantilla(self):
+        # Este lookup es lo que aísla por tenant: 404ea antes de tocar ningún
+        # item. `RutinaPlantillaItem` no es `TenantOwnedModel` y no tiene
+        # `for_gimnasio()` propio.
+        return get_object_or_404(
+            RutinaPlantilla.objects.for_gimnasio(self.gimnasio),
+            pk=self.kwargs["plantilla_pk"],
         )
-        return redirect(self.get_success_url())
+
+    def post(self, request, *args, **kwargs):
+        plantilla = self.get_plantilla()
+        dia = self.kwargs["dia"]
+        form = DiaDePlantillaForm(request.POST)
+
+        if form.is_valid():
+            try:
+                self._guardar(plantilla, dia, form.cleaned_data)
+            except EjercicioAjeno:
+                form.add_error(
+                    None,
+                    "Uno de los ejercicios ya no existe en tu biblioteca. "
+                    "Recargá la página y volvé a elegirlo.",
+                )
+
+        if form.errors:
+            # El día no se tocó (el reemplazo corre entero o no corre) y NO se
+            # redirige: los valores de la grilla viven en el JSON serializado,
+            # no en el HTML, así que un redirect le haría perder al entrenador
+            # todo lo que acababa de cargar. Se re-renderiza la misma pantalla
+            # con el payload crudo para que el JS lo repueble.
+            for error in form.non_field_errors():
+                messages.error(request, error)
+            return render(request, "rutinas/plantilla_detail.html", contexto_de_la_grilla(
+                plantilla,
+                alumno=self._alumno_destino(),
+                dia_con_error=dia,
+                filas_previas=request.POST.get("filas", ""),
+            ))
+
+        messages.success(request, f"Día {dia} guardado.")
+        return redirect(self._destino(plantilla, dia))
+
+    def _alumno_destino(self):
+        pk = self.request.POST.get("alumno") or self.request.GET.get("alumno")
+        if not pk:
+            return None
+        return Alumno.objects.for_gimnasio(self.gimnasio).filter(pk=pk).first()
+
+    def _destino(self, plantilla, dia):
+        url = reverse("rutinas:plantilla_detalle", args=[plantilla.pk])
+        alumno = self.request.GET.get("alumno") or self.request.POST.get("alumno")
+        if alumno:
+            url = f"{url}?alumno={alumno}"
+        return f"{url}#dia-{dia}"
+
+    @staticmethod
+    def _guardar(plantilla, dia, datos):
+        filas = datos["filas"]
+        # UNA query para todos los ejercicios de la grilla, y a la vez la
+        # barrera de tenant: un id de otro gimnasio simplemente no aparece.
+        # Nunca una query por fila -- es el patrón que ya costó un 502.
+        ids = {fila["ejercicio_id"] for fila in filas}
+        permitidos = Ejercicio.objects.for_gimnasio(plantilla.gimnasio).in_bulk(ids)
+        if ids - set(permitidos):
+            raise EjercicioAjeno()
+
+        items = []
+        for posicion, fila in enumerate(filas, start=1):
+            for semana, celda in sorted(fila["semanas"].items()):
+                items.append(RutinaPlantillaItem(
+                    rutina=plantilla,
+                    ejercicio_id=fila["ejercicio_id"],
+                    semana=semana,
+                    dia=dia,
+                    # El orden visual de la grilla ES el orden. Antes el staff
+                    # tipeaba un número y el form calculaba max+1.
+                    orden=posicion,
+                    series=celda["series"],
+                    repeticiones=celda["repeticiones"],
+                    kilos=celda["kilos"],
+                    descanso=celda["descanso"],
+                    notas=celda["notas"],
+                    bloque=fila["bloque"],
+                    # Un campo por día que se estampa en todos sus items, en
+                    # vez de la herencia "gana la semana más baja" que hacía
+                    # falta cuando se cargaba de a un ejercicio.
+                    dia_nombre=datos["dia_nombre"],
+                ))
+
+        with transaction.atomic():
+            plantilla.items.filter(dia=dia).delete()
+            RutinaPlantillaItem.objects.bulk_create(items)
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +532,7 @@ class RutinaAsignadaDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView
 
 
 class ItemAsignadaMixin(StaffRequiredMixin, TenantScopedMixin):
-    """Mismo mecanismo de aislamiento que `ItemPlantillaMixin`, para el otro
+    """Mismo mecanismo de aislamiento que `GuardarDiaDePlantillaView`, para el otro
     par de modelos.
 
     `RutinaAsignadaItem` tampoco es `TenantOwnedModel` y no tiene

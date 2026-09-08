@@ -189,7 +189,7 @@
               select.addEventListener("change", function () {
                 if (select.value) {
                   var zona = form.querySelector(
-                    '.rutina-drop-zona[data-grupo-muscular="' + select.value + '"]'
+                    '.rutina-drop-zona[data-categoria="' + select.value + '"]'
                   );
                   if (zona && zona !== chip.parentNode) { zona.appendChild(chip); }
                 } else if (chip._filaOrigen) {

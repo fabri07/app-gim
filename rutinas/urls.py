@@ -9,6 +9,7 @@ from django.urls import path
 
 from rutinas.views import (
     AsignarRutinaView,
+    GuardarDiaDePlantillaView,
     RutinaAsignadaArchivarView,
     RutinaAsignadaDetailView,
     RutinaAsignadaDiaCompletadoToggleView,
@@ -22,9 +23,6 @@ from rutinas.views import (
     RutinaPlantillaDeleteView,
     RutinaPlantillaDetailView,
     RutinaPlantillaDuplicarView,
-    RutinaPlantillaItemCreateView,
-    RutinaPlantillaItemDeleteView,
-    RutinaPlantillaItemUpdateView,
     RutinaPlantillaListView,
     RutinaPlantillaUpdateView,
 )
@@ -51,19 +49,9 @@ urlpatterns = [
         name="plantilla_duplicar",
     ),
     path(
-        "<int:plantilla_pk>/items/nuevo/",
-        RutinaPlantillaItemCreateView.as_view(),
-        name="item_crear",
-    ),
-    path(
-        "<int:plantilla_pk>/items/<int:pk>/editar/",
-        RutinaPlantillaItemUpdateView.as_view(),
-        name="item_editar",
-    ),
-    path(
-        "<int:plantilla_pk>/items/<int:pk>/eliminar/",
-        RutinaPlantillaItemDeleteView.as_view(),
-        name="item_eliminar",
+        "<int:plantilla_pk>/dias/<int:dia>/guardar/",
+        GuardarDiaDePlantillaView.as_view(),
+        name="dia_guardar",
     ),
     path("asignar/", AsignarRutinaView.as_view(), name="asignar"),
     path(

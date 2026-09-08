@@ -6,6 +6,7 @@ import json
 from unittest.mock import patch
 
 import openpyxl
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
@@ -4328,8 +4329,10 @@ class ImportarPdfFlujoTests(TestCase):
         self.assertEqual(press.repeticiones, "")
 
         detalle = self.client.get(reverse("rutinas:plantilla_detalle", args=[plantilla.pk]))
-        self.assertContains(detalle, "A completar")
         self.assertContains(detalle, "1 ejercicio para completar")
+        # En el editor (2026-09-07) la celda vacía ES el campo a completar, y
+        # se marca con color en vez de un badge.
+        self.assertContains(detalle, "celda-a-completar")
 
         alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="P")
         asignar = self.client.post(reverse("rutinas:asignar"), {
@@ -4339,15 +4342,21 @@ class ImportarPdfFlujoTests(TestCase):
         self.assertEqual(asignar.status_code, 200)
         self.assertFalse(RutinaAsignada.objects.exists())
 
+        # Completar el ítem que el PDF dejó a medias, desde la grilla (el
+        # formulario de a uno se retiró el 2026-09-07).
+        sentadilla = plantilla.items.get(ejercicio__nombre="Sentadilla")
+        celda = {"kilos": "", "descanso": "", "notas": ""}
         completar = self.client.post(
-            reverse("rutinas:item_editar", args=[plantilla.pk, press.pk]),
-            {
-                "ejercicio": press.ejercicio_id, "semana": 1, "dia": 1, "dia_nombre": "",
-                "bloque": "", "orden": press.orden, "series": 3, "repeticiones": "8",
-                "kilos": "", "descanso": "", "notas": "",
-            },
+            reverse("rutinas:dia_guardar", args=[plantilla.pk, 1]),
+            {"dia_nombre": "", "filas": json.dumps([
+                {"ejercicio_id": sentadilla.ejercicio_id, "bloque": "",
+                 "semanas": {"1": {"series": "3", "repeticiones": "10", **celda}}},
+                {"ejercicio_id": press.ejercicio_id, "bloque": "",
+                 "semanas": {"1": {"series": "3", "repeticiones": "8", **celda}}},
+            ])},
         )
         self.assertEqual(completar.status_code, 302)
+        self.assertEqual(plantilla.items_incompletos(), 0)
         asignar = self.client.post(reverse("rutinas:asignar"), {
             "alumno": alumno.pk, "plantilla": plantilla.pk,
             "fecha_inicio": timezone.localdate().isoformat(),
@@ -4560,3 +4569,23 @@ class CopyDelConteoTests(TestCase):
         self.assertEqual(preview.status_code, 200)
         self.assertEqual(hojas.status_code, 200)
         self.assertContains(preview, "24 ejercicios")
+
+
+class ChipsDelPreviewDePlantillasTests(TestCase):
+    """El drag-and-drop del preview usa un `<select>` como control
+    autoritativo y un chip como ayuda visual. La sincronización del select
+    hacia el chip estaba muerta desde que `grupo_muscular` se renombró a
+    `categoria` (2026-08-26): el JS buscaba la zona por `data-grupo-muscular`
+    y el template las renderiza con `data-categoria`, así que el selector no
+    matcheaba nunca. En `biblioteca_preview.html` la misma lógica está bien.
+    """
+
+    def test_el_js_busca_la_zona_por_el_mismo_atributo_que_la_renderiza(self):
+        plantilla = (
+            settings.BASE_DIR / "templates" / "importaciones" / "plantillas_preview.html"
+        ).read_text()
+        self.assertIn('data-categoria="{{ c.pk }}"', plantilla)
+        self.assertIn(
+            """'.rutina-drop-zona[data-categoria="' + select.value + '"]'""", plantilla
+        )
+        self.assertNotIn("data-grupo-muscular", plantilla)

@@ -1,11 +1,15 @@
 """
 Forms de gestión de rutinas (Fase 2).
 
-`RutinaPlantillaForm` y `RutinaPlantillaItemForm` heredan de
-`TenantScopedModelForm`: cierran automáticamente el hueco de FK-injection en
-cualquier campo `ModelChoice*Field` cuyo modelo sea `TenantOwnedModel` (en
-`RutinaPlantillaItemForm`, el campo `ejercicio` -- ver docstring de
-`core.forms.TenantScopedModelForm`).
+`RutinaPlantillaForm` y `RutinaAsignadaItemForm` heredan de
+`TenantScopedModelForm`, que cierra automáticamente el hueco de FK-injection
+en cualquier campo `ModelChoice*Field` cuyo modelo sea `TenantOwnedModel`
+(ver su docstring en `core.forms`).
+
+`DiaDePlantillaForm` es la excepción: la grilla de la plantilla manda todas
+sus celdas en un único campo JSON, así que no hay `ModelChoiceField` que
+scopear y la barrera de tenant vive en la vista, que resuelve los ejercicios
+contra un queryset acotado al gimnasio.
 
 `AsignarRutinaForm` es un `forms.Form` plano (no `ModelForm`): `RutinaAsignada`
 se crea vía `RutinaAsignada.crear_desde_plantilla`, no vía `form.save()` (ver
@@ -14,8 +18,9 @@ mano acá, replicando lo que `TenantScopedModelForm` hace automáticamente para
 un `ModelForm`.
 """
 
+import json
+
 from django import forms
-from django.db.models import Max
 from django.utils import timezone
 
 from alumnos.models import Alumno
@@ -23,6 +28,7 @@ from core.forms import TenantScopedModelForm
 from ejercicios.models import Ejercicio
 from rutinas import services
 from rutinas.models import (
+    SEMANAS_POR_CICLO,
     RutinaAsignada,
     RutinaAsignadaItem,
     RutinaPlantilla,
@@ -35,113 +41,6 @@ class RutinaPlantillaForm(TenantScopedModelForm):
     class Meta:
         model = RutinaPlantilla
         fields = ["nombre", "objetivo", "nivel", "dias_por_semana", "activa"]
-
-
-class RutinaPlantillaItemForm(TenantScopedModelForm):
-    """Agrega o edita UN ejercicio de una plantilla.
-
-    Recibe `plantilla` (lo inyecta `ItemPlantillaMixin.get_form_kwargs`)
-    porque dos de sus reglas dependen de lo que ya hay cargado en ese día, y
-    el `form.instance.rutina` recién se asigna en `form_valid`, después de
-    validar:
-
-    - **`orden` es opcional y se calcula al final del día** (`max + 1`).
-      Es un número administrativo que el sistema puede deducir; obligarlo a
-      tipearlo era la causa de que un cliente real guardara y la plantilla le
-      quedara vacía. Misma regla que `services.agregar_ejercicio_asignado`
-      para el otro flujo, y el mismo motivo para no renumerar insertando:
-      reordenar está fuera de alcance.
-    - **`dia_nombre` en blanco hereda el del día.** Está denormalizado por
-      item (ver el modelo), y dejar el nuevo como el único sin etiqueta rompe
-      la regla de lectura de `agrupacion.py` ("gana la semana más baja").
-
-    `series` y `repeticiones` siguen obligatorios a propósito: son la
-    prescripción del entrenamiento, no hay valor sensato que inventar, y un
-    item sin ellas le llega al alumno como una fila vacía en el portal y en
-    el PDF. En el MODELO son opcionales desde 2026-09-07 (el importador de
-    PDF deja items "a completar"), así que el form los vuelve a exigir
-    explícitamente en `__init__`: editar un item es justamente cómo se
-    completa, y si el form los dejara vacíos ese estado no tendría salida.
-    """
-
-    class Meta:
-        model = RutinaPlantillaItem
-        fields = [
-            "ejercicio",
-            "semana",
-            "dia",
-            "dia_nombre",
-            "orden",
-            "bloque",
-            "series",
-            "repeticiones",
-            "kilos",
-            "descanso",
-            "notas",
-        ]
-        labels = {
-            "dia": "Día",
-            "dia_nombre": "Nombre del día",
-            "kilos": "Kilos",
-        }
-        help_texts = {
-            # El help_text del modelo dice "1..dias_por_semana": el nombre de
-            # un campo del código, que no significa nada para un dueño de
-            # gimnasio. Los `help_texts` del form pisan los del modelo.
-            "dia": "Día 1, 2, 3... de la rutina (no el día de la semana).",
-            "orden": "Posición dentro del día. Si lo dejás vacío, se agrega al final.",
-            "dia_nombre": 'Opcional. Por ejemplo: "Tren superior · Core".',
-        }
-
-    def __init__(self, *args, plantilla=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.plantilla = plantilla
-        # El modelo permite vacíos (items "a completar" del importador de
-        # PDF); el form no. Ver el docstring.
-        self.fields["series"].required = True
-        self.fields["repeticiones"].required = True
-        self.fields["orden"].required = False
-
-    def _items_del_dia(self, dia):
-        """Items ya cargados en ese día de esta plantilla, excluyendo el que
-        se está editando (si no, editar sin tocar `orden` lo empujaría al
-        final una y otra vez)."""
-        if self.plantilla is None:
-            return RutinaPlantillaItem.objects.none()
-        queryset = self.plantilla.items.filter(dia=dia)
-        if self.instance.pk:
-            queryset = queryset.exclude(pk=self.instance.pk)
-        return queryset
-
-    def clean(self):
-        cleaned_data = super().clean()
-        dia = cleaned_data.get("dia")
-        if dia is None:
-            # `dia` ya tiene su propio error; sin él no hay día contra el cual
-            # contar el orden ni del cual heredar el nombre.
-            return cleaned_data
-
-        del_dia = self._items_del_dia(dia)
-
-        if cleaned_data.get("orden") is None:
-            cleaned_data["orden"] = (
-                del_dia.aggregate(Max("orden"))["orden__max"] or 0
-            ) + 1
-
-        if not cleaned_data.get("dia_nombre"):
-            heredado = next(
-                (
-                    nombre
-                    for nombre in del_dia.order_by("semana", "orden").values_list(
-                        "dia_nombre", flat=True
-                    )
-                    if nombre
-                ),
-                "",
-            )
-            cleaned_data["dia_nombre"] = heredado
-
-        return cleaned_data
 
 
 class AsignarRutinaForm(forms.Form):
@@ -383,3 +282,166 @@ class AgregarEjercicioAsignadoForm(TenantScopedModelForm):
                 "rutina. Editá el que ya está en vez de agregarlo de nuevo."
             )
         return ejercicio
+
+
+class DiaDePlantillaForm(forms.Form):
+    """Un día completo de la grilla de plantilla, en un solo campo JSON.
+
+    **No es un formset a propósito.** Un día real son ~11 ejercicios × 4
+    semanas × 5 campos; con 50 ejercicios serían 1000 campos de POST, justo
+    contra `DATA_UPLOAD_MAX_NUMBER_FIELDS`, que ya produjo un
+    `TooManyFieldsSent` documentado en `ISSUES.md [2026-07-28]`. Con un único
+    hidden el conteo de campos es constante y el límite que aplica pasa a ser
+    `DATA_UPLOAD_MAX_MEMORY_SIZE` (2,5 MB), que un JSON de celdas cortas no
+    roza. Mismo molde que `importaciones.forms.ResolucionesJSONForm`.
+
+    Payload:
+
+        [{"ejercicio_id": 12, "bloque": "A1",
+          "semanas": {"1": {"series": "4", "repeticiones": "10",
+                            "kilos": "20kg", "descanso": "60s",
+                            "notas": ""}, ...}}, ...]
+
+    Acá se valida solo la FORMA. Que el `ejercicio_id` pertenezca al gimnasio
+    lo chequea la vista contra un queryset scopeado: un id de otro tenant
+    tiene que morir contra la base, no contra una lista que este form haya
+    cacheado.
+    """
+
+    CAMPOS_DE_SEMANA = ("series", "repeticiones", "kilos", "descanso", "notas")
+
+    dia_nombre = forms.CharField(
+        required=False,
+        max_length=RutinaPlantillaItem._meta.get_field("dia_nombre").max_length,
+        label="Nombre del día",
+        help_text='Opcional. Por ejemplo: "Tren superior · Core".',
+    )
+    filas = forms.CharField(widget=forms.HiddenInput, required=False)
+
+    def clean(self):
+        # Todo en `clean()` y no en `clean_filas()`: `filas` es un
+        # `HiddenInput` y un error de campo suyo no se ve en ninguna pantalla.
+        # Con `add_error(None, ...)` cae en `non_field_errors`, que el
+        # template sí renderiza -- si no, un bug del JS de serialización
+        # devolvería un 200 mudo y el staff creería que guardó.
+        cleaned = super().clean()
+        try:
+            crudas = json.loads(cleaned.get("filas") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            return self._invalido(cleaned, "No se pudo leer la grilla. Recargá la página y probá de nuevo.")
+        if not isinstance(crudas, list):
+            return self._invalido(cleaned, "No se pudo leer la grilla. Recargá la página y probá de nuevo.")
+
+        filas = []
+        for cruda in crudas:
+            if not isinstance(cruda, dict):
+                return self._invalido(cleaned, "No se pudo leer la grilla. Recargá la página y probá de nuevo.")
+
+            ejercicio_id = cruda.get("ejercicio_id")
+            # Una fila recién agregada y nunca completada no es un error: se
+            # descarta en silencio, igual que una fila vacía de un Excel.
+            if ejercicio_id in (None, ""):
+                continue
+            # `isinstance(True, int)` es True en Python: sin el guard de bool,
+            # un `ejercicio_id: true` entraría como el pk 1.
+            if isinstance(ejercicio_id, bool) or not isinstance(ejercicio_id, int):
+                return self._invalido(cleaned, "Hay un ejercicio inválido en la grilla.")
+
+            bloque = self._texto(cruda.get("bloque"))
+            error = self._error_de_largo("bloque", bloque, "El código de bloque")
+            if error:
+                return self._invalido(cleaned, error)
+
+            semanas = cruda.get("semanas") or {}
+            if not isinstance(semanas, dict):
+                return self._invalido(cleaned, "No se pudo leer la grilla. Recargá la página y probá de nuevo.")
+
+            limpias = {}
+            for clave, celda in semanas.items():
+                numero = self._numero_de_semana(clave)
+                if numero is None:
+                    return self._invalido(
+                        cleaned,
+                        f"Una rutina tiene {SEMANAS_POR_CICLO} semanas, de la 1 a la {SEMANAS_POR_CICLO}.",
+                    )
+                if not isinstance(celda, dict):
+                    return self._invalido(cleaned, "No se pudo leer la grilla. Recargá la página y probá de nuevo.")
+
+                valores = {campo: self._texto(celda.get(campo)) for campo in self.CAMPOS_DE_SEMANA}
+                # Una semana sin NADA cargado no es un item: ese ejercicio no
+                # está programado esa semana. Se descarta antes de validar
+                # nada más, para que una celda vacía nunca sea un error.
+                if not any(valores.values()):
+                    continue
+
+                for campo in ("repeticiones", "kilos", "descanso"):
+                    error = self._error_de_largo(campo, valores[campo], f"El campo «{campo}»")
+                    if error:
+                        return self._invalido(cleaned, error)
+
+                series = valores["series"]
+                if series == "":
+                    # Sin series pero con algo cargado: entra "a completar",
+                    # igual que lo que deja el importador de PDF.
+                    valores["series"] = None
+                else:
+                    try:
+                        valores["series"] = int(series)
+                    except (TypeError, ValueError):
+                        return self._invalido(cleaned, "Las series tienen que ser un número entero.")
+                    if valores["series"] < 0:
+                        return self._invalido(cleaned, "Las series no pueden ser un número negativo.")
+                limpias[numero] = valores
+
+            filas.append({"ejercicio_id": ejercicio_id, "bloque": bloque, "semanas": limpias})
+
+        # Dos filas con el mismo ejercicio en el mismo día se fusionarían al
+        # releer, porque `listar_ejercicios_de_plantilla` agrupa por
+        # `ejercicio_id`: una de las dos se perdería en silencio. Se rechaza
+        # con un mensaje en vez de aceptarlo y perder datos. Lo encontró la
+        # prueba en el navegador, no la suite.
+        vistos = set()
+        for fila in filas:
+            if fila["ejercicio_id"] in vistos:
+                return self._invalido(
+                    cleaned,
+                    "Hay un ejercicio repetido en este día. Cada ejercicio "
+                    "puede estar una sola vez; usá las columnas de semana "
+                    "para variar series, repeticiones y kilos.",
+                )
+            vistos.add(fila["ejercicio_id"])
+
+        cleaned["filas"] = filas
+        return cleaned
+
+    def _invalido(self, cleaned, mensaje):
+        self.add_error(None, mensaje)
+        return cleaned
+
+    @staticmethod
+    def _texto(valor):
+        return "" if valor is None else str(valor).strip()
+
+    @staticmethod
+    def _numero_de_semana(clave):
+        """El número de semana llega como clave de un objeto JSON, o sea
+        siempre como texto. `bulk_create` no corre validadores, así que una
+        semana fuera del ciclo entraría a la base salteándose el
+        `MaxValueValidator` del modelo."""
+        try:
+            numero = int(clave)
+        except (TypeError, ValueError):
+            return None
+        return numero if 1 <= numero <= SEMANAS_POR_CICLO else None
+
+    @staticmethod
+    def _error_de_largo(campo, valor, etiqueta):
+        """Los límites se LEEN del modelo, no se copian. Postgres rechaza un
+        `varchar` desbordado con un `DataError` que voltea la transacción
+        entera; SQLite no valida largos, así que sin este chequeo el problema
+        aparecería recién en producción (ya pasó con `url_video`, ver
+        `ISSUES.md [2026-08-27]`)."""
+        maximo = RutinaPlantillaItem._meta.get_field(campo).max_length
+        if len(valor) > maximo:
+            return f"{etiqueta} tiene {len(valor)} caracteres y el máximo es {maximo}."
+        return None

@@ -20,6 +20,42 @@ del log.
 
 ---
 
+## [2026-09-07] Dos filas del mismo ejercicio se fusionaban y una se perdía sin aviso
+**Estado:** resuelto (con test)
+**Impacto:** el editor de plantillas nuevo agrupa las filas por `ejercicio_id`
+al releer (`agrupacion.py::listar_ejercicios_de_plantilla`). Agregar en un día
+un ejercicio que ya estaba ahí creaba dos filas, y al recargar se fusionaban en
+una: las semanas se pisaban entre sí y los datos de una de las dos
+desaparecían. Sin error, sin aviso.
+**Resolución:** el guardado rechaza un ejercicio repetido dentro del mismo día
+con un mensaje que explica que las semanas están para variar la carga. Repetir
+un ejercicio en días distintos sigue siendo normal.
+**Cómo apareció:** probando en el navegador con el plan real, no en la suite.
+Los 28 tests del form y de la vista pasaban.
+**Qué NO asumir:** que una suite verde cubre una pantalla nueva. La grilla
+tenía tests de validación, de escala, de tenencia y de guardado, y ninguno
+tocaba el caso porque a nadie se le ocurre escribir el test de algo que no
+sabe que puede pasar. Media hora de uso real lo encontró.
+
+---
+
+## [2026-09-07] El chip del preview de plantillas no seguía al desplegable
+**Estado:** resuelto (con test)
+**Impacto:** el drag-and-drop del preview de importación usa un `<select>`
+como control autoritativo y un chip como ayuda visual. La sincronización del
+select **hacia** el chip buscaba la zona con `data-grupo-muscular`, pero las
+zonas se renderizan con `data-categoria` desde que se renombró el campo
+(2026-08-26): el selector no matcheaba nunca, así que elegir una categoría en
+el desplegable no movía el chip. En `biblioteca_preview.html` la misma lógica
+quedó bien.
+**Resolución:** una palabra, más un test que compara el atributo que renderiza
+el template con el que busca el JS.
+**Cómo apareció:** explorando el código para otra cosa. Es el rastro típico de
+un renombre: el modelo, el template y el CSS se actualizaron, y quedó una
+cadena de texto dentro de un selector de JavaScript.
+
+---
+
 ## [2026-09-07] «172 ejercicios · 4 días»: un conteo correcto que se leía como un bug
 **Estado:** resuelto
 **Impacto:** el dueño del producto miró el preview de una importación y dijo
