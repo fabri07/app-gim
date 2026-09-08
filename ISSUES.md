@@ -20,6 +20,46 @@ del log.
 
 ---
 
+## [2026-09-08] Pasada de pulido visual sobre las cuatro pantallas de rutinas e importación
+**Estado:** resuelto
+**Impacto:** cuatro defectos que se veían como "la app está a medio hacer", y
+uno que rompía una función:
+1. `.aviso-urgente` se usaba SIN `.tarjeta` en el detalle de plantilla. Esa
+   clase solo aporta `border-l-4` y fondo ámbar: sin la tarjeta no tiene ni
+   padding ni radio, así que el aviso de "ejercicios para completar" salía a
+   todo el ancho con el texto pegado al borde.
+2. `.badge` a secas (sin variante) en cinco lugares —código de bloque `A1`,
+   "Ya existe", "nueva", "Finalizada" y la señal "Mantener" de
+   `rutinas/progreso.py`—. `.badge` solo define forma y padding: salían como
+   texto suelto con un margen raro.
+3. El `<select>` de calificación del portal del alumno se dimensionaba por el
+   ancho del encabezado "Calificación" y mostraba `Podrí…`: **el alumno no
+   podía leer la calificación que había elegido.**
+4. La columna del ejercicio NO era fija (`.columna-ejercicio`) en el día del
+   alumno, aunque sí lo era en las dos tablas equivalentes del staff. Con 22
+   columnas, al llegar a la semana 3 se perdía de qué ejercicio era la fila.
+5. `<h3>` no tenía ninguna regla en la capa base y el preflight de Tailwind
+   lleva todos los headings al tamaño del cuerpo: "Filas que no se van a
+   importar" se renderizaba idéntico a un párrafo. Afecta a 6 templates.
+**Resolución:** ver el diff. Además: rojo sólido (`.boton-peligro`) solo para
+pantallas de confirmación —se creó `.boton-quitar` para la acción destructiva
+que se REPITE por fila—, `.ficha-datos` reemplaza la pila de `<p>Etiqueta:
+valor</p>` en las dos pantallas de detalle, `.borde-grupo` separa visualmente
+los grupos de semana en las tres tablas anchas, y "Confirmar importación" /
+"Descartar" pasan a una sola fila con el atributo `form=` de HTML5 (vivían en
+dos `<form>` distintos y salían apilados). Suite completa en verde (1332).
+**Qué NO asumir — trampa de verificación, la segunda vez que muerde:** durante
+la inspección, la columna del ejercicio de la grilla editable se veía
+DESBORDADA sobre la columna de al lado, con `display:inline` donde el CSS dice
+`block`. No era un bug del código: era el **service worker** sirviendo un
+`app.css` viejo de su caché (`app-gim-estaticos-v1`), con el archivo correcto
+en disco y en el servidor. Se confirma comparando la regla en
+`static/css/app.css` contra `[...document.styleSheets]` en el navegador, y se
+limpia con `getRegistrations()+unregister()` + `caches.delete(...)`. El SW se
+re-registra en cada carga, así que hay que repetirlo después de cada rebuild.
+
+---
+
 ## [2026-09-07] Dos filas del mismo ejercicio se fusionaban y una se perdía sin aviso
 **Estado:** resuelto (con test)
 **Impacto:** el editor de plantillas nuevo agrupa las filas por `ejercicio_id`

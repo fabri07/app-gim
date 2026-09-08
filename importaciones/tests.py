@@ -13,6 +13,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
+from django.utils.html import escape
 from django.utils import timezone
 
 from alumnos.models import Alumno
@@ -1496,7 +1497,10 @@ class SinDefaultSilenciosoDeGrupoMuscularYNivelTests(TestCase):
         )
         # La opción en blanco es la que queda "selected" -- ni "pecho" (1ra
         # choice de grupo_muscular) ni "principiante" (1ra choice de nivel).
-        self.assertContains(response, '<option value="" selected>---------</option>', count=2)
+        # Contra el valor y no contra la etiqueta: lo que garantiza el
+        # comportamiento es que el `value` vacío sea el seleccionado, no cómo
+        # se llame la opción en pantalla.
+        self.assertContains(response, '<option value="" selected>', count=2)
         self.assertNotContains(response, '<option value="pecho" selected>')
         self.assertNotContains(response, '<option value="principiante" selected>')
 
@@ -1517,7 +1521,7 @@ class SinDefaultSilenciosoDeGrupoMuscularYNivelTests(TestCase):
             reverse("importaciones:plantillas_preview", args=[importacion.pk]), datos,
         )
         self.assertEqual(response.status_code, 200)  # re-renderiza con error, no redirige
-        self.assertContains(response, "Elegí una categoría")
+        self.assertContains(response, "Elegí una categoría para el ejercicio nuevo.")
         self.assertEqual(RutinaPlantilla.objects.count(), 0)
         self.assertEqual(Ejercicio.objects.count(), 0)
 
@@ -1637,7 +1641,12 @@ class AdvertenciasColumnasLlegaAlStaffTests(TestCase):
         response = self.client.get(
             reverse("importaciones:plantillas_preview", args=[importacion.pk])
         )
-        self.assertContains(response, "Advertencia")
+        # Contra el texto REAL de la advertencia y no contra la palabra
+        # "Advertencia": lo que tiene que llegarle al staff es el motivo, no la
+        # etiqueta con la que el template lo encabece.
+        self.assertContains(
+            response, escape(importacion.resultado["advertencias_columnas"][0])
+        )
         self.assertContains(response, "ejercicio")
 
     def test_biblioteca_columna_nombre_duplicada_se_muestra_en_el_preview(self):
@@ -1656,7 +1665,9 @@ class AdvertenciasColumnasLlegaAlStaffTests(TestCase):
         response = self.client.get(
             reverse("importaciones:biblioteca_preview", args=[importacion.pk])
         )
-        self.assertContains(response, "Advertencia")
+        self.assertContains(
+            response, escape(importacion.resultado["advertencias_columnas"][0])
+        )
         self.assertContains(response, "nombre")
 
 

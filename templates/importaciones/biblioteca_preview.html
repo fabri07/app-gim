@@ -6,9 +6,15 @@
 <div class="contenido--ancho">
   <h1>Revisar antes de confirmar</h1>
   {% if importacion.resultado.advertencias_columnas %}
-    <div class="tarjeta">
+    {% comment %}
+      Ámbar y no gris apagado: es lo que hay que mirar antes de confirmar, no
+      una nota al pie. Mismo criterio que `.aviso-urgente` en el resto del
+      panel -- no es un error, nada se rompió.
+    {% endcomment %}
+    <div class="tarjeta aviso-urgente">
+      <h2>Revisá cómo se leyó el archivo</h2>
       {% for advertencia in importacion.resultado.advertencias_columnas %}
-        <p class="texto-suave">Advertencia: {{ advertencia }}</p>
+        <p>{{ advertencia }}</p>
       {% endfor %}
     </div>
   {% endif %}
@@ -21,7 +27,7 @@
       </p>
       <p>
         {% for nombre in importacion.resultado.categorias_a_crear %}
-          <span class="badge">{{ nombre }}</span>
+          <span class="badge badge--neutro">{{ nombre }}</span>
         {% endfor %}
       </p>
       <p class="texto-suave">
@@ -31,7 +37,7 @@
       </p>
     </div>
   {% endif %}
-  <form method="post" hx-boost="false">
+  <form method="post" hx-boost="false" id="importacion-confirmar">
     {% csrf_token %}
     <div class="tabla-scroll">
       <table class="tabla">
@@ -48,14 +54,14 @@
               <td>
                 {{ item.nombre_original }}
                 {% if item.match.tipo == "exacto" %}
-                  <span class="badge">Ya existe</span>
+                  <span class="badge badge--neutro">Ya existe</span>
                 {% endif %}
               </td>
               <td>
                 {% if item.categoria_resuelta %}
                   {{ item.categoria_resuelta.nombre }}
                   {% if item.categoria_resuelta.tipo == "nueva" %}
-                    <span class="badge">nueva</span>
+                    <span class="badge badge--neutro">nueva</span>
                   {% elif item.categoria_resuelta.nombre != item.grupo_muscular_original %}
                     {% comment %} El archivo decía otra cosa: hubo fusión difusa. Se
                        muestra el original para que una fusión indebida se
@@ -112,7 +118,7 @@
         <div class="lote-acciones">
           <label for="lote-categoria">Asignar a los tildados:</label>
           <select id="lote-categoria">
-            <option value="">---------</option>
+            <option value="">Elegí una categoría</option>
             {% for opcion in opciones_categoria %}
               <option value="{{ opcion.valor }}">{{ opcion.etiqueta }}{% if opcion.es_nueva %} (nueva){% endif %}</option>
             {% endfor %}
@@ -148,7 +154,7 @@
             </p>
             {% if item.needs_accion %}
               <select class="js-accion" data-valor-original="{{ item.nombre_normalizado }}">
-                <option value="">---------</option>
+                <option value="">Elegí qué hacer con este ejercicio</option>
                 <option value="usar_existente">
                   Usar existente: {{ item.match.candidato_nombre }} ({{ item.match.score }}% de similitud)
                 </option>
@@ -160,7 +166,7 @@
                 <select class="js-categoria"
                         id="cat-{{ forloop.counter }}"
                         data-valor-original="{{ item.nombre_normalizado }}">
-                  <option value="">---------</option>
+                  <option value="">Elegí una categoría</option>
                   {% for opcion in opciones_categoria %}
                     <option value="{{ opcion.valor }}">{{ opcion.etiqueta }}{% if opcion.es_nueva %} (nueva){% endif %}</option>
                   {% endfor %}
@@ -188,7 +194,6 @@
     {% endcomment %}
     {% for error in form.resoluciones.errors %}<p class="texto-error">{{ error }}</p>{% endfor %}
     {% for error in form.non_field_errors %}<p class="texto-error">{{ error }}</p>{% endfor %}
-    <button type="submit" class="boton">Confirmar importación</button>
     <script>
       // Drag-and-drop + asignación en lote. Progressive enhancement puro,
       // mismo patrón que `plantillas_preview.html`: el <select> de cada fila
@@ -367,9 +372,18 @@
       });
     </script>
   </form>
-  <form method="post" action="{% url 'importaciones:biblioteca_descartar' importacion.pk %}" hx-boost="false">
+  <form method="post" action="{% url 'importaciones:biblioteca_descartar' importacion.pk %}"
+        hx-boost="false" id="importacion-descartar">
     {% csrf_token %}
-    <button type="submit" class="boton-peligro">Descartar</button>
   </form>
+  {% comment %}
+    Los dos botones son de <form> distintos y se enganchan al suyo con `form=`
+    (HTML5): así viven en una sola fila en vez de apilados, y descartar deja de
+    ser un bloque rojo pegado abajo del botón principal.
+  {% endcomment %}
+  <div class="acciones-formulario">
+    <button type="submit" form="importacion-confirmar" class="boton">Confirmar importación</button>
+    <button type="submit" form="importacion-descartar" class="boton-quitar">Descartar</button>
+  </div>
 </div>
 {% endblock %}

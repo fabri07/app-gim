@@ -72,6 +72,15 @@
     @apply text-lg font-semibold text-gray-900 mb-3;
   }
 
+  /* El preflight de Tailwind lleva TODOS los headings al tamaño y peso del
+     cuerpo, así que hasta el 2026-09-07 un `<h3>` se renderizaba idéntico a
+     un `<p>`: "Filas que no se van a importar" (preview del importador) no
+     se leía como un encabezado. Un escalón por debajo de h2, no dos: el
+     sistema no tiene más de tres niveles en una misma pantalla. */
+  h3 {
+    @apply text-base font-semibold text-gray-900 mb-2;
+  }
+
   p {
     @apply mb-2 text-gray-700;
   }
@@ -212,6 +221,53 @@
       disabled:opacity-70 disabled:cursor-default;
   }
 
+  /* Acción destructiva que se REPITE: una por fila de una tabla de 43
+     ejercicios, o el "Descartar" que acompaña al confirmar del importador.
+     `.boton-peligro` (rojo sólido) en esa posición pinta la pantalla de rojo
+     y le da a "quitar un ejercicio" el mismo peso visual que a la acción
+     principal del formulario. El rojo queda en el texto y aparece de fondo
+     recién en hover; `.boton-peligro` sigue siendo el de las pantallas de
+     confirmación, donde borrar ES la acción de la pantalla. */
+  .boton-quitar {
+    @apply inline-flex items-center justify-center rounded-md border
+      border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700
+      no-underline hover:bg-red-50 hover:border-red-300 transition
+      cursor-pointer;
+  }
+
+  /* Fila de acciones al pie de un formulario largo: la principal y su salida.
+     Nació porque en los dos previews del importador "Confirmar importación" y
+     "Descartar" viven en dos <form> separados, así que salían uno DEBAJO del
+     otro, sin alineación y con el rojo pegado al primario. Los botones se
+     enganchan a su form por el atributo `form=`, que es lo que permite
+     sacarlos de adentro y ponerlos en una sola fila. */
+  .acciones-formulario {
+    @apply flex flex-wrap items-center gap-3 mt-6;
+  }
+
+  /* Ficha de datos de una pantalla de detalle (plantilla, rutina asignada):
+     etiqueta chica arriba, valor abajo, varias en una fila. Reemplaza a la
+     pila de `<p>Objetivo: X</p>` que ocupaba una tarjeta entera para cuatro
+     datos de tres palabras y no dejaba distinguir la etiqueta del valor. Usa
+     el rol tipográfico "Label" de DESIGN.md, que hasta ahora existía para un
+     solo cartel. */
+  .ficha-datos {
+    @apply flex flex-wrap gap-x-8 gap-y-4 m-0;
+  }
+
+  .ficha-datos > div {
+    @apply min-w-0;
+  }
+
+  .ficha-datos dt {
+    @apply text-xs font-semibold uppercase tracking-[0.05em] text-gray-500
+      mb-0.5;
+  }
+
+  .ficha-datos dd {
+    @apply m-0 text-sm text-gray-900;
+  }
+
   .texto-suave {
     @apply text-sm text-gray-500;
   }
@@ -320,6 +376,17 @@
 
   .badge--riesgo {
     @apply bg-red-100 text-red-800;
+  }
+
+  /* Etiqueta NEUTRA, no un cuarto color de estado. Verde/ámbar/rojo siguen
+     siendo los tres únicos colores de estado del sistema (ver DESIGN.md); esta
+     variante es para lo que NO es un estado: el código de bloque de una
+     superserie ("A1"), un "Ya existe" del importador, un plan finalizado. Se
+     agregó porque esos cinco lugares venían usando `.badge` a secas -- que
+     solo aporta forma, sin fondo ni color -- y salían como texto suelto con
+     un padding raro, o sea ni etiqueta ni texto. */
+  .badge--neutro {
+    @apply bg-gray-100 text-gray-700;
   }
 
   /* Grilla de turnos del alumno (Fase 6, Task 5) */
@@ -431,15 +498,46 @@
   }
 
   /* Tabla ancha "Mi rutina" (columna propia por Series/Reps/Kilos/
-     Descanso/Calificación, repetida por semana). Sin separador vertical
-     por nth-child entre grupos de semana a propósito: las filas donde
-     una semana no tiene fila cargada usan un único <td colspan="5">, así
-     que la cantidad de celdas por fila varía y un separador por posición
-     quedaría desalineado en esas filas. `<details>` de notas queda chico
-     y no rompe el alto de fila cuando está cerrado. */
+     Descanso/Calificación, repetida por semana). `<details>` de notas queda
+     chico y no rompe el alto de fila cuando está cerrado. */
   .tabla--rutina-semanas th,
   .tabla--rutina-semanas td {
     @apply whitespace-nowrap;
+  }
+
+  /* Primera celda de cada grupo de semana. Con 4 semanas la fila son 20
+     casilleros idénticos seguidos y no hay forma de ver dónde termina una
+     semana y empieza la otra: el encabezado "Semana 3" queda cinco columnas
+     más arriba. Va como CLASE puesta por el template y NO por `nth-child`,
+     que es lo que se había descartado antes: las filas donde una semana no
+     tiene ejercicio cargado usan un único `<td colspan="5">`, así que la
+     cantidad de celdas por fila varía y un separador por posición quedaría
+     corrido justo en esas filas. La clase la lleva también ese `colspan`,
+     así que el separador cae siempre en el mismo lugar. */
+  .tabla--rutina-semanas .borde-grupo {
+    @apply border-l border-l-gray-200;
+  }
+
+  /* "Quitar de las 4 semanas" tiene que decir de cuántas semanas se trata (es
+     lo único que avisa que el botón no borra solo la que estás mirando), y con
+     el `nowrap` de esta tabla esa frase se llevaba una columna enterísima. */
+  .tabla--rutina-semanas .celda-quitar,
+  .tabla--rutina-semanas .celda-quitar .boton-quitar {
+    @apply whitespace-normal;
+  }
+
+  .tabla--rutina-semanas .celda-quitar {
+    @apply max-w-36;
+  }
+
+  /* El desplegable con el que el alumno califica el ejercicio. Sus etiquetas
+     son frases ("Podría hacer más intenso", "Debería bajar la intensidad") y
+     la celda se dimensiona por el encabezado "Calificación": el control salía
+     de ~100px y mostraba "Podrí…", o sea el alumno no podía leer lo que había
+     elegido. La tabla ya scrollea a lo ancho, así que ensanchar esta columna
+     no rompe nada. */
+  .tabla--rutina-semanas .celda-calificacion select {
+    @apply min-w-[13rem];
   }
 
   /* Con 4 semanas la tabla tiene 17 columnas o más, así que el scroll
@@ -476,6 +574,15 @@
     @apply w-full mb-0 min-w-24;
   }
 
+  /* Alineado arriba, no al medio. La celda del ejercicio apila tres líneas
+     (nombre, categoría, video) y las otras 21 columnas tienen una sola: con
+     el `middle` que trae la tabla por defecto, el buscador de ejercicio
+     quedaba ~20px más alto que los casilleros de su propia fila. */
+  .tabla--editable th,
+  .tabla--editable td {
+    @apply align-top;
+  }
+
   .tabla--editable .columna-ejercicio {
     @apply min-w-56;
   }
@@ -493,8 +600,17 @@
     @apply bg-amber-50 border-amber-300;
   }
 
+  /* El título de cada día ES la estructura de la pantalla (una plantilla real
+     son 4 días y 172 ejercicios), así que se lee como encabezado y toda la
+     fila responde al click, no solo el texto. */
   .grilla-dia__titulo {
-    @apply cursor-pointer select-none;
+    @apply cursor-pointer select-none flex flex-wrap items-center gap-x-2
+      gap-y-1 -mx-2 rounded-md px-2 py-1 text-base font-semibold text-gray-900
+      hover:bg-gray-50;
+  }
+
+  .grilla-dia[open] > .grilla-dia__titulo {
+    @apply mb-4 pb-2 border-b border-gray-100;
   }
 
   /* En pantalla angosta la tabla no entra: las mismas celdas se reorganizan
@@ -568,6 +684,13 @@
     .tabla--editable input,
     .tabla--editable select {
       @apply min-w-0 text-sm;
+    }
+
+    /* En tarjeta el corte entre semanas ya lo hace la línea de arriba del
+       primer campo (`td:nth-child(5n+3)`); el borde izquierdo de la versión
+       tabla quedaría como una raya suelta al costado de "Series". */
+    .tabla--editable .borde-grupo {
+      @apply border-l-0;
     }
   }
 
@@ -680,6 +803,28 @@
   .lista-cuotas li {
     @apply flex flex-wrap items-center gap-2 border-t border-gray-200 pt-2
       first:border-t-0 first:pt-0;
+  }
+
+  /* Novedades del portal del alumno. Eran `<p>` sueltos uno atrás del otro:
+     el botón "Marcar como leída" de una novedad quedaba más cerca del título
+     de la SIGUIENTE que de su propio texto, así que las tres se leían como un
+     bloque continuo. Mismo molde de separadores que `.lista-cuotas`, con más
+     aire porque cada ítem tiene título, fecha, cuerpo y una acción. */
+  .lista-novedades {
+    @apply list-none p-0 m-0 flex flex-col;
+  }
+
+  .lista-novedades li {
+    @apply border-t border-gray-100 pt-4 mt-4 first:border-t-0 first:pt-0
+      first:mt-0;
+  }
+
+  .lista-novedades__encabezado {
+    @apply flex flex-wrap items-baseline gap-x-2 gap-y-1 mb-1;
+  }
+
+  .lista-novedades__titulo {
+    @apply font-semibold text-gray-900;
   }
 
   .lista-planes-por-vencer {

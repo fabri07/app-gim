@@ -19,14 +19,21 @@
             Semana {{ semana.numero }}
             {% if semana.es_actual %}<span class="badge badge--alerta">Actual</span>{% endif %}
           </strong>
-          {% if semana.completada %}<span class="badge badge--ok">✓ Entrenado</span>{% endif %}
+          {% if semana.completada %}<span class="badge badge--ok">Entrenado</span>{% endif %}
           {% if semana.tiene_items %}
+            {% comment %}
+              Solo la semana en curso lleva el botón primario: con el primario
+              en todas, "marcar la semana 1" (que ya pasó) pesaba lo mismo que
+              marcar el entrenamiento de hoy, que es a lo que el alumno entra.
+            {% endcomment %}
             <form method="post" action="{% url 'rutinas:dia_completado_toggle' dia semana.numero %}">
               {% csrf_token %}
               {% if semana.completada %}
                 <button type="submit" class="boton-secundario">Desmarcar</button>
-              {% else %}
+              {% elif semana.es_actual %}
                 <button type="submit" class="boton">Marcar como entrenado</button>
+              {% else %}
+                <button type="submit" class="boton-secundario">Marcar como entrenado</button>
               {% endif %}
             </form>
           {% else %}
@@ -43,10 +50,18 @@
         <table class="tabla tabla--rutina-semanas">
           <thead>
             <tr>
-              <th rowspan="2" scope="col">Ejercicio</th>
-              <th rowspan="2" scope="col">Video</th>
+              {% comment %}
+                `columna-ejercicio` deja fija esta columna mientras la tabla
+                scrollea a lo ancho. Estaba en la vista del staff y faltaba
+                acá, que es donde más importa: el alumno mira esto en el
+                celular y al llegar a la semana 3 ya no veía de qué ejercicio
+                era la fila. El video se mudó adentro de esta misma celda (una
+                columna menos, y viaja fija con el nombre), igual que en
+                `asignada_detail.html`.
+              {% endcomment %}
+              <th rowspan="2" scope="col" class="columna-ejercicio">Ejercicio</th>
               {% for semana in semanas_meta %}
-                <th colspan="5" scope="colgroup"{% if semana.es_actual %} class="rutina-semana-columna--actual"{% endif %}>
+                <th colspan="5" scope="colgroup" class="borde-grupo{% if semana.es_actual %} rutina-semana-columna--actual{% endif %}">
                   Semana {{ semana.numero }}{% if semana.es_actual %} <span class="badge badge--alerta">Actual</span>{% endif %}
                 </th>
               {% endfor %}
@@ -54,7 +69,7 @@
             <tr>
               {% for semana in semanas_meta %}
                 {% with clase_actual=semana.es_actual|yesno:"rutina-semana-columna--actual," %}
-                  <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Series</th>
+                  <th scope="col" class="borde-grupo {{ clase_actual }}">Series</th>
                   <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Reps</th>
                   <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Kilos</th>
                   <th scope="col"{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>Descanso</th>
@@ -66,28 +81,27 @@
           <tbody>
             {% for ejercicio in ejercicios %}
               <tr>
-                <td>
+                <th scope="row" class="columna-ejercicio">
                   {% comment %} El bloque agrupa superseries: A1, A2 y A3 se hacen uno
                      atrás del otro. Va antes del nombre porque es el orden en
                      que el alumno lee la fila.{% endcomment %}
-                  {% if ejercicio.bloque %}<span class="badge">{{ ejercicio.bloque }}</span> {% endif %}{{ ejercicio.nombre }}
+                  {% if ejercicio.bloque %}<span class="badge badge--neutro">{{ ejercicio.bloque }}</span> {% endif %}{{ ejercicio.nombre }}
                   <br><span class="texto-suave text-xs">{{ ejercicio.categoria_display }}</span>
-                </td>
-                <td>
+                  <br>
                   {% if ejercicio.video %}
-                    <a href="{{ ejercicio.video }}" target="_blank" rel="noopener">Ver video</a>
+                    <a href="{{ ejercicio.video }}" target="_blank" rel="noopener" class="text-xs">Ver video</a>
                   {% else %}
-                    <span class="texto-suave">Sin video</span>
+                    <span class="texto-suave text-xs">Sin video</span>
                   {% endif %}
-                </td>
+                </th>
                 {% for semana in ejercicio.semanas %}
                   {% with clase_actual=semana.es_actual|yesno:"rutina-semana-columna--actual," %}
                     {% if semana.item %}
-                      <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.series }}</td>
+                      <td class="borde-grupo {{ clase_actual }}">{{ semana.item.series }}</td>
                       <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.repeticiones }}</td>
                       <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.kilos|default:"—" }}</td>
                       <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.descanso|default:"—" }}</td>
-                      <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>
+                      <td class="celda-calificacion {{ clase_actual }}">
                         <form method="post" action="{% url 'rutinas:item_calificar' semana.item.pk %}">
                           {% csrf_token %}
                           <select name="rpe" onchange="this.form.submit()" aria-label="Calificar intensidad de {{ ejercicio.nombre }}, semana {{ semana.numero }}">
@@ -97,7 +111,7 @@
                             {% endfor %}
                           </select>
                         </form>
-                        {% if semana.item.rpe %}<span class="badge badge--ok">✓ Hecho</span>{% endif %}
+                        {% if semana.item.rpe %}<span class="badge badge--ok">Calificado</span>{% endif %}
                         {% if semana.item.notas %}
                           <details>
                             <summary>Notas</summary>
@@ -106,7 +120,7 @@
                         {% endif %}
                       </td>
                     {% else %}
-                      <td colspan="5" class="texto-suave{% if clase_actual %} {{ clase_actual }}{% endif %}">—</td>
+                      <td colspan="5" class="borde-grupo texto-suave {{ clase_actual }}">—</td>
                     {% endif %}
                   {% endwith %}
                 {% endfor %}
