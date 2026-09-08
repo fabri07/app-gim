@@ -84,7 +84,7 @@ mobile-first. No hay app nativa.
 - **Sin clientes pagos todavía** — el dueño del producto está por empezar a
   vender. Sin testimonios, casos de estudio ni datos de uso real de
   gimnasios: no inventar ninguno en trabajo futuro.
-- Desplegado en un entorno de prueba: `https://app-gim.onrender.com`
+- Desplegado en un entorno de prueba: `https://www.tugimapp.com`
   (Render free tier).
 
 ## Product Principles

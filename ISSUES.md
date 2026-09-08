@@ -20,6 +20,109 @@ del log.
 
 ---
 
+## [2026-09-08] La navegación era lenta: el web y la base en regiones distintas
+**Estado:** resuelto
+**Impacto:** cada pantalla tardaba entre 1,5 s y 5,6 s. El web service estaba en
+Oregón y la base de Neon en `sa-east-1` (São Paulo), así que **cada query pagaba
+182 ms de ida y vuelta**, medidos. El panel de inicio hace 28 queries: ~5,6 s.
+
+La causa era exactamente al revés de la intuición con la que se empezó. La
+fórmula, validada con menos del 3% de error sobre dos muestras del día:
+
+    TTFB ≈ 273 ms (piso de red + Django) + (queries + 1) × 182 ms
+
+El `+1` es el `conn_health_checks` de `config/db.py`. **La red al usuario no era
+el problema**: Cloudflare ya terminaba el TLS en Argentina a 19 ms. Y los
+conteos de queries estaban sanos, sin N+1 — el problema era el precio unitario.
+La lección que generaliza: el navegador nunca habla con la base. La latencia
+navegador↔web se paga **una vez por página**; la latencia web↔base, **una vez
+por query**. Tener la base cerca del usuario y lejos del web es el peor arreglo
+posible.
+
+**Resolución:** tres cosas, en este orden.
+
+1. **El logo y el fondo se re-descargaban en cada navegación** (62 KB + 189 KB =
+   251 KB por click). `FileField.url` sobre R2 privado sale **re-firmada en cada
+   render** (verificado: `X-Amz-Signature` distinta entre dos cargas de la misma
+   página), así que el navegador nunca reusaba su copia — y el `<img>` del
+   topbar vive en `base.html`, o sea todas las páginas, con `hx-boost`
+   reemplazando el `<body>` en cada click. Se sirven por
+   `tenants.views.ArchivoDeGimnasioView` con URL versionada por `modificado` y
+   `Cache-Control: immutable`, reusando el patrón que `notificaciones/icons.py`
+   ya tenía para el ícono de la PWA. **El fondo apareció verificando en
+   producción**, porque quedaba una ocurrencia de firma en el HTML: la lección
+   es contar las ocurrencias que quedan en vez de asumir que era el único caso.
+   El comprobante de pago sigue firmado a propósito — ese sí es dato sensible.
+2. **Migración a Virginia.** Proyecto Neon nuevo en `aws-us-east-1` y web
+   service nuevo (`app-gim-virginia`, Starter). El RTT por query pasó de 182 ms
+   a **2 ms** (p95 2,51), medido desde la Shell de cada servicio. Era la
+   incógnita que decidía el plan: Render corre sobre GCP y Neon sobre AWS, así
+   que el número cross-cloud podía ser 10-20 ms; el criterio de aborto era
+   30 ms.
+3. **Cloudflare no cacheaba ningún estático** (`cf-cache-status: DYNAMIC` aun
+   con `immutable` en la respuesta). No era el Caching Level, ni una Cache Rule,
+   ni Development Mode: **`www` estaba en "Solo DNS", fuera del proxy**, así que
+   el tráfico nunca pasaba por la zona y ninguna regla podía aplicarse. Lo
+   confuso es que igual devolvía `cf-ray`, porque Render usa Cloudflare como su
+   propio CDN (`…cdn.cloudflare.net` en la cadena de CNAME). Se detectó
+   comparando a qué IPs resolvía cada host: `www` daba las de Render
+   (`216.24.57.x`) y el apex las de Cloudflare (`104.21.x`). Al proxearlo, el
+   CSS pasó de 274 ms/`DYNAMIC` a **37 ms/`HIT`**.
+
+Resultado medido de punta a punta: piso 273 → **212 ms**, landing 819 →
+**217 ms**, panel ~5.600 → **~330 ms** (105 ms de servidor puro), estáticos 274
+→ **37 ms**, y 251 KB por click → **0**.
+
+**Riesgo que queda abierto:** el scale-to-zero de Neon free (5 min) no se puede
+desactivar, así que el primer visitante tras una pausa sigue pagando el
+despertar del compute. No se pudo medir en frío (el cron de recordatorios lo
+toca cada 15 min y lo mantiene despierto).
+
+---
+
+## [2026-09-08] Cinco trampas de la migración de región, todas silenciosas
+**Estado:** resuelto
+**Impacto:** ninguna de las cinco da error visible; cuatro se descubrieron
+haciéndolas.
+
+1. **El `buildCommand` corre `migrate`.** Al cambiarle el `DATABASE_URL` al
+   servicio viejo para medir, redeployó y le creó **las 67 migraciones** a la
+   base nueva, que debía estar vacía. Peor: si un `pg_restore` falla
+   parcialmente, `migrate` encuentra `django_migrations` vacía, crea el esquema
+   desde cero y **la app levanta en HTTP 200 con cero alumnos y sin un solo
+   error**. Por eso el diff de conteos es compuerta y no un chequeo más, y por
+   eso el restore va con `--single-transaction --exit-on-error`.
+2. **`DJANGO_DEBUG` no se cargó y el default de `settings.py` es `True`.** El
+   servicio nuevo quedó con `DEBUG=True`: la 404 imprimía `DEBUG = True` y los
+   url patterns, sin HSTS, sin cookies `Secure` y sin el manifest de WhiteNoise
+   (o sea, los estáticos perdían el `immutable`). Se detecta comparando la 404
+   contra producción (178 bytes vs 10.943) y por el header HSTS ausente. Los
+   otros cuatro headers de seguridad **no sirven para esto**: son defaults de
+   Django y aparecen igual.
+3. **Producción quedó apuntando a la base nueva y vacía** un rato, por el mismo
+   cambio de variable del punto 1: todas las rutas que tocan la base daban 404
+   y las que no (login genérico, privacidad) daban 200. Se diagnostica por el
+   RTT: 65 ms es Oregón↔Virginia, 182 ms es Oregón↔São Paulo.
+4. **Un deploy fallido no se nota desde afuera**: Render sigue sirviendo la
+   versión anterior, así que "todo responde 200" no prueba que las variables
+   nuevas quedaron bien. Hay que mirar si el deploy dice Live o Failed.
+5. **Medir el panel desde una Shell de Render necesita `Client().get("/",
+   secure=True)`.** Sin eso, `SECURE_SSL_REDIRECT` devuelve 301, la medición da
+   0 queries y "0 ms", y se lee como velocidad. Y no hay que poner un `get()` de
+   calentamiento antes del `CaptureQueriesContext`: con el `Client` reusado la
+   captura da 0 queries.
+
+**Resolución:** `.github/workflows/migrar-neon.yml` (temporal) hace inventario →
+dump → restore → diff con cuatro compuertas: que el destino no tenga filas de
+dominio antes de vaciarlo (lo único que separa "restauro en la nueva" de "vacío
+producción" es qué URL quedó en un secret, así que no se confía en el secret: se
+le pregunta a la base), restore atómico, diff de conteos y de las 33 secuencias,
+y collate/ctype/major. Todo verificado contra un `postgres:18` en Docker,
+incluido que la compuerta **detecte** una diferencia provocada y que un restore
+que choca deje la base intacta.
+
+---
+
 ## [2026-09-08] El push nunca había funcionado en producción (VAPID sin cargar)
 **Estado:** resuelto
 **Impacto:** las notificaciones push **jamás se entregaron en producción**, ni

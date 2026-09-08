@@ -1999,10 +1999,42 @@ para que un dueño nuevo entienda la app en ~5 minutos sin tocar `/admin/`.
 
 ## Deploy (Fase 5)
 
-**Estado (2026-08-19): desplegado y con dominio propio.** App en
-`https://www.tugimapp.com` (y `https://tugimapp.com`) — Render free tier,
-Blueprint aplicado, media en el bucket R2 `app-gim-media`. Repo en
-`https://github.com/fabri07/app-gim` (privado).
+**Estado (2026-09-08): desplegado en Virginia, web y base en la misma
+región.** App en `https://www.tugimapp.com` (y `https://tugimapp.com`), servida
+por el web service **`app-gim-virginia`** (región Virginia, plan **Starter**),
+con la base en Neon **`aws-us-east-1`** y media en el bucket R2
+`app-gim-media`. Repo en `https://github.com/fabri07/app-gim` (privado).
+
+**Por qué se migró de región, y la regla que deja:** hasta el 2026-09-08 el web
+estaba en Oregón y la base en `sa-east-1` (São Paulo), y **cada query pagaba
+182 ms de ida y vuelta**. El panel de inicio hace 28 queries: tardaba ~5,6 s.
+La lección, que aplica a cualquier decisión futura de infraestructura: **el
+navegador nunca habla con la base.** La latencia navegador↔web se paga una vez
+por página y Cloudflare ya la resolvía (TLS terminado en Argentina, 19 ms); la
+latencia web↔base se paga **una vez por query**. Tener la base cerca del usuario
+y lejos del web era el peor arreglo posible — y era justamente la intuición de
+la que se partió. Hoy el RTT es de **2 ms** (p95 2,51). Detalle completo en
+`ISSUES.md [2026-09-08]`.
+
+**El servicio NO está manejado por el Blueprint**: se creó a mano porque la
+región de un servicio no es editable después de crearlo, y `generateValue: true`
+sobre `DJANGO_SECRET_KEY` habría generado una clave nueva, deslogueando a todos
+e invalidando los tokens de reset. `render.yaml` sigue describiendo el servicio
+viejo (`app-gim`, Oregón), que queda **prendido y sin dominio** como vuelta
+atrás; su valor hoy es ser la lista completa de las 21 variables que la app
+necesita, y `config/tests.py::BlueprintDeclaraLoQueSettingsLeeTests` falla si
+`settings.py` lee una que ahí no está.
+
+**`www` va PROXEADO por Cloudflare (nube naranja), no en "Solo DNS".** No es
+cosmético: en Solo DNS la IP de origen queda expuesta, se pierden WAF y
+mitigación de DDoS, y **ninguna regla de cache de la zona se aplica** porque el
+tráfico nunca pasa por ella. Eso tuvo confundido el diagnóstico un buen rato,
+porque `www` devolvía `cf-ray` igual — Render usa Cloudflare como su propio CDN
+(`…cdn.cloudflare.net` en la cadena de CNAME). **Cómo distinguirlo:** `dig
++short www.tugimapp.com` tiene que devolver IPs de Cloudflare (`104.21.x` /
+`172.67.x`); si devuelve `216.24.57.x` está pegando directo a Render. Proxeado
+cuesta ~12 ms de piso y a cambio los estáticos se sirven desde Argentina
+(37 ms con `HIT` contra 274 ms sin él).
 
 **Dominio propio: `tugimapp.com`** — comprado en Cloudflare el 2026-07-30,
 apuntado a Render el 2026-08-19. `app-gim.onrender.com` ya **no responde**
@@ -2119,14 +2151,18 @@ casilla propia), pero no hay evidencia de que este paso ya se haya hecho.
   y la alerta por ausencia llegando por mail al minuto que correspondía.
   **La base vieja de Render ya se borró**: Neon es la única base. El runbook
   completo está en `docs/runbook-respaldos.md`.
-- **Lo que sigue pendiente**: (a) **rotar la contraseña de Neon** (quedó
-  expuesta en texto plano) y actualizarla en los tres lugares — `DATABASE_URL`
-  en Render y los dos secrets de GitHub; ojo que ya no hay base vieja como
-  vuelta atrás, así que verificar las tres puntas después; (b) ~~apuntar
-  `tugimapp.com`~~ **hecho el 2026-08-19** — ver más arriba; (c) smoke test
-  manual end-to-end de turnos → Google Calendar contra producción, ahora en
-  el dominio nuevo; (d) confirmar si los registros SPF/DKIM del email ya se
-  cargaron (ver nota de dominio más arriba — sin confirmar todavía).
+- **Lo que sigue pendiente**: (a) ~~rotar la contraseña de Neon~~ **cerrado
+  por la migración del 2026-09-08**: producción usa un proyecto Neon nuevo con
+  una credencial que nunca se expuso. Queda como tarea defensiva rotar la del
+  proyecto VIEJO, para que cualquier consumidor que haya quedado apuntando ahí
+  falle a los gritos en vez de trabajar en silencio sobre datos muertos;
+  (b) ~~apuntar `tugimapp.com`~~ **hecho el 2026-08-19**; (c) smoke test manual
+  end-to-end de turnos → Google Calendar contra producción; (d) ~~confirmar los
+  registros SPF/DKIM~~ **están cargados** (MX de `send`, SPF, DKIM de
+  `resend._domainkey` y DMARC), y desde el 2026-09-08 las 4 `EMAIL_*` están en
+  Render, así que «olvidé mi contraseña» aparece en el login. **Falta probar un
+  reset real**: el link visible solo prueba que el grupo está completo, no que
+  el envío funcione.
 - **Settings de producción** (`config/settings.py`): `DATABASE_URL` (Postgres
   si está seteada, SQLite si no — mismo criterio que el resto del archivo),
   `STORAGES["default"]` cambia a `storages.backends.s3.S3Storage` solo si
