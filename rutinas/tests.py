@@ -4881,3 +4881,88 @@ class ReducirDiasDeLaPlantillaTests(RutinasTestCase):
         response = self._editar(1)
         self.assertContains(response, "3 ejercicios")
         self.assertContains(response, "días 2 y 3")
+
+
+class CrearPlantillaDesdeAsignarTests(RutinasTestCase):
+    """Los tres avisos de «plan por vencer» llevan a asignar, y esa pantalla
+    solo dejaba elegir entre plantillas existentes: para armar una nueva había
+    que abandonar el flujo y volver a empezar. Ahora el alumno viaja en la
+    query string por las tres pantallas."""
+
+    def setUp(self):
+        super().setUp()
+        self.staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+    def test_asignar_ofrece_crear_una_plantilla_conservando_el_alumno(self):
+        response = self.client.get(
+            reverse("rutinas:asignar") + f"?alumno={self.alumno.pk}"
+        )
+        self.assertContains(response, "Crear una plantilla nueva")
+        self.assertContains(
+            response, f"{reverse('rutinas:plantilla_crear')}?alumno={self.alumno.pk}"
+        )
+
+    def test_crear_una_plantilla_con_alumno_lleva_a_la_grilla_con_ese_alumno(self):
+        response = self.client.post(
+            reverse("rutinas:plantilla_crear") + f"?alumno={self.alumno.pk}",
+            {
+                "nombre": "Plan nuevo", "objetivo": "Fuerza",
+                "nivel": RutinaPlantilla.Nivel.INTERMEDIO,
+                "dias_por_semana": 3, "activa": "on",
+            },
+        )
+        plantilla = RutinaPlantilla.objects.get(nombre="Plan nuevo")
+        self.assertRedirects(
+            response,
+            reverse("rutinas:plantilla_detalle", args=[plantilla.pk])
+            + f"?alumno={self.alumno.pk}",
+        )
+
+    def test_la_grilla_con_alumno_ofrece_volver_a_asignar(self):
+        plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Plan", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=1,
+        )
+        response = self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[plantilla.pk])
+            + f"?alumno={self.alumno.pk}"
+        )
+        self.assertContains(response, "Asignar a")
+        self.assertContains(response, str(self.alumno))
+        self.assertContains(
+            response,
+            f"{reverse('rutinas:asignar')}?alumno={self.alumno.pk}&plantilla={plantilla.pk}",
+        )
+
+    def test_sin_alumno_la_grilla_no_muestra_ese_boton(self):
+        plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Plan", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=1,
+        )
+        response = self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[plantilla.pk])
+        )
+        # El botón genérico sigue estando; lo que no aparece es el que vuelve
+        # a un alumno concreto.
+        self.assertContains(response, "Asignar a un alumno")
+        self.assertNotContains(response, "?alumno=")
+
+    def test_un_alumno_de_otro_gimnasio_se_ignora(self):
+        """`?alumno=` viene de la URL: se resuelve contra el queryset del
+        gimnasio, no se confía."""
+        otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        ajeno = Alumno.objects.create(gimnasio=otro, nombre="Ajeno", apellido="X")
+        plantilla = RutinaPlantilla.objects.create(
+            gimnasio=self.gimnasio, nombre="Plan", objetivo="Fuerza",
+            nivel=RutinaPlantilla.Nivel.INTERMEDIO, dias_por_semana=1,
+        )
+        response = self.client.get(
+            reverse("rutinas:plantilla_detalle", args=[plantilla.pk]) + f"?alumno={ajeno.pk}"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["alumno_destino"])
+        self.assertNotContains(response, "Ajeno")

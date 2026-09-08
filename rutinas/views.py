@@ -79,6 +79,13 @@ class RutinaPlantillaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
 
 
 class RutinaPlantillaCreateView(StaffRequiredMixin, TenantScopedMixin, CreateView):
+    """Crear una plantilla.
+
+    `?alumno=` llega desde «Crear una plantilla nueva» en la pantalla de
+    asignar y se arrastra hasta la grilla, para poder volver a asignar sin
+    tener que buscar al alumno de nuevo.
+    """
+
     model = RutinaPlantilla
     form_class = RutinaPlantillaForm
     template_name = "rutinas/plantilla_form.html"
@@ -89,7 +96,9 @@ class RutinaPlantillaCreateView(StaffRequiredMixin, TenantScopedMixin, CreateVie
         return response
 
     def get_success_url(self):
-        return reverse("rutinas:plantilla_detalle", args=[self.object.pk])
+        url = reverse("rutinas:plantilla_detalle", args=[self.object.pk])
+        alumno = self.request.GET.get("alumno")
+        return f"{url}?alumno={alumno}" if alumno else url
 
 
 class RutinaPlantillaUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):

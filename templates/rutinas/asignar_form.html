@@ -8,6 +8,16 @@
     {% csrf_token %}
     {{ form.as_p }}
     <p id="aviso-plan-vigente" class="texto-suave" hidden></p>
+    {% comment %}
+      Los tres avisos de «plan por vencer» traen acá, y hasta 2026-09-07 esta
+      pantalla solo dejaba elegir entre las plantillas que ya existían: para
+      armar una nueva había que abandonar el flujo. El alumno viaja en la
+      query string para poder volver sin buscarlo de nuevo.
+    {% endcomment %}
+    <p class="texto-suave">
+      ¿No tenés todavía la plantilla?
+      <a href="{% url 'rutinas:plantilla_crear' %}{% if request.GET.alumno %}?alumno={{ request.GET.alumno }}{% endif %}">Crear una plantilla nueva</a>
+    </p>
     <button type="submit" class="boton">Asignar</button>
     <a class="boton-secundario" href="{% url 'rutinas:plantilla_listado' %}">Cancelar</a>
   </form>
