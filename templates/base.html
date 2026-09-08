@@ -145,7 +145,7 @@
     {% endcomment %}
     <a href="{% if user.is_authenticated %}{% url 'home' %}{% else %}{% url 'login' %}{% endif %}" class="topbar__marca" {% if not user.is_authenticated %}hx-boost="false"{% endif %}>
       {% if user.is_authenticated and user.perfil.gimnasio.logo %}
-        <img src="{{ user.perfil.gimnasio.logo.url }}" alt="{{ user.perfil.gimnasio.nombre }}">
+        <img src="{{ user.perfil.gimnasio.logo_url_cacheable }}" alt="{{ user.perfil.gimnasio.nombre }}">
       {% endif %}
       <span>{{ user.perfil.gimnasio.nombre|default:"App Gimnasios" }}</span>
     </a>

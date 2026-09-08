@@ -14,6 +14,7 @@ from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.templatetags.static import static
+from django.urls import reverse
 
 from core.models import TenantOwnedModel, TimeStampedModel
 
@@ -277,6 +278,31 @@ class Gimnasio(TimeStampedModel):
     @property
     def color_secundario_css(self):
         return self.PALETAS[self.paleta]["secundario"]
+
+    @property
+    def version_media(self):
+        """Versión de los archivos del gimnasio, para poder servirlos con una
+        respuesta `immutable`: cambiar el logo cambia `modificado`, y con eso
+        cambia la URL.
+
+        En milisegundos y no en segundos porque dos guardados dentro del mismo
+        segundo (pasa en los tests, y en un doble submit) compartirían versión
+        -- mismo criterio y mismo motivo que `notificaciones.icons`, que
+        delega acá para que la regla viva en un solo lugar."""
+        return int(self.modificado.timestamp() * 1000)
+
+    @property
+    def logo_url_cacheable(self):
+        """URL del logo, servida por `tenants.views.LogoGimnasioView`.
+
+        **No usar `logo.url` en los templates.** Con el bucket de R2 privado,
+        `AWS_QUERYSTRING_AUTH` re-firma esa URL en CADA render, así que el
+        navegador la ve distinta siempre y vuelve a bajar el archivo en cada
+        navegación: 62 KB y ~458 ms por click, medidos en producción. Ver el
+        docstring de `tenants/tests_logo.py`."""
+        if not self.logo:
+            return ""
+        return f"{reverse('logo_gimnasio', args=[self.slug])}?v={self.version_media}"
 
 
 class Perfil(TimeStampedModel):
