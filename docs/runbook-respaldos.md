@@ -87,12 +87,24 @@ commits), un chequeo que corriera adentro tampoco correría, y la alerta que
 justifica todo el mecanismo nunca llegaría. Tiene que ser un tercero el que note
 la ausencia.
 
-Creá dos checks y anotá la **ping URL** de cada uno:
+Creá tres checks y anotá la **ping URL** de cada uno:
 
 | Check | Período | Gracia | Secret |
 |---|---|---|---|
 | Backup diario | 1 día | 6 horas | `HEALTHCHECKS_URL_BACKUP` |
 | Verificación mensual | 30 días | 3 días | `HEALTHCHECKS_URL_VERIFY` |
+| Generar pagos | 1 día | 6 horas | `HEALTHCHECKS_URL_GENERAR_PAGOS` |
+
+**La gracia de 6 horas no es exceso de prudencia:** GitHub no garantiza
+puntualidad en los `schedule` de repos free y los retrasa bastante — se midió
+el cron de recordatorios (`*/15 * * * *`) corriendo cada 2 a 4 horas. Una
+gracia corta te llenaría la casilla de falsas alarmas hasta que aprendas a
+ignorarlas, que es justo lo que hace inútil a un monitor.
+
+**Por qué «Generar pagos» importa tanto como el backup:** desde la migración a
+cuotas por ciclo de 28 días, ese cron es el ÚNICO emisor de facturación *y* el
+insumo del bloqueo por falta de pago. Que se caiga en silencio es un gimnasio
+que deja de cobrar sin enterarse.
 
 Configurá el mail de notificación a una casilla que leas de verdad.
 
@@ -105,7 +117,7 @@ Configurá el mail de notificación a una casilla que leas de verdad.
    repos privados y este uso ronda los 100-150; con el límite en cero, si algo
    se descontrola las corridas se detienen en vez de cobrarte.
 
-2. **Cargá los 9 secrets** en Settings → Secrets and variables → Actions →
+2. **Cargá los 13 secrets** en Settings → Secrets and variables → Actions →
    *New repository secret*:
 
 | Secret | De dónde sale |
@@ -119,6 +131,23 @@ Configurá el mail de notificación a una casilla que leas de verdad.
 | `R2_BACKUPS_ENDPOINT_URL` | Paso 2 |
 | `HEALTHCHECKS_URL_BACKUP` | Paso 3 |
 | `HEALTHCHECKS_URL_VERIFY` | Paso 3 |
+| `HEALTHCHECKS_URL_GENERAR_PAGOS` | Paso 3 |
+| `VAPID_PRIVATE_KEY` | Los mismos valores que usa Render (ver abajo) |
+| `VAPID_PUBLIC_KEY` | ídem |
+| `VAPID_ADMIN_EMAIL` | ídem |
+
+**Las 3 `VAPID_*` no son opcionales y faltaron durante meses.**
+`enviar-recordatorios.yml` las necesita para firmar los push. Cuando faltan las
+tres, `_bandera_todo_o_nada` devuelve `False` **en silencio** (solo lanza si
+están *parciales*), así que el workflow corre en verde cada 15 minutos y no
+entrega NINGUNA notificación. No hay error, no hay log, nadie se entera. Se
+detectó recién el 2026-09-08.
+
+Tienen que ser **exactamente las mismas** que las de Render: son la identidad
+del servidor ante el navegador, y si divergen, los alumnos suscriptos con una
+clave dejan de recibir los push firmados con la otra. Si algún día "los
+recordatorios no llegan", empezá por chequear que estos tres sigan cargados en
+los dos lados.
 
 **Directa vs pooled no es intercambiable.** El `pg_dump` abre una sesión larga
 que el pooler no sostiene bien, por eso usa la directa. `generar_pagos` hace
