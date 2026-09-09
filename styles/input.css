@@ -590,8 +590,21 @@
   /* Control segmentado de semanas. Doble señal, a propósito: el primario dice
      "esta es la que estás viendo" y el punto ámbar "esta es la semana en
      curso" -- nunca significan lo mismo. */
+  /* `overflow-x: auto` no es decorativo: con `whitespace-nowrap`, cada pestaña
+     se planta en su ancho de texto y no encoge más. Medido en un viewport de
+     320px (la página anida dos veces `.contenido--ancho`, o sea `px-4` dos
+     veces): la barra mide 256px y su contenido 279, así que "Semana 4"
+     quedaba cortada — y como `body` lleva `overflow-x: hidden` como red de
+     seguridad, no había forma de llegar a ella. Con esto la barra se desliza.
+     Donde sí entran (390px en adelante) no cambia nada. */
   .semanas-pestanas {
-    @apply flex gap-1 mb-3 rounded-lg border border-gray-200 bg-white p-1;
+    @apply flex gap-1 mb-3 rounded-lg border border-gray-200 bg-white p-1
+      overflow-x-auto;
+    scrollbar-width: none;
+  }
+
+  .semanas-pestanas::-webkit-scrollbar {
+    display: none;
   }
 
   .semanas-pestanas__item {

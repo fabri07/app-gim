@@ -860,14 +860,35 @@ vea sin ningún cartel que diga «deslizá».
 - **`overscroll-behavior-x: contain`.** Sin eso, deslizar contra el borde
   dispara el gesto de «atrás» del navegador en Android: el alumno pierde la
   pantalla en vez de cambiar de semana.
-- **El carrusel recuerda en `sessionStorage` la semana que estabas mirando.**
+- **La memoria de `sessionStorage` es de UNA navegación, no del historial.**
   Calificar un ejercicio y marcar el día entrenado son POST que redirigen a la
   misma URL **sin fragmento** (`RutinaAsignadaItemCalificarView`), así que sin
-  esa memoria el alumno que califica algo de la semana 2 vuelve tirado en la
-  semana en curso. La posición se fija con
+  ella el alumno que califica algo de la semana 2 vuelve tirado en la semana en
+  curso. Por eso se escribe **solo al enviar uno de esos formularios** (en fase
+  de CAPTURA: el `onchange` del desplegable llama a `form.submit()`, que no
+  dispara el evento `submit` y arranca la navegación ahí mismo) y **se consume
+  al restaurar**. La primera versión la escribía en cada scroll, desde el
+  `IntersectionObserver`, y eso la volvía permanente para la pestaña: una
+  pestaña de PWA vive semanas, así que el alumno que un martes de la semana 3
+  desliza hasta la semana 1 para comparar cargas se quedaba abriendo la semana
+  1 para siempre, incluso con un plan nuevo ya asignado. Lo encontró un
+  `/code-review`. La posición se fija con
   `scrollLeft = hoja.offsetLeft - hojas[0].offsetLeft` (el origen es la primera
   hoja, no el carrusel, para no depender de su padding lateral) y **nunca con
   `scrollIntoView`**, que además scrollea la página en vertical.
+- **La barra de pestañas se desliza** (`overflow-x: auto`). No es decorativo:
+  con `whitespace-nowrap` cada pestaña se planta en su ancho de texto y no
+  encoge más. Medido en un viewport de 320px (esta página anida dos veces
+  `.contenido--ancho`, o sea `px-4` dos veces): la barra mide 256px y su
+  contenido 279, así que «Semana 4» quedaba cortada — y con el
+  `body { overflow-x: hidden }` que el proyecto usa como red de seguridad, no
+  había forma de llegar a ella.
+- **Costo aceptado del markup duplicado, medido**: un día real (11 ejercicios ×
+  4 semanas) pesa 154,8 KB crudos pero **6,6 KB con gzip**, que es lo que
+  viaja; el caso extremo de 43 ejercicios en UN día, 560,7 KB crudos y **13,5
+  KB gzip**. Un `/code-review` lo marcó calculando sobre bytes SIN comprimir
+  («23 MB de datos móviles»), que sobreestima unas 40 veces. Si alguna vez el
+  peso importa de verdad, el número a mirar es el comprimido.
 - **Gotcha de verificación, no de código**: en una pestaña de Chrome en
   segundo plano (`document.hidden`) el navegador congela `IntersectionObserver`
   y el scroll suave. Eso se ve exactamente igual que un carrusel roto — la

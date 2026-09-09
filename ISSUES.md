@@ -105,6 +105,29 @@ de sistema, no de esta pantalla.
    dos cosas funcionan. **Antes de dar por roto un comportamiento dependiente de
    rAF/IO, mirá `document.visibilityState`.**
 
+**Lo que encontró el `/code-review` después de mergear**, verificado a mano
+antes de tocar nada:
+
+- **La memoria de la semana quedaba pegada para siempre** (real, corregido).
+  Se escribía desde el `IntersectionObserver`, o sea en cada scroll, cuando la
+  intención era sobrevivir al redirect de un POST. Una pestaña de PWA vive
+  semanas: el alumno que desliza a la semana 1 para comparar cargas se quedaba
+  abriendo la semana 1 para siempre, incluso con un plan nuevo asignado. Ahora
+  se escribe solo al enviar el formulario (en fase de captura, porque
+  `form.submit()` no dispara el evento `submit`) y se consume al restaurar.
+  Verificado el ciclo completo en el navegador: deslizar no recuerda, calificar
+  sí, la carga siguiente vuelve a la semana en curso.
+- **La barra de pestañas se cortaba a 320px** (real, corregido). Medido: barra
+  de 256px con 279 de contenido, y `body { overflow-x: hidden }` impedía llegar
+  a «Semana 4». Ahora la barra se desliza.
+- **El peso del markup duplicado** (marcado como medium, medido de nuevo y
+  aceptado). El informe calculó sobre bytes **sin comprimir** y concluyó «23 MB
+  de datos móviles»; con gzip, que es lo que viaja, un día real son **6,6 KB** y
+  el caso extremo de 43 ejercicios en un día, **13,5 KB**. La sobreestimación es
+  de unas 40 veces. Lo que sí queda en pie del hallazgo es que el teléfono
+  parsea un DOM que no puede mostrar; a este tamaño no justifica renderizar la
+  tabla de escritorio en una segunda request.
+
 **Cómo verificar el layout de celular desde acá** (la memoria del proyecto decía
 que no se podía): `resize_window` sigue sin cambiar `innerWidth`, y `osascript`
 no logra achicar la ventana de Chrome por debajo de su ancho actual. Lo que SÍ

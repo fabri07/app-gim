@@ -223,15 +223,28 @@
     // Calificar un ejercicio y marcar el día entrenado son POST que redirigen
     // a esta misma URL SIN fragmento (`rutinas/views.py`), así que sin esta
     // memoria el alumno que califica algo de la semana 2 vuelve tirado en la
-    // semana en curso. Por sesión y por día.
+    // semana en curso.
+    //
+    // Se escribe SOLO al enviar uno de esos formularios y se CONSUME al
+    // restaurar: es memoria de UNA navegación, no del historial de lo que el
+    // alumno miró. Guardándola en cada scroll (que fue la primera versión) el
+    // efecto era otro y peor: una pestaña de PWA vive semanas, así que el
+    // alumno que un martes de la semana 3 desliza hasta la semana 1 para
+    // comparar cargas se queda abriendo la semana 1 para siempre, incluso
+    // después de que el entrenador le asigne un plan nuevo.
     var clave = "rutina_semana_dia_" + carrusel.dataset.dia;
 
     function recordar(numero) {
       try { sessionStorage.setItem(clave, numero); } catch (error) { /* modo privado */ }
     }
 
+    // Lee y borra: la memoria vale para la carga que sigue al POST y nada más.
     function recordada() {
-      try { return sessionStorage.getItem(clave); } catch (error) { return null; }
+      try {
+        var valor = sessionStorage.getItem(clave);
+        sessionStorage.removeItem(clave);
+        return valor;
+      } catch (error) { return null; }
     }
 
     function hojaDe(numero) {
@@ -269,9 +282,26 @@
       if (!hoja) { return false; }
       ir(hoja, suave);
       marcarPestana(numero);
-      recordar(numero);
       return true;
     }
+
+    // En FASE DE CAPTURA a propósito: el `onchange` del desplegable de
+    // calificación llama a `form.submit()`, que no dispara el evento `submit`
+    // y arranca la navegación ahí mismo. Escuchando en captura, esto corre
+    // antes que ese handler y llega a guardar.
+    function recordarLaHojaDe(evento) {
+      if (!evento.target.closest) { return; }
+      // Solo lo que de verdad envía: el desplegable de calificación (que se
+      // auto-envía al cambiar) y los botones de "marcar entrenado". Un click
+      // en "Ver video" o en las notas no es una navegación que haya que
+      // sobrevivir.
+      if (evento.type === "click" && !evento.target.closest("button")) { return; }
+      var hoja = evento.target.closest(".semana-hoja");
+      if (hoja) { recordar(hoja.dataset.semana); }
+    }
+
+    carrusel.addEventListener("change", recordarLaHojaDe, true);
+    carrusel.addEventListener("click", recordarLaHojaDe, true);
 
     if (!activar(recordada(), false)) {
       if (!activar(carrusel.dataset.semanaActual, false)) {
@@ -293,7 +323,6 @@
         entradas.forEach(function (entrada) {
           if (entrada.isIntersecting) {
             marcarPestana(entrada.target.dataset.semana);
-            recordar(entrada.target.dataset.semana);
           }
         });
       }, { root: carrusel, threshold: 0.6 });
