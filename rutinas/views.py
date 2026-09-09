@@ -33,6 +33,7 @@ from rutinas import progreso, services
 from rutinas.agrupacion import (
     listar_ejercicios_de_plantilla,
     listar_ejercicios_del_dia,
+    listar_semanas_del_dia,
 )
 from rutinas.forms import (
     AgregarEjercicioAsignadoForm,
@@ -888,6 +889,12 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
                 ),
                 "semanas_meta": semanas_meta,
                 "ejercicios": ejercicios,
+                # La misma lista dada vuelta, para el carrusel del celular:
+                # una hoja por semana. No cuesta ninguna query -- transpone lo
+                # que `listar_ejercicios_del_dia` ya trajo.
+                "hojas_por_semana": listar_semanas_del_dia(
+                    ejercicios, semanas_meta
+                ),
                 "rpe_choices": RutinaAsignadaItem.RPE.choices,
             },
         )

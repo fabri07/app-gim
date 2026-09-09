@@ -1,0 +1,27 @@
+{% comment %}
+  El botón con el que el alumno marca (o desmarca) como entrenado un día de una
+  semana. Compartido por la tarjeta "Semanas" de escritorio y la hoja de semana
+  del celular (`rutinas/mi_dia_detalle.html`), que renderizan los dos el mismo
+  form -- uno de los dos siempre oculto por CSS.
+
+  Recibe `dia` y `semana` (la metadata de `semanas_meta`: `numero`,
+  `completada`, `es_actual`, `tiene_items`).
+
+  Solo la semana en curso lleva el botón primario: con el primario en todas,
+  "marcar la semana 1" (que ya pasó) pesaba lo mismo que marcar el
+  entrenamiento de hoy, que es a lo que el alumno entra.
+{% endcomment %}
+{% if semana.tiene_items %}
+  <form method="post" action="{% url 'rutinas:dia_completado_toggle' dia semana.numero %}">
+    {% csrf_token %}
+    {% if semana.completada %}
+      <button type="submit" class="boton-secundario">Desmarcar</button>
+    {% elif semana.es_actual %}
+      <button type="submit" class="boton">Marcar como entrenado</button>
+    {% else %}
+      <button type="submit" class="boton-secundario">Marcar como entrenado</button>
+    {% endif %}
+  </form>
+{% else %}
+  <span class="texto-suave">Sin ejercicios esta semana</span>
+{% endif %}

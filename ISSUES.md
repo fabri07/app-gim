@@ -20,6 +20,100 @@ del log.
 
 ---
 
+## [2026-09-09] El plan de entrenamiento era ilegible en el celular
+**Estado:** resuelto
+**Impacto:** dos capturas desde un Android real, sobre la misma familia de
+pantallas (las tablas de 4 semanas), con dos problemas de distinta gravedad.
+
+1. **Editor de plantillas (staff).** En celular cada fila se reorganiza en una
+   tarjeta con grilla. La celda de *Series* usaba como etiqueta el texto largo
+   `"Semana 1 · Series"` (`content: attr(data-label)`), que ocupa **dos**
+   renglones donde las otras cuatro (Reps/Kilos/Descanso/Notas) ocupan uno: el
+   casillero de Series arrancaba más abajo que los otros cuatro de su propia
+   fila. Además el campo *Bloque* no tenía **ninguna** etiqueta visible: la
+   regla se dispara con `data-corto` y esa celda solo trae `data-label`, así
+   que quedaba un casillero suelto con el placeholder «A1».
+2. **Día de la rutina en el portal del alumno.** Tabla de 21 columnas
+   (Ejercicio + 4 semanas × 5 campos) con `white-space: nowrap` en todas las
+   celdas y un `<select>` de calificación de 13rem por semana: del orden de
+   2000px de ancho contra los 360 de un teléfono. La columna del ejercicio se
+   llevaba ~64% de la pantalla y de la semana 1 asomaban dos columnas
+   cortadas. Es la pantalla que más se usa desde el celular.
+
+**Resolución / próximo paso:**
+
+**El segundo no era un problema de ancho sino de modelo mental.** La matriz de
+4 semanas responde la pregunta del ENTRENADOR (cómo progresa un ejercicio); el
+alumno parado en el gimnasio entre series mira LA semana de hoy y un ejercicio
+a la vez. Achicar la tabla lo dejaba igual de mal, solo que más chico. Abajo de
+`sm` la tabla se esconde y en su lugar va un carrusel con imán: una hoja por
+semana, a pantalla completa, abierta en la semana en curso. El escritorio no
+cambió en ninguna de las dos pantallas.
+
+Decisiones que no se deducen del código:
+
+- **Acá SÍ se duplica markup** (tabla + hojas conviven en el DOM, una de las
+  dos con `display: none`). La tabla es fila-mayor y las hojas semana-mayor: no
+  hay CSS que transponga eso. Es lo contrario del caso de `.tabla--editable`,
+  donde duplicar estaba prohibido porque volvía ambigua la serialización — acá
+  lo interactivo (calificar, marcar entrenado) sale a `partials/rutina_*.html`
+  compartidos, cada copia en su propio `<form>`, y la copia oculta no es
+  alcanzable ni por teclado ni por lector de pantalla.
+- **El título de semana del editor es un `::after` absoluto con
+  `width: calc(300% + 1rem)`**, atado a `grid-cols-3` y `gap-x-2`: un
+  pseudo-elemento no puede ser ítem de la grilla, y un `<td>` propio agregaría
+  una columna a la tabla de escritorio. Si cambia la cantidad de columnas o el
+  gap, el calc los tiene que seguir. Hay un test que exige el atributo
+  `data-semana-titulo` en las filas Y dentro del `<template>` del molde: sin lo
+  segundo, un ejercicio agregado con «Agregar ejercicio» sale sin título.
+- **La grilla del editor pasó de 5 a 3 columnas en celular**, medido a 390px:
+  con cinco, cada columna quedaba en 43px y eso rompía dos cosas a la vez — la
+  etiqueta «Descanso» se montaba sobre «Notas», y el input, con 12px de padding
+  por lado, dejaba 19px de contenido, así que **el valor de Series se veía
+  cortado**. Con tres, cada semana ocupa dos renglones (Series/Reps/Kilos +
+  Descanso/Notas, esta última con `col-span-2` para que el grupo mida exacto) y
+  todo se lee. Esto no salió del pedido: salió de mirar la pantalla renderizada.
+- **Nada de `position: sticky` adentro del carrusel.** `overflow-x: auto`
+  convierte el otro eje en `auto`, así que un encabezado pegajoso ahí se pega al
+  carrusel y no al viewport — el mismo gotcha de `overflow` ya documentado para
+  la columna fija de la tabla.
+- **`overscroll-behavior-x: contain` en el carrusel.** Sin eso, deslizar contra
+  el borde dispara el gesto de «atrás» del navegador en Android: el alumno
+  pierde la pantalla en vez de cambiar de semana.
+- **El carrusel recuerda la semana mirada en `sessionStorage`.** Calificar un
+  ejercicio y marcar el día entrenado son POST que redirigen a la misma URL
+  **sin fragmento** (`rutinas/views.py`), así que sin esa memoria el alumno que
+  califica algo de la semana 2 vuelve tirado en la semana en curso.
+
+**Riesgo aceptado:** `.boton-quitar` mide 30px de alto, por debajo del mínimo
+táctil de 44px que el resto de la pantalla ya respeta. Es preexistente y se
+repite en toda la app (una vez por fila de tabla), así que subirlo es un cambio
+de sistema, no de esta pantalla.
+
+**Dos trampas de verificación, las dos ya conocidas y las dos silenciosas:**
+
+1. El **service worker** (`app-gim-estaticos-v1`, cache-first sobre `/static/`)
+   sirvió un `app.css` viejo dos veces durante este trabajo, con el archivo
+   correcto en disco Y en el servidor. La primera vez el síntoma fue que
+   `hidden sm:block` no revertía: la clase `.sm\:block` no existía en el CSS
+   cacheado porque era nueva. **Se re-registra en cada carga**, así que hay que
+   desregistrarlo y borrar la caché después de CADA `npm run build:css`.
+2. En una pestaña de Chrome en **segundo plano** (`document.hidden`), Chrome
+   congela `IntersectionObserver` y el scroll suave. Durante la verificación
+   eso se veía exactamente igual que un carrusel roto: la pestaña no seguía al
+   deslizar y el salto por pestaña no llegaba. Con la pestaña al frente, las
+   dos cosas funcionan. **Antes de dar por roto un comportamiento dependiente de
+   rAF/IO, mirá `document.visibilityState`.**
+
+**Cómo verificar el layout de celular desde acá** (la memoria del proyecto decía
+que no se podía): `resize_window` sigue sin cambiar `innerWidth`, y `osascript`
+no logra achicar la ventana de Chrome por debajo de su ancho actual. Lo que SÍ
+funciona es un **iframe de 390px**: las media queries se evalúan contra el
+viewport del iframe. Django manda `X-Frame-Options: DENY` en las vistas, pero no
+en los archivos servidos desde `/static/`, así que alcanza con `curl` de la
+página autenticada a un `.html` temporal dentro de `static/` y abrirlo dentro de
+un iframe angosto. Borrar esos archivos al terminar.
+
 ## [2026-09-08] Cuenta demo compartida entre varios dueños de gimnasio
 **Estado:** aceptado
 **Impacto:** se comparte UNA cuenta de staff (slug `demo`, `Gimnasio.es_demo`)
