@@ -576,12 +576,139 @@
     @apply rounded-2xl border border-gray-200 shadow-sm;
   }
 
+  /* ---------------------------------------------------------------------
+     El día del alumno en el celular: una hoja por semana.
+
+     La tabla de arriba (4 semanas lado a lado, 21 columnas) responde la
+     pregunta del ENTRENADOR -- cómo progresa un ejercicio semana a semana --
+     y en un teléfono de 360px mide unos 2000px de ancho. El alumno parado en
+     el gimnasio entre series mira LA semana de hoy y un ejercicio a la vez,
+     así que abajo de `sm` la tabla se esconde y en su lugar va este carrusel.
+     Es una adaptación de contenido, no un cambio de escala.
+     --------------------------------------------------------------------- */
+
+  /* Control segmentado de semanas. Doble señal, a propósito: el primario dice
+     "esta es la que estás viendo" y el punto ámbar "esta es la semana en
+     curso" -- nunca significan lo mismo. */
+  .semanas-pestanas {
+    @apply flex gap-1 mb-3 rounded-lg border border-gray-200 bg-white p-1;
+  }
+
+  .semanas-pestanas__item {
+    @apply relative flex flex-1 items-center justify-center min-h-11 rounded-md
+      px-1 text-xs font-semibold text-gray-600 no-underline text-center
+      whitespace-nowrap transition-colors duration-150 hover:bg-gray-50
+      hover:no-underline;
+  }
+
+  .semanas-pestanas__item[aria-current] {
+    @apply bg-[var(--color-primario)] text-white hover:bg-[var(--color-primario)];
+  }
+
+  /* Absoluto y no un ítem más del flex: ocupando lugar, "Semana 2" ya no
+     entraba en su cuarto de pantalla y la pestaña activa partía el texto en
+     dos renglones. */
+  .semanas-pestanas__punto {
+    @apply absolute top-1.5 right-1.5 block h-1.5 w-1.5 rounded-full
+      bg-amber-400;
+  }
+
+  .semanas-carrusel {
+    @apply flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-4 px-4 mb-6;
+    /* Sin esto, deslizar contra el borde dispara el gesto de "atrás" del
+       navegador en Android: el alumno pierde la pantalla en vez de cambiar de
+       semana. */
+    overscroll-behavior-x: contain;
+    /* Que el imán deje la hoja alineada con el margen de la página, no pegada
+       al borde: tiene que coincidir con el `px-4` de arriba. */
+    scroll-padding-left: 1rem;
+    scrollbar-width: none;
+  }
+
+  .semanas-carrusel::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 92% y no 100%: la hoja siguiente asoma, que es lo que enseña el gesto sin
+     necesidad de un cartel que diga "deslizá". `p-4` en vez del `p-6` de
+     `.tarjeta` -- 24px de padding a cada lado en una pantalla de 360 son 48px
+     de contenido perdidos. */
+  .semana-hoja {
+    @apply snap-start shrink-0 w-[92%] max-w-96 p-4 mb-0;
+  }
+
+  .semana-hoja__encabezado {
+    @apply flex flex-wrap items-center gap-2 pb-3 mb-4 border-b
+      border-gray-100;
+  }
+
+  .semana-hoja__encabezado h2 {
+    @apply mb-0;
+  }
+
+  .ejercicio-hoja + .ejercicio-hoja {
+    @apply pt-4 mt-4 border-t border-gray-100;
+  }
+
+  .ejercicio-hoja__nombre {
+    @apply mb-1;
+  }
+
+  .ejercicio-hoja__meta {
+    @apply mb-3 text-xs text-gray-500;
+  }
+
+  /* La prescripción es el titular de la tarjeta: se lee a un brazo de
+     distancia, parado en el aparato. Etiqueta chica arriba y valor grande
+     abajo es la misma forma que `.ficha-datos`, un escalón más grande.
+     `tabular-nums` porque son columnas de números entre hojas: con las cifras
+     proporcionales de la fuente, "3 × 12–15" y "4 × 8–10" no alinean. */
+  .prescripcion {
+    @apply flex flex-wrap gap-x-5 gap-y-3 m-0 mb-4;
+  }
+
+  .prescripcion dt {
+    @apply text-xs font-semibold uppercase tracking-[0.05em] text-gray-500
+      mb-0.5;
+  }
+
+  .prescripcion dd {
+    @apply m-0 text-xl font-bold leading-tight text-gray-900 tabular-nums;
+  }
+
+  .ejercicio-hoja__etiqueta {
+    @apply block mb-1 text-xs font-semibold uppercase tracking-[0.05em]
+      text-gray-500;
+  }
+
+  /* 44px de alto: es el control que el alumno toca con la mano sudada entre
+     series. El `mb-3` que el reset le pone a todo select sobra acá. */
+  .ejercicio-hoja__calificacion select {
+    @apply mb-0 min-h-11;
+  }
+
+  .ejercicio-hoja__calificacion .badge {
+    @apply mt-2;
+  }
+
+  /* La acción de la hoja, a lo ancho y al pie: es donde llega el pulgar. */
+  .semana-hoja__accion {
+    @apply pt-4 mt-4 border-t border-gray-100;
+  }
+
+  .semana-hoja__accion .boton,
+  .semana-hoja__accion .boton-secundario {
+    @apply w-full;
+  }
+
   /* La grilla editable: los controles ocupan la celda entera y sin el margen
      que el reset global le pone a todo input, que en una tabla de 22 columnas
      se acumula en un alto de fila enorme. */
   .tabla--editable input,
   .tabla--editable select {
-    @apply w-full mb-0 min-w-24;
+    /* `tabular-nums`: series, kilos y descanso son columnas de números, y con
+       las cifras proporcionales de Plus Jakarta Sans no alinean entre filas. */
+    @apply w-full mb-0 min-w-24 tabular-nums;
   }
 
   /* Alineado arriba, no al medio. La celda del ejercicio apila tres líneas
@@ -628,11 +755,19 @@
      el mismo HTML -- renderizar dos bloques distintos duplicaría cada control
      y volvería ambiguo cuál de los dos vale al serializar. */
   /* En pantalla angosta la tabla no entra. Las mismas celdas se reorganizan
-     en una tarjeta por ejercicio, y los cinco campos de cada semana quedan en
-     una fila compacta: apilarlos uno debajo del otro daba 20 campos por
-     ejercicio, o sea 220 en un día de 11 -- inusable en un celular. Es el
-     mismo HTML: renderizar dos bloques distintos duplicaría cada control y
-     volvería ambiguo cuál de los dos vale al serializar. */
+     en una tarjeta por ejercicio, con los campos de cada semana en una grilla
+     compacta: apilarlos uno debajo del otro daba 20 campos por ejercicio, o
+     sea 220 en un día de 11 -- inusable en un celular. Es el mismo HTML:
+     renderizar dos bloques distintos duplicaría cada control y volvería
+     ambiguo cuál de los dos vale al serializar.
+
+     TRES columnas y no cinco, medido en un teléfono de 390px: con cinco, cada
+     columna quedaba en 43px y eso rompía la grilla de dos formas a la vez --
+     la etiqueta "Descanso" se montaba sobre "Notas", y el input, con su
+     padding lateral de 12px por lado, dejaba 19px de contenido, así que el
+     valor de Series se veía cortado. Un entrenador no podía leer lo que
+     acababa de cargar. Con tres columnas cada semana ocupa dos renglones
+     (Series/Reps/Kilos + Descanso/Notas) y todo se lee. */
   @media (max-width: 640px) {
     .tabla--editable,
     .tabla--editable tbody,
@@ -645,10 +780,8 @@
       @apply hidden;
     }
 
-    /* Cinco columnas: los campos de una semana entran en una sola fila y el
-       flujo natural del grid las agrupa de a cinco. */
     .tabla--editable tr {
-      @apply grid grid-cols-5 gap-x-2 gap-y-1 mb-4 rounded-2xl border border-gray-200 p-3;
+      @apply grid grid-cols-3 gap-x-2 gap-y-1 mb-4 rounded-2xl border border-gray-200 p-3;
     }
 
     .tabla--editable th,
@@ -666,7 +799,23 @@
     .tabla--editable tr > th,
     .tabla--editable tr > td:nth-child(2),
     .tabla--editable tr > td:last-child {
-      @apply col-span-5;
+      @apply col-span-3;
+    }
+
+    /* En tarjeta, la celda del ejercicio no es un encabezado de tabla: el
+       `bg-gray-50` que le pone `.tabla th` la dejaba como una franja gris
+       suelta arriba de cada tarjeta. */
+    .tabla--editable tr > th {
+      @apply bg-transparent;
+    }
+
+    /* Notas se lleva las dos columnas que le sobran al segundo renglón de
+       cada semana. Sin esto el grupo mide 5 celdas sobre una grilla de 3 y la
+       semana siguiente arranca corrida una columna, con el título encima de
+       la celda equivocada. Además Notas es texto libre: es la que más ancho
+       necesita. */
+    .tabla--editable tr > td[data-corto="Notas"] {
+      @apply col-span-2;
     }
 
     /* La columna del ejercicio deja de estar fija: en una tarjeta ya es lo
@@ -675,20 +824,61 @@
       @apply static;
     }
 
-    /* Una línea divisoria antes del primer campo de cada semana (los `td`
-       3, 8, 13 y 18: los dos primeros hijos son el ejercicio y el bloque). */
-    .tabla--editable tr > td:nth-child(5n + 3) {
-      @apply border-t border-gray-100 pt-2 mt-1;
-    }
-
     .tabla--editable td[data-corto]::before {
       content: attr(data-corto);
       @apply block text-xs text-gray-500;
     }
 
-    .tabla--editable td[data-corto="Series"]::before {
+    /* El bloque no tenía NINGUNA etiqueta en celular: la regla de arriba se
+       dispara con `data-corto` y esta celda solo trae `data-label`, así que
+       quedaba un casillero suelto con el placeholder "A1" debajo del nombre
+       del ejercicio. Se etiqueta por `data-label` y no agregándole
+       `data-corto` para que no entre en el `pt-9` de las celdas de semana. */
+    .tabla--editable td[data-label="Bloque"]::before {
       content: attr(data-label);
-      @apply font-semibold text-gray-600;
+      @apply block text-xs text-gray-500;
+    }
+
+    /* El título de la semana va a lo ancho de la tarjeta y centrado ARRIBA de
+       sus cinco campos. Antes era la etiqueta de la celda de Series
+       ("Semana 1 · Series", vía `attr(data-label)`): ocupaba dos renglones
+       donde las otras cuatro ocupan uno, así que el casillero de Series
+       arrancaba más abajo que los de su propia fila y la grilla se veía
+       desalineada en el celular. Sacando ese override, Series cae en la regla
+       genérica de arriba y su etiqueta pasa a ser una palabra como las demás.
+
+       Va como `::after` absoluto de la primera celda del grupo porque un
+       pseudo-elemento NO puede ser ítem de la grilla, y un `<td>` propio
+       agregaría una columna a la tabla de escritorio. */
+    .tabla--editable tr > td[data-corto="Series"] {
+      @apply relative;
+    }
+
+    .tabla--editable tr > td[data-corto="Series"]::after {
+      content: attr(data-semana-titulo);
+      /* Las 3 columnas más las 2 separaciones de `gap-x-2` (0.5rem). Va como
+         CSS plano y no `w-[...]`: en Tailwind un calc arbitrario necesita
+         guiones bajos, y CSS exige los espacios alrededor del `+`. Si cambia
+         `grid-cols-3` o `gap-x-2`, este calc los tiene que seguir. */
+      width: calc(300% + 1rem);
+      @apply absolute left-0 top-0 border-t border-gray-100 pt-3 text-center
+        text-xs font-semibold uppercase tracking-[0.05em] text-gray-700;
+    }
+
+    /* El hueco para ese título va en las TRES celdas del primer renglón del
+       grupo, no solo en la de Series: están en la misma fila de la grilla, y
+       con el padding en una sola las otras dos se alinean arriba del todo.
+       Descanso y Notas van en el segundo renglón, donde el título ya no
+       está: solo necesitan aire respecto de la fila de arriba. */
+    .tabla--editable tr > td[data-corto="Series"],
+    .tabla--editable tr > td[data-corto="Reps"],
+    .tabla--editable tr > td[data-corto="Kilos"] {
+      @apply pt-9;
+    }
+
+    .tabla--editable tr > td[data-corto="Descanso"],
+    .tabla--editable tr > td[data-corto="Notas"] {
+      @apply pt-2;
     }
 
     .tabla--editable input,
@@ -696,8 +886,8 @@
       @apply min-w-0 text-sm;
     }
 
-    /* En tarjeta el corte entre semanas ya lo hace la línea de arriba del
-       primer campo (`td:nth-child(5n+3)`); el borde izquierdo de la versión
+    /* En tarjeta el corte entre semanas ya lo hace la línea del título de
+       semana, que cruza la tarjeta entera; el borde izquierdo de la versión
        tabla quedaría como una raya suelta al costado de "Series". */
     .tabla--editable .borde-grupo {
       @apply border-l-0;

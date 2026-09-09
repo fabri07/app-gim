@@ -10,7 +10,21 @@
   </div>
   <p class="texto-suave">{{ rutina_actual.nombre_snapshot }}</p>
 
-  <div class="tarjeta">
+  {% comment %}
+    Esta pantalla tiene DOS formas, no una responsiva. En escritorio, la tabla
+    de 4 semanas lado a lado: su valor es comparar la progresión de un mismo
+    ejercicio semana a semana. En el celular esa tabla mide ~2000px de ancho y
+    es ilegible, y además responde a una pregunta que el alumno no se está
+    haciendo: parado en el gimnasio entre series, mira LA semana de hoy y un
+    ejercicio a la vez. Ahí va un carrusel con una hoja por semana.
+
+    Las dos formas se renderizan siempre y el CSS esconde una: la tabla es
+    fila-mayor y las hojas semana-mayor, y no hay CSS que transponga eso. Lo
+    interactivo (calificar, marcar entrenado) sale a partials compartidos para
+    que las dos copias no puedan divergir.
+  {% endcomment %}
+
+  <div class="tarjeta hidden sm:block">
     <h2>Semanas</h2>
     <div class="rutina-semanas-resumen">
       {% for semana in semanas_meta %}
@@ -20,44 +34,117 @@
             {% if semana.es_actual %}<span class="badge badge--alerta">Actual</span>{% endif %}
           </strong>
           {% if semana.completada %}<span class="badge badge--ok">Entrenado</span>{% endif %}
-          {% if semana.tiene_items %}
-            {% comment %}
-              Solo la semana en curso lleva el botón primario: con el primario
-              en todas, "marcar la semana 1" (que ya pasó) pesaba lo mismo que
-              marcar el entrenamiento de hoy, que es a lo que el alumno entra.
-            {% endcomment %}
-            <form method="post" action="{% url 'rutinas:dia_completado_toggle' dia semana.numero %}">
-              {% csrf_token %}
-              {% if semana.completada %}
-                <button type="submit" class="boton-secundario">Desmarcar</button>
-              {% elif semana.es_actual %}
-                <button type="submit" class="boton">Marcar como entrenado</button>
-              {% else %}
-                <button type="submit" class="boton-secundario">Marcar como entrenado</button>
-              {% endif %}
-            </form>
-          {% else %}
-            <span class="texto-suave">Sin ejercicios esta semana</span>
-          {% endif %}
+          {% include 'partials/rutina_marcar_entrenado.html' with dia=dia semana=semana %}
         </div>
       {% endfor %}
     </div>
   </div>
 
   {% if ejercicios %}
-    <div class="tarjeta">
+    {% comment %} Celular: una hoja por semana, con imán al deslizar. {% endcomment %}
+    <div class="sm:hidden">
+      <nav class="semanas-pestanas" aria-label="Semanas del plan">
+        {% for semana in semanas_meta %}
+          {% comment %}
+            `hx-boost="false"`: un ancla local bajo el hx-boost global del
+            <body> es el gotcha recurrente del proyecto. Sin JS el ancla igual
+            funciona -- lleva el carrusel a esa hoja sola.
+          {% endcomment %}
+          <a class="semanas-pestanas__item" href="#semana-{{ semana.numero }}"
+             hx-boost="false" data-semana="{{ semana.numero }}"
+             {% if semana.es_actual %}aria-current="true"{% endif %}>
+            Semana {{ semana.numero }}
+            {% if semana.es_actual %}
+              <span class="semanas-pestanas__punto" aria-hidden="true"></span>
+              <span class="sr-only">(semana en curso)</span>
+            {% endif %}
+          </a>
+        {% endfor %}
+      </nav>
+
+      <div class="semanas-carrusel" id="semanas-carrusel" data-dia="{{ dia }}"
+           data-semana-actual="{{ rutina_actual.semana_actual }}">
+        {% for hoja in hojas_por_semana %}
+          <section class="tarjeta semana-hoja" id="semana-{{ hoja.numero }}"
+                   data-semana="{{ hoja.numero }}" aria-label="Semana {{ hoja.numero }}">
+            <div class="semana-hoja__encabezado">
+              <h2>Semana {{ hoja.numero }}</h2>
+              {% if hoja.es_actual %}<span class="badge badge--alerta">Actual</span>{% endif %}
+              {% if hoja.completada %}<span class="badge badge--ok">Entrenado</span>{% endif %}
+            </div>
+
+            {% for fila in hoja.ejercicios %}
+              <article class="ejercicio-hoja">
+                <h3 class="ejercicio-hoja__nombre">
+                  {% comment %} El bloque agrupa superseries: A1, A2 y A3 se hacen uno atrás del otro. {% endcomment %}
+                  {% if fila.ejercicio.bloque %}<span class="badge badge--neutro">{{ fila.ejercicio.bloque }}</span> {% endif %}{{ fila.ejercicio.nombre }}
+                </h3>
+                <p class="ejercicio-hoja__meta">
+                  {{ fila.ejercicio.categoria_display }}
+                  {% if fila.ejercicio.video %}
+                    · <a href="{{ fila.ejercicio.video }}" target="_blank" rel="noopener">Ver video</a>
+                  {% endif %}
+                </p>
+
+                {% comment %}
+                  La prescripción es el titular de la tarjeta: es lo que el
+                  alumno lee a un brazo de distancia, parado en el aparato.
+                  Series y reps van juntos ("3 × 12–15"), que es como lo
+                  escribe el entrenador; partirlos en dos columnas era un
+                  artefacto de la tabla. Kilos y descanso aparecen solo si
+                  están cargados -- un "Kilos —" en negrita de 20px es vacío
+                  gritado. El guión sigue en la tabla de escritorio, donde una
+                  grilla no puede tener huecos.
+                {% endcomment %}
+                <dl class="prescripcion">
+                  <div>
+                    <dt>Series × reps</dt>
+                    <dd>{{ fila.item.series }} × {{ fila.item.repeticiones }}</dd>
+                  </div>
+                  {% if fila.item.kilos %}
+                    <div>
+                      <dt>Kilos</dt>
+                      <dd>{{ fila.item.kilos }}</dd>
+                    </div>
+                  {% endif %}
+                  {% if fila.item.descanso %}
+                    <div>
+                      <dt>Descanso</dt>
+                      <dd>{{ fila.item.descanso }}</dd>
+                    </div>
+                  {% endif %}
+                </dl>
+
+                <div class="ejercicio-hoja__calificacion">
+                  <span class="ejercicio-hoja__etiqueta">¿Cómo te fue?</span>
+                  {% include 'partials/rutina_calificacion.html' with item=fila.item nombre=fila.ejercicio.nombre semana=hoja.numero %}
+                </div>
+              </article>
+            {% empty %}
+              <p class="texto-suave">Esta semana no tiene ejercicios cargados para este día.</p>
+            {% endfor %}
+
+            {% if hoja.tiene_items %}
+              <div class="semana-hoja__accion">
+                {% include 'partials/rutina_marcar_entrenado.html' with dia=dia semana=hoja %}
+              </div>
+            {% endif %}
+          </section>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="tarjeta hidden sm:block">
       <div class="tabla-scroll">
         <table class="tabla tabla--rutina-semanas">
           <thead>
             <tr>
               {% comment %}
                 `columna-ejercicio` deja fija esta columna mientras la tabla
-                scrollea a lo ancho. Estaba en la vista del staff y faltaba
-                acá, que es donde más importa: el alumno mira esto en el
-                celular y al llegar a la semana 3 ya no veía de qué ejercicio
-                era la fila. El video se mudó adentro de esta misma celda (una
-                columna menos, y viaja fija con el nombre), igual que en
-                `asignada_detail.html`.
+                scrollea a lo ancho: al llegar a la semana 3 ya no se veía de
+                qué ejercicio era la fila. El video vive adentro de esta misma
+                celda (una columna menos, y viaja fija con el nombre), igual
+                que en `asignada_detail.html`.
               {% endcomment %}
               <th rowspan="2" scope="col" class="columna-ejercicio">Ejercicio</th>
               {% for semana in semanas_meta %}
@@ -102,22 +189,7 @@
                       <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.kilos|default:"—" }}</td>
                       <td{% if clase_actual %} class="{{ clase_actual }}"{% endif %}>{{ semana.item.descanso|default:"—" }}</td>
                       <td class="celda-calificacion {{ clase_actual }}">
-                        <form method="post" action="{% url 'rutinas:item_calificar' semana.item.pk %}">
-                          {% csrf_token %}
-                          <select name="rpe" onchange="this.form.submit()" aria-label="Calificar intensidad de {{ ejercicio.nombre }}, semana {{ semana.numero }}">
-                            <option value="" {% if not semana.item.rpe %}selected{% endif %}>Sin calificar</option>
-                            {% for valor, etiqueta in rpe_choices %}
-                              <option value="{{ valor }}" {% if semana.item.rpe == valor %}selected{% endif %}>{{ etiqueta }}</option>
-                            {% endfor %}
-                          </select>
-                        </form>
-                        {% if semana.item.rpe %}<span class="badge badge--ok">Calificado</span>{% endif %}
-                        {% if semana.item.notas %}
-                          <details>
-                            <summary>Notas</summary>
-                            <p class="texto-suave">{{ semana.item.notas }}</p>
-                          </details>
-                        {% endif %}
+                        {% include 'partials/rutina_calificacion.html' with item=semana.item nombre=ejercicio.nombre semana=semana.numero %}
                       </td>
                     {% else %}
                       <td colspan="5" class="borde-grupo texto-suave {{ clase_actual }}">—</td>
@@ -134,4 +206,99 @@
     <p class="texto-suave">Todavía no hay ejercicios cargados para este día.</p>
   {% endif %}
 </div>
+
+<script>
+  (function hojasDeSemana() {
+    // Sin DOMContentLoaded, mismo criterio que el resto de los scripts inline
+    // del proyecto: en una navegación boosteada por htmx ese evento no vuelve
+    // a dispararse.
+    var carrusel = document.getElementById("semanas-carrusel");
+    if (!carrusel) { return; }
+    var hojas = Array.prototype.slice.call(carrusel.querySelectorAll(".semana-hoja"));
+    var pestanas = Array.prototype.slice.call(
+      document.querySelectorAll(".semanas-pestanas__item")
+    );
+    if (!hojas.length) { return; }
+
+    // Calificar un ejercicio y marcar el día entrenado son POST que redirigen
+    // a esta misma URL SIN fragmento (`rutinas/views.py`), así que sin esta
+    // memoria el alumno que califica algo de la semana 2 vuelve tirado en la
+    // semana en curso. Por sesión y por día.
+    var clave = "rutina_semana_dia_" + carrusel.dataset.dia;
+
+    function recordar(numero) {
+      try { sessionStorage.setItem(clave, numero); } catch (error) { /* modo privado */ }
+    }
+
+    function recordada() {
+      try { return sessionStorage.getItem(clave); } catch (error) { return null; }
+    }
+
+    function hojaDe(numero) {
+      for (var i = 0; i < hojas.length; i++) {
+        if (hojas[i].dataset.semana === String(numero)) { return hojas[i]; }
+      }
+      return null;
+    }
+
+    function marcarPestana(numero) {
+      pestanas.forEach(function (pestana) {
+        if (pestana.dataset.semana === String(numero)) {
+          pestana.setAttribute("aria-current", "true");
+        } else {
+          pestana.removeAttribute("aria-current");
+        }
+      });
+    }
+
+    function ir(hoja, suave) {
+      // El origen es la primera hoja y no el carrusel: así el cálculo no
+      // depende del padding lateral del contenedor. Nunca `scrollIntoView`,
+      // que además scrollea la página en vertical.
+      var destino = hoja.offsetLeft - hojas[0].offsetLeft;
+      var quieto = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (suave && !quieto && carrusel.scrollTo) {
+        carrusel.scrollTo({ left: destino, behavior: "smooth" });
+      } else {
+        carrusel.scrollLeft = destino;
+      }
+    }
+
+    function activar(numero, suave) {
+      var hoja = hojaDe(numero);
+      if (!hoja) { return false; }
+      ir(hoja, suave);
+      marcarPestana(numero);
+      recordar(numero);
+      return true;
+    }
+
+    if (!activar(recordada(), false)) {
+      if (!activar(carrusel.dataset.semanaActual, false)) {
+        activar(hojas[0].dataset.semana, false);
+      }
+    }
+
+    pestanas.forEach(function (pestana) {
+      pestana.addEventListener("click", function (evento) {
+        // El salto nativo del ancla movería también el scroll vertical de la
+        // página; solo queremos correr el carrusel.
+        if (hojaDe(pestana.dataset.semana)) { evento.preventDefault(); }
+        activar(pestana.dataset.semana, true);
+      });
+    });
+
+    if (typeof IntersectionObserver === "function") {
+      var observador = new IntersectionObserver(function (entradas) {
+        entradas.forEach(function (entrada) {
+          if (entrada.isIntersecting) {
+            marcarPestana(entrada.target.dataset.semana);
+            recordar(entrada.target.dataset.semana);
+          }
+        });
+      }, { root: carrusel, threshold: 0.6 });
+      hojas.forEach(function (hoja) { observador.observe(hoja); });
+    }
+  })();
+</script>
 {% endblock %}

@@ -39,7 +39,7 @@ from rutinas.models import (
     RutinaPlantillaItem,
 )
 from rutinas import progreso, services
-from rutinas.agrupacion import listar_ejercicios_del_dia
+from rutinas.agrupacion import listar_ejercicios_del_dia, listar_semanas_del_dia
 from rutinas.pdf import (
     _celda_semana,
     _fila_ejercicio,
@@ -772,6 +772,94 @@ class ListarEjerciciosDelDiaTests(RutinasTestCase):
         semanas_sin_actual = ejercicios_sin_actual[0]["semanas"]
         self.assertEqual(
             [s["es_actual"] for s in semanas_sin_actual], [False, False, False]
+        )
+
+
+class ListarSemanasDelDiaTests(SimpleTestCase):
+    """La vista inversa de `listar_ejercicios_del_dia`: una hoja por semana.
+
+    Es lo que alimenta el carrusel del celular, donde el alumno ve una semana
+    completa por pantalla. Función pura sobre las filas ya agrupadas -- no
+    toca la base, así que se prueba con dicts armados a mano (mismo criterio
+    que `progreso.anotar_senales`).
+    """
+
+    SEMANAS_META = [
+        {"numero": 1, "es_actual": False, "completada": True, "tiene_items": True},
+        {"numero": 2, "es_actual": True, "completada": False, "tiene_items": True},
+    ]
+
+    @staticmethod
+    def _ejercicio(nombre, items_por_semana):
+        return {
+            "nombre": nombre,
+            "semanas": [
+                {"numero": numero, "item": item, "es_actual": False}
+                for numero, item in sorted(items_por_semana.items())
+            ],
+        }
+
+    def test_transpone_a_una_hoja_por_semana(self):
+        ejercicios = [
+            self._ejercicio("Sentadilla", {1: "s1", 2: "s2"}),
+            self._ejercicio("Press", {1: "p1", 2: "p2"}),
+        ]
+
+        hojas = listar_semanas_del_dia(ejercicios, self.SEMANAS_META)
+
+        self.assertEqual([hoja["numero"] for hoja in hojas], [1, 2])
+        self.assertEqual(
+            [fila["item"] for fila in hojas[0]["ejercicios"]], ["s1", "p1"]
+        )
+        self.assertEqual(
+            [fila["item"] for fila in hojas[1]["ejercicios"]], ["s2", "p2"]
+        )
+
+    def test_saltea_los_ejercicios_que_esa_semana_no_tiene(self):
+        """En la tabla ese hueco es un "—" (una grilla no puede tener celdas
+        faltantes); en una lista de una sola semana no hay nada que mostrar."""
+        ejercicios = [
+            self._ejercicio("Sentadilla", {1: "s1", 2: None}),
+            self._ejercicio("Press", {1: None, 2: "p2"}),
+        ]
+
+        hojas = listar_semanas_del_dia(ejercicios, self.SEMANAS_META)
+
+        self.assertEqual(
+            [fila["ejercicio"]["nombre"] for fila in hojas[0]["ejercicios"]],
+            ["Sentadilla"],
+        )
+        self.assertEqual(
+            [fila["ejercicio"]["nombre"] for fila in hojas[1]["ejercicios"]],
+            ["Press"],
+        )
+
+    def test_conserva_la_metadata_de_la_semana(self):
+        """El encabezado de cada hoja pinta "Actual"/"Entrenado" y decide si
+        ofrece el botón de marcar: sale de acá, no de una segunda lista que
+        podría desalinearse."""
+        hojas = listar_semanas_del_dia([], self.SEMANAS_META)
+
+        self.assertTrue(hojas[1]["es_actual"])
+        self.assertTrue(hojas[0]["completada"])
+        self.assertTrue(hojas[0]["tiene_items"])
+        self.assertEqual(hojas[0]["ejercicios"], [])
+
+    def test_respeta_el_orden_de_los_ejercicios(self):
+        """`listar_ejercicios_del_dia` ya ordena por `orden`; transponer no
+        puede reordenar, o el alumno vería los ejercicios en un orden distinto
+        del que cargó el entrenador."""
+        ejercicios = [
+            self._ejercicio("Tercero", {1: "c"}),
+            self._ejercicio("Primero", {1: "a"}),
+            self._ejercicio("Segundo", {1: "b"}),
+        ]
+
+        hojas = listar_semanas_del_dia(ejercicios, self.SEMANAS_META[:1])
+
+        self.assertEqual(
+            [fila["ejercicio"]["nombre"] for fila in hojas[0]["ejercicios"]],
+            ["Tercero", "Primero", "Segundo"],
         )
 
 
@@ -1543,6 +1631,46 @@ class RutinaMiDiaDetailViewTests(TestCase):
         self.assertContains(response, "Semana 4")
         self.assertContains(response, "Sentadilla")
         self.assertContains(response, "Sentadilla con salto")
+
+    def test_el_celular_recibe_una_hoja_por_semana(self):
+        """La tabla de 21 columnas responde la pregunta del ENTRENADOR (cómo
+        progresa un ejercicio semana a semana) y en un teléfono mide ~2000px.
+        El celular recibe la misma información transpuesta: una hoja por
+        semana, una por pantalla."""
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.get(self._url(1))
+        self.assertEqual(
+            [hoja["numero"] for hoja in response.context["hojas_por_semana"]],
+            [1, 2, 3, 4],
+        )
+        for semana in (1, 2, 3, 4):
+            self.assertContains(response, 'id="semana-%d"' % semana)
+
+    def test_cada_hoja_lista_solo_los_ejercicios_de_su_semana(self):
+        """Día 1 tiene "Sentadilla" solo en la semana 1 y "Sentadilla con
+        salto" solo en la 2 (ver setUp). En la tabla ese hueco es un "—"
+        porque una grilla no puede tener celdas faltantes; en la hoja de una
+        sola semana, el ejercicio simplemente no está."""
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        hojas = self.client.get(self._url(1)).context["hojas_por_semana"]
+
+        def nombres(numero):
+            return [
+                fila["ejercicio"]["nombre"]
+                for fila in hojas[numero - 1]["ejercicios"]
+            ]
+
+        self.assertEqual(nombres(1), ["Sentadilla"])
+        self.assertEqual(nombres(2), ["Sentadilla con salto"])
+        self.assertEqual(nombres(3), [])
+
+    def test_la_hoja_muestra_la_prescripcion_de_su_propia_semana(self):
+        """Series y repeticiones van juntas ("3 × 10"), que es como lo escribe
+        el entrenador y como lo lee el alumno a un brazo de distancia."""
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        response = self.client.get(self._url(1))
+        self.assertContains(response, "3 × 10")
+        self.assertContains(response, "3 × 8")
 
     def test_no_muestra_ejercicios_de_otro_dia(self):
         self.client.login(username="usuario_alumno", password="clave-123456")
@@ -4131,6 +4259,29 @@ class PlantillaDetalleAgrupadoTests(RutinasTestCase):
             reverse("rutinas:plantilla_detalle", args=[self.plantilla.pk])
         )
 
+
+    def test_cada_grupo_de_semana_lleva_su_titulo_para_el_celular(self):
+        """En celular la fila se reorganiza en una tarjeta de 5 columnas y el
+        título de la semana se dibuja con `attr(data-semana-titulo)` sobre la
+        primera celda del grupo (`styles/input.css`).
+
+        Sin el atributo no hay título. La etiqueta larga que ocupaba ese lugar
+        ("Semana 1 · Series") medía dos renglones donde las otras cuatro miden
+        uno, así que el casillero de Series arrancaba más abajo que los otros
+        cuatro de su propia fila.
+        """
+        html = self._detalle().content.decode()
+        for semana in (1, 2, 3, 4):
+            self.assertIn('data-semana-titulo="Semana %d"' % semana, html)
+
+    def test_el_molde_de_fila_nueva_tambien_lleva_el_titulo(self):
+        """«Agregar ejercicio» clona el `<template>`: si el atributo vive solo
+        en las filas ya renderizadas, la fila nueva sale sin ningún título de
+        semana y con la grilla desalineada."""
+        html = self._detalle().content.decode()
+        molde = html.split('id="molde-de-fila"', 1)[1].split("</template>", 1)[0]
+        for semana in (1, 2, 3, 4):
+            self.assertIn('data-semana-titulo="Semana %d"' % semana, molde)
 
     def test_el_buscador_de_ejercicio_cuelga_su_lista_del_body(self):
         """La lista de resultados del buscador NO puede vivir dentro de la

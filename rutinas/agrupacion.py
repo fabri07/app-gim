@@ -189,3 +189,42 @@ def listar_ejercicios_de_plantilla(items, semanas=None):
         semanas=semanas,
         semana_actual=None,
     )
+
+
+def listar_semanas_del_dia(ejercicios, semanas_meta):
+    """Transpone la salida de `listar_ejercicios_del_dia` a semana-mayor: una
+    "hoja" por semana con la lista de ejercicios que esa semana tiene cargados.
+
+    La tabla de escritorio y el PDF recorren ejercicio-mayor (un ejercicio por
+    fila, las 4 semanas en columnas) porque su valor es comparar la progresión.
+    El celular del alumno muestra una semana completa por pantalla -- parado en
+    el gimnasio entre series, mira la semana de hoy y un ejercicio a la vez --
+    y necesita la vista inversa.
+
+    NO vuelve a agrupar ni hace queries: reusa las filas que ya armó
+    `listar_ejercicios_del_dia`, así el celular y el escritorio no pueden
+    mostrar cosas distintas. `semanas_meta` es la misma lista de metadata de
+    columnas que ya usa el template (`numero`, `es_actual`, `completada`,
+    `tiene_items`), y cada hoja la devuelve entera para que el encabezado de la
+    semana no tenga que recalcular nada.
+
+    Un ejercicio que esa semana no tiene cargado se saltea: en la tabla ese
+    hueco es un "—" (una grilla no puede tener celdas faltantes), pero en una
+    lista de una sola semana no hay nada que mostrar.
+    """
+    hojas = []
+    for semana in semanas_meta:
+        filas = []
+        for ejercicio in ejercicios:
+            item = next(
+                (
+                    celda["item"]
+                    for celda in ejercicio["semanas"]
+                    if celda["numero"] == semana["numero"]
+                ),
+                None,
+            )
+            if item is not None:
+                filas.append({"ejercicio": ejercicio, "item": item})
+        hojas.append({**semana, "ejercicios": filas})
+    return hojas

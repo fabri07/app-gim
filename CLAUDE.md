@@ -147,7 +147,9 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
   tanto el portal del alumno (`RutinaMiDiaDetailView` →
   `mi_dia_detalle.html`, un día por vez, con las 4 semanas lado a lado en
   columnas separadas por Series/Reps/Kilos/Descanso/Calificación desde el
-  rediseño "tabla ancha por columna") como `rutinas/pdf.py::
+  rediseño "tabla ancha por columna"; ver "El día del alumno en el celular"
+  más abajo, que agrega una SEGUNDA forma para esa misma pantalla) como
+  `rutinas/pdf.py::
   generar_pdf_rutina_asignada()` (fpdf2, Django-free a propósito, recorre
   todos los días). Hasta esa fecha la función dividía el resultado en
   secciones por `categoria_snapshot`; un cliente real la encontró
@@ -762,9 +764,28 @@ plegable, un ejercicio por fila, las 4 semanas en columnas y un botón
   se perdería en silencio. Lo encontró la prueba en el navegador, no la suite.
 - **Dos interfaces desde el mismo HTML.** En computadora la tabla ancha; abajo
   de 640px las celdas se reorganizan en una tarjeta por ejercicio, con los
-  cinco campos de cada semana en una fila (`grid-cols-5`). Apilarlos daba 20
-  campos por ejercicio, o sea 220 en un día de 11. **No renderizar dos bloques
+  campos de cada semana en una grilla de **3 columnas** (Series/Reps/Kilos y,
+  en el renglón siguiente, Descanso/Notas, esta última con `col-span-2` para
+  que el grupo mida exactamente dos filas). Apilar los cinco daba 20 campos
+  por ejercicio, o sea 220 en un día de 11. **No renderizar dos bloques
   distintos**: serían dos controles por dato y una serialización ambigua.
+  Fueron `grid-cols-5` hasta el 2026-09-09; medido a 390px, esas cinco
+  columnas quedaban en 43px y rompían dos cosas a la vez: la etiqueta
+  «Descanso» se montaba sobre «Notas», y el input, con 12px de padding por
+  lado, dejaba 19px de contenido, así que **el valor de Series se veía
+  cortado**.
+- **El título de cada semana es un `::after` absoluto** sobre la celda de
+  Series (`content: attr(data-semana-titulo)`, `width: calc(300% + 1rem)` = las
+  3 columnas más sus 2 separaciones). Antes ese lugar lo ocupaba la etiqueta
+  larga de la celda («Semana 1 · Series», `attr(data-label)`), que medía dos
+  renglones donde las otras ocupan uno y **desalineaba el casillero de Series
+  contra los otros cuatro de su fila**. Es pseudo-elemento y no elemento propio
+  porque un pseudo-elemento no puede ser ítem de la grilla y un `<td>` nuevo
+  agregaría una columna a la tabla de escritorio: **si cambia la cantidad de
+  columnas o el `gap-x-2`, el calc los tiene que seguir**. El atributo va en
+  las filas renderizadas Y dentro del `<template>` del molde — sin lo segundo,
+  un ejercicio agregado con «Agregar ejercicio» sale sin título; hay un test
+  por cada uno.
 - **El buscador**: el catálogo viaja una vez por `json_script` y Tom Select se
   inicializa **al recibir el foco**. Un `<select>` completo por fila serían más
   de 30.000 `<option>` con una biblioteca real. Y **su CSS se inyecta desde el
@@ -794,6 +815,71 @@ semanas, así que `RutinaPlantillaItemDeleteView` quita el ejercicio de todas
 las semanas de ese día (antes borraba un item suelto) y el label dice de
 cuántas se trata — borrar una sola dejaría las otras tres en pantalla como si
 no hubiera pasado nada.
+
+## El día del alumno en el celular: una hoja por semana (2026-09-09)
+
+`mi_dia_detalle.html` tiene DOS formas, no una responsiva. En escritorio, la
+tabla de 4 semanas lado a lado: su valor es comparar la progresión de un mismo
+ejercicio semana a semana. En un teléfono de 360px esa tabla mide del orden de
+2000px de ancho, y además responde una pregunta que el alumno no se está
+haciendo: parado en el gimnasio entre series, mira **LA semana de hoy y un
+ejercicio a la vez**. Abajo de `sm` la tabla se oculta (`hidden sm:block`) y en
+su lugar va un carrusel con imán: una hoja por semana, a pantalla completa,
+abierta en la semana en curso, con la siguiente asomando para que el gesto se
+vea sin ningún cartel que diga «deslizá».
+
+- **Acá SÍ se duplica markup**, al revés que en `.tabla--editable`. La tabla es
+  fila-mayor (un ejercicio, sus 4 semanas) y las hojas semana-mayor: no hay CSS
+  que transponga eso, así que las dos formas se renderizan siempre y una queda
+  con `display: none`. Es seguro porque lo interactivo son un `<select>` de RPE
+  y un botón de «entrenado», cada copia en su propio `<form>`, y la copia
+  oculta no es alcanzable ni por teclado ni por lector de pantalla. Para que no
+  puedan divergir, los dos salen a `templates/partials/rutina_calificacion.html`
+  y `rutina_marcar_entrenado.html`. **Si tocás uno, tocá el partial, no una de
+  las dos pantallas.**
+- **`rutinas/agrupacion.py::listar_semanas_del_dia()`** transpone la salida de
+  `listar_ejercicios_del_dia` a semana-mayor. Pura, Django-free y sin queries:
+  reusa las filas ya agrupadas, así el celular y el escritorio no pueden
+  mostrar cosas distintas. Un ejercicio que esa semana no tiene cargado se
+  saltea (en la tabla ese hueco es un «—» porque una grilla no puede tener
+  celdas faltantes; en una lista de una sola semana no hay nada que mostrar).
+- **La prescripción es el titular de la tarjeta**, no una celda: `3 × 12–15` en
+  una pieza (así lo escribe el entrenador y así lo lee el alumno), en
+  `tabular-nums` para que las cifras no bailen entre hojas. Kilos y descanso
+  aparecen **solo si están cargados** — un «Kilos —» en negrita de 20px es
+  vacío gritado.
+- **Doble señal en las pestañas, a propósito**: `var(--color-primario)` dice
+  «esta es la que estás viendo» y el punto ámbar «esta es la semana en curso».
+  Nunca significan lo mismo. El punto va `absolute`: ocupando lugar en el flex,
+  «Semana 2» ya no entraba en su cuarto de pantalla y la pestaña activa partía
+  el texto en dos renglones.
+- **Nada de `position: sticky` adentro del carrusel.** `overflow-x: auto`
+  convierte el otro eje en `auto`, así que un encabezado pegajoso ahí se pega
+  al carrusel y no al viewport — el mismo gotcha que ya documenta la sección de
+  `position: sticky` más arriba. El contexto lo da el encabezado de cada hoja.
+- **`overscroll-behavior-x: contain`.** Sin eso, deslizar contra el borde
+  dispara el gesto de «atrás» del navegador en Android: el alumno pierde la
+  pantalla en vez de cambiar de semana.
+- **El carrusel recuerda en `sessionStorage` la semana que estabas mirando.**
+  Calificar un ejercicio y marcar el día entrenado son POST que redirigen a la
+  misma URL **sin fragmento** (`RutinaAsignadaItemCalificarView`), así que sin
+  esa memoria el alumno que califica algo de la semana 2 vuelve tirado en la
+  semana en curso. La posición se fija con
+  `scrollLeft = hoja.offsetLeft - hojas[0].offsetLeft` (el origen es la primera
+  hoja, no el carrusel, para no depender de su padding lateral) y **nunca con
+  `scrollIntoView`**, que además scrollea la página en vertical.
+- **Gotcha de verificación, no de código**: en una pestaña de Chrome en
+  segundo plano (`document.hidden`) el navegador congela `IntersectionObserver`
+  y el scroll suave. Eso se ve exactamente igual que un carrusel roto — la
+  pestaña no sigue al deslizar y el salto por pestaña no llega. Antes de dar
+  por roto algo que dependa de rAF/IO, mirá `document.visibilityState`.
+- **Cómo verificar un layout de celular desde el navegador de esta máquina**:
+  `resize_window` informa éxito sin cambiar `innerWidth` y `osascript` no logra
+  achicar la ventana de Chrome. Lo que SÍ funciona es un **iframe de 390px**
+  (las media queries se evalúan contra el viewport del iframe). Django manda
+  `X-Frame-Options: DENY` en las vistas pero **no** en `/static/`, así que
+  alcanza con `curl` de la página autenticada a un `.html` temporal dentro de
+  `static/`, abrirlo en un iframe angosto y borrarlo al terminar.
 
 ## Fechas: `timezone.localdate()`, nunca `timezone.now().date()`
 

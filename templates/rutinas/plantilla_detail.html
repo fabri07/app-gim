@@ -172,7 +172,8 @@
                            aria-label="Código de bloque" placeholder="A1">
                   </td>
                   {% for semana in ejercicio.semanas %}
-                    <td class="borde-grupo" data-label="Semana {{ semana.numero }} · Series" data-corto="Series">
+                    <td class="borde-grupo" data-label="Semana {{ semana.numero }} · Series"
+                        data-corto="Series" data-semana-titulo="Semana {{ semana.numero }}">
                       <input type="number" min="0" data-semana="{{ semana.numero }}" data-campo="series"
                              class="js-celda{% if semana.item and semana.item.series is None %} celda-a-completar{% endif %}"
                              aria-label="Series de la semana {{ semana.numero }}"
@@ -231,7 +232,8 @@
         <input type="text" class="js-bloque" maxlength="10" aria-label="Código de bloque" placeholder="A1">
       </td>
       {% for semana in semanas %}
-        <td class="borde-grupo" data-label="Semana {{ semana }} · Series" data-corto="Series">
+        <td class="borde-grupo" data-label="Semana {{ semana }} · Series"
+            data-corto="Series" data-semana-titulo="Semana {{ semana }}">
           <input type="number" min="0" class="js-celda" data-semana="{{ semana }}" data-campo="series"
                  aria-label="Series de la semana {{ semana }}">
         </td>

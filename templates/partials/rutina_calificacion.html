@@ -1,0 +1,30 @@
+{% comment %}
+  El control con el que el alumno califica la intensidad de UN ejercicio de UNA
+  semana. Compartido por las dos formas de la misma pantalla: la tabla ancha de
+  escritorio y la hoja de semana del celular (`rutinas/mi_dia_detalle.html`).
+  Vive acá para que no puedan divergir -- el markup se renderiza dos veces por
+  item (una copia oculta por CSS), así que dos copias a mano se separarían al
+  primer cambio.
+
+  Recibe `item`, `nombre` y `semana`; `rpe_choices` lo hereda del contexto de la
+  vista. `onchange` envía el form con el `submit()` nativo, que NO dispara el
+  evento de submit: hx-boost no lo intercepta y la navegación es una carga
+  completa, igual que antes.
+{% endcomment %}
+<form method="post" action="{% url 'rutinas:item_calificar' item.pk %}">
+  {% csrf_token %}
+  <select name="rpe" onchange="this.form.submit()"
+          aria-label="Calificar intensidad de {{ nombre }}, semana {{ semana }}">
+    <option value="" {% if not item.rpe %}selected{% endif %}>Sin calificar</option>
+    {% for valor, etiqueta in rpe_choices %}
+      <option value="{{ valor }}" {% if item.rpe == valor %}selected{% endif %}>{{ etiqueta }}</option>
+    {% endfor %}
+  </select>
+</form>
+{% if item.rpe %}<span class="badge badge--ok">Calificado</span>{% endif %}
+{% if item.notas %}
+  <details>
+    <summary>Notas</summary>
+    <p class="texto-suave">{{ item.notas }}</p>
+  </details>
+{% endif %}

@@ -440,6 +440,36 @@ escalón intermedio.
 - **Nav de staff:** fila de links de texto (`gray-600`, hover `bg-gray-100`),
   nunca íconos — 8 secciones, colapsa detrás de `☰` en mobile.
 
+### Hojas de semana del alumno (`.semanas-carrusel` / `.semana-hoja`)
+
+La única superficie del sistema donde una MISMA pantalla tiene dos formas
+distintas según el ancho, y no un reflujo de la misma. En escritorio, la tabla
+de 4 semanas lado a lado (comparar la progresión). Abajo de `sm`, un carrusel
+con imán: una hoja por semana a pantalla completa, abierta en la semana en
+curso, con la siguiente asomando (`w-[92%]` + `snap-start`) para enseñar el
+gesto sin un cartel que lo explique. Es adaptación de contenido, no de escala:
+el alumno parado en el gimnasio mira la semana de hoy y un ejercicio a la vez.
+
+- **Superficie:** `.tarjeta` (misma sombra, mismo radio, mismo borde) con `p-4`
+  en vez de `p-6` — 24px por lado en una pantalla de 360 son 48px de contenido
+  perdidos.
+- **Prescripción** (`.prescripcion`): etiqueta en el rol **Label** arriba y
+  valor en `text-xl font-bold tabular-nums` abajo — la misma forma que
+  `.ficha-datos`, un escalón más grande. Es el único dato del sistema pensado
+  para leerse a un brazo de distancia fuera del dashboard, y por eso toma
+  prestada la voz del rol **Métrica** sin su tamaño. `tabular-nums` es
+  obligatorio: con las cifras proporcionales de Plus Jakarta Sans, los números
+  no alinean entre hojas.
+- **Pestañas** (`.semanas-pestanas`): control segmentado con doble señal, a
+  propósito — `var(--color-primario)` marca «la que estás viendo» (el uso de
+  acento que Operate permite para selección actual) y un punto ámbar marca «la
+  semana en curso». Nunca significan lo mismo. El punto va `absolute`: como
+  ítem del flex empujaba el texto a dos renglones.
+- **Estado:** `.badge--alerta` («Actual») y `.badge--ok` («Entrenado»), el
+  vocabulario de estado de siempre. Ningún color nuevo.
+- **Acción:** una sola por hoja, a lo ancho y al pie («Marcar como entrenado»),
+  que es donde llega el pulgar. Los controles táctiles de la hoja miden 44px.
+
 ### Landing pública — horarios de atención
 Sección nueva con datos **reales** de ese gimnasio puntual (nunca prueba
 social inventada — `PRODUCT.md` documenta que no hay clientes pagos
