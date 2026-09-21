@@ -212,7 +212,8 @@
   .boton-secundario {
     @apply inline-flex items-center justify-center rounded-md border
       border-gray-300 text-gray-700 bg-white px-4 py-2 text-sm font-medium
-      no-underline hover:bg-gray-50 transition cursor-pointer;
+      no-underline hover:bg-gray-50 transition cursor-pointer
+      disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-white;
   }
 
   .boton-peligro {

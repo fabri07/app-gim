@@ -100,6 +100,12 @@ toca** — alumnos, rutinas, ejercicios, pagos, novedades, turnos, calendario,
 importaciones y suplantación siguen usando `StaffRequiredMixin` tal cual
 existe hoy. El radio de cambio real queda acotado a `tenants/`.
 
+**Agregado el 2026-09-21:** `ExportarDatosView` (`tenants/views.py`, el
+exportador de datos de "Mi gimnasio") también tiene que pasar a
+`DuenoRequiredMixin` cuando esto se implemente. Hoy usa `StaffRequiredMixin`
+porque no existe otro nivel, pero bajarse el padrón completo con la ficha de
+salud de cada alumno es exactamente lo que un empleado NO debería poder hacer.
+
 ### Vistas nuevas (mismo patrón que el panel de accesos de alumnos)
 
 - **`tenants:staff_listado`** — lista los `Perfil(rol=STAFF)` del gimnasio

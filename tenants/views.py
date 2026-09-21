@@ -8,7 +8,8 @@ hace con `manage.py crear_gimnasio` (ver `tenants/services.py`).
 
 import logging
 import mimetypes
-from datetime import datetime
+import tempfile
+from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.contrib import messages
@@ -16,7 +17,9 @@ from django.contrib.auth import REDIRECT_FIELD_NAME, get_user_model, login, view
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
-from django.http import Http404, HttpResponse, JsonResponse
+from django.core.mail import send_mail
+from django.db.models import Q
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -26,7 +29,7 @@ from django.views.generic import DetailView, TemplateView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
-from tenants import google_login, paisaje_matching, suplantacion
+from tenants import exportacion, google_login, paisaje_matching, suplantacion
 from tenants.forms import GimnasioForm, ResetPasswordStaffForm
 from tenants.mixins import BloqueadoEnCuentaDemoMixin, StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil, doodle_static_url
@@ -448,12 +451,127 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         context["fondo_imagen_url"] = (
             gimnasio.fondo_imagen.url if gimnasio.fondo_imagen else ""
         )
+        # Solo lo usa la tarjeta «Tus datos» de esta pantalla, por eso va acá
+        # y no en un context processor global.
+        context["soporte_contacto"] = settings.SOPORTE_CONTACTO
         return context
 
     def form_valid(self, form):
         response = super().form_valid(form)
         messages.success(self.request, "Datos del gimnasio actualizados.")
         return response
+
+
+class ExportarDatosView(StaffRequiredMixin, View):
+    """Descarga un ZIP de CSV con todos los datos del gimnasio del staff
+    logueado (ver `tenants/exportacion.py`). Sin pk ni slug en la URL, mismo
+    criterio que `GimnasioUpdateView`: no hay otro gimnasio alcanzable.
+
+    El botón de "Mi gimnasio" existe siempre pero sale deshabilitado mientras
+    `Gimnasio.puede_exportar` sea falso. Eso es UX: **la defensa es el 403 de
+    acá**, porque la URL se puede postear a mano.
+
+    Solo POST, y el form que llega acá lleva `hx-boost="false"`: htmx
+    intercepta el envío y se traga la descarga.
+    """
+
+    http_method_names = ["post"]
+
+    #: Segundos entre dos exportaciones del mismo gimnasio. gunicorn corre con
+    #: un solo worker síncrono (`render.yaml`), así que mientras se arma un ZIP
+    #: nadie más es atendido -- y las credenciales de la cuenta demo circulan.
+    #: Sin freno, apretar el botón en loop tira la app para todos.
+    SEGUNDOS_ENTRE_EXPORTACIONES = 60
+
+    def post(self, request, *args, **kwargs):
+        gimnasio = request.user.perfil.gimnasio
+        if not gimnasio.puede_exportar:
+            raise PermissionDenied(
+                "La exportación de datos no está habilitada para este gimnasio."
+            )
+        if exportacion.filas_estimadas(gimnasio) > exportacion.MAX_FILAS_WEB:
+            # Generarlo acá se acercaría a los 30 s de gunicorn: la app entera
+            # colgada y después un 502. Se prepara con el comando de Shell.
+            self._avisar(gimnasio, request.user, demasiado_grande=True)
+            messages.warning(
+                request,
+                "Tu historial es muy grande para descargarlo desde acá. Ya nos "
+                "llegó el aviso: te lo preparamos nosotros y te lo enviamos.",
+            )
+            return redirect("gimnasio_editar")
+        if not self._tomar_turno(gimnasio):
+            messages.warning(
+                request,
+                "Ya se generó una exportación hace instantes. Esperá un minuto "
+                "y volvé a intentarlo.",
+            )
+            return redirect("gimnasio_editar")
+
+        # Hasta 5 MB en memoria, después a disco: el ZIP de un gimnasio con
+        # años de historial no tiene por qué vivir entero en RAM.
+        archivo = tempfile.SpooledTemporaryFile(max_size=5 * 1024 * 1024)
+        conteos = exportacion.exportar_gimnasio(gimnasio=gimnasio, destino=archivo)
+        archivo.seek(0)
+
+        logger.info(
+            "Exportación de datos: gimnasio=%s usuario=%s filas=%s",
+            gimnasio.slug, request.user.username, sum(conteos.values()),
+        )
+        self._avisar(gimnasio, request.user)
+        return FileResponse(
+            archivo,
+            as_attachment=True,
+            filename=f"datos-{gimnasio.slug}-{timezone.localdate().isoformat()}.zip",
+            content_type="application/zip",
+        )
+
+    def _tomar_turno(self, gimnasio):
+        """Estampa la fecha ANTES de generar, en un solo UPDATE condicional:
+        de dos clicks simultáneos, solo uno matchea la fila. `update()` y no
+        `save()` a propósito -- no debe tocar `modificado`, que versiona el
+        logo y el ícono de la PWA."""
+        ahora = timezone.now()
+        limite = ahora - timedelta(seconds=self.SEGUNDOS_ENTRE_EXPORTACIONES)
+        return bool(
+            Gimnasio.objects.filter(pk=gimnasio.pk)
+            .filter(
+                Q(exportacion_ultima_descarga__isnull=True)
+                | Q(exportacion_ultima_descarga__lt=limite)
+            )
+            .update(exportacion_ultima_descarga=ahora)
+        )
+
+    def _avisar(self, gimnasio, usuario, demasiado_grande=False):
+        """Le avisa al dueño del producto. La habilitación no vence sola, así
+        que esto es lo que delata una exportación que nadie esperaba (una
+        cuenta de staff robada) y lo que dice cuándo ya se puede destildar.
+        La demo no avisa: exporta cualquiera, todo el tiempo."""
+        if gimnasio.es_demo or not settings.EXPORTACION_AVISO_EMAIL:
+            return
+        if demasiado_grande:
+            asunto = f"[tugimapp] {gimnasio.nombre} pidió sus datos y hay que generarlos a mano"
+            cuerpo = (
+                f"El usuario {usuario.username} quiso exportar los datos de "
+                f"{gimnasio.nombre}, pero el historial supera el techo de la "
+                "descarga web. Generalo desde la Shell de Render y enviáselo:\n\n"
+                f"    python manage.py exportar_gimnasio --gimnasio {gimnasio.slug} "
+                "--salida datos.zip"
+            )
+        else:
+            asunto = f"[tugimapp] {gimnasio.nombre} exportó sus datos"
+            cuerpo = (
+                f"El usuario {usuario.username} descargó la exportación de datos "
+                f"de {gimnasio.nombre} ({gimnasio.slug}).\n\n"
+                "Si no lo esperabas, destildá «exportación de datos habilitada» "
+                "en /admin/ y revisá esa cuenta."
+            )
+        send_mail(
+            subject=asunto,
+            message=cuerpo,
+            from_email=settings.DEFAULT_FROM_EMAIL or None,
+            recipient_list=[settings.EXPORTACION_AVISO_EMAIL],
+            fail_silently=True,
+        )
 
 
 class LogoSugerirPaisajeView(StaffRequiredMixin, View):

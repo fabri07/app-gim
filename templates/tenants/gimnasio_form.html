@@ -195,6 +195,33 @@
     </aside>
   </div>
 
+  {% comment %}
+    El botón existe SIEMPRE y sale deshabilitado hasta que la exportación se
+    habilita desde /admin/ (la cuenta demo exporta siempre): el dueño tiene que
+    ver que sus datos se pueden sacar aunque hoy no lo necesite. El `disabled`
+    es UX; la defensa es el 403 de ExportarDatosView. `hx-boost="false"` es
+    obligatorio: htmx intercepta el envío y se traga la descarga.
+  {% endcomment %}
+  <section class="tarjeta" id="tus-datos">
+    <h2>Tus datos</h2>
+    <p class="texto-suave">
+      Todo lo que cargaste es tuyo: alumnos, rutinas, pagos, turnos y novedades.
+      Podés llevártelo en archivos CSV que abren en Excel o se importan en otro programa.
+    </p>
+    {% if object.puede_exportar %}
+      <form method="post" action="{% url 'gimnasio_exportar' %}" hx-boost="false" class="mt-4">
+        {% csrf_token %}
+        <button type="submit" class="boton-secundario">Exportar mis datos (.zip)</button>
+      </form>
+    {% else %}
+      <button type="button" class="boton-secundario mt-4" disabled>Exportar mis datos (.zip)</button>
+      <p class="texto-suave mt-3">
+        La descarga todavía no está habilitada para tu gimnasio. Pedinos que la
+        activemos{% if soporte_contacto %}: {{ soporte_contacto }}{% endif %}.
+      </p>
+    {% endif %}
+  </section>
+
   <p class="texto-suave"><a href="{% url 'politica_privacidad' %}">Política de privacidad</a></p>
 </div>
 

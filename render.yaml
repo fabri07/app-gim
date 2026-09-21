@@ -108,6 +108,16 @@ services:
         sync: false
       - key: DEFAULT_FROM_EMAIL
         sync: false
+      # Exportador de datos ("Mi gimnasio"). Las dos son opcionales e
+      # independientes. EXPORTACION_AVISO_EMAIL: a quién se le avisa cada vez
+      # que un gimnasio real descarga sus datos (necesita las EMAIL_* de
+      # arriba). SOPORTE_CONTACTO: texto libre que se le muestra al gimnasio
+      # que todavía no tiene la exportación habilitada, para que sepa a quién
+      # pedírsela.
+      - key: EXPORTACION_AVISO_EMAIL
+        sync: false
+      - key: SOPORTE_CONTACTO
+        sync: false
       # Web Push (PWA). Las 3 o ninguna -> `PUSH_ENABLED`. El par
       # público/privado tiene que ser IDÉNTICO al de los secrets de GitHub
       # Actions, o las suscripciones creadas con una clave se rechazan al
