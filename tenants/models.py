@@ -78,6 +78,29 @@ class Gimnasio(TimeStampedModel):
             "datos se restauran automáticamente."
         ),
     )
+    #: Habilita el botón «Exportar mis datos» de "Mi gimnasio". Mismo criterio
+    #: que `es_demo`: gestión de plataforma, se tilda desde `/admin/` y queda
+    #: fuera de `GimnasioForm.Meta.fields`, así que el staff no puede
+    #: habilitárselo solo. Se prende cuando un gimnasio pide sus datos (deja de
+    #: pagar, migra a otro programa) y queda prendida hasta que se destilde.
+    #: La regla completa vive en `puede_exportar`.
+    exportacion_habilitada = models.BooleanField(
+        default=False,
+        verbose_name="exportación de datos habilitada",
+        help_text=(
+            "Deja que el staff de este gimnasio descargue todos sus datos en "
+            "CSV desde «Mi gimnasio». La cuenta de demostración exporta siempre."
+        ),
+    )
+    #: Cuándo se pidió la última exportación. Hace dos trabajos: muestra en
+    #: `/admin/` si el cliente ya bajó sus datos (para saber cuándo destildar),
+    #: y es el freno entre descargas de `ExportarDatosView`. Es un campo y no
+    #: un modelo de auditoría porque un `TenantOwnedModel` más obligaría a
+    #: tocar `vaciar_gimnasio` y su fixture por una sola fecha.
+    exportacion_ultima_descarga = models.DateTimeField(
+        null=True, blank=True, editable=False,
+        verbose_name="última exportación de datos",
+    )
 
     class TipoPublico(models.TextChoices):
         """A qué público atiende el gimnasio.
@@ -302,6 +325,13 @@ class Gimnasio(TimeStampedModel):
     @property
     def color_secundario_css(self):
         return self.PALETAS[self.paleta]["secundario"]
+
+    @property
+    def puede_exportar(self):
+        """Único lugar donde vive la regla de quién exporta: la cuenta de
+        demostración siempre (es lo que se muestra para vender), el resto solo
+        con la casilla de `/admin/`. La consultan la vista y el template."""
+        return self.es_demo or self.exportacion_habilitada
 
     @property
     def version_media(self):

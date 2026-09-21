@@ -373,6 +373,16 @@ EMAIL_BACKEND = (
 )
 
 
+# Exportador de datos (`tenants/exportacion.py`). Las dos son opcionales e
+# independientes entre sí, por eso no pasan por `_bandera_todo_o_nada`.
+# EXPORTACION_AVISO_EMAIL compensa que la habilitación no tenga vencimiento:
+# si exporta alguien que no se esperaba, el dueño del producto se entera. Si
+# las EMAIL_* no están, el aviso cae al backend de consola y no rompe nada.
+EXPORTACION_AVISO_EMAIL = os.environ.get("EXPORTACION_AVISO_EMAIL", "")
+# Texto libre ("escribinos al 11-...") que ve el gimnasio sin la exportación
+# habilitada. Vacío = el cartel no promete ningún canal.
+SOPORTE_CONTACTO = os.environ.get("SOPORTE_CONTACTO", "")
+
 # PWA / Web Push (app `notificaciones`). Mismo criterio todo-o-nada que
 # GOOGLE_*/R2_*: sin las 3 variables, `notificaciones.services` se vuelve
 # no-op -- la PWA sigue siendo instalable (manifest/SW no dependen de esto),

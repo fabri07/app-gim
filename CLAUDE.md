@@ -630,6 +630,55 @@ y no revierte los dos campos del `Gimnasio` que la propia siembra muta
   solape con la automática. Alta de la cuenta:
   `manage.py crear_gimnasio ... --demo`.
 
+## Exportador de datos (`tenants/exportacion.py`)
+
+Agregado el 2026-09-21: cuando un gimnasio deja de pagar la app o migra a otro
+programa, sus datos son suyos. «Mi gimnasio» tiene una tarjeta «Tus datos» con
+el botón **«Exportar mis datos (.zip)»**, que baja un CSV por entidad.
+
+- **El botón existe siempre y sale deshabilitado** hasta que el dueño del
+  producto tilda `Gimnasio.exportacion_habilitada` en `/admin/` (queda prendida
+  hasta que se destilde; el campo está fuera de `GimnasioForm.Meta.fields`,
+  igual que `es_demo`). **La cuenta demo exporta siempre.** La regla vive en un
+  solo lugar: `Gimnasio.puede_exportar`. El `disabled` es UX; **la defensa es
+  el 403 de `ExportarDatosView`**, que es POST-only y cuyo form lleva
+  `hx-boost="false"` (htmx se traga la descarga).
+- **Dos carpetas con los mismos datos**, porque no existe un CSV que sirva a
+  los dos lectores: `para-excel/` (`;`, coma decimal, BOM — abre con doble
+  click en un Excel argentino) y `para-importar/` (`,`, punto decimal, sin BOM).
+  Salen de **una sola lectura**; el saneado anti-fórmula se aplica solo a la de
+  Excel (en la otra, un apóstrofe agregado es corrupción de datos) y no toca
+  teléfonos `+54…`, negativos ni «- Tren superior».
+- **Se pagina por pk, NO con `.iterator()`.** Con `disable_server_side_cursors`
+  (obligatorio por PgBouncer) el driver trae el resultado entero a memoria
+  antes de iterar, y `RutinaAsignadaItem` crece sin techo. SQLite no lo muestra.
+- **`EXCLUIDOS` es explícito y hay un test que lo exige**: todo
+  `TenantOwnedModel` está en `HOJAS` o en `EXCLUIDOS` con su motivo (que además
+  se imprime en el `LEEME.txt`). **Un modelo tenant-owned nuevo ahora va a TRES
+  lugares**: `vaciar_gimnasio`, `_ensuciar`, y `HOJAS`/`EXCLUIDOS`.
+  `GoogleCalendarCredential` no entra nunca — se verificó mutando el código que
+  `values_list` sobre un `EncryptedTextField` **saca el token descifrado**.
+- **El par de tests de cobertura solo sirve junto** (misma lección que
+  `vaciar_gimnasio`): uno exige que cada modelo esté decidido, el otro que cada
+  CSV tenga filas. Para el segundo, `_ensuciar_para_exportar` envuelve
+  `_ensuciar` y agrega lo que ese fixture no crea (`NovedadLeida`,
+  `RutinaAsignadaDiaCompletado`, una credencial de Google con token
+  reconocible): sin eso, el test de secretos pasaba sin que hubiera ningún
+  secreto. Y los conteos del test de aislamiento son **números fijos**, no un
+  `count()` con el mismo filtro del código, que sería comparar el exportador
+  consigo mismo.
+- **Tres frenos en la vista, los tres por el único worker de gunicorn**: un
+  techo (`MAX_FILAS_WEB`, medido: ver `ISSUES.md [2026-09-21]`) por encima del
+  cual no se genera nada y se avisa al dueño del producto; 60 s entre descargas
+  por gimnasio, tomados con un `UPDATE` condicional sobre
+  `exportacion_ultima_descarga` (atómico ante el doble click, y `update()` para
+  no tocar `modificado`, que versiona logo e ícono PWA); y el mail a
+  `EXPORTACION_AVISO_EMAIL` en cada exportación de una cuenta real.
+- **`manage.py exportar_gimnasio --gimnasio <slug> --salida x.zip`** genera el
+  mismo archivo desde la Shell, sin techo ni timeout y sin mirar la casilla.
+- `SOPORTE_CONTACTO` (env var opcional) es el texto que ve el gimnasio sin la
+  exportación habilitada; `gimnasio.contacto` NO sirve, es el del gimnasio.
+
 ## Borrar: `core/borrado.py` + `BorrarConExplicacionView`
 
 Agregado el 2026-09-02 a pedido del dueño (eliminar plantillas, ejercicios y
@@ -2373,6 +2422,8 @@ python manage.py crear_gimnasio --nombre "Gimnasio Central" --email dueno@gmail.
                                      # imprime una contraseña provisoria; ver
                                      # --sin-password (solo cuando exista Google login)
 python manage.py generar_pagos       # autogenera pendientes del mes + vence atrasados
+python manage.py exportar_gimnasio --gimnasio <slug> --salida datos.zip
+                                     # mismo ZIP que el botón de "Mi gimnasio", sin timeout
 python manage.py collectstatic       # solo hace falta simulando producción (DEBUG=False)
 
 npm install                          # una vez, para compilar Tailwind

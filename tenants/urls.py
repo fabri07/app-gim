@@ -4,6 +4,7 @@ from django.views.generic import TemplateView
 
 from tenants.forms import ResetPasswordStaffForm
 from tenants.views import (
+    ExportarDatosView,
     FondoGimnasioView,
     GimnasioLandingView,
     GimnasioLoginView,
@@ -78,6 +79,7 @@ urlpatterns = [
         name="password_change_done",
     ),
     path("gimnasio/editar/", GimnasioUpdateView.as_view(), name="gimnasio_editar"),
+    path("gimnasio/exportar/", ExportarDatosView.as_view(), name="gimnasio_exportar"),
     # Página estática, sin vista propia -- no hay contexto dinámico que
     # justifique una clase en views.py. Pública a propósito (sin mixin de
     # auth): igual que la landing, cualquiera debería poder leerla sin

@@ -20,6 +20,41 @@ del log.
 
 ---
 
+## [2026-09-21] Exportador de datos: riesgos aceptados y un techo medido
+**Estado:** aceptado (riesgo asumido a propósito)
+**Impacto:** se agregó el botón «Exportar mis datos» en "Mi gimnasio" (ZIP de
+CSV con todo el historial), habilitado por gimnasio desde `/admin/` y siempre
+prendido en la cuenta demo. Cuatro cosas quedan así a sabiendas:
+
+1. **La habilitación no vence sola** (pedido explícito del dueño del producto:
+   «hasta que yo la apague»). Una casilla olvidada + una cuenta de staff robada
+   = el padrón completo, con la ficha de salud, fuera de la plataforma. Se
+   compensa, no se elimina: cada exportación de un gimnasio real manda un mail
+   a `EXPORTACION_AVISO_EMAIL`, y `/admin/` muestra la fecha de la última
+   descarga y un filtro por casilla prendida. **Ese mail depende de dos
+   integraciones opcionales** (`EXPORTACION_AVISO_EMAIL` y las 4 `EMAIL_*`): si
+   falta cualquiera, no sale nada y no hay error. Es el mismo modo de falla que
+   ya tuvo el Web Push durante meses — verificarlo con una exportación real.
+2. **Generación síncrona con un solo worker.** `render.yaml` arranca gunicorn
+   sin `-w`: mientras se arma un ZIP no se atiende a nadie más. Medido en
+   desarrollo: ~160 µs por fila (17.000 filas en 2,8 s, después de sacar un
+   doble formateo que costaba el 70% del tiempo). De ahí `MAX_FILAS_WEB =
+   60_000`: por encima, la vista no intenta generar nada (sería un 502 con la
+   app colgada), le avisa al dueño del producto con el comando listo para
+   copiar, y el archivo se prepara con `manage.py exportar_gimnasio`. El freno
+   de 60 s entre descargas existe por lo mismo, y porque las credenciales de la
+   demo circulan. **El número está medido en una Mac, no en Render**: si la
+   primera exportación real tarda más de ~10 s, bajarlo.
+3. **Los comprobantes y el logo no van en el ZIP** (figura el nombre del
+   archivo). Bajarlos de R2 uno por uno no entra en el timeout. Si un gimnasio
+   los pide, es una tarea manual contra el bucket.
+4. **`REPEATABLE READ` no se puede probar en local.** El snapshot consistente
+   entre las ~17 consultas solo se activa con Postgres y fuera de una
+   transacción ya abierta, así que ni SQLite ni `TestCase` lo ejercitan.
+**Resolución / próximo paso:** verificar en producción, sobre `/g/demo`, que la
+descarga anda y cuánto tarda. Cuando existan las sub-cuentas de staff, pasar la
+vista a `DuenoRequiredMixin` (ya anotado en ese spec).
+
 ## [2026-09-09] El plan de entrenamiento era ilegible en el celular
 **Estado:** resuelto
 **Impacto:** dos capturas desde un Android real, sobre la misma familia de
