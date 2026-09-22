@@ -13,9 +13,11 @@ fila sería el mismo error que un N+1, pero contra la red.
 """
 
 from django.contrib import messages
-from django.shortcuts import get_object_or_404
+from django.http import Http404, HttpResponseNotAllowed
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
+from django.views import View
 from django.views.generic import CreateView, DetailView, TemplateView, UpdateView
 
 from plataforma import cambio, facturacion, precios
@@ -201,3 +203,124 @@ class FacturacionUpdateView(GimnasioDePlataformaMixin, UpdateView):
         respuesta = super().form_valid(form)
         messages.success(self.request, "Facturación actualizada.")
         return respuesta
+
+
+class EstadoCuentaView(GimnasioDePlataformaMixin, TemplateView):
+    """Congela o descongela la cuenta de un gimnasio.
+
+    Las tres transiciones pasan por la misma vista porque son la misma
+    escritura (`estado_cuenta` + desde cuándo) y separarlas en tres clases
+    multiplicaría por tres el lugar donde olvidarse de limpiar la fecha.
+
+    - GET de «Bloquear alumnos» / «Suspender»: pantalla de confirmación.
+    - GET de «Restaurar»: 405. Restaurar no destruye nada, así que es un POST
+      directo desde la ficha y no tiene pantalla propia; un GET ahí solo puede
+      venir de una URL tipeada a mano o del prefetch de un navegador, y NO
+      puede aplicar el cambio.
+    - POST: aplica el estado.
+
+    La escritura va con `QuerySet.update()` y no con `save()` a propósito:
+    `modificado` (de `TimeStampedModel`) versiona la URL del logo y la del
+    ícono de la PWA, así que tocarlo acá le invalidaría la caché del ícono a
+    todos los celulares del gimnasio por un cambio que no tiene nada que ver
+    con sus archivos.
+    """
+
+    template_name = "plataforma/confirmar_estado.html"
+
+    #: Qué dice la pantalla de confirmación de cada estado. El texto describe
+    #: la CONSECUENCIA (quién deja de entrar), no la acción: «¿Confirmás?» no
+    #: le dice nada a quien está por dejar afuera a un gimnasio entero.
+    COPY = {
+        Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS: {
+            "titulo": "Bloquear a los alumnos",
+            "confirmar": "Sí, bloquear a los alumnos",
+            "consecuencia": (
+                "Los alumnos de este gimnasio dejan de ver su rutina y de "
+                "reservar turnos, y dejan de recibir notificaciones. El staff "
+                "sigue entrando normalmente para poder ponerse al día."
+            ),
+        },
+        Gimnasio.EstadoCuenta.SUSPENDIDA: {
+            "titulo": "Suspender la cuenta",
+            "confirmar": "Sí, suspender la cuenta",
+            "consecuencia": (
+                "Nadie de este gimnasio entra más a la app: ni los alumnos ni "
+                "el staff. Tampoco puede exportar sus datos desde la app (eso "
+                "se hace con «manage.py exportar_gimnasio»)."
+            ),
+        },
+    }
+
+    @property
+    def estado(self):
+        """El estado pedido por la URL, validado contra las choices.
+
+        Se resuelve al usarlo (y no en `dispatch`) para que la autorización
+        del panel corra primero: quien no es el superadmin tiene que recibir
+        403, no enterarse de qué estados existen probando la URL.
+        """
+        estado = self.kwargs["estado"]
+        if estado not in Gimnasio.EstadoCuenta.values:
+            raise Http404("Ese estado de cuenta no existe.")
+        return estado
+
+    def get(self, request, *args, **kwargs):
+        if self.estado == Gimnasio.EstadoCuenta.NORMAL:
+            return HttpResponseNotAllowed(["POST"])
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(self.COPY[self.estado])
+        context["url_cancelar"] = self.get_success_url()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        gimnasio = self.get_gimnasio()
+        estado = self.estado
+        normal = estado == Gimnasio.EstadoCuenta.NORMAL
+        Gimnasio.objects.filter(pk=gimnasio.pk).update(
+            estado_cuenta=estado,
+            # Se limpia al restaurar: una fecha colgada de una cuenta normal
+            # se leería en la ficha como que sigue congelada.
+            estado_cuenta_desde=None if normal else timezone.now(),
+        )
+        if normal:
+            aviso = f"{gimnasio.nombre} vuelve a tener acceso completo."
+        else:
+            aviso = (
+                f"{gimnasio.nombre}: "
+                f"{Gimnasio.EstadoCuenta(estado).label.lower()}."
+            )
+        messages.success(request, aviso)
+        return redirect(self.get_success_url())
+
+
+class ExportacionToggleView(GimnasioDePlataformaMixin, View):
+    """Prende y apaga el botón «Exportar mis datos» de un gimnasio.
+
+    Es la casilla `exportacion_habilitada`, que hasta ahora solo se tildaba
+    desde `/admin/`: el caso real es un gimnasio que deja de pagar y pide sus
+    datos, o sea exactamente el momento en que el dueño del producto ya está
+    mirando esta ficha.
+
+    POST-only y con `update()`, mismo criterio que `EstadoCuentaView`: no toca
+    `modificado`, que versiona el logo y el ícono de la PWA.
+    """
+
+    def post(self, request, *args, **kwargs):
+        gimnasio = self.get_gimnasio()
+        habilitada = not gimnasio.exportacion_habilitada
+        Gimnasio.objects.filter(pk=gimnasio.pk).update(
+            exportacion_habilitada=habilitada
+        )
+        messages.success(
+            request,
+            (
+                f"{gimnasio.nombre} ya puede exportar sus datos."
+                if habilitada
+                else f"{gimnasio.nombre} ya no puede exportar sus datos."
+            ),
+        )
+        return redirect(self.get_success_url())

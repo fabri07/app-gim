@@ -112,6 +112,27 @@
   <div class="acciones-lista">
     <a class="boton" href="{% url 'plataforma:pago_nuevo' gimnasio.pk %}">Registrar pago</a>
     <a class="boton-secundario" href="{% url 'plataforma:facturacion_editar' gimnasio.pk %}">Editar facturación</a>
+    {% comment %}
+      Los botones de estado son CONTEXTUALES: se ofrece el escalón siguiente y
+      la vuelta atrás, nunca los tres a la vez. Ofrecer «Bloquear alumnos»
+      sobre una cuenta ya suspendida sería ofrecer un paso hacia atrás
+      disfrazado de acción, y «Restaurar» sobre una cuenta normal, un botón
+      que no hace nada.
+
+      «Restaurar» va por POST directo (sin pantalla de confirmación): no
+      destruye nada y es lo que se aprieta apenas el gimnasio paga.
+    {% endcomment %}
+    {% if gimnasio.estado_cuenta == "normal" %}
+      <a class="boton-secundario" href="{% url 'plataforma:estado_cuenta' gimnasio.pk 'alumnos_bloqueados' %}">Bloquear alumnos</a>
+    {% elif gimnasio.estado_cuenta == "alumnos_bloqueados" %}
+      <a class="boton-secundario" href="{% url 'plataforma:estado_cuenta' gimnasio.pk 'suspendida' %}">Suspender cuenta</a>
+    {% endif %}
+    {% if gimnasio.estado_cuenta != "normal" %}
+      <form method="post" action="{% url 'plataforma:estado_cuenta' gimnasio.pk 'normal' %}">
+        {% csrf_token %}
+        <button type="submit" class="boton-secundario">Restaurar acceso</button>
+      </form>
+    {% endif %}
   </div>
 </div>
 
@@ -164,6 +185,24 @@
       <dd><a href="{% url 'landing_gimnasio' gimnasio.slug %}" hx-boost="false">/g/{{ gimnasio.slug }}/</a></dd>
     </div>
     <div>
+      <dt>Estado de la cuenta</dt>
+      <dd>
+        <span class="badge badge--{{ gimnasio.estado_cuenta_badge }}">{{ gimnasio.get_estado_cuenta_display }}</span>
+        {% comment %}
+          «Suspendida desde …» / «Alumnos bloqueados desde …»: sin la fecha,
+          una cuenta congelada no dice si se cortó ayer o hace tres meses, que
+          es justo el dato con el que se decide si hay que llamar al cliente o
+          darlo de baja. El filtro `date` ya convierte a hora local.
+        {% endcomment %}
+        {% if gimnasio.estado_cuenta_desde %}
+          <span class="texto-suave">
+            {{ gimnasio.get_estado_cuenta_display }} desde el
+            {{ gimnasio.estado_cuenta_desde|date:"d/m/Y H:i" }}
+          </span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
       <dt>Activo</dt>
       <dd>{% if gimnasio.activo %}Sí{% else %}No{% endif %}</dd>
     </div>
@@ -176,5 +215,19 @@
       <dd>{% if gimnasio.exportacion_habilitada %}Sí{% else %}No{% endif %}</dd>
     </div>
   </dl>
+  <div class="acciones-lista">
+    {% comment %}
+      Prender la exportación es lo que se hace justo cuando un gimnasio deja
+      de pagar y pide sus datos, o sea desde esta misma ficha: hasta ahora
+      había que ir a /admin/ a buscar la casilla. POST y no link porque
+      cambia estado.
+    {% endcomment %}
+    <form method="post" action="{% url 'plataforma:exportacion_toggle' gimnasio.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="boton-secundario">
+        {% if gimnasio.exportacion_habilitada %}Deshabilitar exportación{% else %}Habilitar exportación{% endif %}
+      </button>
+    </form>
+  </div>
 </div>
 {% endblock %}

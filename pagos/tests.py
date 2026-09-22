@@ -172,6 +172,26 @@ class GenerarPagosPendientesTests(TestCase):
         self.assertEqual(creados_segunda_vez, 0)
         self.assertEqual(Cuota.objects.count(), 3)
 
+    def test_sigue_emitiendo_con_la_cuenta_de_plataforma_suspendida(self):
+        """Congelar la cuenta de un gimnasio (porque no le paga a la
+        plataforma) NO apaga la facturación que ese gimnasio le hace a SUS
+        alumnos: son dos negocios distintos.
+
+        Apagar el cron sería castigar al gimnasio dos veces y, sobre todo,
+        dejarlo con un agujero contable: al restaurarle el acceso le faltarían
+        las cuotas de todo el período congelado, y no hay forma de emitirlas
+        retroactivamente sin pisar períodos. Los datos no se tocan, y esto es
+        un dato."""
+        from tenants.models import Gimnasio
+
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            estado_cuenta=Gimnasio.EstadoCuenta.SUSPENDIDA
+        )
+
+        generar_pagos_pendientes(self.hoy)
+
+        self.assertEqual(Cuota.objects.filter(gimnasio=self.gimnasio).count(), 2)
+
     def test_no_emite_nada_al_alumno_sin_ancla(self):
         """Sin ancla no hay ciclo. Es un agujero de facturación posible, así
         que las señales del alta y de la primera rutina la estampan siempre;

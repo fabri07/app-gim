@@ -3,6 +3,8 @@
 from django.urls import path
 
 from plataforma.views import (
+    EstadoCuentaView,
+    ExportacionToggleView,
     FacturacionUpdateView,
     GimnasioDetalleView,
     InicioView,
@@ -29,5 +31,18 @@ urlpatterns = [
         "gimnasios/<int:pk>/facturacion/",
         FacturacionUpdateView.as_view(),
         name="facturacion_editar",
+    ),
+    # El estado va en la URL y no en el POST: así cada botón de la ficha tiene
+    # su propia dirección (y su propia pantalla de confirmación) en vez de un
+    # formulario con un campo oculto que decide cuánto se corta.
+    path(
+        "gimnasios/<int:pk>/estado/<str:estado>/",
+        EstadoCuentaView.as_view(),
+        name="estado_cuenta",
+    ),
+    path(
+        "gimnasios/<int:pk>/exportacion/",
+        ExportacionToggleView.as_view(),
+        name="exportacion_toggle",
     ),
 ]

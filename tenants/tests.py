@@ -255,6 +255,38 @@ class FacturacionDePlataformaEnGimnasioTests(TestCase):
         self.assertFalse(self.gimnasio.facturacion_exenta)
         self.assertIsNone(self.gimnasio.facturacion_inicio)
 
+    def test_el_form_del_gimnasio_no_expone_el_estado_de_la_cuenta(self):
+        """Es el más grave de los tres si se escapa: con `estado_cuenta` en el
+        formulario, un gimnasio congelado por no pagar se descongela solo
+        desde «Mi gimnasio»."""
+        campos = GimnasioForm().fields
+
+        self.assertNotIn("estado_cuenta", campos)
+        self.assertNotIn("estado_cuenta_desde", campos)
+
+    def test_no_se_puede_descongelar_la_cuenta_desde_mi_gimnasio(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            estado_cuenta=Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS
+        )
+        self.client.login(username="dueno", password="clave-123456")
+
+        self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Cliente",
+                "tipo_publico": Gimnasio.TipoPublico.MIXTO,
+                "paleta": Gimnasio.Paleta.BOSQUE,
+                "tipografia": Gimnasio.Tipografia.PLUS_JAKARTA,
+                "fondo_tipo": Gimnasio.FondoTipo.COLOR,
+                "estado_cuenta": Gimnasio.EstadoCuenta.NORMAL,
+            },
+        )
+
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(
+            self.gimnasio.estado_cuenta, Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS
+        )
+
 
 class EstampadoDelInicioDeFacturacionTests(TestCase):
     """La migración de datos que hace que prender la facturación NO sea
@@ -4135,6 +4167,22 @@ class RestaurarDemoTests(TestCase):
         self.demo.refresh_from_db()
         self.assertTrue(self.demo.facturacion_exenta)
         self.assertEqual(self.demo.facturacion_inicio, date(2026, 5, 20))
+
+    def test_no_toca_el_estado_de_la_cuenta(self):
+        """Mismo argumento que la facturación, un escalón más grave: si
+        `estado_cuenta` entrara al estado canónico, la restauración de cada 6 h
+        le devolvería el acceso a una cuenta que el dueño del producto congeló
+        a propósito -- y nadie se enteraría, porque el cron sale en verde."""
+        Gimnasio.objects.filter(pk=self.demo.pk).update(
+            estado_cuenta=Gimnasio.EstadoCuenta.SUSPENDIDA
+        )
+
+        self._restaurar(alumnos=3, meses=1)
+
+        self.demo.refresh_from_db()
+        self.assertEqual(
+            self.demo.estado_cuenta, Gimnasio.EstadoCuenta.SUSPENDIDA
+        )
 
 
 class RestaurarDemoSinPushTests(TransactionTestCase):

@@ -114,6 +114,13 @@ MIDDLEWARE = [
     # evaluarse en CADA request y por eso no vive en un mixin -- ver el
     # docstring de tenants/middleware.py.
     'tenants.middleware.ExpirarSuplantacionMiddleware',
+    # Corta el acceso de un gimnasio con la cuenta congelada por falta de
+    # pago. Va DESPUÉS del de suplantación a propósito: mientras se suplanta,
+    # `request.user` es el alumno, y el bloqueo tiene que evaluarse contra ese
+    # usuario (que es lo que el staff está yendo a ver). Usa `process_view`,
+    # así que necesita que `resolver_match` ya esté resuelto -- ver el
+    # docstring de plataforma/middleware.py.
+    'plataforma.middleware.PlataformaMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -134,6 +141,7 @@ TEMPLATES = [
                 'tenants.context_processors.google_staff_login_disponible',
                 'tenants.context_processors.password_reset_disponible',
                 'tenants.context_processors.tour_onboarding_disponible',
+                'plataforma.context_processors.estado_cuenta',
             ],
         },
     },

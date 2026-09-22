@@ -193,6 +193,18 @@
       px-4 py-2 text-sm;
   }
 
+  /* La cuenta del gimnasio está en el primer escalón de congelada: sus
+     alumnos no entran y el dueño sí. Ámbar como el de suplantación y por el
+     mismo motivo del resto del proyecto: hay algo concreto para hacer (pagar)
+     y no algo roto -- el rojo está reservado para eso. Va en negrita la
+     consecuencia, no la deuda: lo que el dueño necesita entender de un
+     vistazo es que sus alumnos se quedaron afuera. */
+  .banner-atraso {
+    @apply flex flex-wrap items-center justify-between gap-3
+      bg-amber-100 border-b border-amber-300 text-amber-900
+      px-4 py-2 text-sm;
+  }
+
   /* Cards */
   .tarjeta {
     @apply bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6;

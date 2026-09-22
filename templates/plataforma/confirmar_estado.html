@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}{{ titulo }} · Plataforma{% endblock %}
+
+{% comment %}
+Molde: `templates/core/confirmar_borrado.html`. Mismo criterio que el borrado
+con explicación -- se confirma en una pantalla propia y no con un POST a secas
+porque lo que está en juego es el acceso de un gimnasio entero y de todos sus
+alumnos.
+
+«Restaurar» NO pasa por acá: devolverle el acceso a alguien que acaba de pagar
+no destruye nada, y pedirle una confirmación al dueño del producto sería
+fricción sin ninguna contrapartida.
+{% endcomment %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>{{ titulo }}</h1>
+  <p>{{ consecuencia }}</p>
+  <p>
+    Los datos del gimnasio no se tocan: se pueden restaurar desde esta misma
+    ficha cuando pague.
+  </p>
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" class="boton-peligro">{{ confirmar }}</button>
+    <a class="boton-secundario" href="{{ url_cancelar }}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

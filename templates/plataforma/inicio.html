@@ -100,6 +100,7 @@
         <th>Alumnos activos</th>
         <th>Precio (USD)</th>
         <th>Estado</th>
+        <th>Cuenta</th>
         <th>Próximo vencimiento</th>
         <th>Último ingreso del staff</th>
         <th></th>
@@ -113,6 +114,20 @@
           <td>{{ fila.alumnos_activos }}</td>
           <td>{% if fila.factura %}{{ fila.precio_usd }}{% else %}—{% endif %}</td>
           <td><span class="badge badge--{{ fila.estado.badge }}">{{ fila.estado.etiqueta }}</span></td>
+          {% comment %}
+            La columna «Cuenta» (el estado del acceso) es distinta de «Estado»
+            (el del cobro): un gimnasio puede estar vencido y todavía con
+            acceso normal, que es lo habitual los primeros días. Solo se pinta
+            cuando hay algo que decir -- un badge verde en las 20 filas
+            sanas sería una columna de ruido que tapa las dos que importan.
+          {% endcomment %}
+          <td>
+            {% if fila.gimnasio.estado_cuenta == "normal" %}
+              <span class="texto-suave">—</span>
+            {% else %}
+              <span class="badge badge--{{ fila.gimnasio.estado_cuenta_badge }}">{{ fila.gimnasio.get_estado_cuenta_display }}</span>
+            {% endif %}
+          </td>
           <td>
             {% if fila.factura and fila.vencimiento %}
               {{ fila.vencimiento|date:"d/m/Y" }}
@@ -133,7 +148,7 @@
           <td><a href="{% url 'plataforma:gimnasio_detalle' fila.gimnasio.pk %}">Ver</a></td>
         </tr>
       {% empty %}
-        <tr><td colspan="8">Todavía no hay ningún gimnasio dado de alta.</td></tr>
+        <tr><td colspan="9">Todavía no hay ningún gimnasio dado de alta.</td></tr>
       {% endfor %}
     </tbody>
   </table>
