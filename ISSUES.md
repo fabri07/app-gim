@@ -20,6 +20,73 @@ del log.
 
 ---
 
+## [2026-09-22] `Gimnasio.activo` no bloqueaba nada
+**Estado:** resuelto
+
+**Impacto:** `activo` se leía —en el código y en la cabeza de quien lo iba a
+usar— como «este gimnasio queda afuera». No lo era. Destildarlo hacía
+exactamente dos cosas: `gimnasio_activo_o_404` empezaba a dar 404 en la landing
+pública y en `g/<slug>/login/`, y el gimnasio dejaba de contar para la
+facturación. **El staff y los alumnos que ya tenían usuario seguían entrando
+igual** por `/accounts/login/`, con la app entera funcionando: rutinas,
+reservas, comprobantes, push. Y los dos crons lo ignoraban — `marcar_vencidos`
+le seguía venciendo cuotas y `enviar_recordatorios` le seguía mandando
+notificaciones al celular a los alumnos de un gimnasio supuestamente dado de
+baja.
+
+O sea que la única palanca que el dueño del producto creía tener contra un
+gimnasio que deja de pagar no existía: el único corte real era entrar por la
+Shell de Render y desactivar los `User` a mano, uno por uno.
+
+**Resolución / próximo paso:** se agregó `Gimnasio.estado_cuenta`
+(`NORMAL` / `ALUMNOS_BLOQUEADOS` / `SUSPENDIDA`) con
+`plataforma/middleware.py` cortando el acceso en cada request, y `activo` quedó
+documentado —`help_text` en el modelo y sección propia en `CLAUDE.md`— como lo
+que de verdad es: **«oculto/retirado», no «cortado»**. Son dos decisiones
+distintas a propósito: una cuenta congelada por falta de pago sigue siendo un
+cliente al que se le quiere cobrar, no uno dado de baja. Los dos escalones de
+`estado_cuenta` son manuales y no un cron: cobrarle a un gimnasio es una
+conversación, y un corte automático el día equivocado le rompe el día de
+trabajo a alguien que quizás ya transfirió.
+
+---
+
+## [2026-09-22] Tareas manuales del día del deploy del panel de plataforma
+**Estado:** abierto
+
+**Impacto:** la migración `tenants/0013` le estampa `facturacion_inicio = hoy`
+a todos los gimnasios que ya existen. Es lo correcto (prender la facturación no
+puede ser retroactivo, mismo criterio que `fecha_activacion_bloqueo`: sin eso
+la primera carga del panel los muestra a todos vencidos con meses de atraso por
+períodos que nunca se cobraron), pero **deja tres cosas mal** hasta que alguien
+las ajuste a mano, y ninguna se nota mirando el panel:
+
+1. **`gimnasio-verificacion-r2` cuenta como un cliente que paga.** Es la cuenta
+   de prueba del desarrollo, no un cliente: sin tildarle `facturacion_exenta`
+   infla el KPI de ingreso esperado y aparece en «Para cobrar esta semana».
+2. **Vida Plena y GymGin arrancan con 30 días gratis que no les corresponden.**
+   Su `facturacion_inicio` quedó en la fecha del deploy, no en la fecha
+   comercial real en que empezaron a pagar, así que la prueba de 30 días se les
+   cuenta de nuevo desde cero.
+3. **La cuenta demo NO está exenta del bloqueo.** `es_demo` no tiene ninguna
+   relación con `estado_cuenta`: si alguien suspende la demo, `restaurar_demo`
+   **no la descongela** — `estado_cuenta` está deliberadamente fuera del estado
+   canónico (hay un test que lo fija:
+   `test_no_toca_el_estado_de_la_cuenta`), porque si entrara, el cron de cada
+   6 h le devolvería el acceso a una cuenta que el dueño del producto congeló a
+   propósito, y nadie se enteraría porque el cron sale en verde. El costo es el
+   simétrico: una demo suspendida por error se queda suspendida para siempre y
+   hay que destrabarla a mano desde el panel o `/admin/`.
+
+**Resolución / próximo paso:** el día del deploy, desde el panel
+(`/plataforma/`): (a) tildar `facturacion_exenta` en
+`gimnasio-verificacion-r2`; (b) corregir `facturacion_inicio` de Vida Plena y
+de GymGin a su fecha comercial real; (c) dejar anotado que la demo se destraba
+a mano. Nada de esto se puede automatizar en la migración: las fechas
+comerciales reales no están en la base.
+
+---
+
 ## [2026-09-22] El alta desde el panel vuelve clickeable una race vieja de `crear_gimnasio`
 **Estado:** aceptado (riesgo asumido a propósito)
 
