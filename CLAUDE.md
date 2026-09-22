@@ -1495,6 +1495,18 @@ plan original).
 - **Un archivo de una sola hoja saltea la pantalla de elegir hojas** (todo
   PDF, y el Excel de una hoja como el del cliente): con una sola hoja esa
   pantalla era un «Continuar» obligatorio.
+- **El preview muestra solo los avisos de las hojas ELEGIDAS** (2026-09-21).
+  Se guardan por hoja (`hojas[].advertencias_columnas`) además de la lista
+  global, y `services.advertencias_para_preview()` los filtra con fallback a
+  la global para JSON anteriores. El archivo real del cliente trae 11 hojas y
+  las 10 auxiliares producían nueve avisos ámbar que el dueño leyó como «se
+  leyó mal» (ver `ISSUES.md [2026-09-21]`).
+- **Objetivo y Nivel son opcionales** en el preview y en el modelo
+  (`blank=True`, `rutinas/0015`): el dueño sube el archivo y confirma. Lo
+  único obligatorio es la **categoría de cada ejercicio nuevo**, y el rechazo
+  se resume ARRIBA de la página (`.aviso-error`, con los nombres y un link a
+  «Ejercicios a resolver»): el error por fila queda al final de cientos de
+  filas y el POST vuelve al tope, así que solo eso parecía «no hace nada».
 
 ### Planes en PDF (2026-09-07)
 

@@ -23,6 +23,7 @@ from importaciones.services import (
     ImportacionInvalida,
     construir_ejemplo_plantillas,
     guardar_hojas_elegidas,
+    advertencias_para_preview,
     hojas_elegidas,
     confirmar_importacion_biblioteca,
     confirmar_importacion_plantillas,
@@ -291,6 +292,21 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
             filas.append((info, f))
         return filas
 
+    def _faltan_categoria(self, importacion, ejercicio_formset):
+        """Nombres (tal como los escribió el entrenador) de los ejercicios
+        nuevos a los que les falta la categoría, para el resumen de error
+        de arriba de la página. El error por fila ya existe, pero vive al
+        final de una pantalla que puede tener cientos de filas y el POST
+        vuelve al tope: sin el resumen, «Confirmar» parecía no hacer nada."""
+        if not ejercicio_formset.is_bound:
+            return []
+        resultado = importacion.resultado
+        return [
+            self._nombre_original(resultado, f["nombre_normalizado"].value())
+            for f in ejercicio_formset.forms
+            if "categoria" in f.errors
+        ]
+
     def render(self, request, importacion, hoja_formset, ejercicio_formset):
         # `hoja_formset.forms` preserva el orden de `hojas_initial`, que a
         # su vez preserva el orden de `resultado["hojas"]` -- zippearlos es
@@ -300,6 +316,14 @@ class PreviewPlantillasView(StaffRequiredMixin, TenantScopedMixin, View):
         # renderizando).
         return render(request, self.template_name, {
             "importacion": importacion,
+            "advertencias": advertencias_para_preview(importacion.resultado),
+            "faltan_categoria": self._faltan_categoria(importacion, ejercicio_formset),
+            # Solo tras un POST inválido (`is_valid()` sobre un formset sin
+            # datos es False, así que el GET no puede confundirse con un
+            # rechazo).
+            "formulario_rechazado": hoja_formset.is_bound and not (
+                hoja_formset.is_valid() and ejercicio_formset.is_valid()
+            ),
             "hojas_con_form": list(zip(
                 [
                     {**h, "invalidas_agrupadas": _agrupar_invalidas(h)}

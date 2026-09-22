@@ -867,7 +867,11 @@ class SubirPlantillasFormTests(TestCase):
 
 
 class HojaMetadataFormSetTests(SimpleTestCase):
-    def test_requiere_objetivo_y_nivel(self):
+    def test_objetivo_y_nivel_son_opcionales(self):
+        """Hasta el 2026-09-21 eran obligatorios y el dueño de un gimnasio se
+        quedaba en el preview sin poder confirmar: quiere subir el archivo y
+        listo. Son datos descriptivos que se completan después desde la
+        plantilla, si hacen falta."""
         from importaciones.forms import HojaMetadataFormSet
         datos = {
             "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
@@ -875,7 +879,18 @@ class HojaMetadataFormSetTests(SimpleTestCase):
             "form-0-objetivo": "", "form-0-nivel": "",
         }
         formset = HojaMetadataFormSet(datos)
-        self.assertFalse(formset.is_valid())
+        self.assertTrue(formset.is_valid(), formset.errors)
+        self.assertEqual(formset.cleaned_data[0]["objetivo"], "")
+        self.assertEqual(formset.cleaned_data[0]["nivel"], "")
+
+    def test_nivel_fuera_del_catalogo_sigue_siendo_invalido(self):
+        from importaciones.forms import HojaMetadataFormSet
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_hoja": "Hombres", "form-0-incluir": "on",
+            "form-0-objetivo": "", "form-0-nivel": "experto",
+        }
+        self.assertFalse(HojaMetadataFormSet(datos).is_valid())
 
     def test_valido_con_todos_los_campos(self):
         from importaciones.forms import HojaMetadataFormSet
@@ -4600,3 +4615,208 @@ class ChipsDelPreviewDePlantillasTests(TestCase):
             """'.rutina-drop-zona[data-categoria="' + select.value + '"]'""", plantilla
         )
         self.assertNotIn("data-grupo-muscular", plantilla)
+
+
+class ConfirmarSinObjetivoNiNivelTests(TestCase):
+    """2026-09-21: el dueño de Vida Plena subió el plan de un alumno, llegó al
+    preview y no pudo confirmar. Objetivo y Nivel eran obligatorios; ahora
+    puede confirmar directo y la plantilla nace con esos dos campos vacíos."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.pecho = CategoriaEjercicio.objects.create(gimnasio=self.gimnasio, nombre="Pecho")
+        self.client.login(username="staff", password="clave12345")
+
+    def _subir(self):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Gaston"
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Press de banca", 4, "8-12"])
+        self.client.post(reverse("importaciones:plantillas_subir"), {"archivo": _archivo_xlsx(wb)})
+        return Importacion.objects.get()
+
+    def _datos(self, **extra):
+        datos = {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_hoja": "Gaston", "form-0-incluir": "on",
+            "form-0-objetivo": "", "form-0-nivel": "",
+            "ejercicios-TOTAL_FORMS": "1", "ejercicios-INITIAL_FORMS": "1",
+            "ejercicios-0-nombre_normalizado": "press de banca",
+            "ejercicios-0-accion": "crear_nuevo",
+            "ejercicios-0-categoria": self.pecho.pk,
+        }
+        datos.update(extra)
+        return datos
+
+    def test_confirma_sin_objetivo_ni_nivel(self):
+        importacion = self._subir()
+        response = self.client.post(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk]), self._datos(),
+        )
+        self.assertEqual(response.status_code, 302)
+        plantilla = RutinaPlantilla.objects.get()
+        self.assertEqual(plantilla.objetivo, "")
+        self.assertEqual(plantilla.nivel, "")
+        self.assertEqual(plantilla.items.count(), 1)
+
+    def test_el_listado_y_el_detalle_no_se_rompen_con_los_campos_vacios(self):
+        importacion = self._subir()
+        self.client.post(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk]), self._datos(),
+        )
+        plantilla = RutinaPlantilla.objects.get()
+        self.assertEqual(self.client.get(reverse("rutinas:plantilla_listado")).status_code, 200)
+        self.assertEqual(
+            self.client.get(reverse("rutinas:plantilla_detalle", args=[plantilla.pk])).status_code,
+            200,
+        )
+
+    def test_el_preview_no_marca_objetivo_ni_nivel_como_obligatorios(self):
+        importacion = self._subir()
+        response = self.client.get(
+            reverse("importaciones:plantillas_preview", args=[importacion.pk])
+        )
+        self.assertContains(response, "form-0-objetivo")
+        self.assertNotContains(response, "Este campo es obligatorio")
+
+
+class MensajeDeCategoriasFaltantesTests(TestCase):
+    """La categoría de un ejercicio nuevo SÍ sigue siendo obligatoria, y el
+    rechazo tiene que leerse arriba de todo: el error por fila vive al final
+    de una página con cientos de filas, y el POST vuelve al tope. Un
+    formulario que rechaza sin que se note es igual a uno que no guarda."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.pecho = CategoriaEjercicio.objects.create(gimnasio=self.gimnasio, nombre="Pecho")
+        self.client.login(username="staff", password="clave12345")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Gaston"
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Maromas", 4, "8-12"])
+        ws.append([1, "Bird dog", 3, "10"])
+        self.client.post(reverse("importaciones:plantillas_subir"), {"archivo": _archivo_xlsx(wb)})
+        self.importacion = Importacion.objects.get()
+        self.url = reverse("importaciones:plantillas_preview", args=[self.importacion.pk])
+
+    def _datos(self, categoria_maromas="", categoria_bird_dog=""):
+        return {
+            "form-TOTAL_FORMS": "1", "form-INITIAL_FORMS": "1",
+            "form-0-nombre_hoja": "Gaston", "form-0-incluir": "on",
+            "form-0-objetivo": "", "form-0-nivel": "",
+            "ejercicios-TOTAL_FORMS": "2", "ejercicios-INITIAL_FORMS": "2",
+            "ejercicios-0-nombre_normalizado": "maromas",
+            "ejercicios-0-accion": "crear_nuevo",
+            "ejercicios-0-categoria": categoria_maromas,
+            "ejercicios-1-nombre_normalizado": "bird dog",
+            "ejercicios-1-accion": "crear_nuevo",
+            "ejercicios-1-categoria": categoria_bird_dog,
+        }
+
+    def test_sin_categoria_no_confirma_y_avisa_arriba_con_los_nombres(self):
+        response = self.client.post(self.url, self._datos())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(RutinaPlantilla.objects.count(), 0)
+        self.assertEqual(self.importacion.estado, Importacion.Estado.EN_REVISION)
+        self.assertContains(response, "No se pudo confirmar")
+        self.assertContains(response, "2 ejercicios nuevos")
+        # Los nombres tal como los escribió el entrenador, no normalizados.
+        self.assertContains(response, "Maromas")
+        self.assertContains(response, "Bird dog")
+        # El resumen lleva a la sección donde se resuelve.
+        self.assertContains(response, 'href="#ejercicios-a-resolver"')
+        self.assertContains(response, 'id="ejercicios-a-resolver"')
+        # Y el error por fila sigue ahí.
+        self.assertContains(response, "Elegí una categoría para el ejercicio nuevo.")
+
+    def test_falta_una_sola_dice_singular(self):
+        response = self.client.post(self.url, self._datos(categoria_maromas=self.pecho.pk))
+        self.assertContains(response, "1 ejercicio nuevo")
+        self.assertContains(response, "Bird dog")
+        self.assertNotContains(response, "No se pudo confirmar: Maromas")
+
+    def test_con_todas_las_categorias_confirma(self):
+        response = self.client.post(
+            self.url, self._datos(categoria_maromas=self.pecho.pk, categoria_bird_dog=self.pecho.pk),
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(RutinaPlantilla.objects.count(), 1)
+
+    def test_el_get_no_muestra_el_resumen_de_error(self):
+        response = self.client.get(self.url)
+        self.assertNotContains(response, "No se pudo confirmar")
+        # Pero sí avisa, antes de intentar, que los nuevos necesitan categoría.
+        self.assertContains(response, "necesita una categoría")
+
+
+class AdvertenciasPorHojaElegidaTests(TestCase):
+    """2026-09-21: el archivo real de Vida Plena trae 11 hojas y el staff
+    elige UNA. Los avisos de columnas se agregaban a nivel archivo sobre
+    TODAS, así que el preview abría con nueve avisos ámbar de hojas
+    auxiliares que el propio staff acababa de destildar («se usó 'Nombre/Desc'
+    (columna 27)»), y el dueño lo leyó como que el plan se había leído mal."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym", slug="gym")
+        self.staff = User.objects.create_user(username="staff", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Plan"
+        ws.append(["Dia", "Ejercicio", "Series", "Repeticiones"])
+        ws.append([1, "Press de banca", 4, "8-12"])
+        aux = wb.create_sheet("AUX")
+        # Dos columnas "Ejercicio": produce la advertencia de columna duplicada.
+        aux.append(["Dia", "Ejercicio", "Ejercicio", "Series", "Repeticiones"])
+        aux.append([1, "Sentadilla", "otra cosa", 3, "10"])
+        self.client.post(reverse("importaciones:plantillas_subir"), {"archivo": _archivo_xlsx(wb)})
+        self.importacion = Importacion.objects.get()
+
+    def _preview(self):
+        return self.client.get(
+            reverse("importaciones:plantillas_preview", args=[self.importacion.pk])
+        )
+
+    def _elegir(self, *hojas):
+        self.client.post(
+            reverse("importaciones:plantillas_hojas", args=[self.importacion.pk]),
+            {"hojas": list(hojas)},
+        )
+        self.importacion.refresh_from_db()
+
+    def test_los_avisos_se_guardan_por_hoja(self):
+        por_nombre = {h["nombre_hoja"]: h for h in self.importacion.resultado["hojas"]}
+        self.assertEqual(por_nombre["Plan"]["advertencias_columnas"], [])
+        self.assertEqual(len(por_nombre["AUX"]["advertencias_columnas"]), 1)
+        self.assertIn("ejercicio", por_nombre["AUX"]["advertencias_columnas"][0])
+
+    def test_el_preview_no_muestra_los_avisos_de_una_hoja_no_elegida(self):
+        self._elegir("Plan")
+        response = self._preview()
+        self.assertNotContains(response, "Revisá cómo se leyó el archivo")
+        self.assertNotContains(response, "columnas parecidas a")
+
+    def test_el_preview_si_muestra_los_avisos_de_la_hoja_elegida(self):
+        self._elegir("AUX")
+        response = self._preview()
+        self.assertContains(response, "Revisá cómo se leyó el archivo")
+        self.assertContains(response, "columnas parecidas a")
+
+    def test_una_importacion_anterior_al_deploy_sigue_mostrando_los_avisos_del_archivo(self):
+        # JSON con la forma vieja: sin la clave por hoja, solo la global.
+        resultado = self.importacion.resultado
+        for hoja in resultado["hojas"]:
+            hoja.pop("advertencias_columnas")
+        resultado["hojas_elegidas"] = ["Plan"]
+        self.importacion.resultado = resultado
+        self.importacion.save()
+        response = self._preview()
+        self.assertContains(response, "Revisá cómo se leyó el archivo")
+        self.assertContains(response, escape(resultado["advertencias_columnas"][0]))

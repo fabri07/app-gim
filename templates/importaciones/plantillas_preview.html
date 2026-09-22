@@ -5,10 +5,33 @@
 {% block content %}
 <div class="contenido--ancho">
   <h1>Revisar antes de confirmar</h1>
-  {% if importacion.resultado.advertencias_columnas %}
+  {% if formulario_rechazado %}
+    {% comment %} Resumen del rechazo, ARRIBA: el POST vuelve al tope de una
+       página que puede tener cientos de filas, y el error por fila queda
+       abajo de todo. Sin esto, «Confirmar importación» parecía no hacer nada.
+       Rojo (`.aviso-error`) y no ámbar: acá algo impidió guardar. {% endcomment %}
+    <div class="tarjeta aviso-error" role="alert">
+      <h2>No se pudo confirmar</h2>
+      {% if faltan_categoria %}
+        <p>
+          Falta elegir la categoría de
+          {{ faltan_categoria|length }} ejercicio{{ faltan_categoria|length|pluralize }} nuevo{{ faltan_categoria|length|pluralize }}:
+          <strong>{{ faltan_categoria|join:", " }}</strong>.
+        </p>
+        <p>
+          <a href="#ejercicios-a-resolver">Bajá hasta «Ejercicios a resolver»</a>
+          y elegí una categoría en cada uno de esos. Después volvé a apretar
+          «Confirmar importación».
+        </p>
+      {% else %}
+        <p>Revisá los campos marcados en rojo más abajo y volvé a confirmar.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+  {% if advertencias %}
     <div class="tarjeta aviso-urgente">
       <h2>Revisá cómo se leyó el archivo</h2>
-      {% for advertencia in importacion.resultado.advertencias_columnas %}
+      {% for advertencia in advertencias %}
         <p>{{ advertencia }}</p>
       {% endfor %}
     </div>
@@ -100,13 +123,16 @@
 
     {{ ejercicio_formset.management_form }}
     {% if ejercicio_formset.forms %}
-      <div class="tarjeta">
+      <div class="tarjeta" id="ejercicios-a-resolver">
         <h2>Ejercicios a resolver</h2>
+        <p>
+          <strong>Cada ejercicio nuevo necesita una categoría</strong> para
+          poder confirmar: arrastrá su chip a la categoría, o elegila en el
+          desplegable de la fila (funciona igual con teclado, lector de
+          pantalla o celular).
+        </p>
         <p class="texto-suave">
-          Para los ejercicios nuevos: arrastrá cada chip a su grupo
-          muscular, o elegilo directamente en el desplegable de la fila
-          (funciona igual con teclado, lector de pantalla o celular). Para
-          los que ya coinciden con uno existente, la categoría la
+          Para los que ya coinciden con uno existente, la categoría la
           conserva el ejercicio de la biblioteca -- el desplegable no se
           usa.
         </p>

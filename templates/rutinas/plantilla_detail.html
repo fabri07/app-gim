@@ -38,7 +38,7 @@
       </div>
       <div>
         <dt>Nivel</dt>
-        <dd>{{ plantilla.get_nivel_display }}</dd>
+        <dd>{{ plantilla.get_nivel_display|default:"—" }}</dd>
       </div>
       <div>
         <dt>Días por semana</dt>

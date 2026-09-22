@@ -50,8 +50,12 @@ class RutinaPlantilla(TenantOwnedModel):
         AVANZADO = "avanzado", "Avanzado"
 
     nombre = models.CharField(max_length=120)
-    objetivo = models.CharField(max_length=120)
-    nivel = models.CharField(max_length=15, choices=Nivel.choices)
+    # `blank=True` en los dos desde el 2026-09-21: una plantilla importada
+    # desde un archivo nace sin objetivo ni nivel, y exigirlos en el preview
+    # frenaba al dueño justo antes de confirmar. Se muestran con «—» donde
+    # están vacíos.
+    objetivo = models.CharField(max_length=120, blank=True)
+    nivel = models.CharField(max_length=15, choices=Nivel.choices, blank=True)
     dias_por_semana = models.PositiveSmallIntegerField()
     activa = models.BooleanField(default=True)
 

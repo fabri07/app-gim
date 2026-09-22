@@ -191,6 +191,13 @@ def previsualizar_importacion_plantillas(*, gimnasio, archivo, usuario):
                     asdict(f) for f in invalidas_por_hoja[hoja.nombre_hoja]
                 ],
                 "motivo_exclusion": hoja.motivo_exclusion,
+                # Por hoja además de a nivel archivo (2026-09-21): el preview
+                # muestra solo las de las hojas ELEGIDAS. El archivo real de
+                # un cliente trae 11 hojas y el staff elige una; las otras
+                # diez son auxiliares y producían nueve avisos ámbar sobre
+                # columnas que el plan no tiene. Ver
+                # `advertencias_para_preview`.
+                "advertencias_columnas": list(hoja.advertencias_columnas),
                 "layout": hoja.layout,
                 "fila_encabezado": hoja.fila_encabezado,
                 # Solo la lectura tolerante (PDF) deja items sin series o
@@ -310,6 +317,23 @@ def construir_ejemplo_plantillas():
     ayuda.append(["formato de la mayoría de las planillas compradas."])
 
     return wb
+
+
+def advertencias_para_preview(resultado):
+    """Los avisos de lectura que ve el staff en el preview: solo los de las
+    hojas elegidas, más el aviso de ítems «a completar» de esas mismas hojas.
+
+    Una `Importacion` EN_REVISION creada antes del deploy no tiene la clave
+    por hoja: ahí se cae a la lista global de siempre (que sigue
+    guardándose, y que es la única que existe para el import de biblioteca).
+    """
+    hojas = hojas_elegidas(resultado)
+    if any("advertencias_columnas" not in hoja for hoja in hojas):
+        return list(resultado.get("advertencias_columnas", []))
+    incompletos = sum(hoja.get("items_incompletos", 0) for hoja in hojas)
+    return [
+        advertencia for hoja in hojas for advertencia in hoja["advertencias_columnas"]
+    ] + _advertencia_de_incompletos(incompletos)
 
 
 def hojas_elegidas(resultado):
@@ -516,8 +540,10 @@ def confirmar_importacion_plantillas(*, importacion, gimnasio, decisiones):
                 raise ImportacionInvalida(
                     f"La hoja «{hoja['nombre_hoja']}» no tiene ejercicios y no se puede incluir."
                 )
-            nivel = decision_hoja["nivel"]
-            if nivel not in RutinaPlantilla.Nivel.values:
+            nivel = decision_hoja["nivel"] or ""
+            # Vacío es válido (opcional desde el 2026-09-21); un valor fuera
+            # del catálogo sigue siendo un POST armado a mano.
+            if nivel and nivel not in RutinaPlantilla.Nivel.values:
                 raise ImportacionInvalida(f"Nivel inválido: «{nivel}».")
             plantilla = RutinaPlantilla.objects.create(
                 gimnasio=gimnasio,
