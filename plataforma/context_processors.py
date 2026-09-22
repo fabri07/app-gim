@@ -8,7 +8,7 @@ de que sus alumnos están bloqueados.
 
 from django.conf import settings
 
-from plataforma.middleware import _perfil_de
+from plataforma.middleware import perfil_de
 from tenants.models import Gimnasio
 
 
@@ -31,7 +31,7 @@ def estado_cuenta(request):
     # se le esconde la nav ni se le muestra un banner sobre una cuenta que
     # para él no está congelada: las dos pantallas tienen que decir lo mismo.
     usuario = getattr(request, "user", None)
-    perfil = None if usuario is not None and usuario.is_superuser else _perfil_de(request)
+    perfil = None if usuario is not None and usuario.is_superuser else perfil_de(request)
     estado = perfil.gimnasio.estado_cuenta if perfil is not None else None
     return {
         "cuenta_alumnos_bloqueados": (

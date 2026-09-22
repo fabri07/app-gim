@@ -781,6 +781,37 @@ class PushConLaCuentaCongeladaTests(TransactionTestCase):
 
         self.assertEqual(mock_webpush.call_count, 1)
 
+    def test_un_aviso_dirigido_al_staff_no_se_filtra_con_los_alumnos_bloqueados(self):
+        """`notificar_a_usuario` tiene que mirar el ROL del destinatario, no
+        aplicarle a todos el umbral del alumno.
+
+        Hoy ningún llamador le manda un aviso personal al staff, así que este
+        test fija una invariante sin caso vivo -- a propósito: el día que
+        aparezca (un «se te venció la cuota de la app», por ejemplo), un filtro
+        escrito con el umbral del alumno se lo tragaría en silencio, y el
+        silencio es justamente el modo de falla que nadie reporta.
+        """
+        from notificaciones import services
+
+        self._estado(Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS)
+
+        with patch("notificaciones.services.webpush") as mock_webpush:
+            services.notificar_a_usuario(self.staff, self._payload())
+
+        self.assertEqual(mock_webpush.call_count, 1)
+
+    def test_un_aviso_dirigido_al_staff_si_se_calla_con_la_cuenta_suspendida(self):
+        """Guard del anterior: con la cuenta suspendida el staff tampoco entra,
+        así que avisarle de algo que no puede abrir es el mismo error."""
+        from notificaciones import services
+
+        self._estado(Gimnasio.EstadoCuenta.SUSPENDIDA)
+
+        with patch("notificaciones.services.webpush") as mock_webpush:
+            services.notificar_a_usuario(self.staff, self._payload())
+
+        mock_webpush.assert_not_called()
+
     def test_el_staff_sigue_recibiendo_con_los_alumnos_bloqueados(self):
         """Es el aviso que lo hace entrar a la app a ponerse al día: cortarlo
         en el escalón donde el staff todavía entra sería apagar justo la

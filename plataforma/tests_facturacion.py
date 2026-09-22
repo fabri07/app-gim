@@ -329,6 +329,33 @@ class RegistrarPagoViewTests(TestCase):
         self.assertEqual(pago.registrado_por, self.jefe)
         self.assertEqual(pago.monto_ars, Decimal("23047.50"))
 
+    def test_avisa_si_el_gimnasio_que_acaba_de_pagar_sigue_congelado(self):
+        """Registrar el pago NO descongela la cuenta (restaurar el acceso es
+        un POST aparte: un pago puede ser parcial o a cuenta de otra cosa).
+        Un «Pago registrado» a secas sobre un gimnasio que sigue sin poder
+        entrar es la misma mentira que `pagos.views.ConfirmarPagoView` ataja
+        adentro del gimnasio, y se descubre igual: por el reclamo del cliente
+        que acaba de pagar."""
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            estado_cuenta=Gimnasio.EstadoCuenta.SUSPENDIDA
+        )
+
+        respuesta = self.client.post(self._url(), self._datos(), follow=True)
+
+        textos = [str(m) for m in respuesta.context["messages"]]
+        self.assertIn("Pago registrado para Vida Plena.", textos)
+        self.assertTrue(
+            any("restaurá el acceso desde la ficha" in t for t in textos), textos
+        )
+        self.assertTrue(any("Suspendida" in t for t in textos), textos)
+
+    def test_no_avisa_nada_si_el_gimnasio_esta_normal(self):
+        """Guard del anterior: un aviso que sale siempre deja de leerse."""
+        respuesta = self.client.post(self._url(), self._datos(), follow=True)
+
+        textos = [str(m) for m in respuesta.context["messages"]]
+        self.assertEqual(textos, ["Pago registrado para Vida Plena."])
+
     def test_el_gimnasio_sale_de_la_url_y_no_del_formulario(self):
         """FK-injection: `gimnasio` no está en el form, así que un id ajeno en
         el POST tiene que caer al piso. Sin esto, el pago de un cliente le

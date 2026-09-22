@@ -173,13 +173,26 @@ class PagoPlataformaCreateView(GimnasioDePlataformaMixin, CreateView):
     def form_valid(self, form):
         # Estampado del lado del servidor, nunca del cliente: `gimnasio` sale
         # de la URL y `registrado_por` de la sesión.
-        form.instance.gimnasio = self.get_gimnasio()
+        gimnasio = self.get_gimnasio()
+        form.instance.gimnasio = gimnasio
         form.instance.registrado_por = self.request.user
         respuesta = super().form_valid(form)
-        messages.success(
-            self.request,
-            f"Pago registrado para {self.get_gimnasio().nombre}.",
-        )
+        messages.success(self.request, f"Pago registrado para {gimnasio.nombre}.")
+        # Registrar el pago NO descongela la cuenta: restaurar el acceso es un
+        # POST aparte, a propósito (un pago puede ser parcial, o a cuenta de
+        # otra cosa). Pero un «Pago registrado» a secas sobre un gimnasio que
+        # sigue sin poder entrar es la misma mentira que `ConfirmarPagoView`
+        # ataja adentro del gimnasio: el dueño del producto se entera por el
+        # reclamo del cliente que acaba de pagar. Mismo patrón, un piso arriba.
+        if gimnasio.estado_cuenta != Gimnasio.EstadoCuenta.NORMAL:
+            messages.warning(
+                self.request,
+                (
+                    f"Ojo: {gimnasio.nombre} sigue en «"
+                    f"{gimnasio.get_estado_cuenta_display()}». Si corresponde, "
+                    f"restaurá el acceso desde la ficha."
+                ),
+            )
         return respuesta
 
 

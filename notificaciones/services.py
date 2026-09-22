@@ -100,18 +100,30 @@ def _enviar(suscripcion, payload: dict) -> None:
 
 
 def notificar_a_usuario(usuario, payload: dict) -> None:
-    """Le avisa a UNA persona. Hoy todos sus llamadores le hablan a un alumno
-    (su rutina, su cuota, su turno), así que el filtro por estado de cuenta va
-    contra `ESTADOS_SIN_ACCESO_ALUMNO`.
+    """Le avisa a UNA persona.
 
-    El filtro va acá, en el embudo, y no en cada `notificar_*`: son siete
-    eventos y alcanzaba con que uno se olvidara para mandarle a un alumno
-    bloqueado el aviso de algo que después no puede abrir. Se filtra por
-    `SuscripcionPush.gimnasio` (es `TenantOwnedModel`) y no por el Perfil del
-    usuario, que sería un join más para el mismo dato.
+    El filtro por estado de cuenta va acá, en el embudo, y no en cada
+    `notificar_*`: son siete eventos y alcanzaba con que uno se olvidara para
+    mandarle a un alumno bloqueado el aviso de algo que después no puede abrir.
+
+    **Es la misma regla que `plataforma.middleware.sin_acceso`, escrita en
+    SQL**: la cuenta suspendida calla a todos, y con los alumnos bloqueados se
+    calla solo a los alumnos. Hoy todos los llamadores le hablan a un alumno,
+    así que la rama del staff no tiene caso vivo -- pero un filtro que use el
+    umbral del alumno para cualquier destinatario es una bomba de tiempo: el
+    día que alguien mande por acá un aviso dirigido al dueño (que SÍ entra a
+    la app con los alumnos bloqueados), se perdería en silencio. Tiene test.
+
+    Se filtra por `SuscripcionPush.gimnasio` (es `TenantOwnedModel`) y el rol
+    sale del Perfil del usuario, que es donde vive.
     """
-    qs = SuscripcionPush.objects.filter(usuario=usuario, activa=True).exclude(
-        gimnasio__estado_cuenta__in=ESTADOS_SIN_ACCESO_ALUMNO
+    qs = (
+        SuscripcionPush.objects.filter(usuario=usuario, activa=True)
+        .exclude(gimnasio__estado_cuenta__in=ESTADOS_SIN_ACCESO_STAFF)
+        .exclude(
+            usuario__perfil__rol=Perfil.Rol.ALUMNO,
+            gimnasio__estado_cuenta__in=ESTADOS_SIN_ACCESO_ALUMNO,
+        )
     )
     for suscripcion in qs:
         _enviar(suscripcion, payload)

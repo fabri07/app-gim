@@ -19,7 +19,7 @@ renderiza el cartel, así que el redirect termina siempre en una pantalla que
 explica qué pasa, sin ningún loop posible.
 
 **El registro del día activo corre ANTES del bloqueo**, y sobre la misma
-resolución de `Perfil` (de ahí que `_perfil_de(request)` sea un helper aparte y
+resolución de `Perfil` (de ahí que `perfil_de(request)` sea un helper aparte y
 memoizado). Que alguien intente entrar y se encuentre el cartel también es
 información: es la señal de que el gimnasio sigue vivo del otro lado de la
 deuda, que es justo lo que se mira antes de decidir si se lo llama o se lo da
@@ -79,11 +79,13 @@ URLS_SIN_BLOQUEO = frozenset(
 )
 
 
-def _perfil_de(request):
+def perfil_de(request):
     """El `Perfil` del usuario del request, o `None`.
 
-    Memoizado en el request para que el middleware, el context processor y
-    (en la Fase 4) el registro de actividad lean lo mismo una sola vez.
+    Memoizado en el request para que el registro de actividad, el bloqueo y
+    `plataforma/context_processors.py` lean lo mismo una sola vez. Sin guion
+    bajo a propósito: lo usan tres llamadores, uno de ellos en otro módulo, así
+    que es parte de la interfaz de este archivo y no un detalle interno.
 
     No cuesta ninguna query propia en el camino normal: `base.html` resuelve
     `user.perfil.gimnasio` en toda página autenticada y el ORM cachea las dos
@@ -148,7 +150,7 @@ def registrar_dia_activo(request):
         return
     if suplantacion.esta_activa(request):
         return
-    perfil = _perfil_de(request)
+    perfil = perfil_de(request)
     if perfil is None:
         return
     ActividadDiaria.objects.bulk_create(
@@ -199,14 +201,15 @@ class PlataformaMiddleware:
         # staff ve exactamente lo que ve él -- que es el punto de suplantar.
         # Salir de ahí lo cubre `suplantacion_volver`, que está en la
         # allowlist de arriba.
-        if not sin_acceso(_perfil_de(request)):
+        perfil = perfil_de(request)
+        if not sin_acceso(perfil):
             return None
 
         if request.method in ("GET", "HEAD"):
             return render(
                 request,
                 "plataforma/cuenta_bloqueada.html",
-                {"gimnasio": _perfil_de(request).gimnasio},
+                {"gimnasio": perfil.gimnasio},
                 # 200 y no 403: ver el docstring del módulo.
                 status=200,
             )

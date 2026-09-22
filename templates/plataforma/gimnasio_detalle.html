@@ -256,6 +256,20 @@
       </button>
     </form>
   </div>
+  {% comment %}
+    El caso en que se prende la exportación —un gimnasio que deja de pagar y
+    pide sus datos— es justo el que puede estar suspendido, y ahí el botón de
+    «Mi gimnasio» no le va a aparecer: el bloqueo lo ataja antes. Sin esta
+    línea, el dueño del producto tilda la casilla, le avisa al cliente que ya
+    puede bajar sus datos, y el cliente no encuentra nada.
+  {% endcomment %}
+  {% if gimnasio.estado_cuenta == "suspendida" %}
+    <p class="texto-suave">
+      Con la cuenta suspendida el staff no puede descargar la exportación desde
+      la app: bajala vos con <code>manage.py exportar_gimnasio --gimnasio
+      {{ gimnasio.slug }}</code>.
+    </p>
+  {% endif %}
 </div>
 
 {{ actividad|json_script:"actividad-data" }}

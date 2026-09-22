@@ -467,9 +467,12 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         context["fondo_imagen_url"] = (
             gimnasio.fondo_imagen.url if gimnasio.fondo_imagen else ""
         )
-        # Solo lo usa la tarjeta «Tus datos» de esta pantalla, por eso va acá
-        # y no en un context processor global.
-        context["soporte_contacto"] = settings.SOPORTE_CONTACTO
+        # `SOPORTE_CONTACTO` NO se inyecta acá: lo expone el context processor
+        # `plataforma.context_processors.estado_cuenta`, que ya corre en toda
+        # página. Dos nombres para el mismo dato (`soporte_contacto` acá,
+        # `SOPORTE_CONTACTO` en `base.html` y en el cartel de cuenta
+        # bloqueada) es exactamente cómo dos pantallas terminan diciendo
+        # contactos distintos cuando alguien cambia uno solo.
         return context
 
     def form_valid(self, form):

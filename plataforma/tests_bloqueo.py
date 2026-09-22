@@ -391,7 +391,7 @@ class CostoDelMiddlewareTests(TestCase):
         self.gimnasio = _gimnasio()
         self.usuario = _staff(self.gimnasio)
 
-    def _queries_de_home(self, middleware=None):
+    def _queries_de_home(self):
         # Client nuevo DENTRO del override: el handler arma la cadena de
         # middleware en el primer request y después la guarda.
         cliente = Client()
