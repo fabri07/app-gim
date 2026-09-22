@@ -20,6 +20,37 @@ del log.
 
 ---
 
+## [2026-09-22] El alta desde el panel vuelve clickeable una race vieja de `crear_gimnasio`
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** `tenants/services.py::crear_gimnasio` resuelve el email y el slug
+con check-then-create y sin `select_for_update`: chequea que no exista el
+`User`, pide `slug_disponible()` y recién después inserta. La race ya estaba
+documentada ahí como teórica, y lo era: el único camino hasta ahora era
+`manage.py crear_gimnasio`, o sea alguien tipeando el comando dos veces a la
+vez en dos consolas.
+
+La Fase 5 del panel de plataforma agrega `plataforma:gimnasio_crear`, que es
+el **primer camino clickeable** hacia esa función. El alta crea cuatro cosas
+(gimnasio, usuario, perfil) y además siembra las categorías iniciales, así que
+tarda lo suficiente como para que un doble click sea plausible. El síntoma
+sería un `IntegrityError` sin manejar contra el `unique=True` de
+`Gimnasio.slug` (o contra el username) — un **500 mudo** en vez del error al
+lado del campo que la pantalla sí muestra para el caso secuencial, y con la
+duda de si quedó algo a medio crear (no queda: el servicio es `@atomic`).
+
+**Resolución / próximo paso:** dos frenos baratos, ninguno del lado del
+servidor. (1) `templates/plataforma/gimnasio_form.html` deshabilita el botón
+en el `submit` y le cambia el texto a «Creando…»; cubre el caso real, que es
+el doble click impaciente, no dos pestañas coordinadas. (2) Esta entrada, para
+que el día que aparezca un 500 así no haya que volver a deducirlo. Si alguna
+vez muerde de verdad, el arreglo es un `select_for_update()` o un
+`get_or_create` **adentro del servicio** — no en la vista, que es el mismo
+criterio por el que el lock de `crear_acceso` vive en
+`alumnos/services.py` y no en `CrearAccesoView`.
+
+---
+
 ## [2026-09-21] El dueño no podía confirmar la importación de un plan
 **Estado:** resuelto
 **Impacto:** el primer cliente pago subió el plan de un alumno

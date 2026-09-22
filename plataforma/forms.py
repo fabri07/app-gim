@@ -193,11 +193,20 @@ class CrearGimnasioForm(forms.Form):
         igual, pero `None` dice explícitamente "elegilo vos" y es lo que
         espera la firma del servicio.
 
-        El chequeo de unicidad duplica a propósito el `unique=True` del
-        modelo: sin él, el choque llega como `IntegrityError` (un 500 mudo)
-        en vez de un mensaje al lado del campo.
+        **En minúsculas.** Esta pantalla es el primer lugar del proyecto donde
+        una persona tipea un slug a mano: en todos los demás sale de
+        `slugify()` adentro de `slug_disponible`, que siempre los devuelve en
+        minúsculas. `SlugField` acepta mayúsculas, así que sin bajarlo un
+        «Vida-Plena» dejaría la URL pública del gimnasio como
+        `/g/Vida-Plena/login/`, distinta de todas las demás.
+
+        Y se baja ANTES del chequeo de unicidad, no después: si se comparara
+        lo tipeado contra lo guardado, `VIDA-PLENA` pasaría el control y
+        chocaría recién contra el `unique=True` del modelo. Ese chequeo lo
+        duplica a propósito: sin él el choque llega como `IntegrityError` (un
+        500 mudo) en vez de un mensaje al lado del campo.
         """
-        slug = self.cleaned_data.get("slug") or None
+        slug = (self.cleaned_data.get("slug") or "").lower() or None
         if slug and Gimnasio.objects.filter(slug=slug).exists():
             raise forms.ValidationError(
                 "Ya hay un gimnasio con esa dirección web. Probá con otra."

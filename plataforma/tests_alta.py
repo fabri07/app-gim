@@ -90,6 +90,17 @@ class AltaDeGimnasioTests(TestCase):
 
         self.assertEqual(Gimnasio.objects.get().slug, "vida-plena")
 
+    def test_el_slug_tipeado_se_baja_a_minusculas(self):
+        """Esta pantalla es el PRIMER lugar del proyecto donde una persona
+        tipea un slug a mano: en todos los demás sale de `slugify()` adentro
+        de `slug_disponible`, que siempre devuelve minúsculas. Sin bajarlo,
+        la URL pública del gimnasio quedaría `/g/Vida-Plena/login/`, contra la
+        convención de todas las demás.
+        """
+        self.client.post(self.url, _datos(slug="Vida-Plena"))
+
+        self.assertEqual(Gimnasio.objects.get().slug, "vida-plena")
+
     def test_es_demo_nace_exento_de_facturacion(self):
         """La cuenta de demostración no es de nadie: el monitor no puede
         contarla como un cliente que debe plata.
@@ -161,6 +172,19 @@ class AltaDeGimnasioRechazosTests(TestCase):
         respuesta = self.client.post(self.url, _datos(slug="vida-plena"))
 
         self.assertEqual(respuesta.status_code, 200)
+        self.assertIn("slug", respuesta.context["form"].errors)
+        self.assertEqual(Gimnasio.objects.count(), 1)
+
+    def test_el_choque_de_slug_se_mide_ya_normalizado(self):
+        """Si la unicidad se chequeara contra lo tipeado y no contra lo que se
+        va a guardar, `VIDA-PLENA` pasaría el control y reventaría después
+        contra el `unique=True` del modelo: un 500 mudo en vez de un error al
+        lado del campo.
+        """
+        Gimnasio.objects.create(nombre="Vida Plena", slug="vida-plena")
+
+        respuesta = self.client.post(self.url, _datos(slug="VIDA-PLENA"))
+
         self.assertIn("slug", respuesta.context["form"].errors)
         self.assertEqual(Gimnasio.objects.count(), 1)
 
