@@ -16,7 +16,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied
 from django.db import connection
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
@@ -358,6 +358,37 @@ class AccesoAlPanelTests(TestCase):
 
         destino = reverse("landing_gimnasio", args=[self.gimnasio.slug])
         self.assertIn(f'href="{destino}" hx-boost="false"', html)
+
+
+class LinkASentryTests(TestCase):
+    """El link "Errores (Sentry)" del panel depende solo de `SENTRY_PANEL_URL`
+    (Fase 0), no de `SENTRY_ENABLED` -- ese último se fija al importar
+    `settings.py` (ahí correría `sentry_sdk.init()` si tocara) y no se puede
+    simular con `override_settings` en un test; `SENTRY_PANEL_URL` en cambio
+    la lee `plataforma.context_processors.estado_cuenta` en cada request, así
+    que `override_settings` sí sirve acá."""
+
+    def setUp(self):
+        User.objects.create_superuser("jefe", "jefe@ejemplo.com", "clave-123456")
+        self.client.login(username="jefe", password="clave-123456")
+        self.url = reverse("plataforma:inicio")
+
+    @override_settings(SENTRY_PANEL_URL="https://sentry.example/x")
+    def test_muestra_el_link_con_la_url_configurada(self):
+        html = self.client.get(self.url).content.decode()
+
+        self.assertIn(
+            'href="https://sentry.example/x" target="_blank" rel="noopener" '
+            'hx-boost="false"',
+            html,
+        )
+        self.assertIn("Errores (Sentry)", html)
+
+    @override_settings(SENTRY_PANEL_URL="")
+    def test_no_muestra_nada_sin_url_configurada(self):
+        html = self.client.get(self.url).content.decode()
+
+        self.assertNotIn("Errores (Sentry)", html)
 
 
 class EntradaDelSuperusuarioTests(TestCase):

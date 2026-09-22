@@ -2456,6 +2456,15 @@ npm run watch:css                    # lo mismo, en watch mode durante desarroll
 - **Tests** (`python manage.py test`): cada modelo tenant-owned nuevo debe
   tener al menos un test de aislamiento (que un gimnasio no vea datos de
   otro), siguiendo `tenants/tests.py::TenantIsolationTests` como referencia.
+- **Sentry** (opcional, `SENTRY_DSN`): agrupa y alerta sobre excepciones de
+  producción en tiempo real, algo que `logs/app.log` no hace (hay que ir a
+  buscarlo). Sin `SENTRY_DSN` el SDK ni se inicializa (`SENTRY_ENABLED` en
+  `config/settings.py`) — la app funciona igual, simplemente sin ese canal.
+  Va apagado en la suite a propósito (`and not TESTING`, mismo criterio que
+  R2/Web Push): `manage.py test` no debe salir a la red. El link "Errores
+  (Sentry)" del panel de plataforma (`plataforma:inicio`) solo aparece si
+  además se carga `SENTRY_PANEL_URL` (la URL del proyecto en sentry.io) —
+  es cosmético, el SDK no la usa.
 
 ## Qué NO construir todavía
 

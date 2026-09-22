@@ -13,7 +13,8 @@ from tenants.models import Gimnasio
 
 
 def estado_cuenta(request):
-    """`cuenta_alumnos_bloqueados`, `cuenta_suspendida` y `SOPORTE_CONTACTO`.
+    """`cuenta_alumnos_bloqueados`, `cuenta_suspendida`, `SOPORTE_CONTACTO` y
+    `SENTRY_PANEL_URL`.
 
     Los dos primeros describen la CUENTA, no a quién se le muestra qué:
     `base.html` decide que el banner ámbar lo vea el staff (es el que puede
@@ -39,4 +40,8 @@ def estado_cuenta(request):
         ),
         "cuenta_suspendida": estado == Gimnasio.EstadoCuenta.SUSPENDIDA,
         "SOPORTE_CONTACTO": settings.SOPORTE_CONTACTO,
+        # Se lee acá (no en `SENTRY_ENABLED`, fijado al importar `settings.py`)
+        # justamente para que `override_settings(SENTRY_PANEL_URL=...)` sirva
+        # en un test: el valor se resuelve en cada request, no al arrancar.
+        "SENTRY_PANEL_URL": settings.SENTRY_PANEL_URL,
     }

@@ -418,6 +418,36 @@ PUSH_ENABLED = (
     and not TESTING
 )
 
+# Monitoreo de errores (Sentry, opcional). Es UNA sola variable requerida
+# (`SENTRY_DSN`), no un grupo -- mismo criterio que `SOPORTE_CONTACTO`: no
+# tiene sentido pasarla por `_bandera_todo_o_nada`, que existe para detectar
+# una configuración a medias entre VARIAS variables relacionadas. Sin
+# `SENTRY_DSN` el SDK ni se inicializa, y la app funciona exactamente igual
+# que hoy. `SENTRY_PANEL_URL` es aparte y puramente cosmética: el link
+# "Errores (Sentry)" del panel de plataforma (`templates/plataforma/
+# inicio.html`), no algo que el SDK necesite.
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+SENTRY_PANEL_URL = os.environ.get("SENTRY_PANEL_URL", "")   # link en el panel de plataforma
+
+# `not TESTING`: mismo criterio que R2/PUSH_ENABLED -- la suite no debe salir
+# a la red aunque alguien deje `SENTRY_DSN` seteada en el `.env` local. Los
+# 500 no manejados ya quedan logueados por `django.request` (ver LOGGING más
+# abajo); el `LoggingIntegration` que Sentry activa por default en cuanto se
+# llama a `init()` engancha ESE mismo logger y manda a Sentry cualquier
+# registro de nivel ERROR (o superior) que pase por él, sin tocar nada de
+# `LOGGING`.
+SENTRY_ENABLED = bool(SENTRY_DSN) and not TESTING
+if SENTRY_ENABLED:
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        send_default_pii=False,
+        traces_sample_rate=0.0,
+        environment="development" if DEBUG else "production",
+    )
+
+
 # Tour de bienvenida para staff nuevo (notas dismissibles guiando los
 # primeros pasos: logo, colores/fondo, importar ejercicios/rutinas). El
 # progreso vive en localStorage (ver static/js/tour_onboarding.js), no en la

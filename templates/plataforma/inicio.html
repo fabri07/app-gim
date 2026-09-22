@@ -16,6 +16,9 @@
 {% endcomment %}
 <div class="acciones-lista">
   <a class="boton" href="{% url 'plataforma:gimnasio_crear' %}">Nuevo gimnasio</a>
+  {% if SENTRY_PANEL_URL %}
+    <a class="boton-secundario" href="{{ SENTRY_PANEL_URL }}" target="_blank" rel="noopener" hx-boost="false">Errores (Sentry)</a>
+  {% endif %}
 </div>
 
 {% comment %}
@@ -162,9 +165,4 @@
     </tbody>
   </table>
 </div>
-{% comment %}
-  El link al panel de errores (Sentry) entra cuando la Fase 0 agregue
-  `settings.SENTRY_PANEL_URL` y su context processor. Va con hx-boost="false":
-  es un destino externo.
-{% endcomment %}
 {% endblock %}
