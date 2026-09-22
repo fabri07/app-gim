@@ -41,14 +41,21 @@ class SubirBibliotecaForm(SubirArchivoForm):
 class HojaMetadataForm(forms.Form):
     nombre_hoja = forms.CharField(widget=forms.HiddenInput)
     incluir = forms.BooleanField(required=False, initial=True)
-    objetivo = forms.CharField(max_length=120)
+    # Objetivo y nivel son OPCIONALES (2026-09-21): eran obligatorios y el
+    # dueño de un gimnasio se quedó en el preview sin poder confirmar el plan
+    # de un alumno. Son datos descriptivos, no entran en ninguna regla, y se
+    # pueden completar después desde la plantilla. Lo único que sigue siendo
+    # obligatorio acá es la categoría de cada ejercicio NUEVO
+    # (`ResolucionEjercicioForm.clean`).
+    objetivo = forms.CharField(max_length=120, required=False)
     # `BLANK_CHOICE_DASH` al frente evita que el navegador pre-seleccione
     # la primera choice real ("principiante") cuando el staff no toca el
     # <select> -- sin esto el HTML no tiene ninguna opción "sin elegir" y
     # el browser simplemente muestra/envía la primera de la lista (mismo
     # bug que `categoria` en `ResolucionEjercicioForm`, ver ahí).
     nivel = forms.ChoiceField(
-        choices=[("", "Elegí un nivel")] + RutinaPlantilla.Nivel.choices
+        choices=[("", "Sin nivel")] + RutinaPlantilla.Nivel.choices,
+        required=False,
     )
 
 

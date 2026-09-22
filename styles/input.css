@@ -1006,6 +1006,18 @@
     @apply border-l-4 border-l-amber-500 bg-amber-50;
   }
 
+  /* Resumen de un formulario RECHAZADO, arriba de la página. Rojo porque acá
+     algo impidió guardar (a diferencia de `.aviso-urgente`, que es "hay algo
+     para hacer"). Nació en el preview del importador: el error por fila
+     quedaba al final de cientos de filas y el POST volvía al tope. */
+  .aviso-error {
+    @apply border-l-4 border-l-red-500 bg-red-50;
+  }
+
+  .aviso-error h2 {
+    @apply text-red-700;
+  }
+
   /* Cuotas impagas en el portal del alumno: una fila por cuota, cada una con
      su propio botón de comprobante. Mismo molde que
      `.lista-planes-por-vencer`, del que se diferencia solo por el color del

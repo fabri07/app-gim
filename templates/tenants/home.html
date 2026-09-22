@@ -814,7 +814,9 @@
         </p>
       {% elif rutina_actual %}
         <p><strong>{{ rutina_actual.nombre_snapshot }}</strong></p>
-        <p class="texto-suave">Objetivo: {{ rutina_actual.objetivo_snapshot }}</p>
+        {% if rutina_actual.objetivo_snapshot %}
+          <p class="texto-suave">Objetivo: {{ rutina_actual.objetivo_snapshot }}</p>
+        {% endif %}
         <p class="texto-suave">Semana {{ rutina_actual.semana_actual }} de 4</p>
         {% if dias_disponibles %}
           <div class="rutina-dias">

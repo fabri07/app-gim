@@ -20,6 +20,54 @@ del log.
 
 ---
 
+## [2026-09-21] El dueño no podía confirmar la importación de un plan
+**Estado:** resuelto
+**Impacto:** el primer cliente pago subió el plan de un alumno
+(`SEPTIEMBRE_26_GASTON_COLAZO.xlsx`, 4,5 MB, 11 hojas), eligió la hoja del
+plan, llegó al preview y se quedó ahí: mandó una captura diciendo que no podía
+cargarlo. En el log de Render el preview devolvió 200 y **no hubo ningún POST
+de confirmación**.
+
+**Diagnóstico** (con el archivo real bajado de R2 y el flujo simulado sobre
+una copia local de la base): el archivo se leía perfecto (matriz ancha, 4
+días, 4 semanas, 47 ejercicios por semana, 0 filas inválidas). Tres cosas lo
+frenaban, ninguna un error del servidor:
+
+1. **Nueve avisos ámbar de hojas que él mismo acababa de destildar.** Los
+   avisos de columnas se agregaban a nivel archivo sobre TODAS las hojas
+   (`services.py`), así que el preview abría con «se usó 'Nombre/Desc'
+   (columna 27)» y «se encontraron 4 columnas parecidas a 'series'» salidos de
+   `AUX`, `Plantilla - aux`, `Carga de Datos` y `Copia de Plantilla - aux`.
+   Para el dueño eso decía «el plan se leyó mal». El archivo de Eve Colazo
+   (07-09) tenía las mismas hojas auxiliares y los mismos avisos; dos días
+   después se subió una versión limpia de una sola hoja, y ESA fue la que se
+   importó bien.
+2. **Objetivo y Nivel eran obligatorios**, sin asterisco ni ayuda, en una
+   tarjeta arriba de una tabla de 188 filas, con el botón al final de todo.
+3. Si faltaba la categoría de un ejercicio nuevo, el error salía solo en la
+   fila (al final de la página) y el POST volvía al tope: «Confirmar» parecía
+   no hacer nada.
+
+**Resolución:** (1) los avisos se guardan también **por hoja** en el JSON
+(`hojas[].advertencias_columnas`) y `advertencias_para_preview()` muestra solo
+los de las hojas elegidas, con fallback a la lista global para importaciones
+en revisión anteriores al deploy; con este archivo el preview ya no muestra
+ningún aviso. (2) `objetivo` y `nivel` pasan a `blank=True` en el modelo
+(migración `rutinas/0015`) y opcionales en `HojaMetadataForm`; el listado, el
+detalle y el portal del alumno muestran «—» o nada cuando están vacíos. Eso
+también los vuelve opcionales en el alta manual de plantillas, que hereda del
+modelo. (3) La categoría de cada ejercicio nuevo **sigue siendo obligatoria**,
+y ahora el rechazo se lee arriba de la página en una tarjeta roja
+(`.aviso-error`) con los nombres de los ejercicios que faltan y un link a
+«Ejercicios a resolver»; la propia sección avisa antes de intentar que cada
+ejercicio nuevo necesita categoría.
+
+**Lección:** el archivo que subió un cliente queda en R2 y con el `.env` local
+se baja en un minuto; reproducir con ESE archivo sobre una copia de
+`db.sqlite3` (con `InMemoryStorage` para no escribir al bucket) vale más que
+cualquier hipótesis sobre el parser. Y un log sin POST no es «el usuario no
+apretó»: es «la pantalla no lo dejó entender qué tenía que hacer».
+
 ## [2026-09-21] Exportador de datos: riesgos aceptados y un techo medido
 **Estado:** aceptado (riesgo asumido a propósito)
 **Impacto:** se agregó el botón «Exportar mis datos» en "Mi gimnasio" (ZIP de

@@ -27,8 +27,8 @@
         {% for plantilla in plantillas %}
           <tr>
             <td>{{ plantilla.nombre }}</td>
-            <td>{{ plantilla.objetivo }}</td>
-            <td>{{ plantilla.get_nivel_display }}</td>
+            <td>{{ plantilla.objetivo|default:"—" }}</td>
+            <td>{{ plantilla.get_nivel_display|default:"—" }}</td>
             <td>{{ plantilla.dias_por_semana }}</td>
             <td>
               {% if plantilla.activa %}
