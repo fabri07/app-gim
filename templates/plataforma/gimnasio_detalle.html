@@ -9,10 +9,17 @@
 </div>
 
 <div class="tarjeta">
-  <h2>
-    Facturación
+  {% comment %}
+    El badge va en un <p> debajo del encabezado y no adentro del <h2>, igual
+    que «Estado: <badge>» en la ficha del alumno: metido en el heading hereda
+    su tamaño y su peso, así que el título y el estado se leen como una sola
+    línea y el escalón entre h1, h2 y cuerpo deja de notarse.
+  {% endcomment %}
+  <h2>Facturación</h2>
+  <p>
+    Estado:
     <span class="badge badge--{{ fila.estado.badge }}">{{ fila.estado.etiqueta }}</span>
-  </h2>
+  </p>
   <dl class="ficha-datos">
     <div>
       <dt>Alta</dt>
@@ -64,7 +71,7 @@
     <div>
       <dt>Dirección pública</dt>
       {% comment %}
-        hx-boost="false": la landing arma su fondo en {% templatetag openblock %} block extra_style {% templatetag closeblock %},
+        hx-boost="false": la landing arma su fondo en el bloque extra_style,
         que vive en el <head>, y hx-boost solo swapea el <body>. Sin esto la
         landing del gimnasio se ve con el fondo de la pantalla anterior.
       {% endcomment %}

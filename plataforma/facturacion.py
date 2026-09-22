@@ -133,7 +133,8 @@ def fila_de_gimnasio(gimnasio, hoy=None):
     parámetro para testear con fechas fijas; por defecto
     `timezone.localdate()`, nunca `timezone.now().date()`.
     """
-    hoy = hoy or timezone.localdate()
+    if hoy is None:
+        hoy = timezone.localdate()
     inicio = inicio_efectivo(gimnasio)
     # Fase 2 anota `cubierto_hasta` en `gimnasios_anotados()`; hasta entonces
     # no existe ningún pago registrado y todos los gimnasios lo tienen en
@@ -164,7 +165,8 @@ def filas_del_monitor(hoy=None):
     que garantiza que la tabla entera esté fechada igual aunque la carga cruce
     la medianoche.
     """
-    hoy = hoy or timezone.localdate()
+    if hoy is None:
+        hoy = timezone.localdate()
     return [fila_de_gimnasio(gimnasio, hoy) for gimnasio in gimnasios_anotados()]
 
 
@@ -172,13 +174,18 @@ def kpis(filas):
     """Los números de arriba del panel, calculados sobre las filas ya
     armadas (no vuelve a consultar nada).
 
-    `ingreso_mensual_usd` suma solo a los gimnasios que de verdad se cobran:
-    meter la demo ahí infla la facturación esperada con plata que nadie va a
-    pagar.
+    `ingreso_mensual_usd` y `alumnos_activos` cuentan solo a los gimnasios que
+    de verdad se cobran. La demo tiene dos docenas de alumnos sembrados que no
+    son de nadie: sumarlos infla la facturación esperada con plata que nadie va
+    a pagar y hace parecer más grande a la plataforma de lo que es. Por eso la
+    etiqueta en pantalla dice «(clientes)», para que el número no se lea como
+    "todo lo que hay en la base".
     """
     return {
         "clientes": sum(1 for fila in filas if fila.factura),
-        "alumnos_activos": sum(fila.alumnos_activos for fila in filas),
+        "alumnos_activos": sum(
+            fila.alumnos_activos for fila in filas if fila.factura
+        ),
         "ingreso_mensual_usd": sum(fila.precio_usd for fila in filas if fila.factura),
         "vencidos": sum(1 for fila in filas if fila.estado is EstadoPago.VENCIDA),
         "por_vencer": sum(1 for fila in filas if fila.estado is EstadoPago.POR_VENCER),
@@ -191,10 +198,18 @@ def para_cobrar(filas):
 
     Los vencidos van primero porque su vencimiento es el más viejo, así que
     alcanza con ordenar por fecha -- no hace falta priorizar por estado.
+
+    El `vencimiento is not None` no es defensa de más: un gimnasio con la
+    facturación arrancando a futuro no tiene vencimiento, y sin el guard el
+    `sorted` compara `None` contra una fecha y se cae con `TypeError`. Hoy ese
+    gimnasio además está en PRUEBA (así que ya no entraría por el estado), pero
+    las dos condiciones se decidieron en lugares distintos y no tienen por qué
+    seguir coincidiendo.
     """
     pendientes = [
         fila
         for fila in filas
         if fila.estado in (EstadoPago.VENCIDA, EstadoPago.POR_VENCER)
+        and fila.vencimiento is not None
     ]
     return sorted(pendientes, key=lambda fila: fila.vencimiento)

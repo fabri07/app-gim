@@ -8,19 +8,22 @@ que el monitor cueste lo mismo con 2 gimnasios que con 12, y que un dueño de
 gimnasio (staff) no pueda entrar al panel de la plataforma.
 """
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core.exceptions import PermissionDenied
 from django.db import connection
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from alumnos.models import Alumno
 from plataforma import facturacion
 from plataforma.precios import EstadoPago
+from plataforma.views import InicioView
 from tenants.models import Gimnasio, Perfil
 
 
@@ -151,6 +154,25 @@ class CostoDelMonitorTests(TestCase):
         self.assertEqual(len(filas_grande), 14)
         self.assertEqual(len(grande), len(chico))
 
+    def test_la_pantalla_entera_tampoco_crece_en_queries(self):
+        """La garantía que importa es la de la PÁGINA, no la de la función: un
+        `{{ fila.gimnasio.algo }}` que dispare una query por fila no lo ve el
+        test de arriba. Se comparan dos tamaños de conjunto, no un número fijo
+        (un cambio interno de Django lo movería sin que nada esté mal)."""
+        User.objects.create_superuser("jefe", "jefe@ejemplo.com", "clave-123456")
+        self.client.force_login(User.objects.get(username="jefe"))
+        url = reverse("plataforma:inicio")
+
+        self._poblar(2, 3, "chico")
+        with CaptureQueriesContext(connection) as chico:
+            self.assertEqual(self.client.get(url).status_code, 200)
+
+        self._poblar(12, 40, "grande")
+        with CaptureQueriesContext(connection) as grande:
+            self.assertEqual(self.client.get(url).status_code, 200)
+
+        self.assertEqual(len(grande), len(chico))
+
 
 class FilasDelMonitorTests(TestCase):
     HOY = date(2026, 6, 1)
@@ -196,7 +218,10 @@ class FilasDelMonitorTests(TestCase):
         self.assertFalse(fila.factura)
         self.assertIs(fila.estado, EstadoPago.EXENTA)
 
-    def test_kpis_cuentan_clientes_e_ingreso_solo_de_quienes_pagan(self):
+    def test_kpis_cuentan_clientes_ingreso_y_alumnos_solo_de_quienes_pagan(self):
+        """Los alumnos de la demo son sembrados: no son de nadie. Contarlos
+        hace parecer más grande a la plataforma de lo que es, igual que
+        sumarlos al ingreso esperado."""
         self._gimnasio_con_alta("Paga", dias_atras=45, alumnos=120)
         self._gimnasio_con_alta("Demo", dias_atras=200, alumnos=5, es_demo=True)
 
@@ -204,7 +229,7 @@ class FilasDelMonitorTests(TestCase):
 
         self.assertEqual(kpis["clientes"], 1)
         self.assertEqual(kpis["ingreso_mensual_usd"], 15)
-        self.assertEqual(kpis["alumnos_activos"], 125)
+        self.assertEqual(kpis["alumnos_activos"], 120)
         self.assertEqual(kpis["vencidos"], 1)
         self.assertEqual(kpis["por_vencer"], 0)
 
@@ -222,6 +247,27 @@ class FilasDelMonitorTests(TestCase):
         ]
 
         self.assertEqual(nombres, ["Atrasado", "Avisando"])
+
+    def test_una_fila_sin_vencimiento_no_entra_en_para_cobrar(self):
+        """`sorted` compara `None` contra una fecha y revienta con
+        `TypeError`. Hoy un gimnasio sin vencimiento (facturación que arranca a
+        futuro) además está en PRUEBA, así que ya no entraría por el estado --
+        pero las dos condiciones se deciden en lugares distintos y no tienen
+        por qué seguir coincidiendo. La fila se arma a mano justamente porque
+        el caso todavía no se puede producir desde la base."""
+        self._gimnasio_con_alta("Atrasado", dias_atras=45)
+        self._gimnasio_con_alta("Sin Fecha", dias_atras=1)
+        filas = facturacion.filas_del_monitor(hoy=self.HOY)
+        filas = [
+            replace(fila, estado=EstadoPago.VENCIDA, vencimiento=None)
+            if fila.gimnasio.nombre == "Sin Fecha"
+            else fila
+            for fila in filas
+        ]
+
+        resultado = facturacion.para_cobrar(filas)
+
+        self.assertEqual([f.gimnasio.nombre for f in resultado], ["Atrasado"])
 
 
 class AccesoAlPanelTests(TestCase):
@@ -259,6 +305,21 @@ class AccesoAlPanelTests(TestCase):
         self.client.login(username="jefe", password="clave-123456")
 
         self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_un_superusuario_desactivado_no_entra(self):
+        """`ModelBackend.get_user()` ya revalida `is_active` en cada request,
+        así que por el cliente de test este usuario ni siquiera llega
+        autenticado. El chequeo del mixin es la segunda puerta, y se ejercita
+        armando el request a mano: el día que aparezca otro backend, este
+        panel no puede ser el que se entere tarde."""
+        jefe = User.objects.create_superuser(
+            "jefe", "jefe@ejemplo.com", "clave-123456", is_active=False
+        )
+        request = RequestFactory().get(self.url)
+        request.user = jefe
+
+        with self.assertRaises(PermissionDenied):
+            InicioView.as_view()(request)
 
     def test_el_detalle_de_un_gimnasio_es_solo_para_el_superusuario(self):
         _staff(self.gimnasio, "duenio")
