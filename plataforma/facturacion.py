@@ -12,10 +12,12 @@ query y `filas_del_monitor()` no agrega ninguna: el precio y el estado se
 calculan en Python sobre las filas ya traídas.
 
 **Por qué `Subquery` y no `Count(...)`/`Max(...)` con filtro sobre el join**:
-son dos relaciones multivaluadas distintas (`alumnos` y `perfiles`). Anotadas
-las dos como join en el mismo queryset, el producto cartesiano multiplica el
-conteo de alumnos por la cantidad de perfiles del gimnasio. Con subqueries
-correlacionadas cada una se calcula sola y el resultado no depende de la otra.
+son TRES relaciones multivaluadas distintas (`alumnos`, `perfiles` y
+`pagos_plataforma`). Anotadas como join en el mismo queryset, el producto
+cartesiano las multiplica entre sí: con dos pagos registrados, un gimnasio de
+3 alumnos cuenta 6. Con subqueries correlacionadas cada una se calcula sola y
+el resultado no depende de las otras. **Si agregás una cuarta anotación sobre
+una relación multivaluada, va como `Subquery`.**
 """
 
 from dataclasses import dataclass
@@ -23,6 +25,7 @@ from datetime import date, datetime
 
 from django.db.models import (
     Count,
+    DateField,
     DateTimeField,
     IntegerField,
     Max,
@@ -33,7 +36,8 @@ from django.db.models import (
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from plataforma import precios
+from plataforma import cambio, precios
+from plataforma.models import PagoPlataforma
 from plataforma.precios import EstadoPago
 from tenants.models import Gimnasio, Perfil
 
@@ -42,9 +46,8 @@ from tenants.models import Gimnasio, Perfil
 class FilaMonitor:
     """Una fila del monitor: el gimnasio más lo que la plataforma le cobra.
 
-    `cubierto_hasta` es siempre `None` en Fase 1 (todavía no hay modelo de
-    pagos de plataforma). Queda en la fila desde ahora para que Fase 2 solo
-    tenga que agregar la anotación: ni las pantallas ni `precios` cambian.
+    `cubierto_hasta` es el último día ya pago (inclusivo), o `None` si al
+    gimnasio todavía no se le registró ningún pago.
     """
 
     gimnasio: Gimnasio
@@ -61,40 +64,34 @@ class FilaMonitor:
 def inicio_efectivo(gimnasio):
     """Desde qué día se le cuenta la facturación a ese gimnasio.
 
-    Hoy es la fecha de alta en hora LOCAL. `timezone.localtime(...)` y nunca
+    `Gimnasio.facturacion_inicio` cuando está cargado (el superadmin puede
+    arrancarle la facturación a un gimnasio en otra fecha que la de alta, y la
+    migración `tenants/0013` se lo estampó a todos los que ya existían para
+    que prender la facturación no fuera retroactivo); si no, la fecha de alta.
+
+    La fecha de alta se lee con `timezone.localtime(...)` y nunca con
     `gimnasio.creado.date()`: con `TIME_ZONE` en UTC-3, un gimnasio dado de
     alta a las 22:00 tiene `creado` fechado al día siguiente en UTC, y leerlo
-    mal corre un día el fin de la prueba y todos los vencimientos que salen
-    de él.
-
-    Fase 2 agrega `Gimnasio.facturacion_inicio` (para arrancarle la
-    facturación a un gimnasio en otra fecha que la de alta) y esta función
-    pasa a devolverlo cuando esté cargado. Es el único lugar que hay que
-    tocar.
+    mal corre un día el fin de la prueba y todos los vencimientos que salen de
+    él.
     """
+    if gimnasio.facturacion_inicio:
+        return gimnasio.facturacion_inicio
     return timezone.localtime(gimnasio.creado).date()
 
 
-def facturacion_aplica(gimnasio):
-    """Si a ese gimnasio se le cobra o no.
-
-    Hoy la única exención es la cuenta de demostración compartida, que no es
-    de nadie. Fase 2 agrega `Gimnasio.facturacion_exenta` (un gimnasio real
-    que el dueño del producto decide no cobrar) y esta función pasa a mirar
-    las dos cosas -- por eso es una función y no un `not gimnasio.es_demo`
-    repetido en cada llamador.
-    """
-    return not gimnasio.es_demo
-
-
 def gimnasios_anotados():
-    """Todos los gimnasios con sus alumnos activos y el último ingreso de su
-    staff, en una sola query.
+    """Todos los gimnasios con sus alumnos activos, el último ingreso de su
+    staff y hasta qué día están pagos, en una sola query.
 
     `ultimo_uso_staff` sale hoy de `User.last_login`, que es lo único que ya
     se registra: dice cuándo entró por última vez alguien del gimnasio, no
     cuánto lo usa. Fase 4 lo reemplaza por el máximo de `ActividadDiaria` de
     rol staff, sin que cambie ni el nombre de la anotación ni las pantallas.
+
+    `cubierto_hasta` es el `Max(periodo_hasta)` de sus pagos, no el período
+    del último pago CARGADO: el superadmin puede registrar un pago atrasado
+    después de uno más nuevo, y lo que importa es hasta cuándo está cubierto.
     """
     # Import tardío: `plataforma` es la última app del orden de dependencia y
     # no debería importar el dominio a nivel de módulo -- mismo criterio que
@@ -117,12 +114,37 @@ def gimnasios_anotados():
         .values("ultimo"),
         output_field=DateTimeField(),
     )
+    cubierto_hasta = Subquery(
+        PagoPlataforma.objects.filter(gimnasio=OuterRef("pk"))
+        .order_by()
+        .values("gimnasio")
+        .annotate(ultimo=Max("periodo_hasta"))
+        .values("ultimo"),
+        output_field=DateField(),
+    )
     return Gimnasio.objects.annotate(
         # Sin el Coalesce un gimnasio sin alumnos anota NULL, y `None` no
         # entra en ninguna comparación de `precios.escalon_de`.
         alumnos_activos=Coalesce(alumnos_activos, Value(0)),
         ultimo_uso_staff=ultimo_uso_staff,
+        # Acá NO va Coalesce: `None` es un valor con significado propio
+        # ("nunca pagó") que `precios.periodo_siguiente` y `estado_pago` leen
+        # para arrancar el primer período al terminar la prueba.
+        cubierto_hasta=cubierto_hasta,
     ).order_by("nombre")
+
+
+def periodo_a_cobrar(gimnasio):
+    """`(desde, hasta)` del próximo período a cobrarle a ese gimnasio ya
+    anotado. `hasta` es inclusivo.
+
+    Vive acá y no en la vista para que el formulario de registrar un pago
+    proponga exactamente el mismo período que el monitor usa para decir que
+    está vencido: son la misma regla leída dos veces.
+    """
+    return precios.periodo_siguiente(
+        inicio_efectivo(gimnasio), getattr(gimnasio, "cubierto_hasta", None)
+    )
 
 
 def fila_de_gimnasio(gimnasio, hoy=None):
@@ -136,12 +158,11 @@ def fila_de_gimnasio(gimnasio, hoy=None):
     if hoy is None:
         hoy = timezone.localdate()
     inicio = inicio_efectivo(gimnasio)
-    # Fase 2 anota `cubierto_hasta` en `gimnasios_anotados()`; hasta entonces
-    # no existe ningún pago registrado y todos los gimnasios lo tienen en
-    # None. Se lee con `getattr` para que agregar la anotación sea el único
-    # cambio necesario.
+    # `getattr` y no `gimnasio.cubierto_hasta`: la ficha y el monitor lo traen
+    # anotado, pero esta función también se llama con un `Gimnasio` pelado en
+    # los tests, y ahí "sin anotación" y "sin pagos" significan lo mismo.
     cubierto_hasta = getattr(gimnasio, "cubierto_hasta", None)
-    factura = facturacion_aplica(gimnasio)
+    factura = gimnasio.facturacion_aplica
     alumnos_activos = gimnasio.alumnos_activos
     return FilaMonitor(
         gimnasio=gimnasio,
@@ -170,7 +191,7 @@ def filas_del_monitor(hoy=None):
     return [fila_de_gimnasio(gimnasio, hoy) for gimnasio in gimnasios_anotados()]
 
 
-def kpis(filas):
+def kpis(filas, cotizacion=None):
     """Los números de arriba del panel, calculados sobre las filas ya
     armadas (no vuelve a consultar nada).
 
@@ -180,13 +201,20 @@ def kpis(filas):
     a pagar y hace parecer más grande a la plataforma de lo que es. Por eso la
     etiqueta en pantalla dice «(clientes)», para que el número no se lea como
     "todo lo que hay en la base".
+
+    La `cotizacion` entra por parámetro y no se busca acá: la pide la vista
+    UNA vez por request y la comparte con la ficha y con el formulario de
+    pago. Sin cotización, `ingreso_mensual_ars` es `None` y la pantalla
+    muestra solo dólares.
     """
+    ingreso_usd = sum(fila.precio_usd for fila in filas if fila.factura)
     return {
         "clientes": sum(1 for fila in filas if fila.factura),
         "alumnos_activos": sum(
             fila.alumnos_activos for fila in filas if fila.factura
         ),
-        "ingreso_mensual_usd": sum(fila.precio_usd for fila in filas if fila.factura),
+        "ingreso_mensual_usd": ingreso_usd,
+        "ingreso_mensual_ars": cambio.pesos(ingreso_usd, cotizacion),
         "vencidos": sum(1 for fila in filas if fila.estado is EstadoPago.VENCIDA),
         "por_vencer": sum(1 for fila in filas if fila.estado is EstadoPago.POR_VENCER),
     }

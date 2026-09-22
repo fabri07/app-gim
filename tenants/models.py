@@ -101,6 +101,36 @@ class Gimnasio(TimeStampedModel):
         null=True, blank=True, editable=False,
         verbose_name="última exportación de datos",
     )
+    #: Desde qué día la PLATAFORMA le factura a este gimnasio (lo que el dueño
+    #: del producto le cobra por usar la app, no lo que el gimnasio le cobra a
+    #: sus alumnos). Mismo criterio que `es_demo`: gestión de plataforma, se
+    #: edita desde el panel del superadmin o `/admin/` y queda fuera de
+    #: `GimnasioForm.Meta.fields`.
+    #:
+    #: Vacío significa "la fecha de alta" (`plataforma.facturacion.
+    #: inicio_efectivo`), que es lo natural para un gimnasio nuevo. Los que ya
+    #: existían cuando se estrenó la facturación lo tienen estampado por la
+    #: migración `tenants/0013`, con la fecha de ese día: prender la
+    #: facturación NO es retroactivo, mismo criterio que
+    #: `fecha_activacion_bloqueo`. Sin eso, la primera carga del panel muestra
+    #: a todos los clientes como vencidos con meses de atraso.
+    facturacion_inicio = models.DateField(
+        null=True, blank=True,
+        verbose_name="inicio de facturación",
+        help_text=(
+            "Desde qué día se le factura el uso de la app. Vacío = desde la "
+            "fecha de alta."
+        ),
+    )
+    #: Un gimnasio al que el dueño del producto decide no cobrarle (un
+    #: comodato, un caso de prueba, una cuenta interna). Separado de `es_demo`
+    #: porque son dos cosas distintas: la demo además se vacía y se resiembra
+    #: sola. La regla completa de quién paga vive en `facturacion_aplica`.
+    facturacion_exenta = models.BooleanField(
+        default=False,
+        verbose_name="exenta de facturación",
+        help_text="No se le cobra el uso de la app ni suma al ingreso esperado.",
+    )
 
     class TipoPublico(models.TextChoices):
         """A qué público atiende el gimnasio.
@@ -332,6 +362,20 @@ class Gimnasio(TimeStampedModel):
         demostración siempre (es lo que se muestra para vender), el resto solo
         con la casilla de `/admin/`. La consultan la vista y el template."""
         return self.es_demo or self.exportacion_habilitada
+
+    @property
+    def facturacion_aplica(self):
+        """Único lugar donde vive la regla de a quién le cobra la plataforma:
+        lo consultan el monitor, la ficha y los KPIs.
+
+        Las tres exclusiones son distintas y ninguna sobra. `activo=False` es
+        un gimnasio retirado u oculto: dejó de ser cliente, así que no puede
+        seguir sumando al ingreso esperado ni quedarse para siempre en «Para
+        cobrar esta semana». `es_demo` es la cuenta compartida de prueba, que
+        no es de nadie. `facturacion_exenta` es la decisión explícita del
+        dueño del producto de no cobrarle a un gimnasio real.
+        """
+        return self.activo and not self.es_demo and not self.facturacion_exenta
 
     @property
     def version_media(self):

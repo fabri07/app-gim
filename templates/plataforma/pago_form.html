@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}Registrar pago · {{ gimnasio.nombre }}{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Registrar un pago</h1>
+  <p class="texto-suave">
+    {{ gimnasio.nombre }} · el período y los montos vienen propuestos: revisalos
+    y corregí lo que haga falta.
+  </p>
+  {% comment %}
+    Campo por campo con `partials/campo_form.html`, nunca `{{ form.as_p }}`:
+    la `errorlist` de Django no tiene estilo acá y sale en negro arriba de la
+    etiqueta, indistinguible de una ayuda.
+  {% endcomment %}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+
+    <div class="form-seccion">
+      <h2>Período cobrado</h2>
+      {% include 'partials/campo_form.html' with campo=form.fecha_pago %}
+      {% include 'partials/campo_form.html' with campo=form.periodo_desde %}
+      {% include 'partials/campo_form.html' with campo=form.periodo_hasta %}
+      {% include 'partials/campo_form.html' with campo=form.alumnos_activos %}
+    </div>
+
+    <div class="form-seccion">
+      <h2>Montos</h2>
+      {% include 'partials/campo_form.html' with campo=form.monto_usd %}
+      {% include 'partials/campo_form.html' with campo=form.tipo_cambio %}
+      {% include 'partials/campo_form.html' with campo=form.monto_ars %}
+    </div>
+
+    <div class="form-seccion">
+      <h2>Notas</h2>
+      {% include 'partials/campo_form.html' with campo=form.notas %}
+    </div>
+
+    <button type="submit" class="boton">Registrar pago</button>
+    <a class="boton-secundario" href="{% url 'plataforma:gimnasio_detalle' gimnasio.pk %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

@@ -108,6 +108,9 @@ def crear_gimnasio(
         nombre=nombre,
         slug=slug or slug_disponible(nombre),
         es_demo=es_demo,
+        # La cuenta de demostración no es de nadie: nace exenta para que el
+        # panel de plataforma no la cuente como un cliente que debe plata.
+        facturacion_exenta=es_demo,
     )
     usuario.save()
     Perfil.objects.create(usuario=usuario, gimnasio=gimnasio, rol=Perfil.Rol.STAFF)

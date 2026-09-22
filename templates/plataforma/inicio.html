@@ -51,7 +51,18 @@
   </div>
   <div class="metrica">
     <span class="metrica__valor">USD {{ kpis.ingreso_mensual_usd }}</span>
-    <span class="metrica__etiqueta">Ingreso esperado por ciclo</span>
+    <span class="metrica__etiqueta">
+      Ingreso esperado por ciclo
+      {% comment %}
+        El equivalente en pesos va como subtítulo del mismo KPI y no como una
+        sexta tarjeta: es el MISMO número leído en otra moneda, y separarlo
+        haría parecer que la plataforma factura dos veces. Sin cotización
+        simplemente no aparece — un «$ 0» sería mentira.
+      {% endcomment %}
+      {% if kpis.ingreso_mensual_ars %}
+        · ≈ $ {{ kpis.ingreso_mensual_ars|floatformat:0 }}
+      {% endif %}
+    </span>
   </div>
   <div class="metrica">
     <span class="metrica__valor">{{ kpis.alumnos_activos }}</span>
@@ -66,6 +77,13 @@
     <span class="metrica__etiqueta">Gimnasios por vencer</span>
   </div>
 </div>
+
+{% if cotizacion %}
+  <p class="texto-suave">
+    Pesos calculados al dólar MEP $ {{ cotizacion.venta|floatformat:2 }} del
+    {{ cotizacion.fecha|date:"d/m/Y H:i" }}. Fuente: {{ cotizacion.fuente }}.
+  </p>
+{% endif %}
 
 <div class="tabla-scroll">
   <table class="tabla">

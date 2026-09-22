@@ -26,16 +26,62 @@
       <dd>{{ gimnasio.creado|date:"d/m/Y" }}</dd>
     </div>
     <div>
+      <dt>Inicio de facturación</dt>
+      <dd>
+        {{ inicio_efectivo|date:"d/m/Y" }}
+        {% if not gimnasio.facturacion_inicio %}
+          <span class="texto-suave">(la fecha de alta)</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Fin de la prueba gratis</dt>
+      <dd>{{ fin_de_prueba|date:"d/m/Y" }}</dd>
+    </div>
+    <div>
       <dt>Alumnos activos</dt>
-      <dd>{{ fila.alumnos_activos }}</dd>
+      <dd>
+        {{ fila.alumnos_activos }}
+        <span class="texto-suave">
+          {% if escalon.0 %}(escalón hasta {{ escalon.0 }}){% else %}(escalón sin tope){% endif %}
+        </span>
+      </dd>
     </div>
     <div>
       <dt>Precio por ciclo</dt>
       <dd>
         {% if fila.factura %}
           USD {{ fila.precio_usd }}
-        {% else %}
+          {% if precio_ars %}<span class="texto-suave">≈ $ {{ precio_ars|floatformat:2 }}</span>{% endif %}
+        {% elif gimnasio.es_demo %}
           No se le cobra (cuenta de demostración)
+        {% elif not gimnasio.activo %}
+          No se le cobra (gimnasio retirado)
+        {% else %}
+          No se le cobra (exento)
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Cotización</dt>
+      <dd>
+        {% if cotizacion %}
+          Dólar MEP $ {{ cotizacion.venta|floatformat:2 }}
+          <span class="texto-suave">
+            al {{ cotizacion.fecha|date:"d/m/Y H:i" }} · Fuente: {{ cotizacion.fuente }}
+          </span>
+        {% else %}
+          <span class="texto-suave">Sin cotización, solo USD</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Pago hasta</dt>
+      <dd>
+        {% if fila.cubierto_hasta %}
+          {{ fila.cubierto_hasta|date:"d/m/Y" }}
+        {% else %}
+          <span class="texto-suave">nunca pagó</span>
         {% endif %}
       </dd>
     </div>
@@ -63,6 +109,46 @@
       </dd>
     </div>
   </dl>
+  <div class="acciones-lista">
+    <a class="boton" href="{% url 'plataforma:pago_nuevo' gimnasio.pk %}">Registrar pago</a>
+    <a class="boton-secundario" href="{% url 'plataforma:facturacion_editar' gimnasio.pk %}">Editar facturación</a>
+  </div>
+</div>
+
+<div class="tarjeta">
+  <h2>Pagos registrados</h2>
+  {% if pagos %}
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Período</th>
+            <th>Cobrado el</th>
+            <th>USD</th>
+            <th>Pesos</th>
+            <th>Tipo de cambio</th>
+            <th>Alumnos</th>
+            <th>Notas</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for pago in pagos %}
+            <tr>
+              <td>{{ pago.periodo_desde|date:"d/m/Y" }} al {{ pago.periodo_hasta|date:"d/m/Y" }}</td>
+              <td>{{ pago.fecha_pago|date:"d/m/Y" }}</td>
+              <td>{{ pago.monto_usd|floatformat:2 }}</td>
+              <td>{% if pago.monto_ars %}{{ pago.monto_ars|floatformat:2 }}{% else %}—{% endif %}</td>
+              <td>{% if pago.tipo_cambio %}{{ pago.tipo_cambio|floatformat:2 }}{% else %}—{% endif %}</td>
+              <td>{{ pago.alumnos_activos }}</td>
+              <td>{{ pago.notas|default:"—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="texto-suave">Todavía no se le registró ningún pago.</p>
+  {% endif %}
 </div>
 
 <div class="tarjeta">

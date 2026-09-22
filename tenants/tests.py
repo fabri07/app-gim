@@ -8,6 +8,7 @@ TenantOwnedModel concreto para ejercitarlos.
 
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
+from importlib import import_module
 from io import BytesIO, StringIO
 from unittest.mock import patch
 from xml.etree import ElementTree
@@ -192,6 +193,122 @@ class CrearGimnasioCommandTests(TestCase):
 
         self.assertFalse(Gimnasio.objects.exists())
         self.assertFalse(User.objects.exists())
+
+    def test_la_cuenta_de_demostracion_nace_exenta_de_facturacion(self):
+        """La demo no es de nadie: si no nace exenta, aparece en el panel de
+        la plataforma como un cliente más y suma al ingreso esperado plata
+        que nadie va a pagar."""
+        call_command(
+            "crear_gimnasio", nombre="Demo", email="demo@ejemplo.com", demo=True
+        )
+
+        self.assertTrue(Gimnasio.objects.get(nombre="Demo").facturacion_exenta)
+
+    def test_un_gimnasio_comun_no_nace_exento(self):
+        call_command(
+            "crear_gimnasio", nombre="Cliente", email="cliente@ejemplo.com"
+        )
+
+        self.assertFalse(Gimnasio.objects.get(nombre="Cliente").facturacion_exenta)
+
+
+class FacturacionDePlataformaEnGimnasioTests(TestCase):
+    """Los dos campos de facturación de plataforma (`facturacion_inicio` y
+    `facturacion_exenta`) son gestión del dueño del producto, igual que
+    `es_demo` y `exportacion_habilitada`: se tocan desde el panel de
+    plataforma o desde `/admin/`, nunca desde «Mi gimnasio»."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Cliente", slug="cliente")
+        self.staff = User.objects.create_user("dueno", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+
+    def test_el_form_del_gimnasio_no_expone_los_campos_de_facturacion(self):
+        """`GimnasioForm.Meta.fields` es una lista explícita. Se fija con un
+        test porque el día que alguien pase a `__all__`, el dueño de un
+        gimnasio podría declararse exento de pagar la plataforma desde su
+        propio panel."""
+        campos = GimnasioForm().fields
+
+        self.assertNotIn("facturacion_inicio", campos)
+        self.assertNotIn("facturacion_exenta", campos)
+
+    def test_no_se_puede_declarar_exento_desde_mi_gimnasio(self):
+        self.client.login(username="dueno", password="clave-123456")
+
+        self.client.post(
+            reverse("gimnasio_editar"),
+            {
+                "nombre": "Cliente",
+                "tipo_publico": Gimnasio.TipoPublico.MIXTO,
+                "paleta": Gimnasio.Paleta.BOSQUE,
+                "tipografia": Gimnasio.Tipografia.PLUS_JAKARTA,
+                "fondo_tipo": Gimnasio.FondoTipo.COLOR,
+                "facturacion_exenta": "on",
+                "facturacion_inicio": "2030-01-01",
+            },
+        )
+
+        self.gimnasio.refresh_from_db()
+        self.assertFalse(self.gimnasio.facturacion_exenta)
+        self.assertIsNone(self.gimnasio.facturacion_inicio)
+
+
+class EstampadoDelInicioDeFacturacionTests(TestCase):
+    """La migración de datos que hace que prender la facturación NO sea
+    retroactivo.
+
+    Sin estampar `facturacion_inicio`, `inicio_efectivo` cae en la fecha de
+    alta y la primera carga del panel muestra a TODOS los clientes como
+    vencidos con meses de atraso. Mismo criterio que
+    `Gimnasio.fecha_activacion_bloqueo`: la función nueva no se aplica para
+    atrás.
+
+    Se prueba llamando a la función de la migración con el modelo real (la
+    migración ya corrió contra una base vacía cuando se creó la de test, así
+    que no hay filas viejas que mirar).
+    """
+
+    #: 01:00 UTC del 11/3 == 22:00 del 10/3 en Buenos Aires: el gimnasio se dio
+    #: de alta mucho antes de que existiera el panel de plataforma.
+    ALTA = datetime(2025, 3, 11, 1, 0, tzinfo=dt_timezone.utc)
+
+    def _estampar(self):
+        migracion = import_module("tenants.migrations.0013_gimnasio_facturacion")
+        migracion.estampar_inicio_de_facturacion(Gimnasio)
+
+    def test_un_gimnasio_viejo_arranca_a_facturar_hoy_y_queda_en_prueba(self):
+        from plataforma import facturacion
+        from plataforma.precios import EstadoPago
+
+        with patch("django.utils.timezone.now", return_value=self.ALTA):
+            viejo = Gimnasio.objects.create(nombre="Viejo", slug="viejo")
+
+        self._estampar()
+
+        viejo.refresh_from_db()
+        hoy = timezone.localdate()
+        self.assertEqual(viejo.facturacion_inicio, hoy)
+        anotado = facturacion.gimnasios_anotados().get(pk=viejo.pk)
+        self.assertIs(
+            facturacion.fila_de_gimnasio(anotado, hoy=hoy).estado, EstadoPago.PRUEBA
+        )
+
+    def test_no_pisa_el_arranque_que_el_superadmin_ya_eligio(self):
+        """Correr la migración dos veces (o restaurarla sobre una base que ya
+        la tiene) no puede mover una fecha cargada a mano."""
+        elegido = date(2025, 6, 1)
+        Gimnasio.objects.create(
+            nombre="Con Fecha", slug="con-fecha", facturacion_inicio=elegido
+        )
+
+        self._estampar()
+
+        self.assertEqual(
+            Gimnasio.objects.get(slug="con-fecha").facturacion_inicio, elegido
+        )
 
 
 class LoginLogoutTests(TestCase):
@@ -4002,6 +4119,22 @@ class RestaurarDemoTests(TestCase):
         self.demo.refresh_from_db()
         self.assertEqual(self.demo.slug, "demo")
         self.assertTrue(self.demo.es_demo)
+
+    def test_no_toca_la_facturacion_de_plataforma(self):
+        """`_gimnasio_canonico()` deja afuera `facturacion_inicio` y
+        `facturacion_exenta` a propósito: son decisiones de cobro del dueño
+        del producto, no parte del estado que se resiembra cada 6 h. Si
+        entraran al dict, cada restauración le devolvería la exención a su
+        default y la demo aparecería en el panel como un cliente que debe."""
+        self.demo.facturacion_exenta = True
+        self.demo.facturacion_inicio = date(2026, 5, 20)
+        self.demo.save()
+
+        self._restaurar(alumnos=3, meses=1)
+
+        self.demo.refresh_from_db()
+        self.assertTrue(self.demo.facturacion_exenta)
+        self.assertEqual(self.demo.facturacion_inicio, date(2026, 5, 20))
 
 
 class RestaurarDemoSinPushTests(TransactionTestCase):
