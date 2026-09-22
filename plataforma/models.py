@@ -148,6 +148,14 @@ class ActividadDiaria(models.Model):
     `rol` va copiado y no se lee del `Perfil` en el momento de mirar: un
     alumno al que después se le da acceso de staff (o al revés) no puede
     reescribir retroactivamente a quién se le atribuyó el uso de marzo.
+
+    Consecuencia asumida de que la clave única sea `(usuario, fecha)` y de que
+    el alta use `ignore_conflicts`: si un `Perfil` se muda a otro gimnasio (o
+    cambia de rol) EL MISMO día en que ya entró, el segundo intento se
+    descarta en silencio y ese día le queda acreditado al gimnasio (y al rol)
+    viejo. Es un día, pasa una vez por mudanza, y la alternativa —clave por
+    `(usuario, gimnasio, fecha)`— haría que una mudanza contara como dos
+    personas ese día.
     """
 
     usuario = models.ForeignKey(

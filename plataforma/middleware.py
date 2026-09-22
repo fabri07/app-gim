@@ -23,8 +23,11 @@ resolución de `Perfil` (de ahí que `perfil_de(request)` sea un helper aparte y
 memoizado). Que alguien intente entrar y se encuentre el cartel también es
 información: es la señal de que el gimnasio sigue vivo del otro lado de la
 deuda, que es justo lo que se mira antes de decidir si se lo llama o se lo da
-de baja.
+de baja. La única excepción es la app `notificaciones`: eso lo pide el
+navegador solo, no una persona.
 """
+
+import logging
 
 from django.shortcuts import redirect, render
 from django.utils import timezone
@@ -36,6 +39,8 @@ from tenants.models import (
     ESTADOS_SIN_ACCESO_STAFF,
     Perfil,
 )
+
+logger = logging.getLogger(__name__)
 
 #: Dónde se guarda el último día ya registrado de esta sesión.
 #:
@@ -144,6 +149,13 @@ def registrar_dia_activo(request):
     con `TIME_ZONE` en UTC-3, todo lo que pasa entre las 21:00 y las 23:59 se
     anotaría en el día siguiente, y el gráfico mostraría actividad en días en
     los que el gimnasio estaba cerrado.
+
+    **Esto es telemetría: no puede tumbar una página.** Si el INSERT falla
+    (la base caída, una constraint nueva, lo que sea) se loguea y se sigue --
+    el alumno tiene que poder ver su rutina aunque el panel del dueño del
+    producto se pierda un día. La marca de la sesión se escribe IGUAL, así que
+    una falla persistente deja una línea de log por usuario y por día, y no
+    una por request.
     """
     hoy = timezone.localdate()
     if request.session.get(CLAVE_SESION_ACTIVIDAD) == hoy.isoformat():
@@ -153,17 +165,24 @@ def registrar_dia_activo(request):
     perfil = perfil_de(request)
     if perfil is None:
         return
-    ActividadDiaria.objects.bulk_create(
-        [
-            ActividadDiaria(
-                usuario_id=perfil.usuario_id,
-                gimnasio_id=perfil.gimnasio_id,
-                rol=perfil.rol,
-                fecha=hoy,
-            )
-        ],
-        ignore_conflicts=True,
-    )
+    try:
+        ActividadDiaria.objects.bulk_create(
+            [
+                ActividadDiaria(
+                    usuario_id=perfil.usuario_id,
+                    gimnasio_id=perfil.gimnasio_id,
+                    rol=perfil.rol,
+                    fecha=hoy,
+                )
+            ],
+            ignore_conflicts=True,
+        )
+    except Exception:
+        logger.warning(
+            "No se pudo registrar el día de actividad del usuario %s.",
+            perfil.usuario_id,
+            exc_info=True,
+        )
     request.session[CLAVE_SESION_ACTIVIDAD] = hoy.isoformat()
 
 
@@ -186,12 +205,19 @@ class PlataformaMiddleware:
         if usuario.is_superuser:
             return None
 
-        # Antes de la allowlist a propósito: esa lista dice de qué URLs no se
-        # BLOQUEA a nadie, no qué cuenta como uso. Cerrar la sesión o abrir el
-        # manifest de la PWA es usar la app igual.
-        registrar_dia_activo(request)
-
         match = request.resolver_match
+
+        # El registro va antes del bloqueo a propósito (un bloqueado que
+        # intenta entrar también es información), pero NO cuenta el tráfico de
+        # la PWA: el service worker, el manifest y los íconos los pide el
+        # navegador solo -- al instalar la app, al revalidar, en segundo plano
+        # -- sin que nadie la haya abierto, así que le anotarían un día de uso
+        # a un gimnasio que nadie tocó. Y el ícono se sirve `immutable`: la
+        # escritura de sesión del primer request del día le colgaría un
+        # `Set-Cookie` a una respuesta pensada para cachearse para siempre.
+        if match is None or match.app_name != "notificaciones":
+            registrar_dia_activo(request)
+
         if match is not None and (
             match.app_name in APPS_SIN_BLOQUEO or match.url_name in URLS_SIN_BLOQUEO
         ):

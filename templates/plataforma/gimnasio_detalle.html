@@ -154,8 +154,12 @@
       <table class="tabla">
         <thead><tr><th>Día</th><th>Staff</th><th>Alumnos</th></tr></thead>
         <tbody>
-          {% for fila in actividad %}
-            <tr><td>{{ fila.etiqueta }}</td><td>{{ fila.staff }}</td><td>{{ fila.alumnos }}</td></tr>
+          {% comment %}
+            `dia` y no `fila`: `fila` ya es la fila del monitor de este
+            gimnasio, que esta misma página usa en la tarjeta de facturación.
+          {% endcomment %}
+          {% for dia in actividad %}
+            <tr><td>{{ dia.etiqueta }}</td><td>{{ dia.staff }}</td><td>{{ dia.alumnos }}</td></tr>
           {% endfor %}
         </tbody>
       </table>

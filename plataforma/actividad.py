@@ -41,6 +41,11 @@ def activos_por_dia(gimnasio, *, dias=DIAS_DE_ACTIVIDAD, hoy=None):
     trabajo de más escondiendo esa garantía.
     """
     hoy = hoy or timezone.localdate()
+    # Una ventana vacía devuelve una lista vacía y no un `IndexError` contra
+    # `ventana[0]`: quien pide cero días tiene que recibir "no hay nada que
+    # mostrar", no un 500.
+    if dias <= 0:
+        return []
     ventana = [hoy - timedelta(days=n) for n in reversed(range(dias))]
 
     # El filtro por `ventana[0]` no es cosmético: sin él la consulta agrega la

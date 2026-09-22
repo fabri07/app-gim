@@ -194,6 +194,51 @@ class RegistroDelDiaActivoTests(TestCase):
 
         self.assertFalse(ActividadDiaria.objects.exists())
 
+    def test_el_trafico_de_la_pwa_no_cuenta_como_uso(self):
+        """El service worker, el manifest y los íconos los pide el navegador
+        solo —al instalar la app, al revalidar, en segundo plano— sin que nadie
+        la haya abierto. Contarlos le anotaría un día de uso a un gimnasio que
+        nadie tocó, y de paso le colgaría un `Set-Cookie` (la escritura de la
+        sesión) a un ícono que se sirve `immutable`."""
+        urls = [
+            reverse("notificaciones:pwa_service_worker"),
+            reverse("notificaciones:pwa_manifest", args=[self.gimnasio.slug]),
+            reverse("notificaciones:pwa_icono", args=[self.gimnasio.slug, 192]),
+        ]
+
+        for url in urls:
+            with self.subTest(url=url):
+                respuesta = self.client.get(url)
+
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertNotIn("Set-Cookie", respuesta.headers)
+
+        self.assertFalse(ActividadDiaria.objects.exists())
+        self.assertNotIn(CLAVE_SESION_ACTIVIDAD, self.client.session)
+
+        # Y entrar de verdad, después, sí cuenta: el corte es de la PWA, no del
+        # usuario.
+        self.client.get(reverse("home"))
+
+        self.assertEqual(ActividadDiaria.objects.count(), 1)
+
+    def test_si_el_insert_falla_la_pagina_igual_se_ve(self):
+        """Esto es telemetría: que el panel del dueño del producto se pierda un
+        día no puede dejar al alumno sin su rutina."""
+        with patch(
+            "plataforma.middleware.ActividadDiaria.objects.bulk_create",
+            side_effect=RuntimeError("la base dijo que no"),
+        ):
+            with self.assertLogs("plataforma.middleware", level="WARNING") as logs:
+                respuesta = self.client.get(reverse("home"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertFalse(ActividadDiaria.objects.exists())
+        self.assertIn("la base dijo que no", "\n".join(logs.output))
+        # La marca se escribe igual: una falla persistente deja una línea de
+        # log por usuario y por día, no una por request.
+        self.assertIn(CLAVE_SESION_ACTIVIDAD, self.client.session)
+
     def test_un_alumno_con_la_cuenta_congelada_igual_se_registra(self):
         """Intentar entrar y encontrarse el cartel también es uso: es la señal
         de que el gimnasio sigue vivo del otro lado de la deuda. Por eso el
@@ -274,6 +319,11 @@ class ActivosPorDiaTests(TestCase):
         filas = actividad.activos_por_dia(self.gimnasio, hoy=self.HOY)
 
         self.assertEqual(sum(f["staff"] for f in filas), 0)
+
+    def test_una_ventana_de_cero_dias_devuelve_una_lista_vacia(self):
+        """Sin el guard, `ventana[0]` levanta `IndexError`: quien pide cero
+        días tiene que recibir "no hay nada que mostrar", no un 500."""
+        self.assertEqual(actividad.activos_por_dia(self.gimnasio, dias=0), [])
 
     def test_es_una_sola_query_con_3_y_con_60_filas(self):
         """El costo tiene que depender del indicador, no de cuánto se usó la
@@ -418,17 +468,32 @@ class FichaDeActividadTests(TestCase):
     def test_el_cdn_de_chartjs_va_dentro_del_contenido_y_no_en_el_head(self):
         """`hx-boost` solo reemplaza el `<body>`: un `<script>` del `<head>`
         no llega nunca en una navegación boosteada y el gráfico queda en
-        blanco al entrar desde el panel."""
+        blanco al entrar desde el panel.
+
+        Se compara contra `<main` y no contra `<body`: el topbar y la nav
+        también viven adentro del body, así que "después del body" lo cumpliría
+        igual un script metido en el encabezado común de todas las páginas.
+        Lo que tiene que estar adentro es el bloque de CONTENIDO.
+        """
         html = self._ficha().content.decode()
 
         cdn = html.index("cdn.jsdelivr.net/npm/chart.js")
-        self.assertGreater(cdn, html.index("<body"))
+        self.assertGreater(cdn, html.index("<main"))
+        self.assertLess(cdn, html.index("</main>"))
 
-    def test_sin_actividad_dice_nunca(self):
+    def test_sin_actividad_dice_nunca_en_los_dos_roles(self):
+        """Sobre el fragmento de «Último uso» y no sobre la página entera: un
+        `assertIn("nunca")` suelto lo cumpliría cualquier otra palabra de la
+        ficha que lo contenga."""
         html = self._ficha().content.decode()
 
-        self.assertIn("Último uso", html)
-        self.assertIn("nunca", html)
+        desde = html.index("Último uso:")
+        fragmento = " ".join(html[desde : html.index("</p>", desde)].split())
+
+        self.assertEqual(
+            fragmento, "Último uso: <strong>staff</strong> nunca · "
+            "<strong>alumnos</strong> nunca"
+        )
 
     def test_muestra_el_ultimo_uso_de_los_dos_roles(self):
         staff = _staff(self.gimnasio)
@@ -455,6 +520,95 @@ class FichaDeActividadTests(TestCase):
         html = respuesta.content.decode()
         self.assertIn("01/05/2026", html)
         self.assertIn("03/05/2026", html)
+
+
+class SembrarActividadDesdeLastLoginTests(TestCase):
+    """`plataforma/0004`: el día del deploy el monitor no puede decir «nunca»
+    para un gimnasio que viene usando la app hace meses.
+
+    Se prueba llamando a la función de la migración con los modelos reales
+    (la migración ya corrió contra una base vacía al crear la de test, así que
+    no hay filas viejas que mirar) -- mismo molde que
+    `tenants/0013_gimnasio_facturacion`.
+    """
+
+    #: 01:00 UTC del 11/3 == 22:00 del 10/3 en Buenos Aires. Es el caso que
+    #: `timezone.localtime(...)` tiene que resolver: con `.date()` a secas el
+    #: login de esa noche se sembraría un día después.
+    LOGIN = datetime(2026, 3, 11, 1, 0, tzinfo=dt_timezone.utc)
+
+    def setUp(self):
+        self.gimnasio = _gimnasio()
+
+    def _sembrar(self):
+        from importlib import import_module
+
+        migracion = import_module(
+            "plataforma.migrations.0004_sembrar_actividad_desde_last_login"
+        )
+        return migracion.sembrar_actividad_desde_last_login(ActividadDiaria, Perfil)
+
+    def test_siembra_un_dia_por_usuario_en_su_fecha_local(self):
+        staff = _staff(self.gimnasio)
+        User.objects.filter(pk=staff.pk).update(last_login=self.LOGIN)
+
+        self._sembrar()
+
+        fila = ActividadDiaria.objects.get()
+        self.assertEqual(fila.usuario, staff)
+        self.assertEqual(fila.gimnasio, self.gimnasio)
+        self.assertEqual(fila.rol, Perfil.Rol.STAFF)
+        self.assertEqual(fila.fecha, date(2026, 3, 10))
+
+    def test_copia_el_rol_y_el_gimnasio_de_cada_perfil(self):
+        otro = _gimnasio("Otro Gim", "otro-gim")
+        staff = _staff(otro, "duenio-otro")
+        _, alumno = _alumno_con_acceso(self.gimnasio)
+        User.objects.filter(pk__in=[staff.pk, alumno.pk]).update(last_login=self.LOGIN)
+
+        self._sembrar()
+
+        self.assertEqual(
+            ActividadDiaria.objects.get(usuario=alumno).rol, Perfil.Rol.ALUMNO
+        )
+        self.assertEqual(ActividadDiaria.objects.get(usuario=staff).gimnasio, otro)
+
+    def test_saltea_a_quien_nunca_entro_y_a_quien_no_tiene_perfil(self):
+        """`last_login` en `NULL` es exactamente «nunca entró»: sembrarle un
+        día sería inventar el dato que esta columna existe para no inventar."""
+        _staff(self.gimnasio)  # sin last_login
+        suelto = User.objects.create_user("suelto", password=CLAVE)
+        User.objects.filter(pk=suelto.pk).update(last_login=self.LOGIN)
+
+        self._sembrar()
+
+        self.assertFalse(ActividadDiaria.objects.exists())
+
+    def test_correrla_dos_veces_no_duplica_nada(self):
+        """Idempotente por el `ignore_conflicts`: aplicarla sobre una base
+        donde el middleware ya anotó el día no puede reventar el deploy."""
+        staff = _staff(self.gimnasio)
+        User.objects.filter(pk=staff.pk).update(last_login=self.LOGIN)
+
+        self._sembrar()
+        self._sembrar()
+
+        self.assertEqual(ActividadDiaria.objects.count(), 1)
+
+    def test_el_monitor_deja_de_decir_nunca(self):
+        """Lo que la migración existe para arreglar, mirado desde la pantalla."""
+        staff = _staff(self.gimnasio)
+        User.objects.filter(pk=staff.pk).update(last_login=self.LOGIN)
+        self.assertIsNone(
+            facturacion.gimnasios_anotados().get(pk=self.gimnasio.pk).ultimo_uso_staff
+        )
+
+        self._sembrar()
+
+        self.assertEqual(
+            facturacion.gimnasios_anotados().get(pk=self.gimnasio.pk).ultimo_uso_staff,
+            date(2026, 3, 10),
+        )
 
 
 class PoliticaDePrivacidadTests(TestCase):
