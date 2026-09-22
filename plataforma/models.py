@@ -91,7 +91,18 @@ class PagoPlataforma(TimeStampedModel):
             models.CheckConstraint(
                 condition=models.Q(periodo_hasta__gte=models.F("periodo_desde")),
                 name="pago_plataforma_periodo_no_invertido",
-            )
+            ),
+            # Un gimnasio no puede tener dos pagos que arranquen el mismo día.
+            # El caso real es el doble submit del formulario (va boosteado por
+            # htmx) y el "¿lo habré cargado?" del superadmin: sin esta clave,
+            # el segundo pago entra sin ruido, el gimnasio aparece cobrado dos
+            # veces y el ingreso del mes queda inflado. No se topa por
+            # `periodo_hasta` porque `periodo_desde` es el ancla del ciclo: es
+            # lo que `periodo_siguiente` calcula y lo que define el período.
+            models.UniqueConstraint(
+                fields=["gimnasio", "periodo_desde"],
+                name="pago_plataforma_un_periodo_por_gimnasio",
+            ),
         ]
         indexes = [
             # La consulta del monitor es `Max(periodo_hasta)` por gimnasio, y

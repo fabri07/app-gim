@@ -107,18 +107,23 @@ def periodo_siguiente(inicio, cubierto_hasta):
 
 
 def proximo_vencimiento(inicio, hoy, cubierto_hasta):
-    """Cuándo hay que cobrarle a ese gimnasio, o `None` si todavía no aplica.
+    """Cuándo hay que cobrarle a ese gimnasio.
 
     Es el primer día del período no cubierto: el gimnasio paga por adelantado,
     así que el período arranca el mismo día en que vence el cobro.
 
-    Devuelve `None` cuando la facturación todavía no arrancó (`hoy < inicio`),
-    mismo guard que `pagos.models.ciclo_vigente`: el superadmin puede dar de
-    alta un gimnasio con el arranque de facturación a futuro, y mostrarle un
-    vencimiento sería cobrarle por días anteriores a su propio comienzo.
+    Con la facturación arrancando a futuro (`hoy < inicio`, que el superadmin
+    puede dejar así desde «Editar facturación») el vencimiento es el fin de la
+    prueba, o sea `inicio + DIAS_GRATIS`. **Antes devolvía `None` y era peor**:
+    el gimnasio aparecía en el panel con un guion donde va la fecha, que se lee
+    como "no sé" o como un dato roto. La prueba de ese gimnasio ya tiene fecha
+    de fin conocida; mostrarla no es cobrarle por adelantado, es decir cuándo
+    empieza a correrle el reloj. El estado sigue siendo PRUEBA
+    (`inicio + 30` nunca cae dentro de los `DIAS_AVISO_COBRO` días siguientes
+    a un `hoy` anterior a `inicio`).
     """
     if hoy < inicio:
-        return None
+        return fin_de_prueba(inicio)
     return periodo_siguiente(inicio, cubierto_hasta)[0]
 
 
@@ -133,9 +138,11 @@ def estado_pago(inicio, hoy, cubierto_hasta, *, exenta=False):
     """
     if exenta:
         return EstadoPago.EXENTA
+    # `proximo_vencimiento` siempre devuelve una fecha: con la facturación
+    # arrancando a futuro es el fin de la prueba, que está lo bastante lejos
+    # como para que los dos cortes de abajo no lo alcancen y el gimnasio caiga
+    # solo en PRUEBA.
     vencimiento = proximo_vencimiento(inicio, hoy, cubierto_hasta)
-    if vencimiento is None:
-        return EstadoPago.PRUEBA
     if vencimiento < hoy:
         return EstadoPago.VENCIDA
     if vencimiento <= hoy + timedelta(days=DIAS_AVISO_COBRO):
@@ -150,6 +157,6 @@ def dias_de_atraso(inicio, hoy, cubierto_hasta):
     vencimiento de una cuota en `pagos`: se vence al día siguiente.
     """
     vencimiento = proximo_vencimiento(inicio, hoy, cubierto_hasta)
-    if vencimiento is None or vencimiento >= hoy:
+    if vencimiento >= hoy:
         return 0
     return (hoy - vencimiento).days

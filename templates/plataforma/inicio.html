@@ -59,7 +59,13 @@
         haría parecer que la plataforma factura dos veces. Sin cotización
         simplemente no aparece — un «$ 0» sería mentira.
       {% endcomment %}
-      {% if kpis.ingreso_mensual_ars %}
+      {% comment %}
+        `is not None` y no la verdad a secas: `ingreso_mensual_ars` es un
+        Decimal, y `Decimal("0.00")` es falsy. Con ningún cliente que pague
+        (o con todos exentos) el ingreso es 0 y el número tiene que verse
+        igual -- ocultarlo haría parecer que falló la cotización.
+      {% endcomment %}
+      {% if kpis.ingreso_mensual_ars is not None %}
         · ≈ $ {{ kpis.ingreso_mensual_ars|floatformat:0 }}
       {% endif %}
     </span>

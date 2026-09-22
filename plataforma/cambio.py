@@ -14,6 +14,14 @@ mientras la API esté muerta.
 
 Se usa `urllib` de la biblioteca estándar y no `requests`: no es dependencia
 del proyecto y no vale la pena agregarla por una sola llamada GET.
+
+**`fecha` vuelve como datetime *aware* en UTC**, que es como la publica la
+API. Para mostrarlo va SIEMPRE por `{{ ... |date:"..." }}` (el filtro `date`
+está declarado `expects_localtime=True`, así que Django lo pasa a
+`TIME_ZONE` solo) o por `timezone.localtime(...)`. **Nunca `.date()` ni
+`.hour` a secas**: con UTC-3, una cotización de las 21:30 de Buenos Aires
+está fechada al día siguiente en UTC, y el panel diría que el número es de
+mañana.
 """
 
 import json

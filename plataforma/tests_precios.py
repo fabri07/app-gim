@@ -89,15 +89,32 @@ class ProximoVencimientoTests(SimpleTestCase):
 
         self.assertEqual(vencimiento, date(2026, 3, 2))
 
-    def test_una_facturacion_que_todavia_no_arranco_no_tiene_vencimiento(self):
-        """Mismo guard que `pagos.models.ciclo_vigente`: con el arranque en el
-        futuro no hay nada que cobrar todavía, y sin este `None` el monitor
-        mostraría una fecha de vencimiento para un gimnasio que aún no entró
-        en facturación."""
-        self.assertIsNone(
-            precios.proximo_vencimiento(
+    def test_una_facturacion_que_todavia_no_arranco_vence_al_fin_de_la_prueba(self):
+        """Con el arranque a futuro el vencimiento es el fin de la prueba, no
+        `None`: un guion en la columna de vencimiento se lee como un dato roto,
+        y la prueba de ese gimnasio ya tiene fecha de fin conocida."""
+        vencimiento = precios.proximo_vencimiento(
+            self.INICIO, self.INICIO - timedelta(days=1), None
+        )
+
+        self.assertEqual(vencimiento, precios.fin_de_prueba(self.INICIO))
+
+    def test_una_facturacion_que_todavia_no_arranco_sigue_en_prueba(self):
+        """Lo que NO puede pasar es que mostrar la fecha lo empuje a
+        POR_VENCER: el fin de la prueba está siempre a más de
+        `DIAS_AVISO_COBRO` días de un `hoy` anterior al arranque."""
+        estado = precios.estado_pago(
+            self.INICIO, self.INICIO - timedelta(days=1), None
+        )
+
+        self.assertIs(estado, EstadoPago.PRUEBA)
+
+    def test_una_facturacion_que_todavia_no_arranco_no_tiene_atraso(self):
+        self.assertEqual(
+            precios.dias_de_atraso(
                 self.INICIO, self.INICIO - timedelta(days=1), None
-            )
+            ),
+            0,
         )
 
 

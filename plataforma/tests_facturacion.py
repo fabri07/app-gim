@@ -141,6 +141,10 @@ class CubiertoHastaTests(TestCase):
         """
         sql = str(facturacion.gimnasios_anotados().query).upper()
 
+        # Guard: si el `FROM` deja de escribirse así (otro backend, otro
+        # quoting), el `rpartition` devolvería la consulta ENTERA o una
+        # cadena vacía y el test pasaría sin mirar nada.
+        self.assertIn('FROM "TENANTS_GIMNASIO"', sql)
         cola = sql.rpartition('FROM "TENANTS_GIMNASIO"')[2]
         self.assertNotIn("JOIN", cola)
         self.assertNotIn("GROUP BY", cola)
@@ -357,6 +361,59 @@ class RegistrarPagoViewTests(TestCase):
         )
         self.assertContains(respuesta, "config-error")
 
+    def test_el_mismo_periodo_dos_veces_avisa_y_deja_una_sola_fila(self):
+        """El caso real es el doble submit (el form va boosteado por htmx) y
+        el «¿lo habré cargado?» del superadmin. Sin esto el segundo pago entra
+        sin ruido y el gimnasio queda cobrado dos veces."""
+        self.client.post(self._url(), self._datos())
+
+        respuesta = self.client.post(self._url(), self._datos())
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(PagoPlataforma.objects.count(), 1)
+        self.assertEqual(
+            respuesta.context["form"].errors["periodo_desde"],
+            ["Ya hay un pago registrado que arranca ese día."],
+        )
+
+    def test_el_mismo_periodo_en_otro_gimnasio_si_se_puede_registrar(self):
+        """La clave es por gimnasio: dos clientes distintos pagan el mismo
+        período todo el tiempo."""
+        self.client.post(self._url(), self._datos())
+
+        self.client.post(self._url(self.otro), self._datos())
+
+        self.assertEqual(PagoPlataforma.objects.count(), 2)
+
+    def test_la_base_rechaza_el_periodo_repetido_aunque_no_pase_por_el_form(self):
+        """La `UniqueConstraint` es la barrera de verdad; el mensaje del form
+        es solo para que se lea bien."""
+        _pago(self.gimnasio, self.jefe, date(2026, 5, 17), date(2026, 6, 15))
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            _pago(self.gimnasio, self.jefe, date(2026, 5, 17), date(2026, 6, 20))
+
+    def test_el_post_no_sale_a_pedir_la_cotizacion(self):
+        """Los montos los manda el formulario: pedirla sería esperar hasta 3 s
+        contra una API externa para tirar el resultado, con un solo worker de
+        gunicorn."""
+        with patch("plataforma.cambio.cotizacion_dolar") as cotizacion:
+            self.client.post(self._url(), self._datos())
+
+        cotizacion.assert_not_called()
+
+    def test_el_formulario_dice_de_cuando_es_la_cotizacion(self):
+        cotizacion = {
+            "venta": Decimal("1536.50"),
+            "fecha": datetime(2026, 9, 21, 20, 58, tzinfo=dt_timezone.utc),
+            "fuente": "dolarapi.com",
+        }
+        with patch("plataforma.cambio.cotizacion_dolar", return_value=cotizacion):
+            respuesta = self.client.get(self._url())
+
+        # 20:58 UTC son las 17:58 en Buenos Aires.
+        self.assertContains(respuesta, "Cotización MEP del 21/09 17:58")
+
     def test_un_dueno_de_gimnasio_no_puede_registrar_pagos_de_la_plataforma(self):
         from tenants.models import Perfil
 
@@ -394,12 +451,44 @@ class EditarFacturacionViewTests(TestCase):
     def test_puede_dejar_un_gimnasio_exento(self):
         self.client.post(
             self._url(),
-            {"facturacion_inicio": "", "facturacion_exenta": "on"},
+            {"facturacion_inicio": "2026-05-20", "facturacion_exenta": "on"},
         )
 
         self.gimnasio.refresh_from_db()
         self.assertTrue(self.gimnasio.facturacion_exenta)
+
+    def test_no_se_puede_vaciar_el_inicio_de_facturacion(self):
+        """Obligatorio en el form aunque sea `blank=True` en el modelo, mismo
+        criterio que `AlumnoForm.fecha_inicio_ciclo`: vaciarlo deshace la
+        migración de datos, `inicio_efectivo` vuelve a caer en la fecha de
+        alta y este gimnasio (dado de alta hace 200 días) pasa a VENCIDA con
+        meses de atraso, en silencio."""
+        self.gimnasio.facturacion_inicio = date(2026, 5, 20)
+        self.gimnasio.save()
+
+        respuesta = self.client.post(
+            self._url(),
+            {"facturacion_inicio": "", "facturacion_exenta": ""},
+        )
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.context["form"].errors["facturacion_inicio"])
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.facturacion_inicio, date(2026, 5, 20))
+
+    def test_precarga_la_fecha_que_ya_esta_en_efecto(self):
+        """Un gimnasio con `facturacion_inicio` en `NULL` llegaría con el
+        campo vacío a un formulario que ahora lo exige. Se precarga con la
+        fecha de alta, que es la que el panel venía usando: guardar sin tocar
+        nada no cambia nada."""
         self.assertIsNone(self.gimnasio.facturacion_inicio)
+
+        inicial = self.client.get(self._url()).context["form"].initial
+
+        self.assertEqual(
+            inicial["facturacion_inicio"],
+            facturacion.inicio_efectivo(self.gimnasio),
+        )
 
     def test_un_alumno_no_entra(self):
         from tenants.models import Perfil

@@ -29,6 +29,18 @@
       <h2>Montos</h2>
       {% include 'partials/campo_form.html' with campo=form.monto_usd %}
       {% include 'partials/campo_form.html' with campo=form.tipo_cambio %}
+      {% comment %}
+        De dónde salió el número que viene precargado. Sin esto, el tipo de
+        cambio es una cifra que apareció sola: el superadmin no puede saber
+        si es de hoy o de la semana pasada, y la única salida honesta sería
+        borrarla y buscarla a mano. El filtro `date` lo muestra en hora
+        local (viene en UTC), igual que en la ficha del gimnasio.
+      {% endcomment %}
+      {% if cotizacion %}
+        <p class="texto-suave">
+          Cotización MEP del {{ cotizacion.fecha|date:"d/m H:i" }} ({{ cotizacion.fuente }}).
+        </p>
+      {% endif %}
       {% include 'partials/campo_form.html' with campo=form.monto_ars %}
     </div>
 

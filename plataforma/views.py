@@ -111,12 +111,40 @@ class PagoPlataformaCreateView(GimnasioDePlataformaMixin, CreateView):
     form_class = PagoPlataformaForm
     template_name = "plataforma/pago_form.html"
 
+    def get_form_kwargs(self):
+        # El form necesita el gimnasio para poder avisar «ya hay un pago que
+        # arranca ese día». No es el que se guarda: eso lo estampa
+        # `form_valid` desde la URL.
+        kwargs = super().get_form_kwargs()
+        kwargs["gimnasio"] = self.get_gimnasio()
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["cotizacion"] = self._cotizacion()
+        return context
+
+    def _cotizacion(self):
+        """La cotización del request, pedida UNA sola vez.
+
+        **Solo en GET**: en POST los montos los manda el formulario y nadie
+        los usa, así que pedirla sería salir a la red (hasta 3 s de espera,
+        con un único worker de gunicorn) para tirar el resultado. Y si el
+        formulario vuelve con errores, quien manda es lo que el superadmin ya
+        tipeó, no un valor nuevo.
+        """
+        if self.request.method != "GET":
+            return None
+        if not hasattr(self, "_cotizacion_cache"):
+            self._cotizacion_cache = cambio.cotizacion_dolar()
+        return self._cotizacion_cache
+
     def get_initial(self):
         gimnasio = self.get_gimnasio()
         alumnos_activos = gimnasio.alumnos_activos
         monto_usd = precios.precio_usd(alumnos_activos)
         desde, hasta = facturacion.periodo_a_cobrar(gimnasio)
-        cotizacion = cambio.cotizacion_dolar()
+        cotizacion = self._cotizacion()
         inicial = {
             "fecha_pago": timezone.localdate(),
             "periodo_desde": desde,
@@ -154,6 +182,20 @@ class FacturacionUpdateView(GimnasioDePlataformaMixin, UpdateView):
 
     def get_object(self, queryset=None):
         return self.get_gimnasio()
+
+    def get_initial(self):
+        """Un gimnasio con `facturacion_inicio` en `NULL` (uno nuevo: para él
+        significa "desde la fecha de alta") llega con el campo vacío, y ahora
+        es obligatorio. Se precarga con la fecha que YA está en efecto, así
+        guardar sin tocar nada no cambia nada -- solo persiste explícitamente
+        lo que el panel venía calculando. Sin esto, el superadmin tendría que
+        adivinar una fecha para poder guardar el otro campo.
+        """
+        inicial = super().get_initial()
+        inicial["facturacion_inicio"] = facturacion.inicio_efectivo(
+            self.get_gimnasio()
+        )
+        return inicial
 
     def form_valid(self, form):
         respuesta = super().form_valid(form)
