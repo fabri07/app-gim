@@ -3928,6 +3928,13 @@ class PreviewPlantillasEscalaTests(TestCase):
         return len(ctx)
 
     def test_el_get_del_preview_no_hace_una_query_por_ejercicio_nuevo(self):
+        # Un request en frío ANTES de medir: `PlataformaMiddleware` anota el día
+        # de uso en el PRIMER request de cada sesión (un INSERT más la
+        # escritura de la sesión). Es un costo fijo por día, no por fila, así
+        # que pagarlo de un solo lado haría fallar la comparación por algo
+        # que no es un N+1.
+        self._queries_del_get(1)
+
         pocos = self._queries_del_get(5)
         muchos = self._queries_del_get(40)
         self.assertEqual(pocos, muchos)

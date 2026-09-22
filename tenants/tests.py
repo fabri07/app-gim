@@ -3974,6 +3974,41 @@ class VaciarGimnasioTests(TestCase):
 
         self.assertFalse(User.objects.filter(pk=usuario_alumno.pk).exists())
 
+    def test_la_actividad_del_alumno_se_va_con_el_y_la_del_staff_queda(self):
+        """`plataforma.ActividadDiaria` NO es `TenantOwnedModel` (es un dato de
+        la plataforma sobre el gimnasio), así que no entra ni en `_ensuciar` ni
+        en el barrido de `vaciar_gimnasio`. Igual tiene que sobrevivir al
+        vaciado: su FK a `User` es CASCADE justamente para que las filas de los
+        alumnos borrados se vayan solas en vez de trabar la restauración
+        automática de la demo con un `ProtectedError` cada 6 horas.
+        """
+        from alumnos.services import crear_acceso
+        from plataforma.models import ActividadDiaria
+        from tenants.demo import vaciar_gimnasio
+
+        alumno = _ensuciar(self.demo, self.staff_demo)
+        crear_acceso(alumno, TIPO_EMAIL, "al@ejemplo.com")
+        alumno.refresh_from_db()
+        ActividadDiaria.objects.create(
+            usuario=alumno.perfil.usuario,
+            gimnasio=self.demo,
+            rol=Perfil.Rol.ALUMNO,
+            fecha=date(2026, 6, 1),
+        )
+        del_staff = ActividadDiaria.objects.create(
+            usuario=self.staff_demo,
+            gimnasio=self.demo,
+            rol=Perfil.Rol.STAFF,
+            fecha=date(2026, 6, 1),
+        )
+
+        vaciar_gimnasio(gimnasio=self.demo)
+
+        self.assertEqual(
+            list(ActividadDiaria.objects.values_list("pk", flat=True)),
+            [del_staff.pk],
+        )
+
     def test_no_le_pide_nada_a_google_calendar(self):
         """`calendario/signals.py::sync_reserva_borrada` es un `pre_delete`
         sobre `Reserva` que llama a la API de Google una vez POR RESERVA. Con

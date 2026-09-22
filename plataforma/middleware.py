@@ -1,5 +1,6 @@
 """
-Corte de acceso por el estado de la cuenta del gimnasio.
+Las dos cosas que la plataforma hace en cada request: anotar que el gimnasio
+se usó, y cortarle el acceso si su cuenta está congelada.
 
 Va en un middleware y no en un mixin por el mismo motivo que
 `tenants/middleware.py`: el chequeo tiene que correr en CADA request. Un mixin
@@ -17,18 +18,32 @@ excepción son los POST, que se redirigen a `home` -- y el GET de `home`
 renderiza el cartel, así que el redirect termina siempre en una pantalla que
 explica qué pasa, sin ningún loop posible.
 
-Fase 4 va a registrar el día activo de cada gimnasio en este mismo middleware,
-ANTES del bloqueo y sobre la misma resolución de `Perfil`: de ahí que
-`_perfil_de(request)` sea un helper aparte y memoizado.
+**El registro del día activo corre ANTES del bloqueo**, y sobre la misma
+resolución de `Perfil` (de ahí que `_perfil_de(request)` sea un helper aparte y
+memoizado). Que alguien intente entrar y se encuentre el cartel también es
+información: es la señal de que el gimnasio sigue vivo del otro lado de la
+deuda, que es justo lo que se mira antes de decidir si se lo llama o se lo da
+de baja.
 """
 
 from django.shortcuts import redirect, render
+from django.utils import timezone
 
+from plataforma.models import ActividadDiaria
+from tenants import suplantacion
 from tenants.models import (
     ESTADOS_SIN_ACCESO_ALUMNO,
     ESTADOS_SIN_ACCESO_STAFF,
     Perfil,
 )
+
+#: Dónde se guarda el último día ya registrado de esta sesión.
+#:
+#: La sesión de este proyecto vive en la base, así que escribirla cuesta una
+#: query: por eso se toca UNA vez por día y no en cada request. Es un caché de
+#: "ya anoté el de hoy", no la fuente de verdad -- la fuente es la clave única
+#: `(usuario, fecha)` del modelo.
+CLAVE_SESION_ACTIVIDAD = "plataforma_actividad"
 
 #: Apps enteras que el bloqueo no mira.
 #:
@@ -104,8 +119,54 @@ def sin_acceso(perfil):
     return perfil.gimnasio.estado_cuenta in estados
 
 
+def registrar_dia_activo(request):
+    """Anota que esta persona usó la app hoy. Una fila por usuario y por día.
+
+    **Lo primero es la marca de la sesión**, antes de resolver nada: así el
+    segundo request del día (y el tercero, y los mil de una tarde de trabajo)
+    no cuesta ni una query ni un `getattr` de más. El costo de todo esto es un
+    INSERT y una escritura de sesión, una vez por día y por dispositivo.
+
+    **`ignore_conflicts=True`** porque dos pestañas —o el celular y la
+    computadora— pueden cruzar el primer request del día: cada sesión tiene su
+    propia marca, así que las dos intentan insertar. La clave única
+    `(usuario, fecha)` decide, y la que llega segunda no rompe la página.
+
+    **No se registra mientras se suplanta**: durante una suplantación
+    `request.user` ES el alumno, y el staff mirando la app como él no es uso
+    del alumno. Sin este corte, el gráfico mostraría alumnos activos que nunca
+    entraron -- y el «último uso» de un gimnasio dormido se movería solo cada
+    vez que el dueño del producto va a mirarlo.
+
+    `hoy` sale de `timezone.localdate()` y nunca de `timezone.now().date()`:
+    con `TIME_ZONE` en UTC-3, todo lo que pasa entre las 21:00 y las 23:59 se
+    anotaría en el día siguiente, y el gráfico mostraría actividad en días en
+    los que el gimnasio estaba cerrado.
+    """
+    hoy = timezone.localdate()
+    if request.session.get(CLAVE_SESION_ACTIVIDAD) == hoy.isoformat():
+        return
+    if suplantacion.esta_activa(request):
+        return
+    perfil = _perfil_de(request)
+    if perfil is None:
+        return
+    ActividadDiaria.objects.bulk_create(
+        [
+            ActividadDiaria(
+                usuario_id=perfil.usuario_id,
+                gimnasio_id=perfil.gimnasio_id,
+                rol=perfil.rol,
+                fecha=hoy,
+            )
+        ],
+        ignore_conflicts=True,
+    )
+    request.session[CLAVE_SESION_ACTIVIDAD] = hoy.isoformat()
+
+
 class PlataformaMiddleware:
-    """Corta el acceso de un gimnasio con la cuenta congelada."""
+    """Registra el día de uso y corta el acceso de una cuenta congelada."""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -122,6 +183,11 @@ class PlataformaMiddleware:
         # desde donde se descongela es el que dejaría de abrir.
         if usuario.is_superuser:
             return None
+
+        # Antes de la allowlist a propósito: esa lista dice de qué URLs no se
+        # BLOQUEA a nadie, no qué cuenta como uso. Cerrar la sesión o abrir el
+        # manifest de la PWA es usar la app igual.
+        registrar_dia_activo(request)
 
         match = request.resolver_match
         if match is not None and (

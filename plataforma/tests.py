@@ -22,6 +22,7 @@ from django.urls import reverse
 
 from alumnos.models import Alumno
 from plataforma import facturacion
+from plataforma.models import ActividadDiaria
 from plataforma.precios import EstadoPago
 from plataforma.views import InicioView
 from tenants.models import Gimnasio, Perfil
@@ -91,21 +92,30 @@ class GimnasiosAnotadosTests(TestCase):
         self.assertEqual(self._fila(self.gimnasio).alumnos_activos, 0)
 
     def test_el_ultimo_uso_mira_solo_al_staff(self):
+        """Sale de `ActividadDiaria`, no de `User.last_login`: el alumno que
+        entró en septiembre no puede hacer parecer vivo a un gimnasio cuyo
+        dueño no aparece desde mayo."""
         staff = _staff(self.gimnasio, "duenio")
         alumno_usuario = User.objects.create_user("alumno", password="clave-123456")
         Perfil.objects.create(
             usuario=alumno_usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
         )
-        User.objects.filter(pk=staff.pk).update(
-            last_login=datetime(2026, 5, 1, 12, 0, tzinfo=dt_timezone.utc)
+        ActividadDiaria.objects.create(
+            usuario=staff,
+            gimnasio=self.gimnasio,
+            rol=Perfil.Rol.STAFF,
+            fecha=date(2026, 5, 1),
         )
-        User.objects.filter(pk=alumno_usuario.pk).update(
-            last_login=datetime(2026, 9, 1, 12, 0, tzinfo=dt_timezone.utc)
+        ActividadDiaria.objects.create(
+            usuario=alumno_usuario,
+            gimnasio=self.gimnasio,
+            rol=Perfil.Rol.ALUMNO,
+            fecha=date(2026, 9, 1),
         )
 
-        ultimo = self._fila(self.gimnasio).ultimo_uso_staff
-
-        self.assertEqual(ultimo.date(), date(2026, 5, 1))
+        self.assertEqual(
+            self._fila(self.gimnasio).ultimo_uso_staff, date(2026, 5, 1)
+        )
 
     def test_el_conteo_de_alumnos_no_multiplica_al_ultimo_uso(self):
         """Dos anotaciones multivaluadas como JOINs se multiplican entre sí

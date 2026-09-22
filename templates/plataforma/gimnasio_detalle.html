@@ -98,16 +98,6 @@
         {% endif %}
       </dd>
     </div>
-    <div>
-      <dt>Último ingreso del staff</dt>
-      <dd>
-        {% if fila.ultimo_uso_staff %}
-          {{ fila.ultimo_uso_staff|date:"d/m/Y H:i" }}
-        {% else %}
-          Nunca entró
-        {% endif %}
-      </dd>
-    </div>
   </dl>
   <div class="acciones-lista">
     <a class="boton" href="{% url 'plataforma:pago_nuevo' gimnasio.pk %}">Registrar pago</a>
@@ -134,6 +124,43 @@
       </form>
     {% endif %}
   </div>
+</div>
+
+<div class="tarjeta">
+  <h2>Actividad (últimos 30 días)</h2>
+  <p class="texto-suave">
+    Cuántas personas distintas entraron a la app cada día. No se registra qué
+    miraron ni cuánto tiempo estuvieron: solo el día.
+  </p>
+  <p>
+    Último uso:
+    {% comment %}
+      «nunca» y no «—»: un gimnasio cuyo staff nunca entró es un alta que no se
+      activó, que es un caso distinto (y más urgente) de un gimnasio que se usó
+      y dejó de usarse. El guión no distingue los dos.
+    {% endcomment %}
+    <strong>staff</strong>
+    {% if ultimo_uso.staff %}{{ ultimo_uso.staff|date:"d/m/Y" }}{% else %}nunca{% endif %}
+    ·
+    <strong>alumnos</strong>
+    {% if ultimo_uso.alumnos %}{{ ultimo_uso.alumnos|date:"d/m/Y" }}{% else %}nunca{% endif %}
+  </p>
+  <div class="grafico-contenedor">
+    <canvas id="grafico-actividad"></canvas>
+  </div>
+  <details class="tabla-detalle">
+    <summary>Ver como tabla</summary>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Día</th><th>Staff</th><th>Alumnos</th></tr></thead>
+        <tbody>
+          {% for fila in actividad %}
+            <tr><td>{{ fila.etiqueta }}</td><td>{{ fila.staff }}</td><td>{{ fila.alumnos }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
 </div>
 
 <div class="tarjeta">
@@ -230,4 +257,70 @@
     </form>
   </div>
 </div>
+
+{{ actividad|json_script:"actividad-data" }}
+{% comment %}
+  Chart.js y el script van DENTRO del bloque de contenido, nunca en
+  `{% templatetag openblock %} block extra_style {% templatetag closeblock %}`:
+  ese bloque vive en el <head>, y el `hx-boost="true"` global de base.html solo
+  reemplaza el <body>. Entrando desde el monitor (una navegación boosteada) el
+  <head> no se toca, así que un <script> puesto ahí no llegaría nunca y el
+  gráfico quedaría en blanco sin ningún error del lado del servidor. Es el
+  mismo gotcha que ya se documenta en CLAUDE.md.
+{% endcomment %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+<script>
+  (function () {
+    // Mismos dos colores que el resto del proyecto: el azul del tema para la
+    // serie que importa (el staff, que es quien paga) y un gris neutro para
+    // los alumnos. Son dos grupos de personas, no una escala: no va un
+    // degradé (ver skill dataviz).
+    var AZUL = "#2a78d6";
+    var GRIS = "#6b7280";
+
+    // Copiado de templates/tenants/home.html a propósito: sin el guard, un
+    // `JSON.parse(null)` por un json_script ausente corta el IIFE entero y se
+    // lleva puestos todos los gráficos que vengan después, sin dejar ningún
+    // rastro del lado del servidor.
+    function datosDe(id) {
+      var nodo = document.getElementById(id);
+      return nodo ? JSON.parse(nodo.textContent) : [];
+    }
+
+    var datos = datosDe("actividad-data");
+    var el = document.getElementById("grafico-actividad");
+    if (el && datos.length) {
+      new Chart(el, {
+        type: "bar",
+        data: {
+          labels: datos.map(function (d) { return d.etiqueta; }),
+          datasets: [
+            {
+              label: "Staff",
+              data: datos.map(function (d) { return d.staff; }),
+              backgroundColor: AZUL,
+              borderRadius: 4,
+            },
+            {
+              label: "Alumnos",
+              data: datos.map(function (d) { return d.alumnos; }),
+              backgroundColor: GRIS,
+              borderRadius: 4,
+            },
+          ],
+        },
+        options: {
+          // Apiladas: lo que se lee de un vistazo es el total de personas por
+          // día, y la partición dice de dónde sale. Lado a lado, con 30 días,
+          // cada barra mediría un par de píxeles.
+          scales: {
+            x: { stacked: true },
+            y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+          },
+          maintainAspectRatio: false,
+        },
+      });
+    }
+  })();
+</script>
 {% endblock %}

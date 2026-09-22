@@ -1193,6 +1193,13 @@ class PanelAccesosTests(TestCase):
         sin que haya un N+1 de verdad.
         """
         url = reverse("alumnos:accesos")
+        # Un request en frío ANTES de medir: `PlataformaMiddleware` anota el día
+        # de uso en el PRIMER request de cada sesión (un INSERT más la
+        # escritura de la sesión). Es un costo fijo por día, no por fila, así
+        # que pagarlo de un solo lado haría fallar la comparación por algo
+        # que no es un N+1.
+        self.client.get(url)
+
         with CaptureQueriesContext(connection) as pocas:
             self.client.get(url)
 

@@ -20,7 +20,7 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import CreateView, DetailView, TemplateView, UpdateView
 
-from plataforma import cambio, facturacion, precios
+from plataforma import actividad, cambio, facturacion, precios
 from plataforma.forms import FacturacionForm, PagoPlataformaForm
 from plataforma.mixins import SuperadminRequiredMixin
 from plataforma.models import PagoPlataforma
@@ -71,6 +71,14 @@ class GimnasioDetalleView(SuperadminRequiredMixin, DetailView):
         # Una sola query para toda la tabla: el orden ya lo pone
         # `PagoPlataforma.Meta.ordering` (del período más nuevo al más viejo).
         context["pagos"] = self.object.pagos_plataforma.all()
+        # Dos queries agregadas, no una por día ni una por rol. El monitor ya
+        # trae el último uso del staff anotado, pero la ficha lo vuelve a
+        # pedir junto con el de los alumnos: son los dos lados del gimnasio y
+        # separados no se entiende ninguno (un staff que entra todos los días
+        # a un gimnasio donde ningún alumno entró hace un mes es un problema
+        # distinto del contrario).
+        context["actividad"] = actividad.activos_por_dia(self.object)
+        context["ultimo_uso"] = actividad.ultimo_uso(self.object)
         return context
 
 

@@ -12,7 +12,7 @@ query y `filas_del_monitor()` no agrega ninguna: el precio y el estado se
 calculan en Python sobre las filas ya traídas.
 
 **Por qué `Subquery` y no `Count(...)`/`Max(...)` con filtro sobre el join**:
-son TRES relaciones multivaluadas distintas (`alumnos`, `perfiles` y
+son TRES relaciones multivaluadas distintas (`alumnos`, `actividad` y
 `pagos_plataforma`). Anotadas como join en el mismo queryset, el producto
 cartesiano las multiplica entre sí: con dos pagos registrados, un gimnasio de
 3 alumnos cuenta 6. Con subqueries correlacionadas cada una se calcula sola y
@@ -21,12 +21,11 @@ una relación multivaluada, va como `Subquery`.**
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 
 from django.db.models import (
     Count,
     DateField,
-    DateTimeField,
     IntegerField,
     Max,
     OuterRef,
@@ -37,7 +36,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from plataforma import cambio, precios
-from plataforma.models import PagoPlataforma
+from plataforma.models import ActividadDiaria, PagoPlataforma
 from plataforma.precios import EstadoPago
 from tenants.models import Gimnasio, Perfil
 
@@ -58,7 +57,7 @@ class FilaMonitor:
     vencimiento: date | None
     cubierto_hasta: date | None
     dias_de_atraso: int
-    ultimo_uso_staff: datetime | None
+    ultimo_uso_staff: date | None
 
 
 def inicio_efectivo(gimnasio):
@@ -81,13 +80,15 @@ def inicio_efectivo(gimnasio):
 
 
 def gimnasios_anotados():
-    """Todos los gimnasios con sus alumnos activos, el último ingreso de su
-    staff y hasta qué día están pagos, en una sola query.
+    """Todos los gimnasios con sus alumnos activos, el último día que los usó
+    su staff y hasta qué día están pagos, en una sola query.
 
-    `ultimo_uso_staff` sale hoy de `User.last_login`, que es lo único que ya
-    se registra: dice cuándo entró por última vez alguien del gimnasio, no
-    cuánto lo usa. Fase 4 lo reemplaza por el máximo de `ActividadDiaria` de
-    rol staff, sin que cambie ni el nombre de la anotación ni las pantallas.
+    `ultimo_uso_staff` es el último DÍA (no instante) que entró alguien del
+    staff, tomado de `ActividadDiaria`. No sale de `User.last_login` a
+    propósito: `last_login` solo se escribe al loguearse, así que un staff que
+    deja la sesión abierta en la computadora del mostrador puede usar la app
+    todos los días con un `last_login` de hace meses -- justo el gimnasio que
+    el monitor marcaría como dormido.
 
     `cubierto_hasta` es el `Max(periodo_hasta)` de sus pagos, no el período
     del último pago CARGADO: el superadmin puede registrar un pago atrasado
@@ -107,12 +108,14 @@ def gimnasios_anotados():
         output_field=IntegerField(),
     )
     ultimo_uso_staff = Subquery(
-        Perfil.objects.filter(gimnasio=OuterRef("pk"), rol=Perfil.Rol.STAFF)
+        ActividadDiaria.objects.filter(
+            gimnasio=OuterRef("pk"), rol=Perfil.Rol.STAFF
+        )
         .order_by()
         .values("gimnasio")
-        .annotate(ultimo=Max("usuario__last_login"))
+        .annotate(ultimo=Max("fecha"))
         .values("ultimo"),
-        output_field=DateTimeField(),
+        output_field=DateField(),
     )
     cubierto_hasta = Subquery(
         PagoPlataforma.objects.filter(gimnasio=OuterRef("pk"))

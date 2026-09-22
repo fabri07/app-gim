@@ -378,6 +378,13 @@ class CostoDelMiddlewareTests(TestCase):
     request, y el ORM cachea las dos relaciones en la instancia: el middleware
     lee lo mismo un poco antes. Un `select_related` de más acá sería una query
     extra en TODAS las páginas de TODOS los gimnasios sanos.
+
+    **Se mide el SEGUNDO request del día, no el primero.** El registro de
+    actividad (Fase 4) escribe una vez por día y por sesión: un INSERT más la
+    escritura de la sesión, que vive en la base. Ese costo existe y está
+    cubierto por `test_el_primer_request_del_dia_escribe_una_sola_vez`; lo que
+    este test protege es lo que se paga en TODOS los demás requests, que son
+    todos menos uno.
     """
 
     def setUp(self):
@@ -389,7 +396,10 @@ class CostoDelMiddlewareTests(TestCase):
         # middleware en el primer request y después la guarda.
         cliente = Client()
         cliente.force_login(self.usuario)
-        # El login ya es un request: se hace antes de medir a propósito.
+        # El login ya es un request: se hace antes de medir a propósito. El
+        # GET en frío deja la marca del día en la sesión, para que lo que se
+        # mida sea el costo permanente y no el del primer request.
+        cliente.get(reverse("home"))
         with CaptureQueriesContext(connection) as capturadas:
             respuesta = cliente.get(reverse("home"))
         self.assertEqual(respuesta.status_code, 200)
@@ -406,6 +416,20 @@ class CostoDelMiddlewareTests(TestCase):
         con = self._queries_de_home()
 
         self.assertEqual(con, sin)
+
+    def test_el_primer_request_del_dia_escribe_una_sola_vez(self):
+        """El costo que el test de arriba deja afuera, acotado a propósito: el
+        primero del día escribe UNA fila, el segundo ninguna."""
+        from plataforma.models import ActividadDiaria
+
+        cliente = Client()
+        cliente.force_login(self.usuario)
+
+        cliente.get(reverse("home"))
+        self.assertEqual(ActividadDiaria.objects.count(), 1)
+
+        cliente.get(reverse("home"))
+        self.assertEqual(ActividadDiaria.objects.count(), 1)
 
 
 class EstadoCuentaViewTests(TestCase):

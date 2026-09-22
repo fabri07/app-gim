@@ -1,5 +1,5 @@
 """
-Lo que cada gimnasio le pagó a la PLATAFORMA.
+Lo que cada gimnasio le pagó a la PLATAFORMA y cuánto la usa.
 
 **Estos modelos no son `TenantOwnedModel` a propósito**, aunque tengan un FK a
 `Gimnasio`. Un `TenantOwnedModel` es un dato *del* gimnasio, que su staff ve y
@@ -17,6 +17,7 @@ from django.conf import settings
 from django.db import models
 
 from core.models import TimeStampedModel
+from tenants.models import Perfil
 
 
 class PagoPlataforma(TimeStampedModel):
@@ -117,3 +118,73 @@ class PagoPlataforma(TimeStampedModel):
         desde = self.periodo_desde.strftime("%d/%m/%Y")
         hasta = self.periodo_hasta.strftime("%d/%m/%Y")
         return f"{self.gimnasio} · {desde} a {hasta} · USD {self.monto_usd}"
+
+
+class ActividadDiaria(models.Model):
+    """Un día en que una persona usó la app. Una fila por usuario y por día.
+
+    Es la respuesta a «¿este gimnasio sigue vivo?», que es lo único que se
+    puede saber sin espiar: no hay pageviews, ni qué miró, ni cuánto tiempo
+    estuvo. La escribe `plataforma/middleware.py` en el primer request de cada
+    día y nunca se actualiza.
+
+    **`usuario` va CASCADE y `gimnasio` PROTECT, y la asimetría es
+    deliberada.** `tenants/demo.py::vaciar_gimnasio` borra los `User` de los
+    alumnos de la cuenta de demostración cada 6 horas: con PROTECT ahí, la
+    restauración automática se caería con `ProtectedError` y la demo quedaría
+    sin restaurar hasta que saltara Healthchecks. El historial de uso de un
+    usuario que ya no existe no le sirve a nadie, así que se va con él. El
+    `Gimnasio`, en cambio, no se borra nunca por esta vía: PROTECT es el mismo
+    criterio que el resto del proyecto.
+
+    **No es `TenantOwnedModel`**, por el mismo motivo que `PagoPlataforma`
+    (ver el docstring del módulo): es un dato *de la plataforma sobre* el
+    gimnasio, que su staff no ve en ninguna pantalla. Por eso NO va en
+    `vaciar_gimnasio`, ni en el fixture `_ensuciar` de `tenants/tests.py`, ni
+    en `HOJAS`/`EXCLUIDOS` del exportador -- los tres lugares donde sí entra un
+    modelo tenant-owned nuevo. Las filas de los alumnos igual desaparecen al
+    vaciar la demo, por el CASCADE de arriba.
+
+    `rol` va copiado y no se lee del `Perfil` en el momento de mirar: un
+    alumno al que después se le da acceso de staff (o al revés) no puede
+    reescribir retroactivamente a quién se le atribuyó el uso de marzo.
+    """
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="actividad_diaria",
+    )
+    gimnasio = models.ForeignKey(
+        "tenants.Gimnasio",
+        on_delete=models.PROTECT,
+        related_name="actividad",
+    )
+    rol = models.CharField(max_length=10, choices=Perfil.Rol.choices)
+    fecha = models.DateField(
+        help_text="Día LOCAL (America/Argentina/Buenos_Aires) en que entró."
+    )
+
+    class Meta:
+        verbose_name = "día de actividad"
+        verbose_name_plural = "días de actividad"
+        ordering = ["-fecha", "usuario_id"]
+        constraints = [
+            # Lo que convierte la tabla en "días de uso" y no en un log de
+            # requests. Además es el candado del `ignore_conflicts` del
+            # middleware: dos pestañas del mismo usuario pueden cruzar el
+            # primer request del día, y sin la clave la fila se duplicaría y
+            # el gráfico contaría a esa persona dos veces.
+            models.UniqueConstraint(
+                fields=["usuario", "fecha"], name="actividad_un_dia_por_usuario"
+            )
+        ]
+        indexes = [
+            # Las dos consultas del panel (los 30 días de la ficha y el
+            # `Max(fecha)` del monitor, que corre para TODOS los gimnasios en
+            # cada carga) filtran por gimnasio y ordenan por fecha.
+            models.Index(fields=["gimnasio", "fecha"], name="actividad_gim_fecha_idx")
+        ]
+
+    def __str__(self):
+        return f"{self.usuario} · {self.fecha:%d/%m/%Y} ({self.rol})"
