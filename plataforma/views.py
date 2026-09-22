@@ -13,18 +13,28 @@ fila sería el mismo error que un N+1, pero contra la red.
 """
 
 from django.contrib import messages
+from django.core.exceptions import ValidationError
 from django.http import Http404, HttpResponseNotAllowed
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.views import View
-from django.views.generic import CreateView, DetailView, TemplateView, UpdateView
+from django.views.decorators.cache import never_cache
+from django.views.generic import (
+    CreateView,
+    DetailView,
+    FormView,
+    TemplateView,
+    UpdateView,
+)
 
 from plataforma import actividad, cambio, facturacion, precios
-from plataforma.forms import FacturacionForm, PagoPlataformaForm
+from plataforma.forms import CrearGimnasioForm, FacturacionForm, PagoPlataformaForm
 from plataforma.mixins import SuperadminRequiredMixin
 from plataforma.models import PagoPlataforma
 from tenants.models import Gimnasio
+from tenants.services import crear_gimnasio
 
 
 class InicioView(SuperadminRequiredMixin, TemplateView):
@@ -345,3 +355,67 @@ class ExportacionToggleView(GimnasioDePlataformaMixin, View):
             ),
         )
         return redirect(self.get_success_url())
+
+
+@method_decorator(never_cache, name="dispatch")
+class GimnasioCrearView(SuperadminRequiredMixin, FormView):
+    """Dar de alta un gimnasio sin abrir una consola.
+
+    Hasta acá el único camino era `manage.py crear_gimnasio` desde la Shell de
+    Render. Esta pantalla no es un camino nuevo: llama al MISMO servicio, que
+    sigue siendo el único lugar donde se crea un tenant. El registro público
+    se cerró en su momento (`/accounts/register/`) y sigue cerrado -- esto es
+    para el superadmin y para nadie más.
+
+    **El POST exitoso NO redirige: renderiza la credencial en un 200.** No es
+    un descuido de PRG, es el mismo patrón que `alumnos/views.py::
+    _render_credenciales`: la contraseña no puede viajar por `messages`
+    (`messages` se serializa en la sesión, que en este proyecto vive en la
+    base de datos, así que la contraseña en claro quedaría escrita en una
+    tabla). El F5 sobre ese POST lo ataja el propio servicio, que rechaza el
+    email repetido con un mensaje en pantalla.
+
+    **`never_cache` sobre todo el `dispatch`.** La pantalla que importa es la
+    de la credencial, pero ponerlo acá y no alrededor de un `render` suelto
+    hace que no haya forma de agregar mañana otra salida que se olvide del
+    header. Sin `no-store`, la contraseña queda recuperable con el botón
+    "atrás" del navegador después de que el superadmin siguió con otra cosa.
+    """
+
+    template_name = "plataforma/gimnasio_form.html"
+    form_class = CrearGimnasioForm
+
+    def form_valid(self, form):
+        datos = form.cleaned_data
+        try:
+            gimnasio, usuario, password = crear_gimnasio(
+                nombre=datos["nombre"],
+                email=datos["email"],
+                slug=datos["slug"],
+                sin_password=datos["sin_password"],
+                es_demo=datos["es_demo"],
+            )
+        except ValidationError as exc:
+            # El servicio valida lo que el formulario no puede saber solo: que
+            # el email no esté tomado por CUALQUIER usuario del sistema (un
+            # alumno con email como identificador, por ejemplo) y que la
+            # contraseña pase los validadores del proyecto. Sin este `except`
+            # eso llega como un 500 mudo, sobre una pantalla que el superadmin
+            # abrió para dar de alta a un cliente que está esperando.
+            #
+            # Va como error general y no de campo: los mensajes los escribe el
+            # servicio, que no sabe cómo se llaman los campos de ESTE form.
+            form.add_error(None, exc.messages)
+            return self.form_invalid(form)
+        return render(
+            self.request,
+            "plataforma/gimnasio_creado.html",
+            {
+                "gimnasio": gimnasio,
+                "usuario": usuario.username,
+                # `None` cuando la cuenta quedó sin contraseña usable: ahí la
+                # pantalla dice que entra con Google. Inventar una para llenar
+                # el hueco sería mostrar un dato que no sirve para entrar.
+                "password": password,
+            },
+        )

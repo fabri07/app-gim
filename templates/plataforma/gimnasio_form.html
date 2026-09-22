@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Nuevo gimnasio · Plataforma{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Nuevo gimnasio</h1>
+  <p class="texto-suave">
+    Se crea el gimnasio y la cuenta de su dueño, con rol staff. La contraseña
+    la genera la app y se muestra una sola vez en la pantalla siguiente.
+  </p>
+
+  {% comment %}
+    Campo por campo con `partials/campo_form.html`, nunca `{{ form.as_p }}`:
+    la `errorlist` de Django no tiene estilo acá y sale en negro arriba de la
+    etiqueta, indistinguible de una ayuda.
+  {% endcomment %}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+
+    <div class="form-seccion">
+      <h2>El gimnasio</h2>
+      {% include 'partials/campo_form.html' with campo=form.nombre %}
+      {% include 'partials/campo_form.html' with campo=form.slug %}
+    </div>
+
+    <div class="form-seccion">
+      <h2>Su dueño</h2>
+      {% include 'partials/campo_form.html' with campo=form.email %}
+      {% include 'partials/campo_form.html' with campo=form.sin_password %}
+    </div>
+
+    <div class="form-seccion">
+      <h2>Tipo de cuenta</h2>
+      {% include 'partials/campo_form.html' with campo=form.es_demo %}
+    </div>
+
+    <button type="submit" class="boton">Crear gimnasio</button>
+    <a class="boton-secundario" href="{% url 'plataforma:inicio' %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

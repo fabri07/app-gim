@@ -1,8 +1,8 @@
 """
-Los dos formularios del panel de plataforma: registrar un pago y ajustar cómo
-se le factura a un gimnasio.
+Los formularios del panel de plataforma: dar de alta un gimnasio, registrar
+un pago y ajustar cómo se le factura.
 
-Los dos se renderizan campo por campo con `partials/campo_form.html`, nunca
+Todos se renderizan campo por campo con `partials/campo_form.html`, nunca
 con `{{ form.as_p }}`: la `errorlist` de Django no tiene estilo en este
 proyecto y sale en negro arriba de la etiqueta, indistinguible de una ayuda.
 Un formulario que rechaza sin que se note es igual a uno que no guarda.
@@ -12,6 +12,7 @@ from django import forms
 
 from plataforma.models import PagoPlataforma
 from tenants.models import Gimnasio
+from tenants.services import normalizar_email
 
 
 class PagoPlataformaForm(forms.ModelForm):
@@ -124,3 +125,81 @@ class FacturacionForm(forms.ModelForm):
         widgets = {
             "facturacion_inicio": forms.DateInput(attrs={"type": "date"}),
         }
+
+
+class CrearGimnasioForm(forms.Form):
+    """Alta de un gimnasio y de la cuenta staff de su dueño.
+
+    **No es un `ModelForm`.** Lo que se da de alta no es un `Gimnasio`: son
+    tres filas (gimnasio, usuario y perfil) más las categorías de ejercicio
+    iniciales, y todo eso lo arma `tenants.services.crear_gimnasio` adentro de
+    una transacción. Un `ModelForm` guardaría el gimnasio por su cuenta y
+    dejaría al servicio sin su atomicidad: un email repetido detectado tarde
+    dejaría un gimnasio huérfano, sin dueño y sin forma de entrar.
+
+    Es el mismo servicio que usa `manage.py crear_gimnasio`, que sigue
+    existiendo: esta pantalla es un camino más cómodo, no un camino distinto.
+    """
+
+    nombre = forms.CharField(
+        label="Nombre del gimnasio",
+        max_length=120,
+        help_text="Como lo va a ver el alumno en su app.",
+    )
+    email = forms.EmailField(
+        label="Email del dueño",
+        help_text=(
+            "Es su usuario para entrar. Si va a entrar con Google, tiene que "
+            "ser la cuenta de Google real."
+        ),
+    )
+    slug = forms.SlugField(
+        label="Dirección web",
+        max_length=140,
+        required=False,
+        help_text=(
+            "La parte que va en /g/… de su página pública y de su login. "
+            "Vacío: se deriva del nombre."
+        ),
+    )
+    es_demo = forms.BooleanField(
+        label="Cuenta de demostración",
+        required=False,
+        help_text=(
+            "Cuenta de demostración compartida: no puede cambiar su "
+            "contraseña y se resiembra cada 6 h."
+        ),
+    )
+    sin_password = forms.BooleanField(
+        label="Sin contraseña",
+        required=False,
+        help_text="Solo login con Google.",
+    )
+
+    def clean_email(self):
+        """Minúsculas y sin espacios, con la MISMA función que usa el alta.
+
+        `User.objects.get(username=...)` es case-sensitive en Postgres: si
+        esta pantalla normalizara distinto que el servicio, el dueño tipearía
+        su mail como siempre y no entraría -- y no tendría forma de darse
+        cuenta solo. Mismo criterio que `alumnos/identidad.py`.
+        """
+        return normalizar_email(self.cleaned_data["email"])
+
+    def clean_slug(self):
+        """Vacío devuelve `None` para que el servicio lo derive del nombre.
+
+        Cadena vacía no sirve: `slug or slug_disponible(nombre)` la trataría
+        igual, pero `None` dice explícitamente "elegilo vos" y es lo que
+        espera la firma del servicio.
+
+        El chequeo de unicidad duplica a propósito el `unique=True` del
+        modelo: sin él, el choque llega como `IntegrityError` (un 500 mudo)
+        en vez de un mensaje al lado del campo.
+        """
+        slug = self.cleaned_data.get("slug") or None
+        if slug and Gimnasio.objects.filter(slug=slug).exists():
+            raise forms.ValidationError(
+                "Ya hay un gimnasio con esa dirección web. Probá con otra."
+            )
+        return slug

@@ -6,8 +6,17 @@
 <h1>Plataforma</h1>
 <p class="texto-suave">
   Todos los gimnasios de la cuenta: cuánto factura cada uno y a quién hay que
-  cobrarle. Esta pantalla es de solo lectura.
+  cobrarle.
 </p>
+
+{% comment %}
+  El alta entra por acá y no por el nav, mismo criterio que «Importar desde
+  Excel» adentro del gimnasio: la acción vive en la pantalla que lista lo que
+  va a crear.
+{% endcomment %}
+<div class="acciones-lista">
+  <a class="boton" href="{% url 'plataforma:gimnasio_crear' %}">Nuevo gimnasio</a>
+</div>
 
 {% comment %}
   Misma tarjeta `.aviso-urgente` que «Planes que se terminan» en el panel del

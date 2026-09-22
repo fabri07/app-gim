@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% block title %}{{ gimnasio.nombre }} creado · Plataforma{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Gimnasio creado</h1>
+
+  {% comment %}
+    Mismo molde que `alumnos/acceso_credenciales.html`, y por el mismo motivo:
+    la contraseña se ve UNA vez. No viaja por `messages` (se serializa en la
+    sesión, que vive en la base) y la vista no redirige, así que esto es el
+    200 del propio POST.
+  {% endcomment %}
+  {% if password %}
+    <p class="texto-suave">
+      Copiá estos datos y pasáselos al dueño de {{ gimnasio.nombre }}.
+      <strong>No los vas a poder ver de nuevo:</strong> la app guarda la
+      contraseña cifrada, así que ni vos ni nadie puede recuperarla. Si se
+      pierde, él mismo puede pedir una nueva desde «¿Olvidaste tu contraseña?».
+    </p>
+  {% else %}
+    <p class="texto-suave">
+      La cuenta quedó <strong>sin contraseña</strong>: el dueño de
+      {{ gimnasio.nombre }} entra con el botón «Iniciar sesión con Google»,
+      usando esa misma cuenta de Google.
+    </p>
+  {% endif %}
+
+  <table class="tabla-detalle">
+    <tr>
+      <th>Gimnasio</th>
+      <td>{{ gimnasio.nombre }}</td>
+    </tr>
+    <tr>
+      <th>Usuario</th>
+      <td><code id="dato-usuario">{{ usuario }}</code></td>
+    </tr>
+    {% if password %}
+      <tr>
+        <th>Contraseña</th>
+        <td><code id="dato-password">{{ password }}</code></td>
+      </tr>
+    {% endif %}
+    <tr>
+      <th>Su login</th>
+      {% comment %}
+        `hx-boost="false"`: el login arma su estética (colores, logo,
+        tipografía del gimnasio) en el bloque `extra_style`, que vive en el
+        `<head>`, y htmx nunca reemplaza el `<head>` en una navegación
+        boosteada.
+      {% endcomment %}
+      <td>
+        <a href="{% url 'login_gimnasio' gimnasio.slug %}" hx-boost="false">
+          /g/{{ gimnasio.slug }}/login/
+        </a>
+      </td>
+    </tr>
+  </table>
+
+  <div class="acciones-lista">
+    {% if password %}
+      <button type="button" class="boton" id="copiar">Copiar los dos datos</button>
+    {% endif %}
+    <a class="boton-secundario" href="{% url 'plataforma:gimnasio_detalle' gimnasio.pk %}">
+      Ver su ficha
+    </a>
+    <a class="boton-secundario" href="{% url 'plataforma:inicio' %}">
+      Volver al panel
+    </a>
+  </div>
+</div>
+
+{% if password %}
+  <script>
+    document.getElementById("copiar").addEventListener("click", async (evento) => {
+      const usuario = document.getElementById("dato-usuario").textContent.trim();
+      const password = document.getElementById("dato-password").textContent.trim();
+      try {
+        await navigator.clipboard.writeText(
+          `Usuario: ${usuario}\nContraseña: ${password}`
+        );
+        evento.target.textContent = "¡Copiado!";
+      } catch {
+        // navigator.clipboard no existe fuera de HTTPS/localhost: en ese caso
+        // los datos igual están a la vista para copiarlos a mano.
+        evento.target.textContent = "Copialos a mano";
+      }
+    });
+  </script>
+{% endif %}
+{% endblock %}

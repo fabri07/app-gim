@@ -6,6 +6,7 @@ from plataforma.views import (
     EstadoCuentaView,
     ExportacionToggleView,
     FacturacionUpdateView,
+    GimnasioCrearView,
     GimnasioDetalleView,
     InicioView,
     PagoPlataformaCreateView,
@@ -15,6 +16,10 @@ app_name = "plataforma"
 
 urlpatterns = [
     path("", InicioView.as_view(), name="inicio"),
+    # Antes que `gimnasios/<int:pk>/`: `nuevo` no es un entero, así que no
+    # podrían pisarse, pero el alta va arriba porque es lo único de esta
+    # sección que no cuelga de un gimnasio existente.
+    path("gimnasios/nuevo/", GimnasioCrearView.as_view(), name="gimnasio_crear"),
     path(
         "gimnasios/<int:pk>/",
         GimnasioDetalleView.as_view(),
