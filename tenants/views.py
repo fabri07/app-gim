@@ -55,6 +55,22 @@ class HomeView(LoginRequiredMixin, TemplateView):
 
     template_name = "tenants/home.html"
 
+    def get(self, request, *args, **kwargs):
+        """El superusuario SIN Perfil no tiene gimnasio: su casa es el panel
+        de plataforma, no un dashboard de staff que no puede llenar.
+
+        El 403 de `get_context_data` queda para todos los demás -- un usuario
+        común sin Perfil sigue siendo un error de alta, no alguien a quien
+        mandar a otro lado. Va en `get()` y no en `get_context_data` porque
+        desde ahí no se puede devolver un redirect.
+        """
+        try:
+            request.user.perfil
+        except ObjectDoesNotExist:
+            if request.user.is_superuser:
+                return redirect("plataforma:inicio")
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         try:

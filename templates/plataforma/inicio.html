@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block title %}Plataforma · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<h1>Plataforma</h1>
+<p class="texto-suave">
+  Todos los gimnasios de la cuenta: cuánto factura cada uno y a quién hay que
+  cobrarle. Esta pantalla es de solo lectura.
+</p>
+
+{% comment %}
+  Misma tarjeta `.aviso-urgente` que «Planes que se terminan» en el panel del
+  gimnasio, y por el mismo motivo: no es una métrica, es una tarea con fecha.
+  Va arriba de todo porque es el único lugar donde el dueño del producto se
+  entera sin ir a buscarlo. Ámbar y no rojo: hay algo para hacer esta semana,
+  no algo roto.
+{% endcomment %}
+{% if para_cobrar %}
+  <div class="tarjeta aviso-urgente">
+    <h2>Para cobrar esta semana</h2>
+    <p class="texto-suave">
+      {{ para_cobrar|length }} gimnasio{{ para_cobrar|pluralize }} con un cobro
+      vencido o a punto de vencer.
+    </p>
+    <ul class="lista-planes-por-vencer">
+      {% for fila in para_cobrar %}
+        <li>
+          <span>
+            <strong>{{ fila.gimnasio.nombre }}</strong>
+            <span class="texto-suave">
+              USD {{ fila.precio_usd }} ·
+              {% if fila.dias_de_atraso %}
+                vencido hace {{ fila.dias_de_atraso }} día{{ fila.dias_de_atraso|pluralize }}
+              {% else %}
+                vence el {{ fila.vencimiento|date:"d/m/Y" }}
+              {% endif %}
+            </span>
+          </span>
+          <a class="boton-secundario" href="{% url 'plataforma:gimnasio_detalle' fila.gimnasio.pk %}">Ver</a>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+<div class="dashboard-grid">
+  <div class="metrica">
+    <span class="metrica__valor">{{ kpis.clientes }}</span>
+    <span class="metrica__etiqueta">Gimnasios que pagan</span>
+  </div>
+  <div class="metrica">
+    <span class="metrica__valor">USD {{ kpis.ingreso_mensual_usd }}</span>
+    <span class="metrica__etiqueta">Ingreso esperado por ciclo</span>
+  </div>
+  <div class="metrica">
+    <span class="metrica__valor">{{ kpis.alumnos_activos }}</span>
+    <span class="metrica__etiqueta">Alumnos activos en toda la plataforma</span>
+  </div>
+  <div class="metrica{% if kpis.vencidos %} metrica--urgente{% endif %}">
+    <span class="metrica__valor">{{ kpis.vencidos }}</span>
+    <span class="metrica__etiqueta">Gimnasios con el cobro vencido</span>
+  </div>
+  <div class="metrica">
+    <span class="metrica__valor">{{ kpis.por_vencer }}</span>
+    <span class="metrica__etiqueta">Gimnasios por vencer</span>
+  </div>
+</div>
+
+<div class="tabla-scroll">
+  <table class="tabla">
+    <thead>
+      <tr>
+        <th>Gimnasio</th>
+        <th>Alta</th>
+        <th>Alumnos activos</th>
+        <th>Precio (USD)</th>
+        <th>Estado</th>
+        <th>Próximo vencimiento</th>
+        <th>Último ingreso del staff</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fila in filas %}
+        <tr>
+          <td>{{ fila.gimnasio.nombre }}</td>
+          <td>{{ fila.gimnasio.creado|date:"d/m/Y" }}</td>
+          <td>{{ fila.alumnos_activos }}</td>
+          <td>{% if fila.factura %}{{ fila.precio_usd }}{% else %}—{% endif %}</td>
+          <td><span class="badge badge--{{ fila.estado.badge }}">{{ fila.estado.etiqueta }}</span></td>
+          <td>
+            {% if fila.factura and fila.vencimiento %}
+              {{ fila.vencimiento|date:"d/m/Y" }}
+              {% if fila.dias_de_atraso %}
+                <span class="texto-suave">(hace {{ fila.dias_de_atraso }} día{{ fila.dias_de_atraso|pluralize }})</span>
+              {% endif %}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            {% if fila.ultimo_uso_staff %}
+              {{ fila.ultimo_uso_staff|date:"d/m/Y" }}
+            {% else %}
+              <span class="texto-suave">nunca entró</span>
+            {% endif %}
+          </td>
+          <td><a href="{% url 'plataforma:gimnasio_detalle' fila.gimnasio.pk %}">Ver</a></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8">Todavía no hay ningún gimnasio dado de alta.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% comment %}
+  El link al panel de errores (Sentry) entra cuando la Fase 0 agregue
+  `settings.SENTRY_PANEL_URL` y su context processor. Va con hx-boost="false":
+  es un destino externo.
+{% endcomment %}
+{% endblock %}

@@ -211,6 +211,25 @@
       <a href="{% url 'turnos:agenda' %}">Turnos</a>
       <a href="{% url 'novedades:listado' %}">Novedades</a>
       <a href="{% url 'gimnasio_editar' %}">Mi gimnasio</a>
+      {% if user.is_superuser %}<a href="{% url 'plataforma:inicio' %}">Plataforma</a>{% endif %}
+    </nav>
+  {% elif user.is_superuser %}
+    {% comment %}
+      Superusuario sin Perfil de staff (el dueño del producto): no tiene
+      gimnasio, así que la nav de arriba no le sirve. Nav propia y mínima.
+
+      Sin `:class` de Alpine a propósito: el `x-data="{ navAbierto: false }"`
+      del <body> y el botón ☰ solo existen para un staff con Perfil, así que
+      un binding acá quedaría fuera de todo alcance y Alpine dejaría la nav
+      escondida en mobile para siempre.
+
+      El link a /admin/ lleva hx-boost="false": es otra aplicación (el admin
+      de Django trae su propio <head> y sus propios estáticos), y hx-boost
+      solo swapea el <body>.
+    {% endcomment %}
+    <nav class="nav-staff">
+      <a href="{% url 'plataforma:inicio' %}">Plataforma</a>
+      <a href="{% url 'admin:index' %}" hx-boost="false">Admin de Django</a>
     </nav>
   {% endif %}
   {% if messages %}

@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}{{ gimnasio.nombre }} · Plataforma{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="acciones-lista">
+  <h1>{{ gimnasio.nombre }}</h1>
+  <a class="boton-secundario" href="{% url 'plataforma:inicio' %}">Volver al panel</a>
+</div>
+
+<div class="tarjeta">
+  <h2>
+    Facturación
+    <span class="badge badge--{{ fila.estado.badge }}">{{ fila.estado.etiqueta }}</span>
+  </h2>
+  <dl class="ficha-datos">
+    <div>
+      <dt>Alta</dt>
+      <dd>{{ gimnasio.creado|date:"d/m/Y" }}</dd>
+    </div>
+    <div>
+      <dt>Alumnos activos</dt>
+      <dd>{{ fila.alumnos_activos }}</dd>
+    </div>
+    <div>
+      <dt>Precio por ciclo</dt>
+      <dd>
+        {% if fila.factura %}
+          USD {{ fila.precio_usd }}
+        {% else %}
+          No se le cobra (cuenta de demostración)
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Próximo vencimiento</dt>
+      <dd>
+        {% if fila.factura and fila.vencimiento %}
+          {{ fila.vencimiento|date:"d/m/Y" }}
+          {% if fila.dias_de_atraso %}
+            · vencido hace {{ fila.dias_de_atraso }} día{{ fila.dias_de_atraso|pluralize }}
+          {% endif %}
+        {% else %}
+          —
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Último ingreso del staff</dt>
+      <dd>
+        {% if fila.ultimo_uso_staff %}
+          {{ fila.ultimo_uso_staff|date:"d/m/Y H:i" }}
+        {% else %}
+          Nunca entró
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+</div>
+
+<div class="tarjeta">
+  <h2>Cuenta</h2>
+  <dl class="ficha-datos">
+    <div>
+      <dt>Dirección pública</dt>
+      {% comment %}
+        hx-boost="false": la landing arma su fondo en {% templatetag openblock %} block extra_style {% templatetag closeblock %},
+        que vive en el <head>, y hx-boost solo swapea el <body>. Sin esto la
+        landing del gimnasio se ve con el fondo de la pantalla anterior.
+      {% endcomment %}
+      <dd><a href="{% url 'landing_gimnasio' gimnasio.slug %}" hx-boost="false">/g/{{ gimnasio.slug }}/</a></dd>
+    </div>
+    <div>
+      <dt>Activo</dt>
+      <dd>{% if gimnasio.activo %}Sí{% else %}No{% endif %}</dd>
+    </div>
+    <div>
+      <dt>Cuenta de demostración</dt>
+      <dd>{% if gimnasio.es_demo %}Sí{% else %}No{% endif %}</dd>
+    </div>
+    <div>
+      <dt>Exportación de datos habilitada</dt>
+      <dd>{% if gimnasio.exportacion_habilitada %}Sí{% else %}No{% endif %}</dd>
+    </div>
+  </dl>
+</div>
+{% endblock %}

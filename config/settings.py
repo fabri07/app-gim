@@ -80,7 +80,10 @@ INSTALLED_APPS = [
     #   calendario -> integración opcional con Google Calendar (FK a alumnos/turnos)
     #   notificaciones -> manifest/SW/push (FK a Gimnasio/Perfil, lee
     #                     Novedad/RutinaAsignada/Reserva/Cuota) -- depende
-    #                     de todo el dominio, va última
+    #                     de todo el dominio
+    #   plataforma -> panel del dueño del producto (mira TODOS los gimnasios:
+    #                 facturación, uso, estado de cuenta). Lee el dominio
+    #                 entero y nadie la lee a ella, así que va última de todas.
     'core',
     'tenants',
     'ejercicios',
@@ -92,6 +95,7 @@ INSTALLED_APPS = [
     'turnos',
     'calendario',
     'notificaciones',
+    'plataforma',
 ]
 
 MIDDLEWARE = [
