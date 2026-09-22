@@ -31,6 +31,13 @@ class PagoPlataformaForm(forms.ModelForm):
     como un error al lado del campo y no como un 500.
     """
 
+    #: Lo que se le dice al superadmin cuando el período ya está cargado.
+    #: Vive acá porque lo escriben DOS lugares: este `clean()` (el camino
+    #: normal) y `PagoPlataformaCreateView.form_valid`, que traduce el
+    #: `IntegrityError` de la race. Separados, la misma situación se leería
+    #: distinta según cuál de los dos la atrapó.
+    ERROR_PERIODO_REPETIDO = "Ya hay un pago registrado que arranca ese día."
+
     def __init__(self, *args, gimnasio=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.gimnasio = gimnasio
@@ -74,10 +81,7 @@ class PagoPlataformaForm(forms.ModelForm):
                 "El período no puede terminar antes de empezar.",
             )
         if desde and self.gimnasio and self._ya_hay_un_pago_que_arranca(desde):
-            self.add_error(
-                "periodo_desde",
-                "Ya hay un pago registrado que arranca ese día.",
-            )
+            self.add_error("periodo_desde", self.ERROR_PERIODO_REPETIDO)
         return limpio
 
     def _ya_hay_un_pago_que_arranca(self, desde):

@@ -49,8 +49,34 @@
       {% include 'partials/campo_form.html' with campo=form.notas %}
     </div>
 
-    <button type="submit" class="boton">Registrar pago</button>
+    <button type="submit" class="boton" id="registrar">Registrar pago</button>
     <a class="boton-secundario" href="{% url 'plataforma:gimnasio_detalle' gimnasio.pk %}">Cancelar</a>
   </form>
+
+  {% comment %}
+    El doble click no puede registrar el mismo pago dos veces.
+
+    El `clean()` del form chequea el período contra la base y recién después
+    inserta: entre el SELECT y el INSERT entra el segundo submit. Con la
+    `UniqueConstraint(gimnasio, periodo_desde)` el síntoma sería un
+    `IntegrityError` sin manejar -- un 500 mudo sobre una pantalla donde el
+    superadmin YA vio su pago guardarse. Mismo freno y mismo argumento que
+    `plataforma/gimnasio_form.html`.
+
+    Esto no cierra la race (dos pestañas siguen pudiendo cruzarse): eso lo
+    ataja el `try/except IntegrityError` de `PagoPlataformaCreateView`, que
+    lo devuelve como un error al lado del campo. Deshabilitar el botón
+    adentro del `submit` no cancela el envío (el evento ya se disparó) y el
+    botón no tiene `name`, así que no hay nada del POST que se pueda perder.
+  {% endcomment %}
+  <script>
+    (function () {
+      var boton = document.getElementById("registrar");
+      boton.form.addEventListener("submit", function () {
+        boton.disabled = true;
+        boton.textContent = "Registrando…";
+      });
+    })();
+  </script>
 </div>
 {% endblock %}

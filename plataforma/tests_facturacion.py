@@ -22,6 +22,7 @@ from django.urls import reverse
 
 from alumnos.models import Alumno
 from plataforma import facturacion
+from plataforma.forms import PagoPlataformaForm
 from plataforma.models import PagoPlataforma
 from plataforma.precios import EstadoPago
 from tenants.models import Gimnasio
@@ -403,6 +404,40 @@ class RegistrarPagoViewTests(TestCase):
             ["Ya hay un pago registrado que arranca ese día."],
         )
 
+    def test_el_choque_que_el_form_no_ve_tampoco_da_un_500(self):
+        """El chequeo del `clean()` es check-then-insert: entre el SELECT y el
+        INSERT entra el segundo submit. El caso real son las dos pestañas y el
+        doble click sobre un formulario boosteado; el freno de JS del template
+        cubre el segundo, pero ninguno cubre el primero.
+
+        Se simula salteando el chequeo del form (que es exactamente lo que
+        hace la race) para que el rechazo llegue de la `UniqueConstraint`.
+        Sin el `try/except`, esto es un `IntegrityError` sin manejar: un 500
+        mudo sobre una pantalla en la que el superadmin ya vio su pago
+        guardarse una vez."""
+        _pago(self.gimnasio, self.jefe, date(2026, 5, 17), date(2026, 6, 15))
+
+        with patch.object(
+            PagoPlataformaForm, "_ya_hay_un_pago_que_arranca", return_value=False
+        ):
+            respuesta = self.client.post(self._url(), self._datos())
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(PagoPlataforma.objects.count(), 1)
+        self.assertEqual(
+            respuesta.context["form"].errors["periodo_desde"],
+            ["Ya hay un pago registrado que arranca ese día."],
+        )
+
+    def test_el_formulario_frena_el_doble_click(self):
+        """Mismo freno que `plataforma/gimnasio_form.html`: el botón se
+        deshabilita en el `submit`. No cierra la race (eso lo hace el
+        `try/except` de la vista), pero es lo que ataja el caso real."""
+        respuesta = self.client.get(self._url())
+
+        self.assertContains(respuesta, 'id="registrar"')
+        self.assertContains(respuesta, "boton.disabled = true")
+
     def test_el_mismo_periodo_en_otro_gimnasio_si_se_puede_registrar(self):
         """La clave es por gimnasio: dos clientes distintos pagan el mismo
         período todo el tiempo."""
@@ -502,6 +537,25 @@ class EditarFacturacionViewTests(TestCase):
         self.assertTrue(respuesta.context["form"].errors["facturacion_inicio"])
         self.gimnasio.refresh_from_db()
         self.assertEqual(self.gimnasio.facturacion_inicio, date(2026, 5, 20))
+
+    def test_no_toca_modificado(self):
+        """Mismo criterio que `EstadoCuentaView` y `ExportacionToggleView`:
+        `modificado` versiona la URL del logo, la del fondo y la del ícono de
+        la PWA. Cambiarle la fecha de facturación a un gimnasio no tiene nada
+        que ver con sus archivos, y si la tocara, todos sus celulares y
+        navegadores se volverían a bajar el ícono y el logo."""
+        antes = Gimnasio.objects.get(pk=self.gimnasio.pk).modificado
+
+        self.client.post(
+            self._url(),
+            {"facturacion_inicio": "2026-05-20", "facturacion_exenta": "on"},
+        )
+
+        despues = Gimnasio.objects.get(pk=self.gimnasio.pk)
+        self.assertEqual(despues.modificado, antes)
+        # Y lo que sí se pidió cambiar, cambió.
+        self.assertEqual(despues.facturacion_inicio, date(2026, 5, 20))
+        self.assertTrue(despues.facturacion_exenta)
 
     def test_precarga_la_fecha_que_ya_esta_en_efecto(self):
         """Un gimnasio con `facturacion_inicio` en `NULL` llegaría con el

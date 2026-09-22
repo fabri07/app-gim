@@ -18,19 +18,28 @@ excepción son los POST, que se redirigen a `home` -- y el GET de `home`
 renderiza el cartel, así que el redirect termina siempre en una pantalla que
 explica qué pasa, sin ningún loop posible.
 
+**La allowlist se evalúa ANTES de tocar `request.user`**, y ese orden es parte
+del contrato. Leer el usuario resuelve la sesión y el registro del día la
+escribe (un `Set-Cookie`): sobre `logo_gimnasio`/`fondo_gimnasio` —que se
+sirven `immutable` justamente para que el navegador no los vuelva a pedir— eso
+tira a la basura el trabajo que bajó una navegación de 251 KB a 0. Las rutas de
+la allowlist no necesitan ni el usuario, ni el registro, ni el bloqueo.
+
 **El registro del día activo corre ANTES del bloqueo**, y sobre la misma
 resolución de `Perfil` (de ahí que `perfil_de(request)` sea un helper aparte y
 memoizado). Que alguien intente entrar y se encuentre el cartel también es
 información: es la señal de que el gimnasio sigue vivo del otro lado de la
 deuda, que es justo lo que se mira antes de decidir si se lo llama o se lo da
-de baja. La única excepción es la app `notificaciones`: eso lo pide el
-navegador solo, no una persona.
+de baja. Lo que NO cuenta como uso es lo que queda en la allowlist: la app
+`notificaciones` (service worker, manifest, íconos) y los archivos del
+gimnasio los pide el navegador solo, no una persona.
 """
 
 import logging
 
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.utils.cache import add_never_cache_headers
 
 from plataforma.models import ActividadDiaria
 from tenants import suplantacion
@@ -50,7 +59,8 @@ logger = logging.getLogger(__name__)
 #: `(usuario, fecha)` del modelo.
 CLAVE_SESION_ACTIVIDAD = "plataforma_actividad"
 
-#: Apps enteras que el bloqueo no mira.
+#: Apps enteras que el middleware no mira: ni bloqueo, ni registro de uso, ni
+#: resolución del usuario.
 #:
 #: `admin` y `plataforma` son las dos superficies del dueño del producto: son
 #: justamente donde se descongela una cuenta, así que bloquearlas sería tirar
@@ -60,7 +70,7 @@ CLAVE_SESION_ACTIVIDAD = "plataforma_actividad"
 #: 200 le rompe la instalación de la app a un gimnasio que después paga.
 APPS_SIN_BLOQUEO = frozenset({"admin", "plataforma", "notificaciones"})
 
-#: Rutas de `tenants` que el bloqueo no mira. Van como nombre PELADO porque
+#: Rutas de `tenants` que el middleware no mira. Van como nombre PELADO porque
 #: `tenants/urls.py` no define `app_name` (y su comentario dice que no hay que
 #: agregárselo: todo el proyecto referencia esas rutas sin namespace).
 #:
@@ -70,6 +80,11 @@ APPS_SIN_BLOQUEO = frozenset({"admin", "plataforma", "notificaciones"})
 #: alumno; `login`/`login_gimnasio` son las pantallas a las que vuelve
 #: después; y la landing y la política de privacidad son páginas públicas que
 #: no tienen nada que ver con el acceso de este usuario.
+#:
+#: `logo_gimnasio` y `fondo_gimnasio` están acá por un motivo distinto del
+#: encierro: son los dos archivos que `ArchivoDeGimnasioView` sirve
+#: `immutable`, y tocarles la sesión les rompe la caché (ver el docstring del
+#: módulo).
 URLS_SIN_BLOQUEO = frozenset(
     {
         "login",
@@ -196,6 +211,27 @@ class PlataformaMiddleware:
         return self.get_response(request)
 
     def process_view(self, request, view_func, view_args, view_kwargs):
+        # LO PRIMERO es la allowlist, ANTES de tocar `request.user`: estas
+        # rutas no necesitan ni el usuario, ni el registro, ni el bloqueo.
+        #
+        # El orden no es cosmético. Leer `request.user` resuelve la sesión, y
+        # el registro del primer request del día la ESCRIBE, o sea un
+        # `Set-Cookie`. `tenants.views.ArchivoDeGimnasioView` (el logo y el
+        # fondo del gimnasio, en `URLS_SIN_BLOQUEO`) existe justamente para
+        # servir esos dos archivos con `Cache-Control: ... immutable` y nunca
+        # tocaba al usuario: es lo que bajó el peso de una navegación de
+        # 251 KB a 0. Colgarle una cookie a una respuesta que el navegador
+        # guarda un año tira ese trabajo a la basura -- que es el mismo
+        # argumento por el que la app `notificaciones` (service worker,
+        # manifest, íconos) queda afuera, con el agregado de que ese tráfico
+        # lo pide el navegador solo, sin que nadie haya abierto la app: le
+        # anotaría un día de uso a un gimnasio que nadie tocó.
+        match = request.resolver_match
+        if match is not None and (
+            match.app_name in APPS_SIN_BLOQUEO or match.url_name in URLS_SIN_BLOQUEO
+        ):
+            return None
+
         usuario = getattr(request, "user", None)
         if usuario is None or not usuario.is_authenticated:
             return None
@@ -205,23 +241,10 @@ class PlataformaMiddleware:
         if usuario.is_superuser:
             return None
 
-        match = request.resolver_match
-
-        # El registro va antes del bloqueo a propósito (un bloqueado que
-        # intenta entrar también es información), pero NO cuenta el tráfico de
-        # la PWA: el service worker, el manifest y los íconos los pide el
-        # navegador solo -- al instalar la app, al revalidar, en segundo plano
-        # -- sin que nadie la haya abierto, así que le anotarían un día de uso
-        # a un gimnasio que nadie tocó. Y el ícono se sirve `immutable`: la
-        # escritura de sesión del primer request del día le colgaría un
-        # `Set-Cookie` a una respuesta pensada para cachearse para siempre.
-        if match is None or match.app_name != "notificaciones":
-            registrar_dia_activo(request)
-
-        if match is not None and (
-            match.app_name in APPS_SIN_BLOQUEO or match.url_name in URLS_SIN_BLOQUEO
-        ):
-            return None
+        # El registro va antes del bloqueo a propósito: un bloqueado que
+        # intenta entrar también es información -- es la señal de que el
+        # gimnasio sigue vivo del otro lado de la deuda.
+        registrar_dia_activo(request)
 
         # Durante una suplantación `request.user` ES el alumno, así que el
         # staff ve exactamente lo que ve él -- que es el punto de suplantar.
@@ -232,11 +255,22 @@ class PlataformaMiddleware:
             return None
 
         if request.method in ("GET", "HEAD"):
-            return render(
+            respuesta = render(
                 request,
                 "plataforma/cuenta_bloqueada.html",
                 {"gimnasio": perfil.gimnasio},
                 # 200 y no 403: ver el docstring del módulo.
                 status=200,
             )
+            # El precio de responder 200: un 200 sin `Cache-Control` el
+            # navegador lo puede guardar por heurística, y el bfcache lo
+            # devuelve tal cual al volver con «atrás». El cartel sobrevive
+            # entonces al momento en que la cuenta se restaura, y el alumno
+            # le reclama al gimnasio algo que ya está arreglado.
+            #
+            # `no-store` (lo que pone `add_never_cache_headers`) y no
+            # `no-cache`: `no-cache` autoriza guardarlo y revalidarlo, que es
+            # justo lo que el bfcache no hace.
+            add_never_cache_headers(respuesta)
+            return respuesta
         return redirect("home")

@@ -14,6 +14,7 @@ fila sería el mismo error que un N+1, pero contra la red.
 
 from django.contrib import messages
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.http import Http404, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -186,7 +187,24 @@ class PagoPlataformaCreateView(GimnasioDePlataformaMixin, CreateView):
         gimnasio = self.get_gimnasio()
         form.instance.gimnasio = gimnasio
         form.instance.registrado_por = self.request.user
-        respuesta = super().form_valid(form)
+        try:
+            # El `clean()` del form chequea el período y recién después se
+            # inserta: entre el SELECT y el INSERT entra el segundo submit.
+            # El template frena el doble click, pero eso no cubre las dos
+            # pestañas ni un POST armado a mano -- y el síntoma sería un
+            # `IntegrityError` sin manejar, o sea un 500 mudo sobre una
+            # pantalla donde el superadmin ya vio su pago guardarse una vez.
+            #
+            # El `atomic()` es obligatorio, no decorativo: sin él el error
+            # deja la transacción del request marcada para rollback y la
+            # primera query que venga después (los `messages`, que en este
+            # proyecto viven en la base) revienta con
+            # `TransactionManagementError` -- un 500 igual, por otro lado.
+            with transaction.atomic():
+                respuesta = super().form_valid(form)
+        except IntegrityError:
+            form.add_error("periodo_desde", form.ERROR_PERIODO_REPETIDO)
+            return self.form_invalid(form)
         messages.success(self.request, f"Pago registrado para {gimnasio.nombre}.")
         # Registrar el pago NO descongela la cuenta: restaurar el acceso es un
         # POST aparte, a propósito (un pago puede ser parcial, o a cuenta de
@@ -207,7 +225,24 @@ class PagoPlataformaCreateView(GimnasioDePlataformaMixin, CreateView):
 
 
 class FacturacionUpdateView(GimnasioDePlataformaMixin, UpdateView):
-    """Desde cuándo y si se le factura a un gimnasio."""
+    """Desde cuándo y si se le factura a un gimnasio.
+
+    **Guarda con `update_fields` y no con un `save()` pelado**, que es la
+    versión con `ModelForm` de lo que `EstadoCuentaView`/`ExportacionToggleView`
+    resuelven con `QuerySet.update()`: las tres escrituras de este panel
+    tienen que dejar `modificado` como estaba, porque `Gimnasio.version_media`
+    deriva de él y versiona la URL del logo, la del fondo y la del ícono de la
+    PWA. Mover la fecha de facturación de un gimnasio no tiene nada que ver
+    con sus archivos, y con un `save()` completo todos sus navegadores y
+    celulares se los vuelven a bajar.
+
+    Acá no se usa `update()` como en las hermanas porque este camino SÍ tiene
+    un formulario que validar (`facturacion_inicio` es obligatorio) y el
+    `ModelForm` es lo que lo hace: `save(commit=False)` conserva esa
+    validación y el `update_fields` acota lo que se persiste. `modificado` es
+    `auto_now`, así que Django le pone la hora nueva a la instancia en memoria
+    pero no la escribe: un campo fuera de `update_fields` no viaja al UPDATE.
+    """
 
     model = Gimnasio
     form_class = FacturacionForm
@@ -231,9 +266,13 @@ class FacturacionUpdateView(GimnasioDePlataformaMixin, UpdateView):
         return inicial
 
     def form_valid(self, form):
-        respuesta = super().form_valid(form)
+        # `super().form_valid()` haría `form.save()`, o sea un UPDATE de todas
+        # las columnas incluida `modificado`. Se replica lo que hace, pero
+        # acotando la escritura a los dos campos de esta pantalla.
+        self.object = form.save(commit=False)
+        self.object.save(update_fields=["facturacion_inicio", "facturacion_exenta"])
         messages.success(self.request, "Facturación actualizada.")
-        return respuesta
+        return redirect(self.get_success_url())
 
 
 class EstadoCuentaView(GimnasioDePlataformaMixin, TemplateView):
@@ -262,14 +301,29 @@ class EstadoCuentaView(GimnasioDePlataformaMixin, TemplateView):
     #: Qué dice la pantalla de confirmación de cada estado. El texto describe
     #: la CONSECUENCIA (quién deja de entrar), no la acción: «¿Confirmás?» no
     #: le dice nada a quien está por dejar afuera a un gimnasio entero.
+    #:
+    #: **Y la consecuencia es TODO lo que queda fuera de la allowlist del
+    #: middleware, no solo lo lindo de contar.** El alumno bloqueado tampoco
+    #: puede cancelar un turno que ya tenía reservado —el cupo queda ocupado y
+    #: el que lo pierde es el gimnasio, que encima es el que debe— ni subirle
+    #: el comprobante de su cuota. Eso INVIERTE a propósito la regla del
+    #: bloqueo por falta de pago de adentro del gimnasio («cancelar una
+    #: reserva y subir el comprobante NUNCA se bloquean», `pagos/acceso.py`):
+    #: aquel bloqueo busca cobrarle al alumno y por eso le deja las dos
+    #: puertas abiertas, éste es la palanca de la plataforma contra el
+    #: gimnasio y tiene que apretar. Lo que no se puede es que el superadmin
+    #: se entere después, por el reclamo.
     COPY = {
         Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS: {
             "titulo": "Bloquear a los alumnos",
             "confirmar": "Sí, bloquear a los alumnos",
             "consecuencia": (
-                "Los alumnos de este gimnasio dejan de ver su rutina y de "
-                "reservar turnos, y dejan de recibir notificaciones. El staff "
-                "sigue entrando normalmente para poder ponerse al día."
+                "Los alumnos de este gimnasio dejan de entrar a la app: no "
+                "ven su rutina, no reservan turnos y no reciben "
+                "notificaciones. Tampoco pueden cancelar un turno que ya "
+                "tenían reservado (el cupo queda ocupado) ni subirle el "
+                "comprobante de su cuota al gimnasio. El staff sigue "
+                "entrando normalmente para poder ponerse al día."
             ),
         },
         Gimnasio.EstadoCuenta.SUSPENDIDA: {
@@ -277,8 +331,11 @@ class EstadoCuentaView(GimnasioDePlataformaMixin, TemplateView):
             "confirmar": "Sí, suspender la cuenta",
             "consecuencia": (
                 "Nadie de este gimnasio entra más a la app: ni los alumnos ni "
-                "el staff. Tampoco puede exportar sus datos desde la app (eso "
-                "se hace con «manage.py exportar_gimnasio»)."
+                "el staff. Los alumnos tampoco pueden cancelar un turno que "
+                "ya tenían reservado (el cupo queda ocupado) ni subirle el "
+                "comprobante de su cuota al gimnasio. Y el gimnasio no puede "
+                "exportar sus datos desde la app (eso se hace con «manage.py "
+                "exportar_gimnasio»)."
             ),
         },
     }

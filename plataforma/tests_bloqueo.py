@@ -117,6 +117,18 @@ class AlumnoConLosAlumnosBloqueadosTests(TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertTemplateUsed(respuesta, "plataforma/cuenta_bloqueada.html")
 
+    def test_el_cartel_no_se_puede_cachear(self):
+        """Es un 200 sin ningún `Cache-Control`, así que el navegador puede
+        guardarlo por heurística (y el bfcache lo devuelve tal cual al volver
+        con «atrás»). El resultado sería un alumno YA restaurado que sigue
+        viendo el cartel y le reclama a su gimnasio algo que ya se arregló.
+
+        `no-store` y no `no-cache`: `no-cache` autoriza guardarlo y
+        revalidarlo, que en el bfcache no pasa."""
+        respuesta = self.client.get(reverse("home"))
+
+        self.assertIn("no-store", respuesta["Cache-Control"])
+
     def test_el_dia_de_la_rutina_tambien_muestra_el_cartel(self):
         respuesta = self.client.get(reverse("rutinas:mi_dia_detalle", args=[1]))
 
@@ -455,6 +467,69 @@ class EstadoCuentaViewTests(TestCase):
         self.assertTemplateUsed(respuesta, "plataforma/confirmar_estado.html")
         self.gimnasio.refresh_from_db()
         self.assertEqual(self.gimnasio.estado_cuenta, Gimnasio.EstadoCuenta.NORMAL)
+
+    def test_la_confirmacion_avisa_que_el_alumno_queda_sin_cancelar_ni_pagar(self):
+        """La consecuencia que el superadmin tiene que leer ANTES de apretar.
+
+        Se bloquea todo lo que no está en la allowlist, así que el alumno
+        tampoco puede cancelar un turno ya reservado —el cupo queda ocupado y
+        el que lo perdió es el gimnasio— ni subirle el comprobante. Es al
+        revés de la regla del bloqueo POR CUOTA que el gimnasio le aplica a
+        su alumno (ver `CLAUDE.md`), y es a propósito: esta es la palanca de
+        la plataforma.
+        """
+        for estado in (
+            Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS,
+            Gimnasio.EstadoCuenta.SUSPENDIDA,
+        ):
+            with self.subTest(estado=estado):
+                respuesta = self.client.get(self._url(estado))
+
+                self.assertContains(respuesta, "cancelar un turno")
+                self.assertContains(respuesta, "el cupo queda ocupado")
+                self.assertContains(respuesta, "comprobante")
+
+    def test_un_alumno_bloqueado_no_puede_cancelar_ni_subir_el_comprobante(self):
+        """El respaldo de lo que dice el cartel de confirmación: si esto
+        cambiara, ese texto pasaría a ser mentira."""
+        from datetime import time
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from pagos.models import Cuota
+        from turnos.models import Reserva
+
+        alumno, usuario = _alumno_con_acceso(
+            self.gimnasio, "alu-bloqueada", "Ana", "Pérez"
+        )
+        reserva = Reserva.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno,
+            fecha=timezone.localdate() + timedelta(days=1),
+            hora_inicio=time(10, 0),
+        )
+        cuota = Cuota.objects.create(
+            gimnasio=self.gimnasio,
+            alumno=alumno,
+            periodo_inicio=timezone.localdate(),
+            periodo_fin=timezone.localdate() + timedelta(days=27),
+            monto=1000,
+        )
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            estado_cuenta=Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS
+        )
+        cliente = Client()
+        cliente.force_login(usuario)
+
+        cliente.post(reverse("turnos:cancelar", args=[reserva.pk]))
+        cliente.post(
+            reverse("pagos:comprobante_subir", args=[cuota.pk]),
+            {"comprobante": SimpleUploadedFile("pago.pdf", b"%PDF-1.4")},
+        )
+
+        cuota.refresh_from_db()
+        self.assertTrue(Reserva.objects.filter(pk=reserva.pk).exists())
+        self.assertFalse(cuota.comprobante)
 
     def test_el_post_bloquea_a_los_alumnos_y_estampa_la_fecha(self):
         antes = timezone.now()

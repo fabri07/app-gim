@@ -13,14 +13,17 @@ al lado de sus hermanos.
 
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from io import BytesIO
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import Client, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
+from PIL import Image
 
 from alumnos.models import Alumno
 from plataforma import actividad, facturacion
@@ -50,6 +53,14 @@ def _alumno_con_acceso(gimnasio, username="alumno", nombre="Ana", apellido="Pér
         gimnasio=gimnasio, nombre=nombre, apellido=apellido, perfil=perfil
     )
     return alumno, usuario
+
+
+def _imagen(color="#123456", nombre="logo.png"):
+    """Un PNG de verdad para `logo`/`fondo_imagen` (el storage en tests es
+    `InMemoryStorage`, así que no toca R2 ni el disco)."""
+    buffer = BytesIO()
+    Image.new("RGB", (400, 400), color).save(buffer, format="PNG")
+    return SimpleUploadedFile(nombre, buffer.getvalue())
 
 
 def _reloj(momento_utc):
@@ -252,6 +263,94 @@ class RegistroDelDiaActivoTests(TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertTemplateUsed(respuesta, "plataforma/cuenta_bloqueada.html")
         self.assertEqual(ActividadDiaria.objects.count(), 1)
+
+
+class ArchivosCacheablesTests(TestCase):
+    """El logo y el fondo se sirven `immutable`: el registro de actividad no
+    puede tocarlos.
+
+    `tenants.views.ArchivoDeGimnasioView` existe para UNA cosa: que esos dos
+    archivos se bajen una sola vez y no en cada navegación (medido el
+    2026-09-08: 251 KB por click contra 0). Para eso responde
+    `Cache-Control: public, max-age=31536000, immutable` y **no toca
+    `request.user`**.
+
+    El registro de actividad lo tocaba: resolver `request.user` lee la sesión,
+    y una sesión *escrita* (la marca del día) le cuelga un `Set-Cookie` a una
+    respuesta pensada para cachearse un año. Es el mismo argumento que ya
+    estaba escrito para la app `notificaciones`, aplicado a las dos rutas que
+    faltaban -- por eso la allowlist se evalúa ANTES de mirar al usuario.
+    """
+
+    def setUp(self):
+        self.gimnasio = _gimnasio(logo=_imagen(), fondo_imagen=_imagen("#654321"))
+        self.alumno, self.usuario = _alumno_con_acceso(self.gimnasio)
+        self.urls = {
+            "logo": reverse("logo_gimnasio", args=[self.gimnasio.slug]),
+            "fondo": reverse("fondo_gimnasio", args=[self.gimnasio.slug]),
+        }
+
+    def test_pedir_el_logo_o_el_fondo_no_cuenta_como_uso(self):
+        """Los pide el `<img>` del topbar y el CSS de fondo, en cada página:
+        contarlos no agrega nada al registro (el request de la página ya lo
+        hizo) y obliga a pagar todo lo de abajo."""
+        self.client.force_login(self.usuario)
+
+        for nombre, url in self.urls.items():
+            with self.subTest(archivo=nombre):
+                respuesta = self.client.get(url)
+
+                self.assertEqual(respuesta.status_code, 200)
+
+        self.assertFalse(ActividadDiaria.objects.exists())
+        self.assertNotIn(CLAVE_SESION_ACTIVIDAD, self.client.session)
+
+    def test_la_respuesta_sigue_siendo_cacheable_y_sin_cookie(self):
+        """Un `Set-Cookie` colgado de una respuesta `immutable` es lo que
+        rompe la cacheabilidad de verdad: el navegador la guarda un año con
+        una cookie ajena adentro."""
+        self.client.force_login(self.usuario)
+
+        for nombre, url in self.urls.items():
+            with self.subTest(archivo=nombre):
+                respuesta = self.client.get(url)
+
+                self.assertIn("immutable", respuesta["Cache-Control"])
+                self.assertIn("max-age=31536000", respuesta["Cache-Control"])
+                # `response.cookies` y no `response.headers`: el test client de
+                # Django guarda las cookies aparte, así que un
+                # `assertNotIn("Set-Cookie", respuesta.headers)` pasa siempre.
+                self.assertEqual(list(respuesta.cookies.keys()), [])
+
+    def test_no_se_resuelve_el_usuario_para_servir_un_archivo(self):
+        """La allowlist corta antes de `request.user`, así que estas rutas no
+        pagan la query del usuario en CADA logo y CADA fondo de CADA página.
+
+        Se mira `auth_user` y NO `django_session`: la sesión la lee igual
+        `tenants.middleware.ExpirarSuplantacionMiddleware`, que corre en cada
+        request desde mucho antes que todo esto. Leerla no escribe nada; lo
+        que rompe la caché es la ESCRITURA (el otro test)."""
+        self.client.force_login(self.usuario)
+        # Un request en frío primero: lo que se mide es el costo permanente.
+        self.client.get(reverse("home"))
+
+        with CaptureQueriesContext(connection) as capturadas:
+            respuesta = self.client.get(self.urls["logo"])
+
+        self.assertEqual(respuesta.status_code, 200)
+        del_usuario = [q["sql"] for q in capturadas if "auth_user" in q["sql"].lower()]
+        self.assertEqual(del_usuario, [])
+
+    def test_un_anonimo_tampoco_resuelve_ningun_usuario(self):
+        """El caso público: el logo se pinta en la landing y en el login, sin
+        sesión. Acá la allowlist no ahorra ninguna query (sin cookie no hay
+        nada que leer), pero sí fija que la ruta no depende del usuario."""
+        with CaptureQueriesContext(connection) as capturadas:
+            respuesta = Client().get(self.urls["logo"])
+
+        self.assertEqual(respuesta.status_code, 200)
+        del_usuario = [q["sql"] for q in capturadas if "auth_user" in q["sql"].lower()]
+        self.assertEqual(del_usuario, [])
 
 
 class ActivosPorDiaTests(TestCase):
