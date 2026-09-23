@@ -1,0 +1,168 @@
+{% extends 'base.html' %}
+{% block title %}Plataforma · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<h1>Plataforma</h1>
+<p class="texto-suave">
+  Todos los gimnasios de la cuenta: cuánto factura cada uno y a quién hay que
+  cobrarle.
+</p>
+
+{% comment %}
+  El alta entra por acá y no por el nav, mismo criterio que «Importar desde
+  Excel» adentro del gimnasio: la acción vive en la pantalla que lista lo que
+  va a crear.
+{% endcomment %}
+<div class="acciones-lista">
+  <a class="boton" href="{% url 'plataforma:gimnasio_crear' %}">Nuevo gimnasio</a>
+  {% if SENTRY_PANEL_URL %}
+    <a class="boton-secundario" href="{{ SENTRY_PANEL_URL }}" target="_blank" rel="noopener" hx-boost="false">Errores (Sentry)</a>
+  {% endif %}
+</div>
+
+{% comment %}
+  Misma tarjeta `.aviso-urgente` que «Planes que se terminan» en el panel del
+  gimnasio, y por el mismo motivo: no es una métrica, es una tarea con fecha.
+  Va arriba de todo porque es el único lugar donde el dueño del producto se
+  entera sin ir a buscarlo. Ámbar y no rojo: hay algo para hacer esta semana,
+  no algo roto.
+{% endcomment %}
+{% if para_cobrar %}
+  <div class="tarjeta aviso-urgente">
+    <h2>Para cobrar esta semana</h2>
+    <p class="texto-suave">
+      {{ para_cobrar|length }} gimnasio{{ para_cobrar|pluralize }} con un cobro
+      vencido o a punto de vencer.
+    </p>
+    <ul class="lista-planes-por-vencer">
+      {% for fila in para_cobrar %}
+        <li>
+          <span>
+            <strong>{{ fila.gimnasio.nombre }}</strong>
+            <span class="texto-suave">
+              USD {{ fila.precio_usd }} ·
+              {% if fila.dias_de_atraso %}
+                vencido hace {{ fila.dias_de_atraso }} día{{ fila.dias_de_atraso|pluralize }}
+              {% else %}
+                vence el {{ fila.vencimiento|date:"d/m/Y" }}
+              {% endif %}
+            </span>
+          </span>
+          <a class="boton-secundario" href="{% url 'plataforma:gimnasio_detalle' fila.gimnasio.pk %}">Ver</a>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+{% endif %}
+
+<div class="dashboard-grid">
+  <div class="metrica">
+    <span class="metrica__valor">{{ kpis.clientes }}</span>
+    <span class="metrica__etiqueta">Gimnasios que pagan</span>
+  </div>
+  <div class="metrica">
+    <span class="metrica__valor">USD {{ kpis.ingreso_mensual_usd }}</span>
+    <span class="metrica__etiqueta">
+      Ingreso esperado por ciclo
+      {% comment %}
+        El equivalente en pesos va como subtítulo del mismo KPI y no como una
+        sexta tarjeta: es el MISMO número leído en otra moneda, y separarlo
+        haría parecer que la plataforma factura dos veces. Sin cotización
+        simplemente no aparece — un «$ 0» sería mentira.
+      {% endcomment %}
+      {% comment %}
+        `is not None` y no la verdad a secas: `ingreso_mensual_ars` es un
+        Decimal, y `Decimal("0.00")` es falsy. Con ningún cliente que pague
+        (o con todos exentos) el ingreso es 0 y el número tiene que verse
+        igual -- ocultarlo haría parecer que falló la cotización.
+      {% endcomment %}
+      {% if kpis.ingreso_mensual_ars is not None %}
+        · ≈ $ {{ kpis.ingreso_mensual_ars|floatformat:0 }}
+      {% endif %}
+    </span>
+  </div>
+  <div class="metrica">
+    <span class="metrica__valor">{{ kpis.alumnos_activos }}</span>
+    <span class="metrica__etiqueta">Alumnos activos (clientes)</span>
+  </div>
+  <div class="metrica{% if kpis.vencidos %} metrica--urgente{% endif %}">
+    <span class="metrica__valor">{{ kpis.vencidos }}</span>
+    <span class="metrica__etiqueta">Gimnasios con el cobro vencido</span>
+  </div>
+  <div class="metrica">
+    <span class="metrica__valor">{{ kpis.por_vencer }}</span>
+    <span class="metrica__etiqueta">Gimnasios por vencer</span>
+  </div>
+</div>
+
+{% if cotizacion %}
+  <p class="texto-suave">
+    Pesos calculados al dólar MEP $ {{ cotizacion.venta|floatformat:2 }} del
+    {{ cotizacion.fecha|date:"d/m/Y H:i" }}. Fuente: {{ cotizacion.fuente }}.
+  </p>
+{% endif %}
+
+<div class="tabla-scroll">
+  <table class="tabla">
+    <thead>
+      <tr>
+        <th>Gimnasio</th>
+        <th>Alta</th>
+        <th>Alumnos activos</th>
+        <th>Precio (USD)</th>
+        <th>Estado</th>
+        <th>Cuenta</th>
+        <th>Próximo vencimiento</th>
+        <th>Último uso staff</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fila in filas %}
+        <tr>
+          <td>{{ fila.gimnasio.nombre }}</td>
+          <td>{{ fila.gimnasio.creado|date:"d/m/Y" }}</td>
+          <td>{{ fila.alumnos_activos }}</td>
+          <td>{% if fila.factura %}{{ fila.precio_usd }}{% else %}—{% endif %}</td>
+          <td><span class="badge badge--{{ fila.estado.badge }}">{{ fila.estado.etiqueta }}</span></td>
+          {% comment %}
+            La columna «Cuenta» (el estado del acceso) es distinta de «Estado»
+            (el del cobro): un gimnasio puede estar vencido y todavía con
+            acceso normal, que es lo habitual los primeros días. Solo se pinta
+            cuando hay algo que decir -- un badge verde en las 20 filas
+            sanas sería una columna de ruido que tapa las dos que importan.
+          {% endcomment %}
+          <td>
+            {% if fila.gimnasio.estado_cuenta == "normal" %}
+              <span class="texto-suave">—</span>
+            {% else %}
+              <span class="badge badge--{{ fila.gimnasio.estado_cuenta_badge }}">{{ fila.gimnasio.get_estado_cuenta_display }}</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if fila.factura and fila.vencimiento %}
+              {{ fila.vencimiento|date:"d/m/Y" }}
+              {% if fila.dias_de_atraso %}
+                <span class="texto-suave">(hace {{ fila.dias_de_atraso }} día{{ fila.dias_de_atraso|pluralize }})</span>
+              {% endif %}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td>
+            {% if fila.ultimo_uso_staff %}
+              {{ fila.ultimo_uso_staff|date:"d/m/Y" }}
+            {% else %}
+              <span class="texto-suave">nunca entró</span>
+            {% endif %}
+          </td>
+          <td><a href="{% url 'plataforma:gimnasio_detalle' fila.gimnasio.pk %}">Ver</a></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="9">Todavía no hay ningún gimnasio dado de alta.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

@@ -55,6 +55,22 @@ class HomeView(LoginRequiredMixin, TemplateView):
 
     template_name = "tenants/home.html"
 
+    def get(self, request, *args, **kwargs):
+        """El superusuario SIN Perfil no tiene gimnasio: su casa es el panel
+        de plataforma, no un dashboard de staff que no puede llenar.
+
+        El 403 de `get_context_data` queda para todos los demás -- un usuario
+        común sin Perfil sigue siendo un error de alta, no alguien a quien
+        mandar a otro lado. Va en `get()` y no en `get_context_data` porque
+        desde ahí no se puede devolver un redirect.
+        """
+        try:
+            request.user.perfil
+        except ObjectDoesNotExist:
+            if request.user.is_superuser:
+                return redirect("plataforma:inicio")
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         try:
@@ -451,9 +467,12 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         context["fondo_imagen_url"] = (
             gimnasio.fondo_imagen.url if gimnasio.fondo_imagen else ""
         )
-        # Solo lo usa la tarjeta «Tus datos» de esta pantalla, por eso va acá
-        # y no en un context processor global.
-        context["soporte_contacto"] = settings.SOPORTE_CONTACTO
+        # `SOPORTE_CONTACTO` NO se inyecta acá: lo expone el context processor
+        # `plataforma.context_processors.estado_cuenta`, que ya corre en toda
+        # página. Dos nombres para el mismo dato (`soporte_contacto` acá,
+        # `SOPORTE_CONTACTO` en `base.html` y en el cartel de cuenta
+        # bloqueada) es exactamente cómo dos pantallas terminan diciendo
+        # contactos distintos cuando alguien cambia uno solo.
         return context
 
     def form_valid(self, form):

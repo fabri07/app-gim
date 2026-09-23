@@ -3250,6 +3250,13 @@ class AsignadaDetailPanelTests(RutinasTestCase):
             rutina_asignada=chica, ejercicio_nombre_snapshot="Press",
             semana=1, dia=1, orden=1, series=3, repeticiones="10",
         )
+        # Un request en frío ANTES de medir: `PlataformaMiddleware` anota el día
+        # de uso en el PRIMER request de cada sesión (un INSERT más la
+        # escritura de la sesión). Es un costo fijo por día, no por fila, así
+        # que pagarlo de un solo lado haría fallar la comparación por algo
+        # que no es un N+1.
+        self._get()
+
         with CaptureQueriesContext(connection) as pocas:
             self.client.get(reverse("rutinas:asignada_detalle", args=[chica.pk]))
         with CaptureQueriesContext(connection) as muchas:
@@ -4066,6 +4073,12 @@ class PlanPorVencerEnPantallaTests(RutinasTestCase):
         de Django, y lo que importa acá es la PENDIENTE, no el valor.
         """
         self._plan_que_vence_en(3)
+        # Un request en frío ANTES de medir: `PlataformaMiddleware` anota el día
+        # de uso en el PRIMER request de cada sesión (un INSERT más la
+        # escritura de la sesión). Es un costo fijo por día, no por fila, así
+        # que pagarlo de un solo lado haría fallar la comparación por algo
+        # que no es un N+1.
+        self.client.get(reverse("alumnos:listado"))
 
         with CaptureQueriesContext(connection) as con_pocos:
             self.client.get(reverse("alumnos:listado"))
@@ -4215,6 +4228,13 @@ class ItemsACompletarTests(RutinasTestCase):
     def test_el_listado_cuenta_en_una_sola_query_agregada(self):
         """Una plantilla más no puede costar una query más (patrón N+1 que
         este proyecto ya pagó con un 502)."""
+        # Un request en frío ANTES de medir: `PlataformaMiddleware` anota el día
+        # de uso en el PRIMER request de cada sesión (un INSERT más la
+        # escritura de la sesión). Es un costo fijo por día, no por fila, así
+        # que pagarlo de un solo lado haría fallar la comparación por algo
+        # que no es un N+1.
+        self.client.get(reverse("rutinas:plantilla_listado"))
+
         with CaptureQueriesContext(connection) as ctx:
             self.client.get(reverse("rutinas:plantilla_listado"))
         una = len(ctx)
@@ -4424,6 +4444,13 @@ class PlantillaDetalleAgrupadoTests(RutinasTestCase):
     def test_el_costo_en_queries_no_crece_con_los_ejercicios(self):
         """La pantalla que un cliente real abre con 172 items no puede hacer
         una query por fila: es el N+1 que este proyecto ya pagó con un 502."""
+        # Un request en frío ANTES de medir: `PlataformaMiddleware` anota el día
+        # de uso en el PRIMER request de cada sesión (un INSERT más la
+        # escritura de la sesión). Es un costo fijo por día, no por fila, así
+        # que pagarlo de un solo lado haría fallar la comparación por algo
+        # que no es un N+1.
+        self._detalle()
+
         with CaptureQueriesContext(connection) as ctx:
             self._detalle()
         pocos = len(ctx)

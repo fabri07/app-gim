@@ -141,6 +141,31 @@
       </span>
     </div>
   {% endif %}
+  {% if cuenta_alumnos_bloqueados and user.perfil.rol == "staff" %}
+    {% comment %}
+      Primer escalón de congelar una cuenta que no pagó: los alumnos quedan
+      afuera y el dueño entra igual -- es el que puede pagar, y dejarlo afuera
+      sería sacarle la única pantalla donde ve qué debe.
+
+      Solo para el staff a propósito: el alumno de este mismo gimnasio no
+      llega hasta acá (el middleware le renderiza el cartel), y durante una
+      suplantación `user.perfil.rol` es "alumno", así que tampoco aparece
+      mientras el staff mira la app como uno de ellos.
+
+      Ámbar y no rojo, mismo criterio que `.aviso-urgente`: no es que algo se
+      rompió, es que hay algo para hacer. Va DENTRO de <body> (como el de
+      demostración y el de suplantación) porque hx-boost reemplaza el
+      contenido de <body> pero nunca los atributos del tag.
+    {% endcomment %}
+    <div class="banner-atraso">
+      <span>
+        <strong>Tus alumnos no pueden entrar a la app.</strong>
+        Hay una cuota de la plataforma sin pagar. Escribinos para regularizarla
+        {% if SOPORTE_CONTACTO %}({{ SOPORTE_CONTACTO }}){% endif %}
+        y vuelven a ver su rutina al instante.
+      </span>
+    </div>
+  {% endif %}
   {% if request.session.suplantacion %}
     {% comment %}
       Se lee de la sesión y no del usuario logueado a propósito: mientras dura
@@ -183,7 +208,12 @@
           <button type="button" data-pwa-activar-push class="boton-secundario">Activar notificaciones</button>
         {% endif %}
       {% endif %}
-      {% if user.is_authenticated and user.perfil.rol == "staff" %}
+      {% comment %}
+        `not cuenta_suspendida`: el ☰ despliega la nav de staff, que con la
+        cuenta suspendida no se renderiza. Dejarlo sería un botón que no hace
+        nada -- y en un celular es el único control visible además de «Salir».
+      {% endcomment %}
+      {% if user.is_authenticated and user.perfil.rol == "staff" and not cuenta_suspendida %}
         <button type="button" class="sm:hidden text-gray-600" @click="navAbierto = !navAbierto" aria-label="Abrir menú">☰</button>
       {% endif %}
       {% if user.is_authenticated %}
@@ -201,7 +231,13 @@
       {% endif %}
     </div>
   </header>
-  {% if user.is_authenticated and user.perfil.rol == "staff" %}
+  {% comment %}
+    `not cuenta_suspendida`: con la cuenta suspendida todas las secciones
+    terminan en el mismo cartel, así que una nav de nueve links es puro ruido
+    -- y hace parecer que la app anda y que el usuario está haciendo algo mal.
+    El botón ☰ de arriba queda igual: sin nav no despliega nada.
+  {% endcomment %}
+  {% if user.is_authenticated and user.perfil.rol == "staff" and not cuenta_suspendida %}
     <nav class="nav-staff" :class="{ 'hidden sm:flex': !navAbierto }">
       <a href="{% url 'home' %}">Dashboard</a>
       <a href="{% url 'alumnos:listado' %}">Alumnos</a>
@@ -211,6 +247,25 @@
       <a href="{% url 'turnos:agenda' %}">Turnos</a>
       <a href="{% url 'novedades:listado' %}">Novedades</a>
       <a href="{% url 'gimnasio_editar' %}">Mi gimnasio</a>
+      {% if user.is_superuser %}<a href="{% url 'plataforma:inicio' %}">Plataforma</a>{% endif %}
+    </nav>
+  {% elif user.is_superuser %}
+    {% comment %}
+      Superusuario sin Perfil de staff (el dueño del producto): no tiene
+      gimnasio, así que la nav de arriba no le sirve. Nav propia y mínima.
+
+      Sin `:class` de Alpine a propósito: el `x-data="{ navAbierto: false }"`
+      del <body> y el botón ☰ solo existen para un staff con Perfil, así que
+      un binding acá quedaría fuera de todo alcance y Alpine dejaría la nav
+      escondida en mobile para siempre.
+
+      El link a /admin/ lleva hx-boost="false": es otra aplicación (el admin
+      de Django trae su propio <head> y sus propios estáticos), y hx-boost
+      solo swapea el <body>.
+    {% endcomment %}
+    <nav class="nav-staff">
+      <a href="{% url 'plataforma:inicio' %}">Plataforma</a>
+      <a href="{% url 'admin:index' %}" hx-boost="false">Admin de Django</a>
     </nav>
   {% endif %}
   {% if messages %}

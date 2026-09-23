@@ -75,6 +75,23 @@ class StorageDeTestsAisladoTests(SimpleTestCase):
             default_storage.delete(nombre)
 
 
+class SentryApagadoEnLaSuiteTests(SimpleTestCase):
+    """`SENTRY_ENABLED` tiene que dar `False` en la suite aunque el entorno
+    (o el `.env` local) tenga `SENTRY_DSN` seteada -- mismo criterio que
+    `PUSH_ENABLED`/R2: `manage.py test` no debe salir a la red.
+
+    `SENTRY_DSN`/`SENTRY_ENABLED` se resuelven una sola vez al importar
+    `config/settings.py` (el `sentry_sdk.init()`, si corriera, pasaría en ESE
+    momento), así que este test no puede usar `override_settings` para
+    simular "con DSN puesta" -- documenta el estado real: lo que importa es
+    que el flag ya haya dado `False` con el `.env` de desarrollo tal cual
+    está, gracias al `and not TESTING` de `settings.py`.
+    """
+
+    def test_sentry_enabled_es_false_en_la_suite(self):
+        self.assertIs(settings.SENTRY_ENABLED, False)
+
+
 class BlueprintDeclaraLoQueSettingsLeeTests(SimpleTestCase):
     """`render.yaml` tiene que declarar toda variable de entorno que
     `settings.py` lee.

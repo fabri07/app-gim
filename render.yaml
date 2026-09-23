@@ -128,3 +128,12 @@ services:
         sync: false
       - key: VAPID_ADMIN_EMAIL
         sync: false
+      # Monitoreo de errores (Sentry), opcional e independiente -- no es un
+      # grupo todo-o-nada. Sin SENTRY_DSN el SDK no se inicializa.
+      # SENTRY_PANEL_URL es solo el link "Errores (Sentry)" del panel de
+      # plataforma (la URL del proyecto en sentry.io, no una env var que lea
+      # el SDK).
+      - key: SENTRY_DSN
+        sync: false
+      - key: SENTRY_PANEL_URL
+        sync: false

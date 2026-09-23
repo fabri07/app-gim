@@ -51,9 +51,81 @@ class Gimnasio(TimeStampedModel):
     el filesystem de Render es efímero y nunca debe recibir uploads reales.
     """
 
+    class EstadoCuenta(models.TextChoices):
+        """Hasta dónde llega el acceso a la app de este gimnasio.
+
+        Es la palanca de «congelar» una cuenta que dejó de pagar, y los dos
+        escalones son MANUALES: los aplica el dueño del producto desde el
+        panel de plataforma, nunca un cron. Cobrarle a un gimnasio es una
+        conversación, no un proceso automático -- y un corte automático el día
+        equivocado le rompe el día de trabajo a un cliente que quizás ya
+        transfirió.
+
+        El orden de los escalones es el de la presión que ejercen, de menos a
+        más. `ALUMNOS_BLOQUEADOS` es el primer aviso que se nota: los alumnos
+        dejan de ver su rutina y de reservar turnos, pero el dueño entra igual
+        -- es el que tiene que poder pagar, y dejarlo afuera sería sacarle la
+        única pantalla donde ve qué debe. `SUSPENDIDA` corta a todos.
+
+        **Los datos NUNCA se tocan.** Ninguno de los dos estados borra ni
+        archiva nada: restaurar la cuenta la devuelve exactamente a donde
+        estaba. Por eso tampoco se apagan los crons de cuotas -- ver
+        `pagos/models.py::generar_pagos_pendientes`.
+        """
+
+        NORMAL = "normal", "Normal"
+        ALUMNOS_BLOQUEADOS = "alumnos_bloqueados", "Alumnos bloqueados"
+        SUSPENDIDA = "suspendida", "Suspendida"
+
+    #: Modificador de `.badge` con el que se pinta cada estado. Vive acá y no
+    #: en los templates porque el mismo estado se muestra en el monitor y en
+    #: la ficha: separados, las dos pantallas pueden terminar pintando de
+    #: distinto color el mismo gimnasio (mismo criterio que
+    #: `plataforma.precios.EstadoPago.badge`).
+    BADGES_ESTADO_CUENTA = {
+        EstadoCuenta.NORMAL: "ok",
+        EstadoCuenta.ALUMNOS_BLOQUEADOS: "alerta",
+        EstadoCuenta.SUSPENDIDA: "riesgo",
+    }
+
     nombre = models.CharField(max_length=120)
     slug = models.SlugField(max_length=140, unique=True)
-    activo = models.BooleanField(default=True)
+    #: Gimnasio retirado: deja de aparecer en la landing pública (y en el
+    #: login por slug, `gimnasio_activo_o_404`) y deja de facturarse
+    #: (`facturacion_aplica`). **No bloquea el acceso de nadie** que ya tenga
+    #: usuario: el staff y los alumnos siguen entrando igual. Para cortar el
+    #: acceso está `estado_cuenta`, que es una decisión distinta -- una cuenta
+    #: congelada por falta de pago sigue siendo un cliente al que se le quiere
+    #: cobrar, no uno dado de baja.
+    activo = models.BooleanField(
+        default=True,
+        help_text=(
+            "Gimnasio en uso. Destildado se oculta de la landing pública y "
+            "deja de facturarse, pero no bloquea el acceso de nadie: para eso "
+            "está «estado de la cuenta»."
+        ),
+    )
+    #: Hasta dónde llega el acceso de este gimnasio a la app. Mismo criterio
+    #: que `es_demo` y la facturación: gestión de plataforma, se escribe desde
+    #: el panel del superadmin y queda fuera de `GimnasioForm.Meta.fields` --
+    #: un gimnasio no puede desbloquearse solo.
+    estado_cuenta = models.CharField(
+        max_length=20,
+        choices=EstadoCuenta.choices,
+        default=EstadoCuenta.NORMAL,
+        verbose_name="estado de la cuenta",
+        help_text=(
+            "Congelar el acceso por falta de pago. Los datos del gimnasio no "
+            "se tocan en ningún caso."
+        ),
+    )
+    #: Desde cuándo está en ese estado, para que la ficha pueda decir «hace
+    #: cuánto». Se vacía al restaurar: una fecha vieja colgada de una cuenta
+    #: normal se leería como que sigue congelada.
+    estado_cuenta_desde = models.DateTimeField(
+        null=True, blank=True,
+        verbose_name="en ese estado desde",
+    )
     #: Cuenta de demostración compartida: un mismo usuario de staff que se le
     #: pasa a varios dueños de gimnasio para que prueben la app. Va acá arriba
     #: junto a `activo` y NO en el bloque de personalización de más abajo,
@@ -100,6 +172,36 @@ class Gimnasio(TimeStampedModel):
     exportacion_ultima_descarga = models.DateTimeField(
         null=True, blank=True, editable=False,
         verbose_name="última exportación de datos",
+    )
+    #: Desde qué día la PLATAFORMA le factura a este gimnasio (lo que el dueño
+    #: del producto le cobra por usar la app, no lo que el gimnasio le cobra a
+    #: sus alumnos). Mismo criterio que `es_demo`: gestión de plataforma, se
+    #: edita desde el panel del superadmin o `/admin/` y queda fuera de
+    #: `GimnasioForm.Meta.fields`.
+    #:
+    #: Vacío significa "la fecha de alta" (`plataforma.facturacion.
+    #: inicio_efectivo`), que es lo natural para un gimnasio nuevo. Los que ya
+    #: existían cuando se estrenó la facturación lo tienen estampado por la
+    #: migración `tenants/0013`, con la fecha de ese día: prender la
+    #: facturación NO es retroactivo, mismo criterio que
+    #: `fecha_activacion_bloqueo`. Sin eso, la primera carga del panel muestra
+    #: a todos los clientes como vencidos con meses de atraso.
+    facturacion_inicio = models.DateField(
+        null=True, blank=True,
+        verbose_name="inicio de facturación",
+        help_text=(
+            "Desde qué día se le factura el uso de la app. Vacío = desde la "
+            "fecha de alta."
+        ),
+    )
+    #: Un gimnasio al que el dueño del producto decide no cobrarle (un
+    #: comodato, un caso de prueba, una cuenta interna). Separado de `es_demo`
+    #: porque son dos cosas distintas: la demo además se vacía y se resiembra
+    #: sola. La regla completa de quién paga vive en `facturacion_aplica`.
+    facturacion_exenta = models.BooleanField(
+        default=False,
+        verbose_name="exenta de facturación",
+        help_text="No se le cobra el uso de la app ni suma al ingreso esperado.",
     )
 
     class TipoPublico(models.TextChoices):
@@ -334,6 +436,28 @@ class Gimnasio(TimeStampedModel):
         return self.es_demo or self.exportacion_habilitada
 
     @property
+    def facturacion_aplica(self):
+        """Único lugar donde vive la regla de a quién le cobra la plataforma:
+        lo consultan el monitor, la ficha y los KPIs.
+
+        Las tres exclusiones son distintas y ninguna sobra. `activo=False` es
+        un gimnasio retirado u oculto: dejó de ser cliente, así que no puede
+        seguir sumando al ingreso esperado ni quedarse para siempre en «Para
+        cobrar esta semana». `es_demo` es la cuenta compartida de prueba, que
+        no es de nadie. `facturacion_exenta` es la decisión explícita del
+        dueño del producto de no cobrarle a un gimnasio real.
+        """
+        return self.activo and not self.es_demo and not self.facturacion_exenta
+
+    @property
+    def estado_cuenta_badge(self):
+        """Modificador de `.badge` del estado de la cuenta, para el monitor y
+        la ficha. `.get()` con fallback: un estado nuevo agregado a las
+        choices sin pasar por `BADGES_ESTADO_CUENTA` tiene que verse gris, no
+        romper la pantalla del panel."""
+        return self.BADGES_ESTADO_CUENTA.get(self.estado_cuenta, "neutro")
+
+    @property
     def version_media(self):
         """Versión de los archivos del gimnasio, para poder servirlos con una
         respuesta `immutable`: cambiar el logo cambia `modificado`, y con eso
@@ -366,6 +490,25 @@ class Gimnasio(TimeStampedModel):
     @property
     def fondo_imagen_url_cacheable(self):
         return self._url_de_archivo("fondo_imagen", "fondo_gimnasio")
+
+
+#: Estados en los que un ALUMNO deja de entrar a la app.
+#:
+#: Son dos conjuntos y no un solo umbral porque el escalón del medio existe
+#: justamente para separarlos: con los alumnos bloqueados el dueño entra igual
+#: (es el que tiene que poder pagar), y el alumno no. Los consumen
+#: `plataforma/middleware.py` (el corte de acceso) y
+#: `notificaciones/services.py` (el push que no se manda): la regla de quién
+#: está afuera se escribe UNA vez.
+ESTADOS_SIN_ACCESO_ALUMNO = frozenset(
+    {
+        Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS,
+        Gimnasio.EstadoCuenta.SUSPENDIDA,
+    }
+)
+
+#: Estados en los que el STAFF deja de entrar a la app.
+ESTADOS_SIN_ACCESO_STAFF = frozenset({Gimnasio.EstadoCuenta.SUSPENDIDA})
 
 
 class Perfil(TimeStampedModel):

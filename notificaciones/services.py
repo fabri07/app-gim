@@ -21,7 +21,11 @@ from pywebpush import WebPushException, webpush
 
 from notificaciones.icons import icono_pwa_url
 from notificaciones.models import RecordatorioEnviado, SuscripcionPush
-from tenants.models import Perfil
+from tenants.models import (
+    ESTADOS_SIN_ACCESO_ALUMNO,
+    ESTADOS_SIN_ACCESO_STAFF,
+    Perfil,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,11 +100,56 @@ def _enviar(suscripcion, payload: dict) -> None:
 
 
 def notificar_a_usuario(usuario, payload: dict) -> None:
-    for suscripcion in SuscripcionPush.objects.filter(usuario=usuario, activa=True):
+    """Le avisa a UNA persona.
+
+    El filtro por estado de cuenta va acá, en el embudo, y no en cada
+    `notificar_*`: son siete eventos y alcanzaba con que uno se olvidara para
+    mandarle a un alumno bloqueado el aviso de algo que después no puede abrir.
+
+    **Es la misma regla que `plataforma.middleware.sin_acceso`, escrita en
+    SQL**: la cuenta suspendida calla a todos, y con los alumnos bloqueados se
+    calla solo a los alumnos. Hoy todos los llamadores le hablan a un alumno,
+    así que la rama del staff no tiene caso vivo -- pero un filtro que use el
+    umbral del alumno para cualquier destinatario es una bomba de tiempo: el
+    día que alguien mande por acá un aviso dirigido al dueño (que SÍ entra a
+    la app con los alumnos bloqueados), se perdería en silencio. Tiene test.
+
+    Se filtra por `SuscripcionPush.gimnasio` (es `TenantOwnedModel`) y el rol
+    sale del Perfil del usuario, que es donde vive.
+    """
+    qs = (
+        SuscripcionPush.objects.filter(usuario=usuario, activa=True)
+        .exclude(gimnasio__estado_cuenta__in=ESTADOS_SIN_ACCESO_STAFF)
+        .exclude(
+            usuario__perfil__rol=Perfil.Rol.ALUMNO,
+            gimnasio__estado_cuenta__in=ESTADOS_SIN_ACCESO_ALUMNO,
+        )
+    )
+    for suscripcion in qs:
         _enviar(suscripcion, payload)
 
 
 def notificar_a_gimnasio(gimnasio, payload: dict, *, rol=None) -> None:
+    """Le avisa a todo un rol del gimnasio.
+
+    Con la cuenta suspendida no se manda nada (tampoco al staff: no puede
+    entrar a ver de qué se le está avisando), y con los alumnos bloqueados se
+    corta solo lo dirigido a ellos -- el staff tiene que seguir enterándose de
+    una reserva o de un comprobante, que es justamente lo que lo hace entrar a
+    ponerse al día.
+
+    **Consecuencia aceptada**: `_ya_notificado` marca el `RecordatorioEnviado`
+    ANTES de llegar acá, así que un aviso silenciado por la cuenta congelada
+    no se vuelve a mandar cuando se restaura. Es lo correcto para los avisos
+    de este proyecto, que son todos de un momento («tu turno empieza en una
+    hora», «se publicó una novedad»): reenviarlos días después sería avisar de
+    algo que ya pasó. Lo que el alumno necesita al volver -- su rutina, su
+    cuota impaga -- lo ve en el portal apenas entra.
+    """
+    if gimnasio.estado_cuenta in ESTADOS_SIN_ACCESO_STAFF:
+        return
+    if rol == Perfil.Rol.ALUMNO and gimnasio.estado_cuenta in ESTADOS_SIN_ACCESO_ALUMNO:
+        return
     qs = SuscripcionPush.objects.for_gimnasio(gimnasio).filter(activa=True)
     if rol is not None:
         qs = qs.filter(usuario__perfil__rol=rol)

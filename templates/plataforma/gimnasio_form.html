@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Nuevo gimnasio · Plataforma{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Nuevo gimnasio</h1>
+  <p class="texto-suave">
+    Se crea el gimnasio y la cuenta de su dueño, con rol staff. La contraseña
+    la genera la app y se muestra una sola vez en la pantalla siguiente.
+  </p>
+
+  {% comment %}
+    Campo por campo con `partials/campo_form.html`, nunca `{{ form.as_p }}`:
+    la `errorlist` de Django no tiene estilo acá y sale en negro arriba de la
+    etiqueta, indistinguible de una ayuda.
+  {% endcomment %}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+
+    <div class="form-seccion">
+      <h2>El gimnasio</h2>
+      {% include 'partials/campo_form.html' with campo=form.nombre %}
+      {% include 'partials/campo_form.html' with campo=form.slug %}
+    </div>
+
+    <div class="form-seccion">
+      <h2>Su dueño</h2>
+      {% include 'partials/campo_form.html' with campo=form.email %}
+      {% include 'partials/campo_form.html' with campo=form.sin_password %}
+    </div>
+
+    <div class="form-seccion">
+      <h2>Tipo de cuenta</h2>
+      {% include 'partials/campo_form.html' with campo=form.es_demo %}
+    </div>
+
+    <button type="submit" class="boton" id="crear">Crear gimnasio</button>
+    <a class="boton-secundario" href="{% url 'plataforma:inicio' %}">Cancelar</a>
+  </form>
+
+  {% comment %}
+    El doble click no puede crear dos gimnasios.
+
+    `crear_gimnasio` chequea el email y el slug y recién después inserta, sin
+    lock: es una race condition vieja y documentada, que hasta ahora solo se
+    podía disparar corriendo el comando dos veces a la vez desde una consola.
+    Esta pantalla es el primer camino CLICKEABLE hacia esa función, y un
+    formulario que tarda (el alta crea cuatro cosas y siembra las categorías)
+    invita a apretar de nuevo. El síntoma sería un `IntegrityError` sin
+    manejar, o sea un 500. Ver `ISSUES.md [2026-09-22]`.
+
+    Esto no cierra la race del lado del servidor -- es el freno barato del
+    lado del cliente, que cubre el caso real. Deshabilitar el botón adentro
+    del `submit` no cancela el envío (el evento ya se disparó) y el botón no
+    tiene `name`, así que no aporta nada al POST que se pueda perder.
+    Funciona igual boosteado: si el form vuelve con errores, htmx reemplaza
+    el `<body>` entero y el botón vuelve a estar habilitado.
+  {% endcomment %}
+  <script>
+    (function () {
+      var boton = document.getElementById("crear");
+      boton.form.addEventListener("submit", function () {
+        boton.disabled = true;
+        boton.textContent = "Creando…";
+      });
+    })();
+  </script>
+</div>
+{% endblock %}

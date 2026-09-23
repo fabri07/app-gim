@@ -10,7 +10,7 @@ from datetime import date, datetime, time, timedelta
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -720,3 +720,152 @@ class IconoVersionadoTests(TestCase):
         from notificaciones.services import _icono_url
 
         self.assertIn("?v=", _icono_url(self.gimnasio))
+
+
+@override_settings(PUSH_ENABLED=True)
+class PushConLaCuentaCongeladaTests(TransactionTestCase):
+    """Un gimnasio con la cuenta congelada deja de mandar notificaciones.
+
+    Es lo mismo que el bloqueo de acceso visto desde el otro lado: avisarle a
+    un alumno bloqueado que tiene una rutina nueva es invitarlo a una pantalla
+    que le va a decir que no puede entrar.
+
+    Las tres trampas de los tests de push de este proyecto, todas presentes:
+    `TransactionTestCase` (con `TestCase` los `on_commit` de los signals no
+    corren nunca), `override_settings(PUSH_ENABLED=True)` (la bandera está
+    apagada bajo `TESTING` y `_enviar` cortaría antes de llegar al filtro) y
+    se parchea `webpush`, el límite real de red -- parchear `_enviar` dejaría
+    pasar por bueno un filtro que no existe, porque el conteo se haría del
+    lado equivocado del embudo.
+    """
+
+    def setUp(self):
+        self.gimnasio = _crear_gimnasio("congelado", "Congelado")
+        self.alumno, self.usuario_alumno = _crear_alumno_con_perfil(
+            self.gimnasio, "alumno-congelado"
+        )
+        self.staff = _crear_staff(self.gimnasio, "staff-congelado")
+        for usuario, sufijo in ((self.usuario_alumno, "a"), (self.staff, "s")):
+            SuscripcionPush.objects.create(
+                gimnasio=self.gimnasio,
+                usuario=usuario,
+                endpoint=f"https://push.example.com/{sufijo}",
+                p256dh=f"clave-p256dh-{sufijo}",
+                auth=f"clave-auth-{sufijo}",
+            )
+
+    def _estado(self, estado):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(estado_cuenta=estado)
+        self.gimnasio.refresh_from_db()
+
+    def _payload(self):
+        return {"title": "Hola", "body": "Probando", "url": "/"}
+
+    def test_el_alumno_bloqueado_no_recibe_nada(self):
+        from notificaciones import services
+
+        self._estado(Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS)
+
+        with patch("notificaciones.services.webpush") as mock_webpush:
+            services.notificar_a_usuario(self.usuario_alumno, self._payload())
+
+        mock_webpush.assert_not_called()
+
+    def test_el_alumno_de_un_gimnasio_sano_si_recibe(self):
+        """Guard del anterior: sin esto, un `notificar_a_usuario` roto de
+        cualquier otra forma haría pasar el test de arriba igual."""
+        from notificaciones import services
+
+        with patch("notificaciones.services.webpush") as mock_webpush:
+            services.notificar_a_usuario(self.usuario_alumno, self._payload())
+
+        self.assertEqual(mock_webpush.call_count, 1)
+
+    def test_un_aviso_dirigido_al_staff_no_se_filtra_con_los_alumnos_bloqueados(self):
+        """`notificar_a_usuario` tiene que mirar el ROL del destinatario, no
+        aplicarle a todos el umbral del alumno.
+
+        Hoy ningún llamador le manda un aviso personal al staff, así que este
+        test fija una invariante sin caso vivo -- a propósito: el día que
+        aparezca (un «se te venció la cuota de la app», por ejemplo), un filtro
+        escrito con el umbral del alumno se lo tragaría en silencio, y el
+        silencio es justamente el modo de falla que nadie reporta.
+        """
+        from notificaciones import services
+
+        self._estado(Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS)
+
+        with patch("notificaciones.services.webpush") as mock_webpush:
+            services.notificar_a_usuario(self.staff, self._payload())
+
+        self.assertEqual(mock_webpush.call_count, 1)
+
+    def test_un_aviso_dirigido_al_staff_si_se_calla_con_la_cuenta_suspendida(self):
+        """Guard del anterior: con la cuenta suspendida el staff tampoco entra,
+        así que avisarle de algo que no puede abrir es el mismo error."""
+        from notificaciones import services
+
+        self._estado(Gimnasio.EstadoCuenta.SUSPENDIDA)
+
+        with patch("notificaciones.services.webpush") as mock_webpush:
+            services.notificar_a_usuario(self.staff, self._payload())
+
+        mock_webpush.assert_not_called()
+
+    def test_el_staff_sigue_recibiendo_con_los_alumnos_bloqueados(self):
+        """Es el aviso que lo hace entrar a la app a ponerse al día: cortarlo
+        en el escalón donde el staff todavía entra sería apagar justo la
+        notificación que le sirve al dueño del producto."""
+        from notificaciones import services
+
+        self._estado(Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS)
+
+        with patch("notificaciones.services.webpush") as mock_webpush:
+            services.notificar_a_gimnasio(
+                self.gimnasio, self._payload(), rol=Perfil.Rol.STAFF
+            )
+
+        self.assertEqual(mock_webpush.call_count, 1)
+
+    def test_el_staff_no_recibe_nada_con_la_cuenta_suspendida(self):
+        from notificaciones import services
+
+        self._estado(Gimnasio.EstadoCuenta.SUSPENDIDA)
+
+        with patch("notificaciones.services.webpush") as mock_webpush:
+            services.notificar_a_gimnasio(
+                self.gimnasio, self._payload(), rol=Perfil.Rol.STAFF
+            )
+
+        mock_webpush.assert_not_called()
+
+    def test_una_novedad_para_los_alumnos_no_sale_con_los_alumnos_bloqueados(self):
+        from notificaciones import services
+
+        self._estado(Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS)
+
+        with patch("notificaciones.services.webpush") as mock_webpush:
+            services.notificar_a_gimnasio(
+                self.gimnasio, self._payload(), rol=Perfil.Rol.ALUMNO
+            )
+
+        mock_webpush.assert_not_called()
+
+    def test_el_push_de_una_reserva_nueva_le_llega_al_staff_igual(self):
+        """De punta a punta: crear la reserva dispara el signal, el
+        `on_commit` corre (por eso `TransactionTestCase`) y el staff recibe
+        aunque los alumnos estén bloqueados."""
+        from turnos.models import ConfiguracionTurnos, Reserva
+
+        self._estado(Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS)
+        ConfiguracionTurnos.objects.create(gimnasio=self.gimnasio)
+
+        with patch("notificaciones.services.webpush") as mock_webpush:
+            Reserva.objects.create(
+                gimnasio=self.gimnasio,
+                alumno=self.alumno,
+                fecha=timezone.localdate() + timedelta(days=1),
+                hora_inicio=time(10, 0),
+            )
+
+        self.assertEqual(mock_webpush.call_count, 1)

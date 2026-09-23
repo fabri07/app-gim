@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}Acceso pausado{% endblock %}
+
+{% comment %}
+Lo que ve alguien cuyo gimnasio tiene la cuenta congelada por falta de pago.
+Lo renderiza `plataforma/middleware.py` con 200 (no 403 ni 404): bajo el
+`hx-boost` global un 4xx es un click que no hace nada, y una URL guardada en
+favoritos tiene que poder explicar qué pasó en vez de parecer rota.
+
+Sin links a ninguna sección de la app a propósito: todas terminan acá mismo,
+así que ofrecerlas es prometer algo que no va a pasar. Las únicas salidas son
+las que `base.html` ya trae (salir de la sesión) y, para el alumno, escribirle
+a su gimnasio.
+{% endcomment %}
+
+{% block content %}
+  <div class="tarjeta aviso-urgente">
+    {% if user.perfil.rol == "alumno" %}
+      <h1>El acceso a la app está pausado</h1>
+      <p>
+        La cuenta de <strong>{{ gimnasio.nombre }}</strong> está pausada, así
+        que por ahora no podés ver tu rutina ni reservar turnos.
+      </p>
+      <p>
+        No se perdió nada: tus rutinas, tus turnos y tu historial quedan tal
+        cual y vuelven apenas se reactive la cuenta. Avisale al gimnasio.
+      </p>
+      {% if gimnasio.contacto %}
+        <p>{{ gimnasio.contacto }}</p>
+      {% endif %}
+      {% include 'partials/redes_sociales.html' %}
+    {% else %}
+      <h1>La cuenta de tu gimnasio está suspendida</h1>
+      <p>
+        El acceso a la app está pausado por una cuota de la plataforma sin
+        pagar. <strong>Tus datos están intactos</strong>: alumnos, rutinas,
+        pagos, turnos y novedades quedan tal cual y vuelven a estar disponibles
+        apenas se reactive la cuenta.
+      </p>
+      {% if SOPORTE_CONTACTO %}
+        <p>Escribinos para reactivarla: <strong>{{ SOPORTE_CONTACTO }}</strong></p>
+      {% else %}
+        <p>Escribile al soporte de la app para reactivarla.</p>
+      {% endif %}
+    {% endif %}
+  </div>
+{% endblock %}

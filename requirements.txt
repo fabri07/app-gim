@@ -31,3 +31,6 @@ pdfplumber==0.11.10
 # PWA / Web Push (app notificaciones) -- trae py-vapid transitivo, con el
 # comando `vapid` para generar el par de claves VAPID
 pywebpush==2.4.0
+
+# Monitoreo de errores (opcional: SENTRY_DSN)
+sentry-sdk[django]==2.70.0

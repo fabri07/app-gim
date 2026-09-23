@@ -248,6 +248,15 @@ heredar de `TenantScopedModelForm`. Las vistas de gestión van con
 
 ### Bloqueo de acceso por falta de pago (`pagos/acceso.py`)
 
+**Hay DOS bloqueos en el producto y NO tienen las mismas reglas.** Éste es el
+del GIMNASIO contra su alumno que no pagó la cuota: busca cobrarle, así que
+deja siempre abiertas las dos puertas que necesita para ponerse al día —
+**cancelar una reserva y subir el comprobante NUNCA se bloquean**. El otro es
+el de la PLATAFORMA contra el gimnasio que no paga la app
+(`Gimnasio.estado_cuenta`, ver «Panel de plataforma» más abajo): ése SÍ corta
+esas dos cosas, a propósito, porque es la palanca del dueño del producto y
+tiene que apretar. Si tocás uno, no arrastres su criterio al otro.
+
 `Gimnasio.dias_tolerancia_pago` (vacío = **no bloquear a nadie**, y es el
 estado de todos los gimnasios existentes) define a los cuántos días de
 arrancar un ciclo impago el alumno deja de ver su rutina y de poder reservar
@@ -678,6 +687,256 @@ el botón **«Exportar mis datos (.zip)»**, que baja un CSV por entidad.
   mismo archivo desde la Shell, sin techo ni timeout y sin mirar la casilla.
 - `SOPORTE_CONTACTO` (env var opcional) es el texto que ve el gimnasio sin la
   exportación habilitada; `gimnasio.contacto` NO sirve, es el del gimnasio.
+  **Desde el panel de plataforma ya no se inyecta en cada vista**: lo expone
+  `plataforma/context_processors.py` para TODO el sitio (ver abajo).
+
+## Panel de plataforma (`plataforma/`, 2026-09-22)
+
+La app del DUEÑO DEL PRODUCTO, no de los gimnasios: cómo viene la plataforma,
+a quién hay que cobrarle, quién la usa y a quién hay que cortarle el acceso.
+Hasta acá todo eso vivía en `/admin/` y en la Shell de Render. Es la primera
+app cuyo público es una sola persona, así que la regla de aislamiento que rige
+al resto del proyecto (un gimnasio no ve lo del otro) acá es al revés: se ven
+TODOS. El candado es `plataforma/mixins.py::SuperadminRequiredMixin`
+(`is_superuser`, 403 para cualquier otro) y no hay ninguna vista sin él.
+
+Spec en `docs/superpowers/specs/2026-09-22-panel-plataforma-superadmin-design.md`.
+
+### Los campos nuevos de `Gimnasio` son gestión de plataforma
+
+`estado_cuenta` + `estado_cuenta_desde`, `facturacion_inicio` y
+`facturacion_exenta`. Los cuatro quedan **fuera de `GimnasioForm.Meta.fields`**,
+mismo criterio que `es_demo` y `exportacion_habilitada`: un gimnasio no puede
+desbloquearse solo ni decidir desde cuándo se le factura.
+
+- **`activo` NO bloquea nada, y ése fue el hallazgo que motivó todo esto.**
+  Destildarlo solo saca al gimnasio de la landing pública y del login por slug
+  (`gimnasio_activo_o_404`) y lo saca de la facturación; el staff y los alumnos
+  que ya tienen usuario **siguen entrando igual** por `/accounts/login/`. Léelo
+  como «oculto/retirado», nunca como «cortado». Para cortar el acceso está
+  `estado_cuenta`, que es una decisión distinta: una cuenta congelada por falta
+  de pago sigue siendo un cliente al que se le quiere cobrar.
+- **Los dos escalones de `estado_cuenta` son manuales, no un cron.** Cobrarle a
+  un gimnasio es una conversación; un corte automático el día equivocado le
+  rompe el día de trabajo a alguien que quizás ya transfirió.
+  `ALUMNOS_BLOQUEADOS` existe como escalón del medio porque el dueño tiene que
+  seguir entrando: es el único que puede pagar y la suya es la única pantalla
+  donde ve qué debe. `SUSPENDIDA` deja a todos afuera.
+- **La regla de quién queda afuera se escribe UNA vez**:
+  `ESTADOS_SIN_ACCESO_ALUMNO` y `ESTADOS_SIN_ACCESO_STAFF` (`frozenset` en
+  `tenants/models.py`), que comparten el middleware y
+  `notificaciones/services.py`. Separadas, el alumno recibiría el aviso de algo
+  que después no puede abrir.
+- **`facturacion_inicio` vacío significa «desde la fecha de alta»**, que es lo
+  correcto para un gimnasio nuevo. A los que YA existían se lo estampó la
+  migración `tenants/0013` con la fecha del deploy: prender la facturación **no
+  es retroactivo**, mismo criterio que `fecha_activacion_bloqueo`. Sin eso, la
+  primera carga del panel muestra a todos los clientes como vencidos con meses
+  de atraso por períodos que nunca se les cobró. En el FORM es obligatorio
+  aunque en el modelo sea `blank=True` (mismo caso que
+  `AlumnoForm.fecha_inicio_ciclo`): vaciarlo deshace esa migración en silencio.
+
+### `PagoPlataforma` y `ActividadDiaria` NO son `TenantOwnedModel`
+
+Tienen FK a `Gimnasio` y **aun así no van a los tres lugares** donde sí va todo
+modelo tenant-owned nuevo (`tenants/demo.py::vaciar_gimnasio`, el fixture
+`_ensuciar` de `tenants/tests.py`, y `HOJAS`/`EXCLUIDOS` de
+`tenants/exportacion.py`). La regla completa, para el próximo modelo con FK a
+`Gimnasio`:
+
+> Un `TenantOwnedModel` es un dato **del** gimnasio: su staff lo ve y lo edita,
+> le pertenece, se lo lleva al exportar y se borra al vaciar la demo. Un dato
+> **de la plataforma sobre** el gimnasio lo escribe únicamente el superadmin, el
+> gimnasio no lo ve en ninguna pantalla, y restaurar la cuenta de demostración
+> no tiene por qué borrar el historial de lo que facturó el producto. Si es lo
+> segundo, hereda de `TimeStampedModel`/`models.Model` a secas y queda fuera de
+> los tres lugares.
+
+- **`ActividadDiaria.usuario` va CASCADE y `gimnasio` PROTECT**, y la asimetría
+  es deliberada: `vaciar_gimnasio` borra los `User` de los alumnos de la demo
+  cada 6 h, y con PROTECT ahí la restauración automática se caería con
+  `ProtectedError`. Así las filas de la demo igual desaparecen, sin que el
+  modelo entre en el barrido.
+- **La clave única es `(usuario, fecha)`** y el alta usa `ignore_conflicts`.
+  Consecuencia asumida: si un `Perfil` se muda de gimnasio o de rol EL MISMO
+  día en que ya entró, ese día le queda acreditado al gimnasio (y al rol)
+  viejo. La alternativa —`(usuario, gimnasio, fecha)`— haría que una mudanza
+  contara como dos personas.
+- **`rol` va copiado, no se lee del `Perfil` al mirar**: un alumno al que
+  después se le da acceso de staff no puede reescribir retroactivamente a quién
+  se le atribuyó el uso de marzo.
+- **Crecimiento**: una fila por usuario activo por día. Un gimnasio de 300
+  alumnos que entran todos los días son **~110.000 filas al año**. No es un
+  problema hoy —el índice `(gimnasio, fecha)` cubre las dos consultas del panel
+  (los 30 días de la ficha y el `Max(fecha)` del monitor, que corre para TODOS
+  los gimnasios en cada carga) y la ventana es de 30 días—, pero si alguna vez
+  lo es, la salida es una purga de lo anterior a N meses, **no** cambiar el
+  modelo.
+
+### `PlataformaMiddleware`: una clase, dos trabajos
+
+Registra el día de uso y corta el acceso de una cuenta congelada. Va en un
+middleware y no en un mixin por el mismo motivo que
+`ExpirarSuplantacionMiddleware`: tiene que correr en CADA request, y un mixin
+deja afuera la vista que alguien agregue sin acordarse.
+
+- **Usa `process_view` y no `__call__`**: ahí ya existe `request.resolver_match`,
+  que es lo que permite decidir por NOMBRE de ruta en vez de por prefijo de URL
+  escrito a mano.
+- **La allowlist se evalúa PRIMERO, antes de tocar `request.user`.** No es
+  cosmético y ya mordió: leer el usuario resuelve la sesión y el registro del
+  día la **escribe**, o sea un `Set-Cookie`. `logo_gimnasio`/`fondo_gimnasio`
+  (`tenants.views.ArchivoDeGimnasioView`) existen justamente para servir esos
+  dos archivos con `Cache-Control: public, max-age=31536000, immutable` — es lo
+  que bajó una navegación de 251 KB a 0 — y colgarles una cookie tira ese
+  trabajo a la basura. **Lección general: el registro de actividad no puede
+  tocar rutas cacheables ni rutas que pide la máquina.** La allowlist son dos
+  piezas: `APPS_SIN_BLOQUEO` (`admin`, `plataforma` —las dos superficies desde
+  donde se descongela: bloquearlas es tirar la llave adentro de la casa
+  cerrada— y `notificaciones`) y `URLS_SIN_BLOQUEO` con los nombres PELADOS de
+  `tenants` (`tenants/urls.py` no define `app_name`). Cada entrada tapa una
+  forma distinta de dejar a alguien encerrado: sin `logout` no puede ni salir,
+  sin `suplantacion_volver` el staff queda atrapado en la cuenta del alumno.
+- **El tráfico de la PWA no cuenta como uso**: el service worker, el manifest y
+  los íconos los pide el navegador solo, en segundo plano, sin que nadie haya
+  abierto la app — le anotarían un día de uso a un gimnasio que nadie tocó.
+- **Costo: 0 queries netas** en el camino feliz (`base.html` ya resuelve
+  `user.perfil.gimnasio` y el ORM lo cachea en la instancia; `perfil_de` lee lo
+  mismo un poco antes, memoizado en el request) **más UN INSERT por usuario y
+  por día**. El dedupe es una marca en la sesión (`CLAVE_SESION_ACTIVIDAD`), que
+  se chequea ANTES de resolver nada: el segundo request del día no cuesta ni un
+  `getattr`. La marca es un caché de «ya anoté el de hoy», no la fuente de
+  verdad — la fuente es la clave única del modelo, de ahí el `ignore_conflicts`
+  para dos pestañas que cruzan el primer request. `CostoDelMiddlewareTests`
+  compara con y sin el middleware y fija las dos cosas por separado.
+- **El cartel responde 200, nunca 403 ni 404.** Bajo el `hx-boost="true"` global
+  un 4xx es un click que no hace nada y no deja ningún mensaje: el usuario
+  concluye que la app se rompió. Los POST se redirigen a `home`, cuyo GET
+  renderiza el cartel, así que no hay loop posible. **Y la respuesta lleva
+  `no-store`** (`add_never_cache_headers`): un 200 sin `Cache-Control` el
+  navegador lo guarda por heurística y el bfcache lo devuelve al volver con
+  «atrás», así que el cartel sobreviviría al momento en que la cuenta se
+  restaura.
+- **El registro corre ANTES del bloqueo**, a propósito: que alguien intente
+  entrar y se encuentre el cartel también es información — es la señal de que el
+  gimnasio sigue vivo del otro lado de la deuda.
+- **Esto es telemetría y no puede tumbar una página**: si el INSERT falla se
+  loguea y se sigue, y la marca de la sesión se escribe igual (una falla
+  persistente deja una línea de log por usuario y por día, no una por request).
+- **El superadmin nunca se bloquea y nunca se registra**: su `Perfil` puede
+  colgar de un gimnasio congelado, y contar sus visitas haría que un gimnasio
+  dormido figure usándose todos los días, que es justo lo que se busca detectar.
+
+### Push filtrado, y qué se pierde
+
+El filtro va en los **dos embudos** de `notificaciones/services.py`
+(`notificar_a_usuario` y `notificar_a_gimnasio`), no en los siete eventos:
+alcanzaba con que uno se olvidara. Se filtra por `SuscripcionPush.gimnasio`
+(que sí es `TenantOwnedModel`) y no por el `Perfil`, que sería un join más por
+el mismo dato.
+
+**Consecuencia aceptada:** `_ya_notificado` marca el `RecordatorioEnviado`
+ANTES de mandar, así que **un aviso silenciado no se reenvía al restaurar**. Es
+lo correcto acá: son todos avisos de un momento («tu turno empieza en una
+hora»), y lo que el alumno necesita al volver —su rutina, su cuota impaga— lo
+ve en el portal apenas entra.
+
+### Precios, ciclo y prueba (`plataforma/precios.py`)
+
+Módulo **Django-free a propósito** (sin ORM, sin `timezone`, sin settings),
+mismo criterio que `pagos.models.ciclo_vigente`: el «hoy» lo pasa siempre quien
+llama. Precio en USD por escalones de alumnos **activos** (hasta 100 → 10, 101
+a 300 → 15, más de 300 → 20; bordes inclusivos), `DIAS_GRATIS = 30` de prueba
+desde `facturacion_inicio`, `DIAS_CICLO = 30` y `DIAS_AVISO_COBRO = 7`.
+
+**Ojo con la simetría**: acá `DIAS_CICLO` es 30 (lo que la PLATAFORMA le cobra
+al gimnasio) y en `pagos` es 28 (lo que el gimnasio le cobra a sus alumnos).
+Son dos negocios distintos y las dos constantes tienen que poder moverse por
+separado. `PagoPlataforma.periodo_hasta` es **inclusivo**, igual que
+`pagos.Cuota.periodo_fin`.
+
+`plataforma/facturacion.py` es lo único que toca el ORM, y el monitor lista
+TODOS los gimnasios: es justo donde un N+1 se paga en cada carga.
+`gimnasios_anotados()` es **una** query y el precio y el estado se calculan en
+Python sobre las filas ya traídas. Las tres relaciones multivaluadas
+(`alumnos`, `actividad`, `pagos_plataforma`) van como **`Subquery`
+correlacionada y nunca como `Count`/`Max` sobre el join**: anotadas como join
+el producto cartesiano las multiplica entre sí (con dos pagos, un gimnasio de 3
+alumnos cuenta 6). **Si agregás una cuarta anotación multivaluada, va como
+`Subquery`.**
+
+Dos guards sobre el registro de un pago: la `UniqueConstraint(gimnasio,
+periodo_desde)` —el caso real es el doble submit del form boosteado y el «¿lo
+habré cargado?»— traducida a un error de campo por el `clean()` del form, más
+un `try/except IntegrityError` en `form_valid` (adentro de un `atomic()`, o el
+error deja la transacción marcada para rollback y los `messages`, que viven en
+la base, revientan después) para la race que el chequeo check-then-insert no
+cubre. El template frena el doble click deshabilitando el botón, mismo patrón
+que `gimnasio_form.html`.
+
+**Las tres escrituras del panel dejan `modificado` como estaba**:
+`EstadoCuentaView` y `ExportacionToggleView` con `QuerySet.update()`, y
+`FacturacionUpdateView` con `save(update_fields=[...])` (ahí hay un `ModelForm`
+que validar, y con `auto_now` un campo fuera de `update_fields` no se
+persiste). `Gimnasio.version_media` deriva de `modificado` y versiona la URL
+del logo, la del fondo y la del ícono de la PWA: tocarlo por un cambio de
+facturación le hace volver a bajar todo a cada celular del gimnasio.
+
+### Cotización del dólar (`plataforma/cambio.py`)
+
+El precio se pacta en USD y los gimnasios pagan en pesos. Dólar **MEP**
+(`dolarapi.com/v1/dolares/bolsa`), con `urllib` de la biblioteca estándar y no
+`requests` (no es dependencia del proyecto y es un solo GET).
+
+**Regla que ordena el módulo: el panel no puede caerse ni colgarse por una API
+de terceros.** `cotizacion_dolar()` no levanta nunca y devuelve `None` ante
+cualquier problema; las pantallas leen ese `None` como «mostrar solo USD».
+Cache de **24 h** para el éxito y de **10 min para el fallo** (si no, cada carga
+del panel se come el timeout entero mientras la API esté muerta; el timeout es
+de 3 s porque esto corre dentro del request y gunicorn tiene 30). Bajo
+`TESTING` no sale a la red, mismo criterio que R2.
+
+**`fecha` vuelve como datetime *aware* en UTC**, que es como la publica la API:
+se muestra SIEMPRE con el filtro `date` o con `timezone.localtime(...)`, nunca
+con `.date()` ni `.hour` a secas — con UTC-3 una cotización de las 21:30 de
+Buenos Aires está fechada al día siguiente en UTC. El pago guarda `monto_usd`,
+`monto_ars` y `tipo_cambio`: no es redundancia, con la inflación argentina
+recalcular después con la cotización de hoy da un número que nunca existió.
+`monto_ars`/`tipo_cambio` son opcionales porque la API puede estar caída justo
+cuando se registra el pago, y eso no puede impedir anotarlo. El POST **no** pide
+cotización: los montos los manda el formulario.
+
+### Alta de un gimnasio: la contraseña se ve UNA vez
+
+`plataforma:gimnasio_crear` no es un camino nuevo, llama al MISMO
+`tenants.services.crear_gimnasio` que el comando (el registro público sigue
+cerrado). **El POST exitoso NO redirige**: renderiza la credencial en un 200.
+No es un descuido de PRG — es el patrón de `alumnos/views.py::
+_render_credenciales`: la contraseña no puede viajar por `messages`, que se
+serializa en la sesión, que acá vive en la BASE. `never_cache` va sobre el
+`dispatch` entero y no alrededor de un `render` suelto, para que no haya forma
+de agregar mañana otra salida que se olvide del header. `sin_password` (la
+cuenta entra con Google) no muestra ninguna contraseña: inventar una para
+llenar el hueco sería mostrar un dato que no sirve para entrar.
+
+### Acoplamiento nuevo: `tenants` lee `SOPORTE_CONTACTO` del panel
+
+`plataforma/context_processors.py::estado_cuenta` expone
+`cuenta_alumnos_bloqueados`, `cuenta_suspendida`, `SOPORTE_CONTACTO` y
+`SENTRY_PANEL_URL` para TODO el sitio. Va como context processor y no como
+mixin porque el banner vive en `base.html`, o sea en toda página: una vista que
+se olvide de agregarlo dejaría al dueño sin enterarse de que sus alumnos están
+bloqueados. **Consecuencia: `tenants` ya no inyecta `SOPORTE_CONTACTO` en su
+propio contexto** (ver `tenants/views.py`) — si algún día se saca la app
+`plataforma` de `INSTALLED_APPS`, ese texto desaparece de «Mi gimnasio». Corta
+temprano en `app_name == "admin"`, mismo criterio que
+`tour_onboarding_disponible`: una query de `Perfil` menos contra Neon en cada
+pantalla del admin.
+
+`SENTRY_DSN` es una variable SUELTA y no un grupo todo-o-nada (mismo criterio
+que `SOPORTE_CONTACTO`): sin ella el SDK ni se inicializa y la app funciona
+igual. `SENTRY_PANEL_URL` es puramente cosmética (el link del panel) y se lee
+en cada request para que `override_settings` sirva en un test.
 
 ## Borrar: `core/borrado.py` + `BorrarConExplicacionView`
 
@@ -2456,6 +2715,15 @@ npm run watch:css                    # lo mismo, en watch mode durante desarroll
 - **Tests** (`python manage.py test`): cada modelo tenant-owned nuevo debe
   tener al menos un test de aislamiento (que un gimnasio no vea datos de
   otro), siguiendo `tenants/tests.py::TenantIsolationTests` como referencia.
+- **Sentry** (opcional, `SENTRY_DSN`): agrupa y alerta sobre excepciones de
+  producción en tiempo real, algo que `logs/app.log` no hace (hay que ir a
+  buscarlo). Sin `SENTRY_DSN` el SDK ni se inicializa (`SENTRY_ENABLED` en
+  `config/settings.py`) — la app funciona igual, simplemente sin ese canal.
+  Va apagado en la suite a propósito (`and not TESTING`, mismo criterio que
+  R2/Web Push): `manage.py test` no debe salir a la red. El link "Errores
+  (Sentry)" del panel de plataforma (`plataforma:inicio`) solo aparece si
+  además se carga `SENTRY_PANEL_URL` (la URL del proyecto en sentry.io) —
+  es cosmético, el SDK no la usa.
 
 ## Qué NO construir todavía
 

@@ -20,6 +20,104 @@ del log.
 
 ---
 
+## [2026-09-22] `Gimnasio.activo` no bloqueaba nada
+**Estado:** resuelto
+
+**Impacto:** `activo` se leía —en el código y en la cabeza de quien lo iba a
+usar— como «este gimnasio queda afuera». No lo era. Destildarlo hacía
+exactamente dos cosas: `gimnasio_activo_o_404` empezaba a dar 404 en la landing
+pública y en `g/<slug>/login/`, y el gimnasio dejaba de contar para la
+facturación. **El staff y los alumnos que ya tenían usuario seguían entrando
+igual** por `/accounts/login/`, con la app entera funcionando: rutinas,
+reservas, comprobantes, push. Y los dos crons lo ignoraban — `marcar_vencidos`
+le seguía venciendo cuotas y `enviar_recordatorios` le seguía mandando
+notificaciones al celular a los alumnos de un gimnasio supuestamente dado de
+baja.
+
+O sea que la única palanca que el dueño del producto creía tener contra un
+gimnasio que deja de pagar no existía: el único corte real era entrar por la
+Shell de Render y desactivar los `User` a mano, uno por uno.
+
+**Resolución / próximo paso:** se agregó `Gimnasio.estado_cuenta`
+(`NORMAL` / `ALUMNOS_BLOQUEADOS` / `SUSPENDIDA`) con
+`plataforma/middleware.py` cortando el acceso en cada request, y `activo` quedó
+documentado —`help_text` en el modelo y sección propia en `CLAUDE.md`— como lo
+que de verdad es: **«oculto/retirado», no «cortado»**. Son dos decisiones
+distintas a propósito: una cuenta congelada por falta de pago sigue siendo un
+cliente al que se le quiere cobrar, no uno dado de baja. Los dos escalones de
+`estado_cuenta` son manuales y no un cron: cobrarle a un gimnasio es una
+conversación, y un corte automático el día equivocado le rompe el día de
+trabajo a alguien que quizás ya transfirió.
+
+---
+
+## [2026-09-22] Tareas manuales del día del deploy del panel de plataforma
+**Estado:** abierto
+
+**Impacto:** la migración `tenants/0013` le estampa `facturacion_inicio = hoy`
+a todos los gimnasios que ya existen. Es lo correcto (prender la facturación no
+puede ser retroactivo, mismo criterio que `fecha_activacion_bloqueo`: sin eso
+la primera carga del panel los muestra a todos vencidos con meses de atraso por
+períodos que nunca se cobraron), pero **deja tres cosas mal** hasta que alguien
+las ajuste a mano, y ninguna se nota mirando el panel:
+
+1. **`gimnasio-verificacion-r2` cuenta como un cliente que paga.** Es la cuenta
+   de prueba del desarrollo, no un cliente: sin tildarle `facturacion_exenta`
+   infla el KPI de ingreso esperado y aparece en «Para cobrar esta semana».
+2. **Vida Plena y GymGin arrancan con 30 días gratis que no les corresponden.**
+   Su `facturacion_inicio` quedó en la fecha del deploy, no en la fecha
+   comercial real en que empezaron a pagar, así que la prueba de 30 días se les
+   cuenta de nuevo desde cero.
+3. **La cuenta demo NO está exenta del bloqueo.** `es_demo` no tiene ninguna
+   relación con `estado_cuenta`: si alguien suspende la demo, `restaurar_demo`
+   **no la descongela** — `estado_cuenta` está deliberadamente fuera del estado
+   canónico (hay un test que lo fija:
+   `test_no_toca_el_estado_de_la_cuenta`), porque si entrara, el cron de cada
+   6 h le devolvería el acceso a una cuenta que el dueño del producto congeló a
+   propósito, y nadie se enteraría porque el cron sale en verde. El costo es el
+   simétrico: una demo suspendida por error se queda suspendida para siempre y
+   hay que destrabarla a mano desde el panel o `/admin/`.
+
+**Resolución / próximo paso:** el día del deploy, desde el panel
+(`/plataforma/`): (a) tildar `facturacion_exenta` en
+`gimnasio-verificacion-r2`; (b) corregir `facturacion_inicio` de Vida Plena y
+de GymGin a su fecha comercial real; (c) dejar anotado que la demo se destraba
+a mano. Nada de esto se puede automatizar en la migración: las fechas
+comerciales reales no están en la base.
+
+---
+
+## [2026-09-22] El alta desde el panel vuelve clickeable una race vieja de `crear_gimnasio`
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** `tenants/services.py::crear_gimnasio` resuelve el email y el slug
+con check-then-create y sin `select_for_update`: chequea que no exista el
+`User`, pide `slug_disponible()` y recién después inserta. La race ya estaba
+documentada ahí como teórica, y lo era: el único camino hasta ahora era
+`manage.py crear_gimnasio`, o sea alguien tipeando el comando dos veces a la
+vez en dos consolas.
+
+La Fase 5 del panel de plataforma agrega `plataforma:gimnasio_crear`, que es
+el **primer camino clickeable** hacia esa función. El alta crea cuatro cosas
+(gimnasio, usuario, perfil) y además siembra las categorías iniciales, así que
+tarda lo suficiente como para que un doble click sea plausible. El síntoma
+sería un `IntegrityError` sin manejar contra el `unique=True` de
+`Gimnasio.slug` (o contra el username) — un **500 mudo** en vez del error al
+lado del campo que la pantalla sí muestra para el caso secuencial, y con la
+duda de si quedó algo a medio crear (no queda: el servicio es `@atomic`).
+
+**Resolución / próximo paso:** dos frenos baratos, ninguno del lado del
+servidor. (1) `templates/plataforma/gimnasio_form.html` deshabilita el botón
+en el `submit` y le cambia el texto a «Creando…»; cubre el caso real, que es
+el doble click impaciente, no dos pestañas coordinadas. (2) Esta entrada, para
+que el día que aparezca un 500 así no haya que volver a deducirlo. Si alguna
+vez muerde de verdad, el arreglo es un `select_for_update()` o un
+`get_or_create` **adentro del servicio** — no en la vista, que es el mismo
+criterio por el que el lock de `crear_acceso` vive en
+`alumnos/services.py` y no en `CrearAccesoView`.
+
+---
+
 ## [2026-09-21] El dueño no podía confirmar la importación de un plan
 **Estado:** resuelto
 **Impacto:** el primer cliente pago subió el plan de un alumno

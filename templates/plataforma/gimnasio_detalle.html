@@ -1,0 +1,344 @@
+{% extends 'base.html' %}
+{% block title %}{{ gimnasio.nombre }} · Plataforma{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="acciones-lista">
+  <h1>{{ gimnasio.nombre }}</h1>
+  <a class="boton-secundario" href="{% url 'plataforma:inicio' %}">Volver al panel</a>
+</div>
+
+<div class="tarjeta">
+  {% comment %}
+    El badge va en un <p> debajo del encabezado y no adentro del <h2>, igual
+    que «Estado: <badge>» en la ficha del alumno: metido en el heading hereda
+    su tamaño y su peso, así que el título y el estado se leen como una sola
+    línea y el escalón entre h1, h2 y cuerpo deja de notarse.
+  {% endcomment %}
+  <h2>Facturación</h2>
+  <p>
+    Estado:
+    <span class="badge badge--{{ fila.estado.badge }}">{{ fila.estado.etiqueta }}</span>
+  </p>
+  <dl class="ficha-datos">
+    <div>
+      <dt>Alta</dt>
+      <dd>{{ gimnasio.creado|date:"d/m/Y" }}</dd>
+    </div>
+    <div>
+      <dt>Inicio de facturación</dt>
+      <dd>
+        {{ inicio_efectivo|date:"d/m/Y" }}
+        {% if not gimnasio.facturacion_inicio %}
+          <span class="texto-suave">(la fecha de alta)</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Fin de la prueba gratis</dt>
+      <dd>{{ fin_de_prueba|date:"d/m/Y" }}</dd>
+    </div>
+    <div>
+      <dt>Alumnos activos</dt>
+      <dd>
+        {{ fila.alumnos_activos }}
+        <span class="texto-suave">
+          {% if escalon.0 %}(escalón hasta {{ escalon.0 }}){% else %}(escalón sin tope){% endif %}
+        </span>
+      </dd>
+    </div>
+    <div>
+      <dt>Precio por ciclo</dt>
+      <dd>
+        {% if fila.factura %}
+          USD {{ fila.precio_usd }}
+          {% if precio_ars %}<span class="texto-suave">≈ $ {{ precio_ars|floatformat:2 }}</span>{% endif %}
+        {% elif gimnasio.es_demo %}
+          No se le cobra (cuenta de demostración)
+        {% elif not gimnasio.activo %}
+          No se le cobra (gimnasio retirado)
+        {% else %}
+          No se le cobra (exento)
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Cotización</dt>
+      <dd>
+        {% if cotizacion %}
+          Dólar MEP $ {{ cotizacion.venta|floatformat:2 }}
+          <span class="texto-suave">
+            al {{ cotizacion.fecha|date:"d/m/Y H:i" }} · Fuente: {{ cotizacion.fuente }}
+          </span>
+        {% else %}
+          <span class="texto-suave">Sin cotización, solo USD</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Pago hasta</dt>
+      <dd>
+        {% if fila.cubierto_hasta %}
+          {{ fila.cubierto_hasta|date:"d/m/Y" }}
+        {% else %}
+          <span class="texto-suave">nunca pagó</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Próximo vencimiento</dt>
+      <dd>
+        {% if fila.factura and fila.vencimiento %}
+          {{ fila.vencimiento|date:"d/m/Y" }}
+          {% if fila.dias_de_atraso %}
+            · vencido hace {{ fila.dias_de_atraso }} día{{ fila.dias_de_atraso|pluralize }}
+          {% endif %}
+        {% else %}
+          —
+        {% endif %}
+      </dd>
+    </div>
+  </dl>
+  <div class="acciones-lista">
+    <a class="boton" href="{% url 'plataforma:pago_nuevo' gimnasio.pk %}">Registrar pago</a>
+    <a class="boton-secundario" href="{% url 'plataforma:facturacion_editar' gimnasio.pk %}">Editar facturación</a>
+    {% comment %}
+      Los botones de estado son CONTEXTUALES: se ofrece el escalón siguiente y
+      la vuelta atrás, nunca los tres a la vez. Ofrecer «Bloquear alumnos»
+      sobre una cuenta ya suspendida sería ofrecer un paso hacia atrás
+      disfrazado de acción, y «Restaurar» sobre una cuenta normal, un botón
+      que no hace nada.
+
+      «Restaurar» va por POST directo (sin pantalla de confirmación): no
+      destruye nada y es lo que se aprieta apenas el gimnasio paga.
+    {% endcomment %}
+    {% if gimnasio.estado_cuenta == "normal" %}
+      <a class="boton-secundario" href="{% url 'plataforma:estado_cuenta' gimnasio.pk 'alumnos_bloqueados' %}">Bloquear alumnos</a>
+    {% elif gimnasio.estado_cuenta == "alumnos_bloqueados" %}
+      <a class="boton-secundario" href="{% url 'plataforma:estado_cuenta' gimnasio.pk 'suspendida' %}">Suspender cuenta</a>
+    {% endif %}
+    {% if gimnasio.estado_cuenta != "normal" %}
+      <form method="post" action="{% url 'plataforma:estado_cuenta' gimnasio.pk 'normal' %}">
+        {% csrf_token %}
+        <button type="submit" class="boton-secundario">Restaurar acceso</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="tarjeta">
+  <h2>Actividad (últimos 30 días)</h2>
+  <p class="texto-suave">
+    Cuántas personas distintas entraron a la app cada día. No se registra qué
+    miraron ni cuánto tiempo estuvieron: solo el día.
+  </p>
+  <p>
+    Último uso:
+    {% comment %}
+      «nunca» y no «—»: un gimnasio cuyo staff nunca entró es un alta que no se
+      activó, que es un caso distinto (y más urgente) de un gimnasio que se usó
+      y dejó de usarse. El guión no distingue los dos.
+    {% endcomment %}
+    <strong>staff</strong>
+    {% if ultimo_uso.staff %}{{ ultimo_uso.staff|date:"d/m/Y" }}{% else %}nunca{% endif %}
+    ·
+    <strong>alumnos</strong>
+    {% if ultimo_uso.alumnos %}{{ ultimo_uso.alumnos|date:"d/m/Y" }}{% else %}nunca{% endif %}
+  </p>
+  <div class="grafico-contenedor">
+    <canvas id="grafico-actividad"></canvas>
+  </div>
+  <details class="tabla-detalle">
+    <summary>Ver como tabla</summary>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead><tr><th>Día</th><th>Staff</th><th>Alumnos</th></tr></thead>
+        <tbody>
+          {% comment %}
+            `dia` y no `fila`: `fila` ya es la fila del monitor de este
+            gimnasio, que esta misma página usa en la tarjeta de facturación.
+          {% endcomment %}
+          {% for dia in actividad %}
+            <tr><td>{{ dia.etiqueta }}</td><td>{{ dia.staff }}</td><td>{{ dia.alumnos }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+</div>
+
+<div class="tarjeta">
+  <h2>Pagos registrados</h2>
+  {% if pagos %}
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Período</th>
+            <th>Cobrado el</th>
+            <th>USD</th>
+            <th>Pesos</th>
+            <th>Tipo de cambio</th>
+            <th>Alumnos</th>
+            <th>Notas</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for pago in pagos %}
+            <tr>
+              <td>{{ pago.periodo_desde|date:"d/m/Y" }} al {{ pago.periodo_hasta|date:"d/m/Y" }}</td>
+              <td>{{ pago.fecha_pago|date:"d/m/Y" }}</td>
+              <td>{{ pago.monto_usd|floatformat:2 }}</td>
+              <td>{% if pago.monto_ars %}{{ pago.monto_ars|floatformat:2 }}{% else %}—{% endif %}</td>
+              <td>{% if pago.tipo_cambio %}{{ pago.tipo_cambio|floatformat:2 }}{% else %}—{% endif %}</td>
+              <td>{{ pago.alumnos_activos }}</td>
+              <td>{{ pago.notas|default:"—" }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="texto-suave">Todavía no se le registró ningún pago.</p>
+  {% endif %}
+</div>
+
+<div class="tarjeta">
+  <h2>Cuenta</h2>
+  <dl class="ficha-datos">
+    <div>
+      <dt>Dirección pública</dt>
+      {% comment %}
+        hx-boost="false": la landing arma su fondo en el bloque extra_style,
+        que vive en el <head>, y hx-boost solo swapea el <body>. Sin esto la
+        landing del gimnasio se ve con el fondo de la pantalla anterior.
+      {% endcomment %}
+      <dd><a href="{% url 'landing_gimnasio' gimnasio.slug %}" hx-boost="false">/g/{{ gimnasio.slug }}/</a></dd>
+    </div>
+    <div>
+      <dt>Estado de la cuenta</dt>
+      <dd>
+        <span class="badge badge--{{ gimnasio.estado_cuenta_badge }}">{{ gimnasio.get_estado_cuenta_display }}</span>
+        {% comment %}
+          «Suspendida desde …» / «Alumnos bloqueados desde …»: sin la fecha,
+          una cuenta congelada no dice si se cortó ayer o hace tres meses, que
+          es justo el dato con el que se decide si hay que llamar al cliente o
+          darlo de baja. El filtro `date` ya convierte a hora local.
+        {% endcomment %}
+        {% if gimnasio.estado_cuenta_desde %}
+          <span class="texto-suave">
+            {{ gimnasio.get_estado_cuenta_display }} desde el
+            {{ gimnasio.estado_cuenta_desde|date:"d/m/Y H:i" }}
+          </span>
+        {% endif %}
+      </dd>
+    </div>
+    <div>
+      <dt>Activo</dt>
+      <dd>{% if gimnasio.activo %}Sí{% else %}No{% endif %}</dd>
+    </div>
+    <div>
+      <dt>Cuenta de demostración</dt>
+      <dd>{% if gimnasio.es_demo %}Sí{% else %}No{% endif %}</dd>
+    </div>
+    <div>
+      <dt>Exportación de datos habilitada</dt>
+      <dd>{% if gimnasio.exportacion_habilitada %}Sí{% else %}No{% endif %}</dd>
+    </div>
+  </dl>
+  <div class="acciones-lista">
+    {% comment %}
+      Prender la exportación es lo que se hace justo cuando un gimnasio deja
+      de pagar y pide sus datos, o sea desde esta misma ficha: hasta ahora
+      había que ir a /admin/ a buscar la casilla. POST y no link porque
+      cambia estado.
+    {% endcomment %}
+    <form method="post" action="{% url 'plataforma:exportacion_toggle' gimnasio.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="boton-secundario">
+        {% if gimnasio.exportacion_habilitada %}Deshabilitar exportación{% else %}Habilitar exportación{% endif %}
+      </button>
+    </form>
+  </div>
+  {% comment %}
+    El caso en que se prende la exportación —un gimnasio que deja de pagar y
+    pide sus datos— es justo el que puede estar suspendido, y ahí el botón de
+    «Mi gimnasio» no le va a aparecer: el bloqueo lo ataja antes. Sin esta
+    línea, el dueño del producto tilda la casilla, le avisa al cliente que ya
+    puede bajar sus datos, y el cliente no encuentra nada.
+  {% endcomment %}
+  {% if gimnasio.estado_cuenta == "suspendida" %}
+    <p class="texto-suave">
+      Con la cuenta suspendida el staff no puede descargar la exportación desde
+      la app: bajala vos con <code>manage.py exportar_gimnasio --gimnasio
+      {{ gimnasio.slug }}</code>.
+    </p>
+  {% endif %}
+</div>
+
+{{ actividad|json_script:"actividad-data" }}
+{% comment %}
+  Chart.js y el script van DENTRO del bloque de contenido, nunca en
+  `{% templatetag openblock %} block extra_style {% templatetag closeblock %}`:
+  ese bloque vive en el <head>, y el `hx-boost="true"` global de base.html solo
+  reemplaza el <body>. Entrando desde el monitor (una navegación boosteada) el
+  <head> no se toca, así que un <script> puesto ahí no llegaría nunca y el
+  gráfico quedaría en blanco sin ningún error del lado del servidor. Es el
+  mismo gotcha que ya se documenta en CLAUDE.md.
+{% endcomment %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+<script>
+  (function () {
+    // Mismos dos colores que el resto del proyecto: el azul del tema para la
+    // serie que importa (el staff, que es quien paga) y un gris neutro para
+    // los alumnos. Son dos grupos de personas, no una escala: no va un
+    // degradé (ver skill dataviz).
+    var AZUL = "#2a78d6";
+    var GRIS = "#6b7280";
+
+    // Copiado de templates/tenants/home.html a propósito: sin el guard, un
+    // `JSON.parse(null)` por un json_script ausente corta el IIFE entero y se
+    // lleva puestos todos los gráficos que vengan después, sin dejar ningún
+    // rastro del lado del servidor.
+    function datosDe(id) {
+      var nodo = document.getElementById(id);
+      return nodo ? JSON.parse(nodo.textContent) : [];
+    }
+
+    var datos = datosDe("actividad-data");
+    var el = document.getElementById("grafico-actividad");
+    if (el && datos.length) {
+      new Chart(el, {
+        type: "bar",
+        data: {
+          labels: datos.map(function (d) { return d.etiqueta; }),
+          datasets: [
+            {
+              label: "Staff",
+              data: datos.map(function (d) { return d.staff; }),
+              backgroundColor: AZUL,
+              borderRadius: 4,
+            },
+            {
+              label: "Alumnos",
+              data: datos.map(function (d) { return d.alumnos; }),
+              backgroundColor: GRIS,
+              borderRadius: 4,
+            },
+          ],
+        },
+        options: {
+          // Apiladas: lo que se lee de un vistazo es el total de personas por
+          // día, y la partición dice de dónde sale. Lado a lado, con 30 días,
+          // cada barra mediría un par de píxeles.
+          scales: {
+            x: { stacked: true },
+            y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+          },
+          maintainAspectRatio: false,
+        },
+      });
+    }
+  })();
+</script>
+{% endblock %}
