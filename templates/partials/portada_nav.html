@@ -1,0 +1,24 @@
+{% comment %}
+Nav fija del sitio público de TuGimApp: la portada y el login genérico.
+`anclas_base` = "/" fuera de la portada, para que las anclas lleven a la
+sección de la portada (hx-boost="false": es otra página y el salto al ancla lo
+tiene que hacer el navegador). `en_login` oculta «Ingresar» donde ya estás y pasa la píldora a contorno:
+en el login la única acción llena tiene que ser «Entrar».
+Nunca va en el login de un gimnasio: ahí la marca es la del gimnasio.
+{% endcomment %}
+<header class="portada-nav" data-portada-nav>
+  <div class="portada-nav__inner">
+    <a href="/" class="portada-nav__marca" hx-boost="false">
+      <span class="portada-nav__isotipo" aria-hidden="true"></span>TuGimApp
+    </a>
+    <nav class="portada-nav__anclas" aria-label="Secciones">
+      <a href="{{ anclas_base }}#funciones"{% if anclas_base %} hx-boost="false"{% endif %}>Funciones</a>
+      <a href="{{ anclas_base }}#precios"{% if anclas_base %} hx-boost="false"{% endif %}>Precios</a>
+      <a href="{{ anclas_base }}#preguntas"{% if anclas_base %} hx-boost="false"{% endif %}>Preguntas</a>
+    </nav>
+    <div class="portada-nav__acciones">
+      {% if not en_login %}<a href="{% url 'login' %}" class="portada-nav__ingresar" hx-boost="false">Ingresar</a>{% endif %}
+      <a href="{% url 'solicitudes:solicitar' %}" class="portada-pildora portada-pildora--chica{% if en_login %} portada-pildora--contorno{% endif %}"><span class="sm:hidden">Prueba gratis</span><span class="hidden sm:inline">Pedí tu prueba gratis</span></a>
+    </div>
+  </div>
+</header>

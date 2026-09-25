@@ -222,17 +222,14 @@ class LoginTemplateLinkTests(TestCase):
         self.assertContains(response, "Olvidaste tu contraseña")
 
     def test_link_lleva_hx_boost_false(self):
-        # GOOGLE_STAFF_LOGIN_ENABLED explícito en False: si quedara en lo
-        # que tenga el entorno (el .env local de este proyecto SÍ trae
-        # login con Google configurado), el botón de Google metería un
-        # hx-boost="false" de más y el test "pasaría" sin que este link lo
-        # llevara -- pasó exactamente eso en la primera versión de este
-        # test. Sin loguearse, la página trae 2 hx-boost="false" (el link
-        # de marca del topbar y el form de contraseña); si este link no lo
-        # llevara, el count seguiría dando 2 en vez de 3.
-        with self.settings(PASSWORD_RESET_ENABLED=True, GOOGLE_STAFF_LOGIN_ENABLED=False):
+        # Se mira el atributo en el <a> del link mismo, no un conteo de toda
+        # la página (ver el test análogo en tests_google_login.py).
+        with self.settings(PASSWORD_RESET_ENABLED=True):
             response = self.client.get(reverse("login"))
-        self.assertContains(response, 'hx-boost="false"', count=3)
+        self.assertRegex(
+            response.content.decode(),
+            r'<a href="%s"[^>]*hx-boost="false"' % re.escape(reverse("password_reset")),
+        )
 
     def test_link_no_aparece_si_no_esta_habilitado(self):
         with self.settings(PASSWORD_RESET_ENABLED=False):

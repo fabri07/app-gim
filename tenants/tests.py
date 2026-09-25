@@ -509,6 +509,69 @@ class PortadaViewTests(TestCase):
         response = self.client.get(reverse("home"))
         self.assertNotContains(response, "ARS")
 
+    def test_selector_muestra_los_paisajes_de_la_fuente_unica(self):
+        """Los chips del hero salen de `Gimnasio.PALETAS`, no de hex copiados
+        al template: si se agrega o retoca un paisaje, la demo lo sigue."""
+        response = self.client.get(reverse("home"))
+        for clave, colores in Gimnasio.PALETAS.items():
+            self.assertContains(response, Gimnasio.Paleta(clave).label)
+            self.assertContains(response, f'data-primario="{colores["primario"]}"')
+
+    def test_ningun_tramo_de_precio_va_resaltado(self):
+        """El tramo no se elige (cae según los alumnos activos): resaltar uno
+        sería un «Popular» sin ningún dato detrás."""
+        response = self.client.get(reverse("home"))
+        self.assertNotContains(response, "portada__precio--destacado")
+        self.assertNotIn("destacado", response.context["precios_filas"][0])
+
+    def test_nav_propia_con_anclas_y_sin_la_topbar_del_sistema(self):
+        response = self.client.get(reverse("home"))
+        for ancla in ("#funciones", "#precios", "#preguntas"):
+            self.assertContains(response, f'href="{ancla}"')
+        for id_ in ('id="funciones"', 'id="precios"', 'id="preguntas"'):
+            self.assertContains(response, id_)
+        self.assertNotContains(response, 'class="topbar"')
+        # El bloque nuevo de base.html no le sacó la barra al resto del sitio.
+        self.assertContains(
+            self.client.get(reverse("politica_privacidad")), 'class="topbar"'
+        )
+
+    def test_login_generico_usa_la_nav_publica_sin_ingresar(self):
+        response = self.client.get(reverse("login"), {"otro_gimnasio": "1"})
+        self.assertContains(response, 'class="portada-nav"')
+        self.assertNotContains(response, 'class="topbar"')
+        self.assertNotContains(response, 'class="portada-nav__ingresar"')
+        # Las anclas llevan a las secciones de la portada.
+        self.assertContains(response, 'href="/#precios"')
+
+    def test_login_de_gimnasio_conserva_su_barra_y_no_vende_el_producto(self):
+        response = self.client.get(
+            reverse("login_gimnasio", args=[self.gimnasio.slug])
+        )
+        self.assertContains(response, 'class="topbar"')
+        self.assertNotContains(response, 'class="portada-nav"')
+        self.assertNotContains(response, "Pedí tu prueba gratis")
+
+    def test_login_muestra_el_error_de_credenciales(self):
+        """El form va campo por campo: el error general tiene que seguir
+        saliendo, o un login rechazado parece uno que no hace nada."""
+        response = self.client.post(
+            reverse("login"), {"username": "staff1", "password": "mal"}
+        )
+        self.assertContains(response, 'class="auth-card__error"')
+
+    def test_ctas_llevan_a_la_solicitud_y_al_login(self):
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, f'href="{reverse("solicitudes:solicitar")}"')
+        self.assertContains(response, f'href="{reverse("login")}"')
+
+    def test_no_promete_importar_alumnos(self):
+        """El importador trae planes y ejercicios, no alumnos: la versión
+        anterior de la portada lo prometía en la FAQ y en los pasos."""
+        contenido = self.client.get(reverse("home")).content.decode().lower()
+        self.assertNotIn("importar tus alumnos", contenido)
+        self.assertNotIn("o los importás", contenido)
+
     def test_cotizacion_se_pide_una_sola_vez_por_request(self):
         with patch(
             "plataforma.cambio.cotizacion_dolar", return_value=None

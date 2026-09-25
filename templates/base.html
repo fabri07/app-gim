@@ -185,6 +185,7 @@
       </form>
     </div>
   {% endif %}
+  {% block topbar %}
   <header class="topbar">
     {% comment %}
       hx-boost="false" SOLO para el visitante anónimo (destino: la landing de
@@ -232,6 +233,7 @@
       {% endif %}
     </div>
   </header>
+  {% endblock %}
   {% comment %}
     `not cuenta_suspendida`: con la cuenta suspendida todas las secciones
     terminan en el mismo cartel, así que una nav de nueve links es puro ruido
