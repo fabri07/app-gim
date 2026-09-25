@@ -1,0 +1,14 @@
+¡Hola {{ solicitud.nombre_contacto }}!
+
+Tu cuenta de {{ solicitud.nombre_gimnasio }} en TuGimApp ya está lista.
+
+Para entrar, definí tu contraseña acá:
+
+{{ url_invitacion }}
+
+Por seguridad, ese link vence en unos días. Si se te vence, escribinos y te
+mandamos uno nuevo.
+
+¡Bienvenido/a!
+
+— El equipo de TuGimApp

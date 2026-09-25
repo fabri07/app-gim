@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Email confirmado — TuGimApp{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  {% if ok %}
+    <h1>¡Email confirmado!</h1>
+    <p>Tu solicitud ya está en revisión. Te vamos a escribir para activar tu
+      cuenta. Gracias por tu paciencia.</p>
+  {% else %}
+    <h1>Ese link no es válido</h1>
+    <p>Puede que ya lo hayas usado o que haya vencido. Si hace falta, volvé a
+      <a href="{% url 'solicitudes:solicitar' %}">solicitar una cuenta</a>.</p>
+  {% endif %}
+</div>
+{% endblock %}

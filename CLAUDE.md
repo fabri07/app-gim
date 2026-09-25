@@ -24,9 +24,13 @@ completas — un dueño puede usar el sistema de punta a punta desde el panel
 web sin tocar `/admin/`. Además del scope original del ROADMAP ya están
 mergeadas: agenda de turnos/reservas con cupos, read-receipts de novedades,
 medios de cobro configurables, una integración opcional con Google
-Calendar por alumno (ver "Turnos, reservas y Google Calendar" más abajo), y
+Calendar por alumno (ver "Turnos, reservas y Google Calendar" más abajo),
 un importador de planes/ejercicios desde Excel (ver "Importador de Excel
-(Proyecto 2)" más abajo) — el ROADMAP.md no las documenta todavía como
+(Proyecto 2)" más abajo), el cobro por ciclos de 28 días con bloqueo de
+acceso al alumno que no paga (ver "Bloqueo de acceso por falta de pago" más
+abajo), y un panel de plataforma para el dueño del producto —superadmin—
+que monitorea, factura y congela gimnasios (ver "Panel de plataforma" más
+abajo) — el ROADMAP.md no las documenta todavía como
 fases propias, viven en `ISSUES.md` y en los mensajes de commit ("Fase 6,
 Task N", "Parte A/B/C", "Proyecto 2, Task N").
 

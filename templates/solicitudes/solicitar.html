@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Solicitar una cuenta — TuGimApp{% endblock %}
+
+{% block content %}
+<div>
+  <h1>Solicitá tu cuenta</h1>
+  <p class="texto-suave">Contanos de tu gimnasio y te escribimos para activarte.
+    Probás {{ precios_dias_gratis|default:30 }} días gratis, sin tarjeta.</p>
+
+  <form method="post" class="tarjeta">
+    {% csrf_token %}
+    {% for h in form.hidden_fields %}{{ h }}{% endfor %}
+
+    {% comment %} Honeypot: oculto para humanos, tentador para bots. {% endcomment %}
+    <div aria-hidden="true" style="position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;">
+      {% include 'partials/campo_form.html' with campo=form.website %}
+    </div>
+
+    {% if form.non_field_errors %}
+      {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+    {% endif %}
+
+    <h2>Tus datos</h2>
+    {% include 'partials/campo_form.html' with campo=form.nombre_gimnasio %}
+    {% include 'partials/campo_form.html' with campo=form.nombre_contacto %}
+    {% include 'partials/campo_form.html' with campo=form.email %}
+    {% include 'partials/campo_form.html' with campo=form.telefono %}
+    {% include 'partials/campo_form.html' with campo=form.cantidad_alumnos %}
+
+    <h2>Sobre tu gimnasio <span class="texto-suave">(opcional)</span></h2>
+    {% include 'partials/campo_form.html' with campo=form.anios_operando %}
+    {% include 'partials/campo_form.html' with campo=form.tamano_staff %}
+    {% include 'partials/campo_form.html' with campo=form.banda_ingresos %}
+    {% include 'partials/campo_form.html' with campo=form.formato_registros %}
+    {% include 'partials/campo_form.html' with campo=form.profundidad_historia %}
+    {% include 'partials/campo_form.html' with campo=form.puede_compartir_archivos %}
+    {% include 'partials/campo_form.html' with campo=form.comentario %}
+
+    <button type="submit" class="boton">Enviar solicitud</button>
+  </form>
+</div>
+{% endblock %}

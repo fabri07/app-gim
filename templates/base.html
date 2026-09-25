@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}App Gimnasios{% endblock %}</title>
+  {% block meta_extra %}{% endblock %}
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   {% if user.is_authenticated and user.perfil.gimnasio %}
     {% with gimnasio=user.perfil.gimnasio %}
@@ -186,20 +187,20 @@
   {% endif %}
   <header class="topbar">
     {% comment %}
-      hx-boost="false" SOLO para el visitante anónimo (destino: login
-      genérico): el <style> de extra_style (fondo imagen/doodle de una
-      landing/login con gimnasio) vive en <head>, que hx-boost no swapea --
-      mismo motivo que el link "¿No es tu gimnasio?" y el de "Iniciar
-      sesión" de landing.html. No se aplica también al caso autenticado
-      (destino: home) a propósito: ahí SÍ conviene la transición boosteada
-      de siempre, no hay ningún extra_style de por medio que dependa de
-      refrescar el <head>.
+      hx-boost="false" SOLO para el visitante anónimo (destino: la landing de
+      producto en `home`): el <style> de extra_style (fondo imagen/doodle de
+      una landing/login con gimnasio de la que puede venir) vive en <head>, que
+      hx-boost no swapea -- mismo motivo que el link "¿No es tu gimnasio?" y el
+      de "Iniciar sesión" de landing.html. No se aplica también al caso
+      autenticado (mismo destino `home`, pero ahí resuelve al dashboard): ahí SÍ
+      conviene la transición boosteada de siempre, no hay ningún extra_style de
+      por medio que dependa de refrescar el <head>.
     {% endcomment %}
-    <a href="{% if user.is_authenticated %}{% url 'home' %}{% else %}{% url 'login' %}{% endif %}" class="topbar__marca" {% if not user.is_authenticated %}hx-boost="false"{% endif %}>
+    <a href="{% url 'home' %}" class="topbar__marca" {% if not user.is_authenticated %}hx-boost="false"{% endif %}>
       {% if user.is_authenticated and user.perfil.gimnasio.logo %}
         <img src="{{ user.perfil.gimnasio.logo_url_cacheable }}" alt="{{ user.perfil.gimnasio.nombre }}">
       {% endif %}
-      <span>{{ user.perfil.gimnasio.nombre|default:"App Gimnasios" }}</span>
+      <span>{{ user.perfil.gimnasio.nombre|default:"TuGimApp" }}</span>
     </a>
     <div class="flex items-center gap-3">
       {% if user.is_authenticated and user.perfil.gimnasio %}

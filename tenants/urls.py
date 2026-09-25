@@ -11,10 +11,10 @@ from tenants.views import (
     GimnasioUpdateView,
     GoogleLoginCallbackView,
     GoogleLoginRedirectView,
-    HomeView,
     LoginView,
     LogoGimnasioView,
     LogoSugerirPaisajeView,
+    PortadaView,
     StaffPasswordChangeDoneView,
     StaffPasswordChangeView,
     StaffPasswordResetConfirmView,
@@ -29,7 +29,10 @@ from tenants.views import (
 # se referencian sin namespace (`{% url 'home' %}`, `{% url 'login' %}`, ...)
 # desde todo el proyecto, así que ponerlo rompería esas referencias en masa.
 urlpatterns = [
-    path("", HomeView.as_view(), name="home"),
+    # La raíz sirve la landing de producto para anónimos y delega en el
+    # dashboard (`HomeView`) para autenticados -- ver `PortadaView`. El nombre
+    # `home` se conserva: se referencia sin namespace en todo el proyecto.
+    path("", PortadaView.as_view(), name="home"),
     path("accounts/login/", LoginView.as_view(), name="login"),
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     # Frente C: login con Google para staff (coexiste con usuario+contraseña

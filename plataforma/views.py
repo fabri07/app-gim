@@ -13,6 +13,7 @@ fila sería el mismo error que un N+1, pero contra la red.
 """
 
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.http import Http404, HttpResponseNotAllowed
@@ -34,6 +35,8 @@ from plataforma import actividad, cambio, facturacion, precios
 from plataforma.forms import CrearGimnasioForm, FacturacionForm, PagoPlataformaForm
 from plataforma.mixins import SuperadminRequiredMixin
 from plataforma.models import PagoPlataforma
+from solicitudes import services as solicitudes_services, tokens as solicitudes_tokens
+from solicitudes.models import SolicitudAcceso
 from tenants.models import Gimnasio
 from tenants.services import crear_gimnasio
 
@@ -52,6 +55,15 @@ class InicioView(SuperadminRequiredMixin, TemplateView):
         context["cotizacion"] = cotizacion
         context["kpis"] = facturacion.kpis(filas, cotizacion=cotizacion)
         context["para_cobrar"] = facturacion.para_cobrar(filas)
+        # Una query barata: cuántos leads esperan revisión. Los modelos de
+        # solicitud son de la plataforma (no TenantOwnedModel), así que no
+        # tocan `facturacion.py` ni los barridos por gimnasio.
+        context["solicitudes_pendientes"] = SolicitudAcceso.objects.filter(
+            estado__in=[
+                SolicitudAcceso.Estado.PENDIENTE,
+                SolicitudAcceso.Estado.LISTA_ESPERA,
+            ]
+        ).count()
         return context
 
 
@@ -476,3 +488,128 @@ class GimnasioCrearView(SuperadminRequiredMixin, FormView):
                 "password": password,
             },
         )
+
+
+# --- Cola de solicitudes de acceso (leads) ---
+#
+# El embudo público vive en `solicitudes/`; la REVISIÓN vive acá porque es del
+# superadmin y reusa `SuperadminRequiredMixin` y el monitor. Aprobar NO
+# reimplementa el alta: delega en `solicitudes.services.aprobar`, que a su vez
+# delega en `crear_gimnasio`. El dueño define su contraseña por el link de
+# invitación (nunca se muestra ni se envía una credencial en claro), así que
+# estas vistas de decisión son un simple POST -> cambio de estado + email, sin
+# el patrón `never_cache`/credencial-una-vez del alta manual.
+
+
+class SolicitudListaView(SuperadminRequiredMixin, TemplateView):
+    """La cola: pendientes y lista de espera primero, el resto debajo."""
+
+    template_name = "plataforma/solicitud_lista.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        estados_abiertos = [
+            SolicitudAcceso.Estado.PENDIENTE,
+            SolicitudAcceso.Estado.LISTA_ESPERA,
+        ]
+        context["pendientes"] = SolicitudAcceso.objects.filter(
+            estado__in=estados_abiertos
+        )
+        context["otras"] = SolicitudAcceso.objects.exclude(
+            estado__in=estados_abiertos
+        )[:50]
+        return context
+
+
+class SolicitudDetalleView(SuperadminRequiredMixin, DetailView):
+    """Ficha con el screening completo, el historial de eventos y las acciones."""
+
+    model = SolicitudAcceso
+    template_name = "plataforma/solicitud_detalle.html"
+    context_object_name = "solicitud"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["eventos"] = self.object.eventos.all()
+        context["Estado"] = SolicitudAcceso.Estado
+        return context
+
+
+class _SolicitudDecisionView(SuperadminRequiredMixin, View):
+    """Base POST-only de las acciones sobre una solicitud (GET -> 405)."""
+
+    def get_solicitud(self):
+        return get_object_or_404(SolicitudAcceso, pk=self.kwargs["pk"])
+
+    def _link_invitacion_para(self, request):
+        return lambda usuario: request.build_absolute_uri(
+            solicitudes_tokens.path_invitacion(usuario)
+        )
+
+    def _volver(self):
+        return redirect("plataforma:solicitud_detalle", pk=self.kwargs["pk"])
+
+
+class SolicitudAprobarView(_SolicitudDecisionView):
+    def post(self, request, pk):
+        solicitud = self.get_solicitud()
+        _gimnasio, resultado = solicitudes_services.aprobar(
+            solicitud=solicitud,
+            actor=request.user,
+            link_invitacion_para=self._link_invitacion_para(request),
+        )
+        if resultado == "email_en_uso":
+            messages.warning(
+                request,
+                f"{solicitud.email} ya tiene una cuenta. Le avisamos que ingrese; "
+                "la solicitud queda sin aprobar.",
+            )
+        elif resultado == "ya_existia":
+            messages.info(request, "Esta solicitud ya estaba aprobada.")
+        else:
+            messages.success(
+                request,
+                f"Aprobada. Le enviamos a {solicitud.email} el email para definir "
+                "su contraseña.",
+            )
+        return self._volver()
+
+
+class SolicitudRechazarView(_SolicitudDecisionView):
+    def post(self, request, pk):
+        solicitud = self.get_solicitud()
+        solicitudes_services.rechazar(
+            solicitud=solicitud,
+            actor=request.user,
+            motivo=request.POST.get("motivo", ""),
+        )
+        messages.success(request, "Solicitud rechazada; le avisamos por email.")
+        return self._volver()
+
+
+class SolicitudListaEsperaView(_SolicitudDecisionView):
+    def post(self, request, pk):
+        solicitud = self.get_solicitud()
+        solicitudes_services.a_lista_espera(
+            solicitud=solicitud,
+            actor=request.user,
+            motivo=request.POST.get("motivo", ""),
+        )
+        messages.success(request, "La pasamos a lista de espera; le avisamos por email.")
+        return self._volver()
+
+
+class SolicitudReenviarInvitacionView(_SolicitudDecisionView):
+    def post(self, request, pk):
+        solicitud = self.get_solicitud()
+        usuario = get_user_model().objects.filter(username=solicitud.email).first()
+        if usuario is None:
+            messages.error(request, "No encuentro la cuenta de este gimnasio.")
+        else:
+            solicitudes_services.reenviar_invitacion(
+                solicitud=solicitud,
+                usuario=usuario,
+                link_invitacion_para=self._link_invitacion_para(request),
+            )
+            messages.success(request, f"Reenviamos la invitación a {solicitud.email}.")
+        return self._volver()

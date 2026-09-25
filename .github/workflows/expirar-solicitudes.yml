@@ -1,0 +1,57 @@
+# Expiración diaria de solicitudes de acceso sin verificar
+# (solicitudes.services.expirar_vencidas, ver
+# solicitudes/management/commands/expirar_solicitudes.py).
+#
+# Vive acá y no en render.yaml porque Render no ofrece plan free para cron jobs
+# (mismo criterio que generar-pagos.yml). Sin esto, una solicitud NO_VERIFICADA
+# (el interesado nunca confirmó el email) queda abierta para siempre, y el
+# índice único parcial `una_solicitud_abierta_por_email` le impide a ese email
+# volver a solicitar. Este cron es el camino de recuperación: al vencer el token
+# (DIAS_VALIDEZ_TOKEN), la solicitud pasa a EXPIRADA y el email queda libre.
+
+name: Expirar solicitudes sin verificar
+
+on:
+  schedule:
+    - cron: "0 7 * * *"   # 07:00 UTC, después de generar-pagos (06:30)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: expirar-solicitudes-production
+  cancel-in-progress: false
+
+jobs:
+  expirar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # SHA pineado, no tag (mismo criterio que generar-pagos.yml).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # Solo la URL POOLED (conexiones cortas) + DJANGO_DEBUG (config/db.py
+      # exige TLS contra Neon cuando es False). Este comando no toca archivos ni
+      # manda mails, así que no hacen falta R2_*, GOOGLE_* ni EMAIL_*.
+      - name: Correr expirar_solicitudes
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_POOLED }}
+          DJANGO_DEBUG: "False"
+        run: python manage.py expirar_solicitudes
+
+      # Alerta por AUSENCIA de ping (mismo criterio que los otros crons). El
+      # guard va adentro del paso: los secrets no se pueden evaluar en `if`.
+      - name: Avisar a Healthchecks
+        env:
+          PING: ${{ secrets.HEALTHCHECKS_URL_EXPIRAR_SOLICITUDES }}
+        run: |
+          if [ -n "$PING" ]; then
+            curl -fsS -m 10 --retry 3 "$PING"
+          else
+            echo "HEALTHCHECKS_URL_EXPIRAR_SOLICITUDES sin cargar: se saltea el ping."
+          fi

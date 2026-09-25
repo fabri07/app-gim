@@ -21,6 +21,7 @@ from django.core.mail import send_mail
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.templatetags.static import static
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
@@ -330,6 +331,136 @@ def gimnasio_de_cookie(request):
     return Gimnasio.objects.filter(slug=slug, activo=True).first()
 
 
+def _redirigir_a_login_gimnasio(gimnasio, next_url=None):
+    """Redirect a `g/<slug>/login/`, propagando `next_url` (que el caller ya
+    validó con `url_has_allowed_host_and_scheme`) si viene.
+
+    Antes era un método de `LoginView`; se subió a nivel de módulo para que
+    `PortadaView` -- una `View` aparte que no puede llamar a un método bound de
+    `LoginView` -- comparta la MISMA implementación en lugar de duplicarla.
+    """
+    url = reverse("login_gimnasio", args=[gimnasio.slug])
+    if next_url:
+        url = f"{url}?{urlencode({REDIRECT_FIELD_NAME: next_url})}"
+    return redirect(url)
+
+
+def redireccion_por_cookie(request, next_url=None):
+    """Para un visitante ANÓNIMO que llega al login genérico o a la portada:
+    decide si mandarlo directo al login de SU gimnasio (recordado por la cookie
+    `gimnasio_preferido`) o dejarlo ver el contenido genérico.
+
+    Devuelve `(redirect_o_None, borrar_cookie)`:
+    - `?otro_gimnasio=1` -> `(None, True)`: mostrar genérico y borrar la cookie
+      vieja (sin esto habría loop hacia el gimnasio que la cookie recuerda).
+    - cookie válida -> `(redirect, False)`: al login de ese gimnasio.
+    - cookie inválida (gimnasio inexistente/inactivo) -> `(None, True)`:
+      genérico + limpiar la cookie para no reconsultar en cada visita.
+    - sin cookie -> `(None, False)`: genérico, sin tocar nada.
+
+    `next_url` lo pasa el caller ya validado (`LoginView` con
+    `self.get_redirect_url()`; la portada con `None`, porque nadie llega a `/`
+    con `?next=`). Es el ÚNICO lugar donde vive esta regla, compartido por
+    `LoginView.get` y `PortadaView.get` para que no puedan diverger.
+    """
+    if request.GET.get(GIMNASIO_OMITIR_PARAM) == "1":
+        return None, True
+    if GIMNASIO_COOKIE_NOMBRE in request.COOKIES:
+        gimnasio = gimnasio_de_cookie(request)
+        if gimnasio is not None:
+            return _redirigir_a_login_gimnasio(gimnasio, next_url), False
+        return None, True
+    return None, False
+
+
+def _contexto_precios():
+    """Filas de la tabla de precios para la landing, leídas de la ÚNICA fuente
+    de verdad (`plataforma.precios`), con el precio en pesos si hay cotización.
+
+    Una sola llamada de red por request: `cambio.cotizacion_dolar()` cachea 24h
+    y devuelve `None` ante cualquier fallo (o bajo TESTING) -> se muestra solo
+    USD, mismo contrato que el panel de plataforma. Import tardío de
+    `plataforma` para no acoplar `tenants` a nivel de módulo (mismo criterio que
+    `HomeView`).
+    """
+    from plataforma import cambio, precios
+
+    cotizacion = cambio.cotizacion_dolar()
+    # El tramo "destacado" se deriva de los datos (el del medio), no de un
+    # índice fijo en el template: si ESCALONES gana o pierde un escalón, el
+    # resaltado sigue cayendo en un plan real.
+    destacado_idx = len(precios.ESCALONES) // 2
+    filas = []
+    desde = 1
+    for idx, (tope, precio) in enumerate(precios.ESCALONES):
+        if tope is not None:
+            etiqueta = f"Hasta {tope} alumnos"
+        else:
+            etiqueta = f"Más de {desde - 1} alumnos"
+        filas.append(
+            {
+                "desde": desde,
+                "hasta": tope,  # None = sin tope ("más de N")
+                "etiqueta": etiqueta,
+                "precio_usd": precio,
+                "precio_ars": cambio.pesos(precio, cotizacion),
+                "destacado": idx == destacado_idx,
+            }
+        )
+        if tope is not None:
+            desde = tope + 1
+    return {
+        "precios_filas": filas,
+        "precios_dias_gratis": precios.DIAS_GRATIS,
+        "precios_cotizacion": cotizacion,
+    }
+
+
+class PortadaView(TemplateView):
+    """Raíz `/` del sitio. Reemplaza a `HomeView` en esa ruta (conservando el
+    nombre `home`, que se referencia sin namespace en todo el proyecto) para
+    que un visitante ANÓNIMO vea la landing de producto en vez de un redirect
+    al login.
+
+    Bifurca sin romper ningún flujo existente:
+    - **Autenticado** -> delega en `HomeView` (dashboard staff, portal alumno, o
+      el redirect del superadmin sin Perfil a `plataforma:inicio`). Delegación
+      pura: `HomeView` no se toca ni se renombra.
+    - **Anónimo con cookie `gimnasio_preferido`** -> al login de su gimnasio,
+      igual que hoy hacía `LoginView.get` cuando el anónimo caía en
+      `/accounts/login/`.
+    - **Anónimo sin cookie** -> la landing de producto (esta vista).
+
+    Sin `LoginRequiredMixin` a propósito: la landing es pública, misma familia
+    que `GimnasioLandingView`.
+    """
+
+    template_name = "tenants/portada.html"
+
+    def get(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            return HomeView.as_view()(request, *args, **kwargs)
+        redirect_resp, borrar_cookie = redireccion_por_cookie(request)
+        if redirect_resp is not None:
+            return redirect_resp
+        response = super().get(request, *args, **kwargs)
+        if borrar_cookie:
+            response.delete_cookie(GIMNASIO_COOKIE_NOMBRE)
+        return response
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(_contexto_precios())
+        # og:image ABSOLUTA: los crawlers de redes no bajan una URL relativa.
+        # Se arma con la URL de storage (hasheada por el manifest en prod) +
+        # build_absolute_uri, no un hex/host hardcodeado.
+        context["og_image"] = self.request.build_absolute_uri(
+            static("img/portada/og.png")
+        )
+        context["og_url"] = self.request.build_absolute_uri("/")
+        return context
+
+
 class LoginView(auth_views.LoginView):
     """Sin `redirect_authenticated_user`, un usuario ya logueado que visita
     `/accounts/login/` ve el form de login superpuesto a su propia nav de
@@ -372,40 +503,24 @@ class LoginView(auth_views.LoginView):
         no generada por este template) borraría la cookie igual, aunque
         `GimnasioLoginView` nunca ofrece ese link -- contradice la garantía
         de que este mecanismo "solo corre en el login genérico".
+
+        La regla en sí vive en `redireccion_por_cookie` (a nivel de módulo),
+        compartida con `PortadaView.get`. Acá se le pasa `self.get_redirect_url()`
+        -- que valida `?next=` con `url_has_allowed_host_and_scheme` antes de
+        reenviarlo, así un `?next=https://evil.com` se corta acá, no río abajo.
         """
-        if getattr(self, "gimnasio", None) is None:
-            omitir = request.GET.get(GIMNASIO_OMITIR_PARAM) == "1"
-            cookie_invalida = False
-            if not omitir and GIMNASIO_COOKIE_NOMBRE in request.COOKIES:
-                gimnasio = gimnasio_de_cookie(request)
-                if gimnasio is not None:
-                    return self._redirigir_a_login_gimnasio(gimnasio)
-                cookie_invalida = True
+        if getattr(self, "gimnasio", None) is not None:
+            return super().get(request, *args, **kwargs)
 
-            response = super().get(request, *args, **kwargs)
-            if omitir or cookie_invalida:
-                response.delete_cookie(GIMNASIO_COOKIE_NOMBRE)
-            return response
-
-        return super().get(request, *args, **kwargs)
-
-    def _redirigir_a_login_gimnasio(self, gimnasio):
-        """Redirect manual (no pasa por `RedirectURLMixin.get_success_url`,
-        que es para DESPUÉS de loguearse) -- hay que propagar `?next=` a
-        mano: `RedirectURLMixin.get_redirect_url()` solo lee `next` del
-        request ACTUAL, no lo hereda de un redirect propio.
-
-        Se usa `self.get_redirect_url()` (no `request.GET.get(...)` crudo)
-        a propósito: valida el destino con
-        `url_has_allowed_host_and_scheme` antes de reenviarlo -- sin esto,
-        `?next=https://evil.com` viajaría sin validar hasta la URL de
-        `login_gimnasio`, confiando en que ALGO río abajo lo vuelva a
-        validar en vez de cortarlo acá, en el único lugar que lo reenvía."""
-        url = reverse("login_gimnasio", args=[gimnasio.slug])
-        next_url = self.get_redirect_url()
-        if next_url:
-            url = f"{url}?{urlencode({REDIRECT_FIELD_NAME: next_url})}"
-        return redirect(url)
+        redirect_resp, borrar_cookie = redireccion_por_cookie(
+            request, self.get_redirect_url()
+        )
+        if redirect_resp is not None:
+            return redirect_resp
+        response = super().get(request, *args, **kwargs)
+        if borrar_cookie:
+            response.delete_cookie(GIMNASIO_COOKIE_NOMBRE)
+        return response
 
     def form_valid(self, form):
         """Tras loguearse, guarda qué gimnasio es el de este usuario en la
