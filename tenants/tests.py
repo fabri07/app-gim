@@ -1545,18 +1545,34 @@ class GimnasioPreferidoCookieTests(TestCase):
         )
         self.assertEqual(self.client.cookies["gimnasio_preferido"].value, "gimnasio-b")
 
-    def test_anonimo_con_cookie_valida_es_redirigido_preservando_next(self):
+    def test_anonimo_con_cookie_valida_es_redirigido_a_su_gimnasio(self):
+        """Desde la raíz `/` (portada), el anónimo con cookie va al login de SU
+        gimnasio. No se propaga `?next=`: nadie llega a `/` con un next legítimo
+        (`PortadaView` pasa `next_url=None`), y tras loguearse cae igual en su
+        portal. La preservación de `next` la cubre la ruta de login (test de
+        abajo)."""
         self.client.post(
             reverse("login"), {"username": "alumno-a", "password": "clave-123456"}
         )
         self.client.post(reverse("logout"))
         response = self.client.get(reverse("home"), follow=True)
-        esperado = (
-            reverse("login_gimnasio", args=["gimnasio-a"])
-            + f"?{urlencode({'next': reverse('home')})}"
-        )
+        esperado = reverse("login_gimnasio", args=["gimnasio-a"])
         self.assertIn((esperado, 302), response.redirect_chain)
         self.assertContains(response, "Gimnasio A")
+
+    def test_login_generico_con_cookie_preserva_next(self):
+        """En la ruta de login (donde un `LoginRequiredMixin` sí manda un `next`
+        real), la redirección por cookie a `g/<slug>/login/` lo propaga."""
+        self.client.post(
+            reverse("login"), {"username": "alumno-a", "password": "clave-123456"}
+        )
+        self.client.post(reverse("logout"))
+        response = self.client.get(reverse("login") + "?next=/mi-gimnasio/")
+        esperado = (
+            reverse("login_gimnasio", args=["gimnasio-a"])
+            + f"?{urlencode({'next': '/mi-gimnasio/'})}"
+        )
+        self.assertRedirects(response, esperado, fetch_redirect_response=False)
 
     def test_cookie_de_gimnasio_inactivo_se_ignora_y_se_borra(self):
         self.client.cookies["gimnasio_preferido"] = "cerrado"

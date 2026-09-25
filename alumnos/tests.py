@@ -12,7 +12,7 @@ alumno.
 import datetime
 from unittest.mock import patch
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -797,11 +797,14 @@ class ServiciosAccesoTests(TestCase):
         )
         self.alumno.refresh_from_db()
         self.client.login(username="juan@ejemplo.com", password=password)
-        self.assertEqual(self.client.get(reverse("home")).status_code, 200)
+        # `reverse("home")` ya no sirve para probar la muerte de la sesión: es
+        # pública (landing) y da 200 con o sin sesión. Se comprueba contra la
+        # sesión directamente, que es lo que revalida cada request.
+        self.assertTrue(get_user(self.client).is_authenticated)
 
         servicios.regenerar_password(self.alumno)
 
-        self.assertEqual(self.client.get(reverse("home")).status_code, 302)
+        self.assertFalse(get_user(self.client).is_authenticated)
 
     def test_la_password_generada_pasa_los_validadores(self):
         password = servicios.crear_acceso(
@@ -871,13 +874,16 @@ class RevocacionAccesoTests(TestCase):
         el request siguiente."""
         cliente_alumno = Client()
         cliente_alumno.login(username="juan@ejemplo.com", password=self.password)
-        self.assertEqual(cliente_alumno.get(reverse("home")).status_code, 200)
+        # `reverse("home")` es público (landing) desde que el sitio se abrió, así
+        # que no distingue una sesión viva de una muerta. Se mira la sesión: es
+        # lo que `ModelBackend.get_user()` revalida en cada request.
+        self.assertTrue(get_user(cliente_alumno).is_authenticated)
 
         cliente_staff = Client()
         cliente_staff.force_login(self.staff)
         self._toggle(cliente=cliente_staff)
 
-        self.assertEqual(cliente_alumno.get(reverse("home")).status_code, 302)
+        self.assertFalse(get_user(cliente_alumno).is_authenticated)
 
     def test_alumno_sin_acceso_no_rompe(self):
         sin_acceso = Alumno.objects.create(
