@@ -81,6 +81,9 @@ INSTALLED_APPS = [
     #   notificaciones -> manifest/SW/push (FK a Gimnasio/Perfil, lee
     #                     Novedad/RutinaAsignada/Reserva/Cuota) -- depende
     #                     de todo el dominio
+    #   solicitudes -> embudo público de captación (SolicitudAcceso). Depende
+    #                  de tenants.services (crear_gimnasio) al aprobar; la lee
+    #                  plataforma (la cola de revisión), así que va antes.
     #   plataforma -> panel del dueño del producto (mira TODOS los gimnasios:
     #                 facturación, uso, estado de cuenta). Lee el dominio
     #                 entero y nadie la lee a ella, así que va última de todas.
@@ -95,6 +98,7 @@ INSTALLED_APPS = [
     'turnos',
     'calendario',
     'notificaciones',
+    'solicitudes',
     'plataforma',
 ]
 
@@ -394,6 +398,11 @@ EXPORTACION_AVISO_EMAIL = os.environ.get("EXPORTACION_AVISO_EMAIL", "")
 # Texto libre ("escribinos al 11-...") que ve el gimnasio sin la exportación
 # habilitada. Vacío = el cartel no promete ningún canal.
 SOPORTE_CONTACTO = os.environ.get("SOPORTE_CONTACTO", "")
+
+# A dónde llega el aviso de una nueva solicitud de acceso verificada (la
+# bandeja del dueño del producto ES la cola). Vacío -> cae a DEFAULT_FROM_EMAIL,
+# y sin EMAIL_* configuradas el mail va al backend de consola (nunca rompe).
+SOLICITUDES_AVISO_EMAIL = os.environ.get("SOLICITUDES_AVISO_EMAIL", "")
 
 # PWA / Web Push (app `notificaciones`). Mismo criterio todo-o-nada que
 # GOOGLE_*/R2_*: sin las 3 variables, `notificaciones.services` se vuelve

@@ -18,6 +18,8 @@ urlpatterns = [
     path("calendario/", include("calendario.urls")),
     path("importaciones/", include("importaciones.urls")),
     path("plataforma/", include("plataforma.urls")),
+    # Embudo público de captación de gimnasios (sin auth).
+    path("solicitar/", include("solicitudes.urls")),
 ]
 
 if settings.DEBUG:

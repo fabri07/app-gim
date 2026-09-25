@@ -1,0 +1,9 @@
+Hola {{ solicitud.nombre_contacto }},
+
+Vimos tu solicitud, pero ya existe una cuenta en TuGimApp con este email
+({{ solicitud.email }}).
+
+Entrá directamente desde la app con tu usuario y contraseña. Si no la
+recordás, usá la opción "¿Olvidaste tu contraseña?" en la pantalla de ingreso.
+
+— El equipo de TuGimApp

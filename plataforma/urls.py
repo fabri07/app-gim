@@ -10,6 +10,12 @@ from plataforma.views import (
     GimnasioDetalleView,
     InicioView,
     PagoPlataformaCreateView,
+    SolicitudAprobarView,
+    SolicitudDetalleView,
+    SolicitudListaEsperaView,
+    SolicitudListaView,
+    SolicitudRechazarView,
+    SolicitudReenviarInvitacionView,
 )
 
 app_name = "plataforma"
@@ -49,5 +55,33 @@ urlpatterns = [
         "gimnasios/<int:pk>/exportacion/",
         ExportacionToggleView.as_view(),
         name="exportacion_toggle",
+    ),
+    # Cola de solicitudes de acceso (leads). La lista va antes que el detalle
+    # por el mismo criterio de "ruta más específica primero" del resto.
+    path("solicitudes/", SolicitudListaView.as_view(), name="solicitud_lista"),
+    path(
+        "solicitudes/<int:pk>/",
+        SolicitudDetalleView.as_view(),
+        name="solicitud_detalle",
+    ),
+    path(
+        "solicitudes/<int:pk>/aprobar/",
+        SolicitudAprobarView.as_view(),
+        name="solicitud_aprobar",
+    ),
+    path(
+        "solicitudes/<int:pk>/rechazar/",
+        SolicitudRechazarView.as_view(),
+        name="solicitud_rechazar",
+    ),
+    path(
+        "solicitudes/<int:pk>/lista-espera/",
+        SolicitudListaEsperaView.as_view(),
+        name="solicitud_lista_espera",
+    ),
+    path(
+        "solicitudes/<int:pk>/reenviar/",
+        SolicitudReenviarInvitacionView.as_view(),
+        name="solicitud_reenviar",
     ),
 ]

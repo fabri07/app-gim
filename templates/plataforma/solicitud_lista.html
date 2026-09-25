@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block title %}Solicitudes · Plataforma{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<h1>Solicitudes de acceso</h1>
+<p class="texto-suave">Interesados que pidieron una cuenta. Los que confirmaron
+  su email esperan tu decisión.</p>
+
+<h2>Esperando decisión</h2>
+{% if pendientes %}
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
+        <tr><th>Gimnasio</th><th>Contacto</th><th>Alumnos</th><th>Estado</th><th>Recibida</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for s in pendientes %}
+          <tr>
+            <td>{{ s.nombre_gimnasio }}</td>
+            <td>{{ s.nombre_contacto }}<br><span class="texto-suave">{{ s.email }}</span></td>
+            <td>{{ s.cantidad_alumnos|default:"—" }}</td>
+            <td>
+              {% if s.estado == "lista_espera" %}<span class="badge badge--neutro">En lista de espera</span>
+              {% else %}<span class="badge badge--alerta">Pendiente</span>{% endif %}
+            </td>
+            <td>{{ s.creado|date:"d/m/Y" }}</td>
+            <td><a class="boton-secundario" href="{% url 'plataforma:solicitud_detalle' s.pk %}">Revisar</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="texto-suave">No hay solicitudes esperando decisión.</p>
+{% endif %}
+
+{% if otras %}
+  <h2>Cerradas</h2>
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
+        <tr><th>Gimnasio</th><th>Email</th><th>Estado</th><th>Recibida</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for s in otras %}
+          <tr>
+            <td>{{ s.nombre_gimnasio }}</td>
+            <td>{{ s.email }}</td>
+            <td>{{ s.get_estado_display }}</td>
+            <td>{{ s.creado|date:"d/m/Y" }}</td>
+            <td><a class="boton-secundario" href="{% url 'plataforma:solicitud_detalle' s.pk %}">Ver</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

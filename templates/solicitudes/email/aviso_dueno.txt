@@ -1,0 +1,19 @@
+Nueva solicitud verificada.
+
+Gimnasio: {{ solicitud.nombre_gimnasio }}
+Contacto: {{ solicitud.nombre_contacto }}
+Email: {{ solicitud.email }}
+Teléfono: {{ solicitud.telefono|default:"—" }}
+Alumnos aprox.: {{ solicitud.cantidad_alumnos|default:"—" }}
+
+Años operando: {{ solicitud.get_anios_operando_display|default:"—" }}
+Staff: {{ solicitud.get_tamano_staff_display|default:"—" }}
+Ingresos: {{ solicitud.get_banda_ingresos_display|default:"—" }}
+Formato de registros: {{ solicitud.get_formato_registros_display|default:"—" }}
+Historia: {{ solicitud.get_profundidad_historia_display|default:"—" }}
+Puede compartir archivos: {{ solicitud.get_puede_compartir_archivos_display|default:"—" }}
+
+Comentario: {{ solicitud.comentario|default:"—" }}
+
+Revisala en el panel:
+{{ url_panel }}

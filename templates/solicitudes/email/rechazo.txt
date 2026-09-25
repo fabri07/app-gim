@@ -1,0 +1,10 @@
+Hola {{ solicitud.nombre_contacto }},
+
+Gracias por tu interés en TuGimApp. Por ahora no vamos a poder darte de alta
+para {{ solicitud.nombre_gimnasio }}.
+
+{% if solicitud.motivo_decision %}{{ solicitud.motivo_decision }}
+
+{% endif %}Si creés que es un error, escribinos y lo vemos.
+
+— El equipo de TuGimApp

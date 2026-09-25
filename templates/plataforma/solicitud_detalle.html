@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% block title %}{{ solicitud.nombre_gimnasio }} · Solicitud{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<p><a href="{% url 'plataforma:solicitud_lista' %}">← Volver a solicitudes</a></p>
+<h1>{{ solicitud.nombre_gimnasio }}</h1>
+<p><span class="badge badge--neutro">{{ solicitud.get_estado_display }}</span></p>
+
+<div class="tarjeta">
+  <dl class="ficha-datos">
+    <dt>Contacto</dt><dd>{{ solicitud.nombre_contacto }}</dd>
+    <dt>Email</dt><dd>{{ solicitud.email }}</dd>
+    <dt>Teléfono</dt><dd>{{ solicitud.telefono|default:"—" }}</dd>
+    <dt>Alumnos aprox.</dt><dd>{{ solicitud.cantidad_alumnos|default:"—" }}</dd>
+    <dt>Años operando</dt><dd>{{ solicitud.get_anios_operando_display|default:"—" }}</dd>
+    <dt>Staff</dt><dd>{{ solicitud.get_tamano_staff_display|default:"—" }}</dd>
+    <dt>Ingresos</dt><dd>{{ solicitud.get_banda_ingresos_display|default:"—" }}</dd>
+    <dt>Formato de registros</dt><dd>{{ solicitud.get_formato_registros_display|default:"—" }}</dd>
+    <dt>Historia</dt><dd>{{ solicitud.get_profundidad_historia_display|default:"—" }}</dd>
+    <dt>Comparte archivos</dt><dd>{{ solicitud.get_puede_compartir_archivos_display|default:"—" }}</dd>
+    <dt>Comentario</dt><dd>{{ solicitud.comentario|default:"—" }}</dd>
+  </dl>
+</div>
+
+{% if solicitud.estado == Estado.PENDIENTE or solicitud.estado == Estado.LISTA_ESPERA %}
+  <div class="tarjeta">
+    <h2>Decisión</h2>
+    <form method="post" action="{% url 'plataforma:solicitud_aprobar' solicitud.pk %}">
+      {% csrf_token %}
+      <p class="texto-suave">Aprobar crea el gimnasio y le manda al dueño un email
+        para que defina su contraseña.</p>
+      <button type="submit" class="boton">Aprobar y crear el gimnasio</button>
+    </form>
+    <hr>
+    <form method="post" action="{% url 'plataforma:solicitud_lista_espera' solicitud.pk %}">
+      {% csrf_token %}
+      <label for="motivo-espera">Nota (opcional)</label>
+      <textarea id="motivo-espera" name="motivo" rows="2"></textarea>
+      <button type="submit" class="boton-secundario">Pasar a lista de espera</button>
+    </form>
+    <hr>
+    <form method="post" action="{% url 'plataforma:solicitud_rechazar' solicitud.pk %}">
+      {% csrf_token %}
+      <label for="motivo-rechazo">Motivo (opcional)</label>
+      <textarea id="motivo-rechazo" name="motivo" rows="2"></textarea>
+      <button type="submit" class="boton-secundario">Rechazar</button>
+    </form>
+  </div>
+{% elif solicitud.estado == Estado.APROBADA %}
+  <div class="tarjeta">
+    <h2>Aprobada</h2>
+    {% if solicitud.gimnasio_creado %}
+      <p>Gimnasio creado:
+        <a href="{% url 'plataforma:gimnasio_detalle' solicitud.gimnasio_creado.pk %}">{{ solicitud.gimnasio_creado.nombre }}</a>.</p>
+    {% endif %}
+    <form method="post" action="{% url 'plataforma:solicitud_reenviar' solicitud.pk %}">
+      {% csrf_token %}
+      <p class="texto-suave">Si al dueño se le venció el link, reenviale la invitación.</p>
+      <button type="submit" class="boton-secundario">Reenviar invitación</button>
+    </form>
+  </div>
+{% endif %}
+
+<div class="tarjeta">
+  <h2>Historial</h2>
+  <ul>
+    {% for e in eventos %}
+      <li>{{ e.creado|date:"d/m/Y H:i" }} — {{ e.get_a_estado_display }}{% if e.motivo %}: {{ e.motivo }}{% endif %}</li>
+    {% empty %}
+      <li class="texto-suave">Sin eventos.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

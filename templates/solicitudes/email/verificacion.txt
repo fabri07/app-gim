@@ -1,0 +1,11 @@
+Hola {{ solicitud.nombre_contacto }},
+
+Recibimos tu solicitud para {{ solicitud.nombre_gimnasio }} en TuGimApp.
+
+Para que entre a revisión, confirmá que este email es tuyo entrando a:
+
+{{ url_verificacion }}
+
+Si no pediste esto, ignorá este mensaje.
+
+— El equipo de TuGimApp

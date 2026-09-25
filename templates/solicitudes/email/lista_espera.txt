@@ -1,0 +1,10 @@
+Hola {{ solicitud.nombre_contacto }},
+
+Gracias por tu interés en TuGimApp para {{ solicitud.nombre_gimnasio }}.
+
+Por ahora te sumamos a la lista de espera. Apenas podamos activar tu cuenta,
+te escribimos a este mismo email.
+
+{% if solicitud.motivo_decision %}Nota: {{ solicitud.motivo_decision }}
+
+{% endif %}— El equipo de TuGimApp

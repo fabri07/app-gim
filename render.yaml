@@ -118,6 +118,11 @@ services:
         sync: false
       - key: SOPORTE_CONTACTO
         sync: false
+      # A dónde llega el aviso de una nueva solicitud de acceso verificada
+      # (el embudo público de captación). Opcional: vacío cae a
+      # DEFAULT_FROM_EMAIL, y sin EMAIL_* el mail va a la consola.
+      - key: SOLICITUDES_AVISO_EMAIL
+        sync: false
       # Web Push (PWA). Las 3 o ninguna -> `PUSH_ENABLED`. El par
       # público/privado tiene que ser IDÉNTICO al de los secrets de GitHub
       # Actions, o las suscripciones creadas con una clave se rechazan al
