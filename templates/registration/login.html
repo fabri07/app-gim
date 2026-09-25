@@ -1,6 +1,15 @@
 {% extends 'base.html' %}
-{% block title %}{% if gimnasio %}Ingresar · {{ gimnasio.nombre }}{% else %}Ingresar · App Gimnasios{% endif %}{% endblock %}
+{% block title %}{% if gimnasio %}Ingresar · {{ gimnasio.nombre }}{% else %}Ingresar · TuGimApp{% endif %}{% endblock %}
 {% block main_class %}{% endblock %}
+
+{% block topbar %}
+  {% comment %}
+    Login genérico: la misma nav del sitio público (la portada), sin «Ingresar»
+    porque ya estás acá. Login de un gimnasio: la barra de siempre -- la marca
+    de esa pantalla es la del gimnasio, no la del producto.
+  {% endcomment %}
+  {% if gimnasio %}{{ block.super }}{% else %}{% include 'partials/portada_nav.html' with anclas_base="/" en_login=True %}{% endif %}
+{% endblock %}
 
 {% block extra_style %}
 {% if gimnasio %}
@@ -57,7 +66,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="auth-hero{% if gimnasio %} auth-hero--gimnasio{% endif %}"
+<div class="auth-hero{% if gimnasio %} auth-hero--gimnasio{% else %} auth-hero--producto{% endif %}"
      {% if gimnasio %}style="--color-fondo: {{ gimnasio.color_fondo_css }}; --color-primario: {{ gimnasio.color_primario_css }}; --color-secundario: {{ gimnasio.color_secundario_css }}; font-family: {{ gimnasio.tipografia_css_family|safe }};"{% endif %}>
   <div class="auth-hero__copy">
     {% if gimnasio %}
@@ -93,43 +102,69 @@
         </a>
       </p>
     {% else %}
-      {% include 'partials/atletas_frieze.html' %}
-      <h1 class="auth-hero__titulo">Gestionar tu gimnasio es más fácil con una buena app</h1>
-      <p class="auth-hero__subtitulo">
-        Alumnos, pagos, rutinas y turnos en un solo lugar — así tu box deja de
-        depender de una planilla suelta o un chat de WhatsApp perdido.
-      </p>
+      {% comment %}
+        Misma voz que la portada (titular 800 con la segunda frase en color de
+        marca) y el mismo celular de ejemplo, que acá reemplaza a la banda de
+        atletas. Le habla a los dos públicos que llegan acá: el staff y el
+        alumno que LOGIN_URL mandó desde una vista protegida.
+      {% endcomment %}
+      <h1 class="auth-hero__titulo auth-hero__titulo--producto">Hola de nuevo<span class="pt">.</span> <span class="auth-hero__titulo-marca">Entrá a tu gimnasio<span class="pt">.</span></span></h1>
+      <p class="auth-hero__subtitulo">Dueños y entrenadores manejan todo desde el panel. Los alumnos ven su rutina, su cuota y sus turnos. Todos entran por acá.</p>
+      <div class="auth-hero__demo" aria-hidden="true">
+        {% include 'partials/portada_celular.html' %}
+      </div>
+      <p class="auth-hero__demo-nota">Así ven su rutina tus alumnos. Datos de ejemplo.</p>
     {% endif %}
   </div>
   <div class="auth-hero__form">
-    <div class="tarjeta">
-      <h2>Ingresar</h2>
+    <div class="auth-card">
+      <h2 class="auth-card__titulo">Ingresar</h2>
       {% comment %}
         hx-boost="false": mismo motivo que el form de logout en base.html --
         el <style> con el fondo del gimnasio vive en <head>, que hx-boost no
         swapea, así que sin esto el fondo no aparece recién logueado hasta un
         refresh manual.
+
+        Campo por campo y no `form.as_p`: `.errorlist` no tiene estilo en este
+        proyecto, y un rechazo que no se ve es igual a un login que no anda
+        (ver CLAUDE.md, «Un formulario que rechaza sin que se note»). La
+        etiqueta dice «Usuario» a secas: el form no normaliza lo que se
+        escribe, así que invitar a tipear «el teléfono» haría fallar a quien lo
+        escriba en otro formato que el que le cargó el gimnasio.
       {% endcomment %}
-      <form method="post" novalidate hx-boost="false">
+      <form method="post" novalidate hx-boost="false" class="auth-card__form">
         {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit" class="boton">Entrar</button>
+        {% if form.non_field_errors %}
+          <div class="auth-card__error" role="alert">
+            {% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}
+          </div>
+        {% endif %}
+        <div class="auth-card__campo">
+          <label for="{{ form.username.id_for_label }}">Usuario</label>
+          {{ form.username }}
+          <p class="auth-card__ayuda">El que te pasó tu gimnasio, tal cual te lo pasó.</p>
+          {% for e in form.username.errors %}<p class="auth-card__error-campo">{{ e }}</p>{% endfor %}
+        </div>
+        <div class="auth-card__campo">
+          <div class="auth-card__label-fila">
+            <label for="{{ form.password.id_for_label }}">Contraseña</label>
+            {% if PASSWORD_RESET_DISPONIBLE %}
+              {% comment %}
+                hx-boost="false" por consistencia con el resto de los links de
+                esta página: en g/<slug>/login/ el <head> lleva colores/manifest
+                del gimnasio vía extra_style, y un swap boosteado (que solo
+                reemplaza <body>) los dejaría pegados.
+              {% endcomment %}
+              <a href="{% url 'password_reset' %}" hx-boost="false" class="auth-card__olvido">¿Olvidaste tu contraseña?</a>
+            {% endif %}
+          </div>
+          {{ form.password }}
+          {% for e in form.password.errors %}<p class="auth-card__error-campo">{{ e }}</p>{% endfor %}
+        </div>
+        <button type="submit" class="portada-pildora auth-card__entrar">Entrar</button>
       </form>
-      {% if PASSWORD_RESET_DISPONIBLE %}
-        <p class="texto-suave text-center my-2">
-          {% comment %}
-            hx-boost="false" por consistencia con el resto de los links de
-            esta página (mismo gotcha documentado en CLAUDE.md): en
-            g/<slug>/login/ el <head> lleva colores/manifest del gimnasio
-            vía extra_style, y un swap boosteado (que solo reemplaza
-            <body>) dejaría esos valores del gimnasio anterior pegados en
-            vez de revertir al default al entrar a esta pantalla genérica.
-          {% endcomment %}
-          <a href="{% url 'password_reset' %}" hx-boost="false">¿Olvidaste tu contraseña?</a>
-        </p>
-      {% endif %}
       {% if GOOGLE_STAFF_LOGIN_DISPONIBLE %}
-        <p class="texto-suave text-center my-2">o</p>
+        <p class="auth-card__o"><span>o</span></p>
         {% comment %}
           hx-boost="false": el link redirige cross-origin a
           accounts.google.com -- mismo gotcha (y misma solución) que
@@ -138,11 +173,15 @@
           nunca expone un `next` inseguro acá), mismo criterio que el link
           "¿No es tu gimnasio?" de arriba.
         {% endcomment %}
-        <a href="{% url 'login_google' %}{% if next %}?next={{ next|urlencode }}{% endif %}" class="boton-secundario" hx-boost="false">
+        <a href="{% url 'login_google' %}{% if next %}?next={{ next|urlencode }}{% endif %}" class="auth-card__google" hx-boost="false">
           Iniciar sesión con Google
         </a>
+        <p class="auth-card__nota">Solo para dueños y entrenadores.</p>
       {% endif %}
     </div>
+    {% if not gimnasio %}
+      <p class="auth-hero__sin-cuenta">¿Todavía no tenés cuenta? <a href="{% url 'solicitudes:solicitar' %}">Pedí tu prueba gratis</a></p>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

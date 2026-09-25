@@ -386,13 +386,11 @@ def _contexto_precios():
     from plataforma import cambio, precios
 
     cotizacion = cambio.cotizacion_dolar()
-    # El tramo "destacado" se deriva de los datos (el del medio), no de un
-    # índice fijo en el template: si ESCALONES gana o pierde un escalón, el
-    # resaltado sigue cayendo en un plan real.
-    destacado_idx = len(precios.ESCALONES) // 2
+    # Sin tramo "destacado": el tramo no se elige, cae según los alumnos
+    # activos. Resaltar uno sería un «Popular» sin ningún dato detrás.
     filas = []
     desde = 1
-    for idx, (tope, precio) in enumerate(precios.ESCALONES):
+    for tope, precio in precios.ESCALONES:
         if tope is not None:
             etiqueta = f"Hasta {tope} alumnos"
         else:
@@ -404,7 +402,6 @@ def _contexto_precios():
                 "etiqueta": etiqueta,
                 "precio_usd": precio,
                 "precio_ars": cambio.pesos(precio, cotizacion),
-                "destacado": idx == destacado_idx,
             }
         )
         if tope is not None:
@@ -458,6 +455,14 @@ class PortadaView(TemplateView):
             static("img/portada/og.png")
         )
         context["og_url"] = self.request.build_absolute_uri("/")
+        # Selector de paisaje del hero: los colores salen de la MISMA fuente que
+        # usa cada gimnasio (`Gimnasio.PALETAS`), nunca de hex escritos en el
+        # template o en el CSS -- si se agrega o retoca un paisaje, la demo lo
+        # muestra sola (The Runtime Brand Rule, DESIGN.md).
+        context["paletas_demo"] = [
+            {"clave": clave, "nombre": Gimnasio.Paleta(clave).label, **colores}
+            for clave, colores in Gimnasio.PALETAS.items()
+        ]
         return context
 
 

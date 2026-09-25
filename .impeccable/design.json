@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-14T12:00:00Z",
+  "generatedAt": "2026-09-25T12:00:00Z",
   "title": "Design System: TuGimApp",
   "extensions": {
     "colorMeta": {
@@ -49,20 +49,76 @@
           "oklch(93% .04 30)"
         ]
       },
-      "paisaje-oceano-fondo": { "role": "fondo-alterno", "displayName": "Océano — fondo", "canonical": "#eef3f6" },
-      "paisaje-oceano-primario": { "role": "primary-alterno", "displayName": "Océano — azul noche", "canonical": "#1e3a5f" },
-      "paisaje-oceano-secundario": { "role": "secondary-alterno", "displayName": "Océano — ámbar", "canonical": "#e2a03f" },
-      "paisaje-arena-fondo": { "role": "fondo-alterno", "displayName": "Arena — fondo", "canonical": "#faf6f0" },
-      "paisaje-arena-primario": { "role": "primary-alterno", "displayName": "Arena — terracota", "canonical": "#b4532a" },
-      "paisaje-arena-secundario": { "role": "secondary-alterno", "displayName": "Arena — verde azulado", "canonical": "#2f6b63" },
-      "paisaje-pizarra-fondo": { "role": "fondo-alterno", "displayName": "Pizarra — fondo", "canonical": "#f0f1f3" },
-      "paisaje-pizarra-primario": { "role": "primary-alterno", "displayName": "Pizarra — gris azulado", "canonical": "#33475b" },
-      "paisaje-pizarra-secundario": { "role": "secondary-alterno", "displayName": "Pizarra — verde salvia", "canonical": "#5b8c5a" },
-      "neutral-surface-border": { "role": "neutral", "displayName": "Borde sutil", "canonical": "oklch(96.7% .003 264.542)" },
-      "neutral-border": { "role": "neutral", "displayName": "Borde", "canonical": "oklch(92.8% .006 264.531)" },
-      "neutral-muted": { "role": "neutral", "displayName": "Texto apagado", "canonical": "oklch(55.1% .027 264.364)" },
-      "neutral-label": { "role": "neutral", "displayName": "Texto de label", "canonical": "oklch(44.6% .03 256.802)" },
-      "neutral-body": { "role": "neutral", "displayName": "Texto de cuerpo", "canonical": "oklch(37.3% .034 259.733)" },
+      "paisaje-oceano-fondo": {
+        "role": "fondo-alterno",
+        "displayName": "Océano — fondo",
+        "canonical": "#eef3f6"
+      },
+      "paisaje-oceano-primario": {
+        "role": "primary-alterno",
+        "displayName": "Océano — azul noche",
+        "canonical": "#1e3a5f"
+      },
+      "paisaje-oceano-secundario": {
+        "role": "secondary-alterno",
+        "displayName": "Océano — ámbar",
+        "canonical": "#e2a03f"
+      },
+      "paisaje-arena-fondo": {
+        "role": "fondo-alterno",
+        "displayName": "Arena — fondo",
+        "canonical": "#faf6f0"
+      },
+      "paisaje-arena-primario": {
+        "role": "primary-alterno",
+        "displayName": "Arena — terracota",
+        "canonical": "#b4532a"
+      },
+      "paisaje-arena-secundario": {
+        "role": "secondary-alterno",
+        "displayName": "Arena — verde azulado",
+        "canonical": "#2f6b63"
+      },
+      "paisaje-pizarra-fondo": {
+        "role": "fondo-alterno",
+        "displayName": "Pizarra — fondo",
+        "canonical": "#f0f1f3"
+      },
+      "paisaje-pizarra-primario": {
+        "role": "primary-alterno",
+        "displayName": "Pizarra — gris azulado",
+        "canonical": "#33475b"
+      },
+      "paisaje-pizarra-secundario": {
+        "role": "secondary-alterno",
+        "displayName": "Pizarra — verde salvia",
+        "canonical": "#5b8c5a"
+      },
+      "neutral-surface-border": {
+        "role": "neutral",
+        "displayName": "Borde sutil",
+        "canonical": "oklch(96.7% .003 264.542)"
+      },
+      "neutral-border": {
+        "role": "neutral",
+        "displayName": "Borde",
+        "canonical": "oklch(92.8% .006 264.531)"
+      },
+      "neutral-muted": {
+        "role": "neutral",
+        "displayName": "Texto apagado",
+        "canonical": "oklch(55.1% .027 264.364)"
+      },
+      "neutral-label": {
+        "role": "neutral",
+        "displayName": "Texto de label",
+        "canonical": "oklch(44.6% .03 256.802)"
+      },
+      "neutral-body": {
+        "role": "neutral",
+        "displayName": "Texto de cuerpo",
+        "canonical": "oklch(37.3% .034 259.733)"
+      },
       "neutral-heading": {
         "role": "neutral",
         "displayName": "Texto principal",
@@ -80,36 +136,165 @@
           "oklch(98.5% .002 247.839)"
         ]
       },
-      "status-ok-bg": { "role": "status", "displayName": "Éxito (fondo)", "canonical": "oklch(96.2% .044 156.743)" },
-      "status-ok-text": { "role": "status", "displayName": "Éxito (texto)", "canonical": "oklch(44.8% .119 151.328)" },
-      "status-alerta-bg": { "role": "status", "displayName": "Alerta (fondo)", "canonical": "oklch(96.2% .059 95.617)" },
-      "status-alerta-text": { "role": "status", "displayName": "Alerta (texto)", "canonical": "oklch(47.3% .137 46.201)" },
-      "status-riesgo-bg": { "role": "status", "displayName": "Riesgo (fondo)", "canonical": "oklch(93.6% .032 17.717)" },
-      "status-riesgo-text": { "role": "status", "displayName": "Riesgo (texto)", "canonical": "oklch(44.4% .177 26.899)" },
-      "accion-peligro": { "role": "action", "displayName": "Acción destructiva", "canonical": "oklch(57.7% .245 27.325)" },
-      "accion-peligro-hover": { "role": "action", "displayName": "Acción destructiva (hover)", "canonical": "oklch(50.5% .213 27.518)" },
-      "suplantacion-bg": { "role": "signal", "displayName": "Banner de suplantación (fondo)", "canonical": "oklch(96.2% .059 95.617)" },
-      "suplantacion-border": { "role": "signal", "displayName": "Banner de suplantación (borde)", "canonical": "oklch(87.9% .169 91.605)" },
-      "suplantacion-text": { "role": "signal", "displayName": "Banner de suplantación (texto)", "canonical": "oklch(41.4% .112 45.904)" },
-      "dataviz-secuencial-1": { "role": "dataviz", "displayName": "Asistencia baja", "canonical": "#b7d3f6" },
-      "dataviz-secuencial-2": { "role": "dataviz", "displayName": "Asistencia media-baja", "canonical": "#6da7ec" },
-      "dataviz-secuencial-3": { "role": "dataviz", "displayName": "Asistencia media-alta", "canonical": "#2a78d6" },
-      "dataviz-secuencial-4": { "role": "dataviz", "displayName": "Asistencia alta", "canonical": "#184f95" }
+      "status-ok-bg": {
+        "role": "status",
+        "displayName": "Éxito (fondo)",
+        "canonical": "oklch(96.2% .044 156.743)"
+      },
+      "status-ok-text": {
+        "role": "status",
+        "displayName": "Éxito (texto)",
+        "canonical": "oklch(44.8% .119 151.328)"
+      },
+      "status-alerta-bg": {
+        "role": "status",
+        "displayName": "Alerta (fondo)",
+        "canonical": "oklch(96.2% .059 95.617)"
+      },
+      "status-alerta-text": {
+        "role": "status",
+        "displayName": "Alerta (texto)",
+        "canonical": "oklch(47.3% .137 46.201)"
+      },
+      "status-riesgo-bg": {
+        "role": "status",
+        "displayName": "Riesgo (fondo)",
+        "canonical": "oklch(93.6% .032 17.717)"
+      },
+      "status-riesgo-text": {
+        "role": "status",
+        "displayName": "Riesgo (texto)",
+        "canonical": "oklch(44.4% .177 26.899)"
+      },
+      "accion-peligro": {
+        "role": "action",
+        "displayName": "Acción destructiva",
+        "canonical": "oklch(57.7% .245 27.325)"
+      },
+      "accion-peligro-hover": {
+        "role": "action",
+        "displayName": "Acción destructiva (hover)",
+        "canonical": "oklch(50.5% .213 27.518)"
+      },
+      "suplantacion-bg": {
+        "role": "signal",
+        "displayName": "Banner de suplantación (fondo)",
+        "canonical": "oklch(96.2% .059 95.617)"
+      },
+      "suplantacion-border": {
+        "role": "signal",
+        "displayName": "Banner de suplantación (borde)",
+        "canonical": "oklch(87.9% .169 91.605)"
+      },
+      "suplantacion-text": {
+        "role": "signal",
+        "displayName": "Banner de suplantación (texto)",
+        "canonical": "oklch(41.4% .112 45.904)"
+      },
+      "dataviz-secuencial-1": {
+        "role": "dataviz",
+        "displayName": "Asistencia baja",
+        "canonical": "#b7d3f6"
+      },
+      "dataviz-secuencial-2": {
+        "role": "dataviz",
+        "displayName": "Asistencia media-baja",
+        "canonical": "#6da7ec"
+      },
+      "dataviz-secuencial-3": {
+        "role": "dataviz",
+        "displayName": "Asistencia media-alta",
+        "canonical": "#2a78d6"
+      },
+      "dataviz-secuencial-4": {
+        "role": "dataviz",
+        "displayName": "Asistencia alta",
+        "canonical": "#184f95"
+      }
     },
     "typographyMeta": {
-      "display": { "displayName": "Display", "purpose": "Título del hero de la landing pública únicamente." },
-      "title": { "displayName": "Title", "purpose": "Título de página (h1)." },
-      "headline": { "displayName": "Headline", "purpose": "Encabezado de sección dentro de una pantalla (h2)." },
-      "body": { "displayName": "Body", "purpose": "Texto dominante: párrafos, celdas, inputs, botones." },
-      "label": { "displayName": "Label", "purpose": "Micro-etiquetas de contexto en mayúscula." },
-      "metrica": { "displayName": "Métrica", "purpose": "Valores numéricos grandes del dashboard." }
+      "display": {
+        "displayName": "Display",
+        "purpose": "Título del hero de la landing pública de un gimnasio únicamente."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Título de página (h1)."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Encabezado de sección dentro de una pantalla (h2)."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Texto dominante: párrafos, celdas, inputs, botones."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Micro-etiquetas de contexto en mayúscula."
+      },
+      "metrica": {
+        "displayName": "Métrica",
+        "purpose": "Valores numéricos grandes del dashboard."
+      },
+      "display-producto": {
+        "displayName": "Display de producto",
+        "purpose": "Titular del sitio público de TuGimApp (hero de la portada y login genérico): 800, tracking -0.035em, segunda oración en --color-primario; puntuación con ajuste óptico .pt (-0.1em)."
+      },
+      "headline-producto": {
+        "displayName": "Headline de producto",
+        "purpose": "h2 de sección y cierre de la portada: 800, tracking -0.03em."
+      }
     },
     "shadows": [
-      { "name": "surface", "value": "0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1)", "purpose": "Único nivel de sombra del sistema. Tarjetas, tablas y métricas, siempre en reposo." }
+      {
+        "name": "surface",
+        "value": "0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1)",
+        "purpose": "Único nivel de sombra del sistema. Tarjetas, tablas y métricas, siempre en reposo."
+      }
     ],
-    "motion": [],
+    "motion": [
+      {
+        "name": "portada-subir",
+        "value": "translateY(14px)→0 + opacity, 0.8s (copy) / 0.9s con 0.12s de retraso (maqueta), cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Entrada del hero de la portada, una sola vez al cargar. Apagada con prefers-reduced-motion."
+      },
+      {
+        "name": "recoloreo-paisaje",
+        "value": "background-color, color, border-color 0.45s ease",
+        "purpose": "Fundido de las maquetas [data-demo] al cambiar de paisaje. Apagado con prefers-reduced-motion."
+      },
+      {
+        "name": "pwa-splash",
+        "value": "2.2s, zoom 0.3x→1.15x con cubic-bezier(0.34, 1.56, 0.64, 1)",
+        "purpose": "Excepción deliberada a la Restrained Motion Rule: splash de apertura de la PWA standalone. Apagado con prefers-reduced-motion."
+      }
+    ],
     "breakpoints": [
-      { "name": "sm", "value": "640px" }
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ],
+    "exceptions": [
+      {
+        "name": "marco-celular",
+        "value": "border-radius: 2.25rem (marco) / 1.75rem (pantalla)",
+        "purpose": "Solo en las maquetas de producto (.disp-celu). Silueta de un teléfono, fuera de la Two-Radius Rule; ningún componente real lo toma."
+      },
+      {
+        "name": "bisel-oscuro",
+        "value": "background: gray-900 + shadow-sm",
+        "purpose": "Profundidad de las maquetas desde el material del dispositivo, no desde una sombra más fuerte (One Shadow Rule intacta)."
+      }
     ]
   },
   "components": [
@@ -184,42 +369,117 @@
       "description": "Superficie Persuade del sistema — único lugar con degradé a todo el ancho. El color viene del paisaje que eligió ESE gimnasio (Bosque en este ejemplo).",
       "html": "<section class=\"ds-hero\"><h1 class=\"ds-hero__titulo\">Smoke Test Gym</h1><a class=\"ds-hero__cta\" href=\"#\">Escribinos por WhatsApp</a></section>",
       "css": ".ds-hero { width:100%; text-align:center; padding:80px 16px; background-image:linear-gradient(135deg, #1d6f56, #e8735c); } .ds-hero__titulo { font-family:'Plus Jakarta Sans', sans-serif; font-size:3rem; font-weight:700; color:#fff; margin:0 0 16px; } .ds-hero__cta { display:inline-flex; align-items:center; justify-content:center; border-radius:9999px; background:#fff; color:#1d6f56; padding:12px 24px; font-size:1rem; font-weight:600; text-decoration:none; }"
+    },
+    {
+      "name": "Píldora de la portada",
+      "kind": "button",
+      "refersTo": "pildora-portada",
+      "description": "Única forma de CTA del sitio público (portada y login genérico). Variantes: chica (nav), clara (sobre campos de color), contorno (nav del login, para que «Entrar» sea la única acción llena).",
+      "html": "<a class=\"ds-pildora\" href=\"#\">Pedí tu prueba gratis</a> <a class=\"ds-pildora ds-pildora--contorno ds-pildora--chica\" href=\"#\">Prueba gratis</a>",
+      "css": ".ds-pildora { display:inline-flex; align-items:center; justify-content:center; border-radius:9999px; padding:14px 28px; font-size:1rem; font-weight:700; color:#fff; text-decoration:none; white-space:nowrap; background:var(--color-primario, #1d6f56); transition:background-color .2s; } .ds-pildora:hover { background:color-mix(in oklab, var(--color-primario, #1d6f56) 84%, black); } .ds-pildora:focus-visible { outline:2px solid var(--color-primario, #1d6f56); outline-offset:3px; } .ds-pildora--chica { padding:8px 16px; font-size:0.875rem; } .ds-pildora--contorno { background:transparent; color:var(--color-primario, #1d6f56); box-shadow:inset 0 0 0 2px var(--color-primario, #1d6f56); } .ds-pildora--contorno:hover { background:color-mix(in oklab, var(--color-primario, #1d6f56) 10%, transparent); }"
+    },
+    {
+      "name": "Chip de paisaje",
+      "kind": "chip",
+      "refersTo": "paisajes__chip",
+      "description": "Selector de la portada: recolorea solo los [data-demo] con los colores de Gimnasio.PALETAS, nunca :root.",
+      "html": "<button class=\"ds-chip\" aria-pressed=\"true\" style=\"--chip-p:#1d6f56;--chip-s:#e8735c\"><span class=\"ds-chip__muestra\"></span>Bosque</button> <button class=\"ds-chip\" aria-pressed=\"false\" style=\"--chip-p:#1e3a5f;--chip-s:#e2a03f\"><span class=\"ds-chip__muestra\"></span>Océano</button>",
+      "css": ".ds-chip { display:inline-flex; align-items:center; gap:8px; border-radius:9999px; border:1px solid #d1d5db; background:#fff; padding:8px 14px; font-size:0.875rem; font-weight:600; color:#374151; cursor:pointer; transition:border-color .2s; } .ds-chip:hover { border-color:#6b7280; } .ds-chip[aria-pressed=\"true\"] { color:#111827; border-color:var(--chip-p); box-shadow:inset 0 0 0 1px var(--chip-p); } .ds-chip:focus-visible { outline:2px solid #1d6f56; outline-offset:3px; } .ds-chip__muestra { width:16px; height:16px; border-radius:9999px; background-image:linear-gradient(135deg, var(--chip-p) 50%, var(--chip-s) 50%); }"
+    },
+    {
+      "name": "Tarjeta de login",
+      "kind": "card",
+      "refersTo": "auth-card",
+      "description": "Formulario de ingreso campo por campo, con error general visible arriba y error por campo debajo. «Entrar» es la píldora a lo ancho.",
+      "html": "<div class=\"ds-auth\"><h2 class=\"ds-auth__t\">Ingresá</h2><div class=\"ds-auth__error\" role=\"alert\">Usuario o contraseña incorrectos.</div><label class=\"ds-auth__l\">Usuario<input class=\"ds-auth__i\" type=\"text\"></label><button class=\"ds-auth__b\">Entrar</button></div>",
+      "css": ".ds-auth { background:#fff; border:1px solid #e5e7eb; border-radius:1rem; padding:36px; box-shadow:0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1); max-width:28rem; display:grid; gap:20px; } .ds-auth__t { margin:0; font-size:1.5rem; font-weight:800; letter-spacing:-0.02em; color:#111827; } .ds-auth__error { border:1px solid #fecaca; background:#fef2f2; color:#991b1b; border-radius:0.375rem; padding:12px 16px; font-size:0.875rem; } .ds-auth__l { display:grid; gap:6px; font-size:0.875rem; font-weight:700; color:#1f2937; } .ds-auth__i { border:1px solid #d1d5db; border-radius:0.375rem; padding:12px 16px; font-size:1rem; } .ds-auth__i:focus { outline:none; border-color:transparent; box-shadow:0 0 0 2px var(--color-primario, #1d6f56); } .ds-auth__b { border:none; border-radius:9999px; padding:14px 28px; font-size:1rem; font-weight:700; color:#fff; background:var(--color-primario, #1d6f56); cursor:pointer; } .ds-auth__b:hover { background:color-mix(in oklab, var(--color-primario, #1d6f56) 84%, black); } .ds-auth__b:focus-visible { outline:2px solid var(--color-primario, #1d6f56); outline-offset:3px; }"
     }
   ],
   "narrative": {
     "northStar": "Un Paisaje por Gimnasio",
-    "overview": "El sistema tiene ahora una voz propia y confiada — tipografía geométrica bold (Plus Jakarta Sans por defecto), radios grandes, botones píldora — en vez de la identidad neutra que tenía antes. Esa voz nunca cambia; lo que cambia por gimnasio es el paisaje de color: cada uno elige una de cuatro paletas curadas y completas (fondo cálido + 2 acentos, ya armonizados) en vez de dos colores sueltos como antes. La dirección está inspirada en crossfyapp.com (un competidor directo, referencia tomada a propósito por el material — tipografía pesada, paleta cálida, energía de landing de venta — no calcada composición por composición). El resultado: la marca del producto vive en la forma (tipografía, radio, forma de botón), no en un color fijo. El color es lo que cada gimnasio pone sobre la mesa, elegido de un catálogo — nunca libre — para que ninguna combinación resulte ilegible. Bosque (crema + verde bosque + coral) es el paisaje por defecto y el que usa el propio sistema cuando todavía no hay un gimnasio en contexto. Persuade (la landing pública de cada gimnasio) lleva la energía completa: degradé de marca a todo el ancho del hero, números y botones grandes. Operate (el resto del panel) usa la misma paleta con más moderación, pero ya no es un plano sin vida: el canvas de fondo (body, y .landing bajo el hero) lleva una atmósfera de 3 blobs radiales muy suaves, mezclados con color-mix() sobre --color-primario/--color-secundario — nunca un bloque sólido de color a página completa, pero tampoco un solo hex fijo. Las superficies con datos (.tarjeta, .tabla, .metrica) siguen 100% blancas encima: la expresión vive únicamente en el canvas, nunca estorba una tabla de 40 alumnos.",
+    "overview": "Creative North Star: \"Un Paisaje por Gimnasio\" El sistema tiene ahora una voz propia y confiada — tipografía geométrica bold (Plus Jakarta Sans por defecto), radios grandes, botones píldora — en vez de la identidad neutra que tenía antes. Esa voz nunca cambia; lo que cambia por gimnasio es el paisaje de color: cada uno elige una de cuatro paletas curadas y completas (fondo cálido + 2 acentos, ya armonizados) en vez de dos colores sueltos como antes. La dirección está inspirada en crossfyapp.com (un competidor directo, referencia tomada a propósito por el material — tipografía pesada, paleta cálida, energía de landing de venta). El panel no la calca composición por composición; el sitio público del producto (la portada / y el login genérico) sí toma su estructura — nav fija, hero con el producto a la vista, funciones alternadas, precios sobre un campo de marca — a pedido del dueño del producto: su estructura, nuestra voz. El resultado: la marca del producto vive en la forma (tipografía, radio, forma de botón), no en un color fijo. El color es lo que cada gimnasio \"pone sobre la mesa\", elegido de un catálogo — nunca libre — para que ninguna combinación resulte ilegible. Bosque (crema + verde bosque + coral) es el paisaje por defecto y el que usa el propio sistema cuando todavía no hay un gimnasio en contexto (login, error 404, etc.). Persuade tiene dos superficies. La landing pública de cada gimnasio lleva la energía completa con SUS colores: degradé de marca a todo el ancho del hero, números y botones grandes. El sitio del producto (portada + login genérico) habla con la voz de TuGimApp sobre el paisaje Bosque: titulares en 800 con tracking cerrado, y como prueba el producto mismo — pantallas de la app dibujadas en HTML, con datos de ejemplo rotulados como tales, que el visitante recolorea con los cuatro paisajes. Operate (el resto del panel) usa la misma paleta con más moderación, pero ya no es un plano sin vida: el canvas de fondo (body, y .landing bajo el hero) lleva una atmósfera de 3 blobs radiales muy suaves, mezclados con color-mix() sobre --color-primario/--color-secundario — nunca un bloque sólido de color a página completa, pero tampoco un solo hex fijo. Las superficies con datos (.tarjeta, .tabla, .metrica) siguen 100% blancas encima: la expresión vive únicamente en el canvas, nunca estorba una tabla de 40 alumnos.",
     "keyCharacteristics": [
       "Tipografía bold y geométrica como identidad propia del sistema — auto-hospedada por defecto, nunca dependiente de que el gimnasio elija algo.",
       "Cuatro paisajes de color completos y curados (Bosque/Océano/Arena/Pizarra), nunca colores sueltos elegidos libremente.",
       "Radios grandes (2xl en superficies, píldora en el botón primario) — más amigable que el sistema anterior, sin perder densidad en controles.",
       "Persuade (landing) va a fondo con el color en el hero; Operate lleva el mismo paisaje al canvas de fondo como atmósfera suave (nunca un bloque sólido), en vez de un color plano.",
-      "Color de estado (verde/ámbar/rojo) sigue totalmente separado del paisaje de marca."
+      "El sitio público del producto se prueba con el producto: maquetas HTML de la UI real que cambian de paisaje en vivo, nunca capturas raster ni prueba social inventada.",
+      "Color de estado (verde/ámbar/rojo) sigue totalmente separado del paisaje de marca — un canal, no el otro."
     ],
     "rules": [
-      { "name": "The Landscape Rule", "body": "El color de marca nunca se elige suelto — siempre es uno de los 4 paisajes curados de Gimnasio.PALETAS, cada uno con sus 3 roles (fondo/primario/secundario) ya armonizados. Un componente nuevo jamás ofrece un color picker libre para identidad de marca.", "section": "colors" },
-      { "name": "The Runtime Brand Rule", "body": "Ningún componente nuevo hardcodea un hex del paisaje. Todo lo que deba reflejar la identidad del gimnasio referencia var(--color-fondo) / var(--color-primario) / var(--color-secundario) — son datos de Gimnasio, sobreescritos por request en base.html (y por landing.html para el visitante anónimo), nunca constantes de Tailwind en build-time.", "section": "colors" },
-      { "name": "The Gym-Swappable Font Rule", "body": "La familia tipográfica siempre se referencia como var(--font-gimnasio) (con el hint family-name: en clases arbitrarias de Tailwind). Nunca se hardcodea un nombre de fuente fuera de Gimnasio.TIPOGRAFIA_FUENTES.", "section": "typography" },
-      { "name": "The Self-Hosted Default Rule", "body": "El default (Plus Jakarta Sans) se sirve siempre desde el propio dominio, nunca desde Google — es la única fuente del catálogo sin google_param. Las otras 4 son elección activa del gimnasio; recién ahí se justifica pagar el costo de una carga externa.", "section": "typography" },
-      { "name": "The One Shadow Rule", "body": "Un solo nivel de sombra en todo el sistema. Si un componente nuevo necesita distinguirse, se hace con borde o con fondo, no agregando una sombra más fuerte.", "section": "elevation" },
-      { "name": "The Atmospheric Canvas Rule", "body": "El canvas de fondo (body, .landing) siempre lleva la atmósfera de blobs radiales del paisaje activo — nunca un background-color sólido y liso. Un componente nuevo no agrega su propio degradé de fondo: la atmósfera vive en un solo lugar (body/.landing en styles/input.css), no se repite por sección.", "section": "elevation" },
-      { "name": "The Two-Radius Rule", "body": "Solo dos escalones de radio conviven en cualquier jerarquía visual: md en controles densos, 2xl en superficies — más full como caso especial para botones primarios y badges. Nunca un tercer escalón intermedio.", "section": "shapes" }
+      {
+        "name": "The Landscape Rule",
+        "body": "El color de marca nunca se elige suelto — siempre es uno de los 4 paisajes curados de Gimnasio.PALETAS, cada uno con sus 3 roles (fondo/primario/secundario) ya armonizados. Un componente nuevo jamás ofrece un color picker libre para identidad de marca.",
+        "section": "colors"
+      },
+      {
+        "name": "The Runtime Brand Rule",
+        "body": "Ningún componente nuevo hardcodea un hex del paisaje. Todo lo que deba reflejar la identidad del gimnasio referencia var(--color-fondo) / var(--color-primario) / var(--color-secundario) — son datos de Gimnasio, sobreescritos por request en base.html (y por landing.html para el visitante anónimo), nunca constantes de Tailwind en build-time. Vale también para la portada: los chips de paisaje leen sus colores de Gimnasio.PALETAS (vía paletas_demo), no de hex copiados al template.",
+        "section": "colors"
+      },
+      {
+        "name": "The Demo-Only Recolour Rule",
+        "body": "En la portada, elegir un paisaje escribe --color-fondo/--color-primario/--color-secundario sobre cada [data-demo] (la maqueta del hero y los cuatro campos de funciones) y NUNCA sobre :root: la página en sí sigue siendo de TuGimApp en Bosque; lo que cambia es el ejemplo de lo que vería el gimnasio. Todo lo que tenga que seguir al selector se marca data-demo o vive dentro de uno.",
+        "section": "colors"
+      },
+      {
+        "name": "The Optical Punctuation Rule",
+        "body": "En los titulares del sitio público (800, tamaño display), Plus Jakarta Sans trae el punto y la coma con mucho aire a la izquierda y se leen como «app .». Esa puntuación va envuelta en .pt (margin-left: -0.1em). Solo en titulares de ese peso y tamaño, nunca en texto corrido.",
+        "section": "typography"
+      },
+      {
+        "name": "The Gym-Swappable Font Rule",
+        "body": "La familia tipográfica siempre se referencia como var(--font-gimnasio) (con el hint family-name: en clases arbitrarias de Tailwind — sin él, Tailwind interpreta el valor como font-weight, no font-family). Nunca se hardcodea un nombre de fuente fuera de Gimnasio.TIPOGRAFIA_FUENTES.",
+        "section": "typography"
+      },
+      {
+        "name": "The Self-Hosted Default Rule",
+        "body": "El default (Plus Jakarta Sans) se sirve siempre desde el propio dominio, nunca desde Google — es la única fuente del catálogo sin google_param. Las otras 4 son elección activa del gimnasio; recién ahí se justifica pagar el costo de una carga externa.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Shadow Rule",
+        "body": "Un solo nivel de sombra en todo el sistema. Si un componente nuevo necesita distinguirse, se hace con borde o con fondo, no agregando una sombra más fuerte.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Atmospheric Canvas Rule",
+        "body": "El canvas de fondo (body, .landing) nunca es un background-color sólido y liso: siempre lleva atmósfera. Desde \"Fondo personalizable\" (2026-08-14) esa atmósfera tiene tres variantes, y el dueño elige cuál con Gimnasio.fondo_tipo:",
+        "section": "elevation"
+      },
+      {
+        "name": "The Two-Radius Rule",
+        "body": "Solo dos escalones de radio conviven en cualquier jerarquía visual: md en controles densos, 2xl en superficies — más full como caso especial para botones primarios, píldoras de CTA, chips de paisaje y badges. Nunca un tercer escalón intermedio.",
+        "section": "shapes"
+      },
+      {
+        "name": "The Restrained Motion Rule",
+        "body": "El movimiento es un acento, no un efecto: amplitud chica (pocos px), duración corta, desaceleración suave, nunca spring/bounce. Todo @keyframes y toda transición decorativa respeta prefers-reduced-motion: reduce apagándose (nunca reemplazándose por otra animación). Hoy son solo la entrada del hero de la portada y el recoloreo de sus maquetas; no es licencia para animar tarjetas o botones del panel.",
+        "section": "motion"
+      }
     ],
     "dos": [
       "Do referenciar var(--color-fondo) / var(--color-primario) / var(--color-secundario) / var(--font-gimnasio) para cualquier cosa que deba reflejar la marca del gimnasio — nunca un hex o una fuente fija.",
       "Do ofrecer paisajes de color completos y curados (Gimnasio.PALETAS), nunca un color picker libre para identidad de marca.",
       "Do usar verde/ámbar/rojo exclusivamente para estado, con las tres variantes de .badge existentes.",
       "Do mantener shadow-sm como el único nivel de sombra; diferenciar con borde o fondo, no con más sombra.",
-      "Do usar rounded-full solo para el botón primario, el CTA de landing y los badges — todo lo demás denso va en md, las superficies en 2xl.",
-      "Do dejar la atmósfera del canvas (body/.landing) en color-mix() sobre los tokens del paisaje — nunca un background-color sólido y liso."
+      "Do usar rounded-full solo para el botón primario, las píldoras de CTA (landing y portada), los chips de paisaje y los badges — todo lo demás denso va en md, las superficies en 2xl.",
+      "Do dejar la atmósfera del canvas (body/.landing) en color-mix() sobre los tokens del paisaje — nunca un background-color sólido y liso.",
+      "Do usar animación con la misma moderación que la entrada del hero de la portada — amplitud chica, una sola vez, prefers-reduced-motion siempre respetado.",
+      "Do mostrar el producto con maquetas HTML de la UI real y datos de ejemplo rotulados como tales, recoloreables con los paisajes — nunca una captura raster genérica.",
+      "Do dejar una sola acción llena por pantalla en el sitio público: en el login es «Entrar»; la píldora de la nav pasa a contorno."
     ],
     "donts": [
       "Don't hardcodear un hex de paisaje (#1d6f56, #f5ede4, etc.) en un componente nuevo — son datos de Gimnasio.PALETAS, no constantes.",
       "Don't introducir una segunda escala de sombra o elevación tipo \"lifted\"/\"floating\" — el sistema es intencionalmente plano.",
+      "Don't repetir el degradé de blobs del canvas dentro de una tarjeta o sección individual — vive en un solo lugar (body/.landing), no por componente.",
       "Don't usar íconos en la navegación de staff — es texto puro hoy.",
-      "Don't inventar prueba social (números, testimonios) en la landing de un gimnasio — solo datos reales de ESE gimnasio.",
+      "Don't animar componentes del panel (tarjetas, botones, filas de tabla) solo para llamar la atención — el sistema es plano a propósito.",
+      "Don't inventar prueba social (números, testimonios) en la landing de un gimnasio — solo datos reales de ESE gimnasio (horarios, y lo que se agregue después siguiendo el mismo criterio).",
       "Don't cargar Google Fonts para la tipografía default — está auto-hospedada a propósito; solo las 4 alternativas la disparan.",
-      "Don't repetir el degradé de blobs del canvas dentro de una tarjeta o sección individual — vive en un solo lugar (body/.landing), no por componente."
+      "Don't destacar un tramo de precios («Popular», «Recomendado», borde o color distinto) — los tres tramos van iguales.",
+      "Don't escribir los colores de un paisaje de demostración sobre :root: solo sobre [data-demo].",
+      "Don't llevar los radios del marco del celular (2.25rem/1.75rem) ni el bisel oscuro fuera de las maquetas de producto."
     ]
   }
 }

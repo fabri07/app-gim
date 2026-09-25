@@ -1,24 +1,36 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% comment %}
-Landing de producto (raíz `/` para anónimos). Modo Persuade del sistema "Un
-Paisaje por Gimnasio": hero con degradé de marca a todo el ancho, tipografía
-display bold, precios con tabular-nums. Sin gimnasio en contexto usa el paisaje
-Bosque por defecto (los tokens `--color-*` salen del `:root` de app.css; el
-canvas atmosférico ya lo pinta `body`, no se repite acá). Sin prueba social
-inventada: no hay clientes pagos todavía (PRODUCT.md).
+Landing de producto (raíz `/` para anónimos). Modo Persuade. Estructura tomada
+de crossfyapp.com a pedido del dueño del producto (nav fija, hero con el
+producto a la vista, funciones alternadas, precios sobre campo de marca, FAQ),
+con la voz propia del sistema "Un Paisaje por Gimnasio".
+
+La prueba es el producto: los dispositivos del hero y de cada función están
+dibujados en HTML con las etiquetas REALES de la app y datos de ejemplo
+rotulados como tales. Sin logos ni testimonios de clientes (decisión del dueño,
+2026-09-25). El importador trae planes y ejercicios, NO alumnos: no prometerlo.
+
+Los colores de las pantallas de ejemplo salen de `paletas_demo`
+(= Gimnasio.PALETAS); `static/js/portada.js` los cambia SOLO en los `[data-demo]`,
+nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
 {% endcomment %}
 
 {% block title %}TuGimApp — la app para tu gimnasio, con tu marca{% endblock %}
 
 {% block meta_extra %}
-  <meta name="description" content="Alumnos, rutinas con video, pagos y turnos en una sola app con tu logo y tus colores. Simple, en español, para gimnasios y entrenadores. Probá 30 días gratis.">
+  <meta name="description" content="Alumnos, rutinas con video, cobros y turnos en una sola app con tu logo y tus colores. En español, para gimnasios y entrenadores. {{ precios_dias_gratis }} días gratis.">
   <meta property="og:type" content="website">
   <meta property="og:title" content="TuGimApp — la app para tu gimnasio, con tu marca">
-  <meta property="og:description" content="Dejá la planilla y el WhatsApp: gestioná alumnos, rutinas, pagos y turnos en un solo lugar. 30 días gratis.">
+  <meta property="og:description" content="Dejá la planilla y el WhatsApp: alumnos, rutinas, cobros y turnos en un solo lugar. {{ precios_dias_gratis }} días gratis.">
   <meta property="og:url" content="{{ og_url }}">
   <meta property="og:image" content="{{ og_image }}">
   <meta name="twitter:card" content="summary_large_image">
+{% endblock %}
+
+{% block topbar %}
+{% include 'partials/portada_nav.html' %}
 {% endblock %}
 
 {% block main_class %}{% endblock %}
@@ -26,118 +38,241 @@ inventada: no hay clientes pagos todavía (PRODUCT.md).
 {% block content %}
 <div class="portada">
 
-  {# --- Hero --- #}
-  <header class="portada__hero">
-    <div class="portada__inner portada__hero-cuerpo">
-      <h1 class="portada__titulo">Tu gimnasio, ordenado.<br>Sin planillas, sin papeles, sin perder mensajes.</h1>
-      <p class="portada__sub">Alumnos, rutinas con video, pagos y turnos en una
-        sola app — con tu logo, tus colores y tu nombre. Simple, en español,
-        hecha para gimnasios y entrenadores de Argentina.</p>
+  {# ================= Hero ================= #}
+  <section class="portada__hero">
+    <div class="portada__hero-copy">
+      <h1 class="portada__titulo">Tu gimnasio en una app<span class="pt">.</span> <span class="portada__titulo-marca">Con tu logo<span class="pt">,</span> tus colores y tu nombre<span class="pt">.</span></span></h1>
+      <p class="portada__sub">Alumnos, rutinas con video, cobros y turnos en un solo lugar. Tus alumnos la instalan en el celular y ven <em>tu</em> marca, no la nuestra. En español y hecha en Argentina.</p>
       <div class="portada__cta">
-        <a class="portada__cta-primario" href="{% url 'solicitudes:solicitar' %}">Solicitar una cuenta</a>
-        <a class="portada__cta-fantasma" href="{% url 'login' %}" hx-boost="false">Ya tengo cuenta</a>
+        <a class="portada-pildora" href="{% url 'solicitudes:solicitar' %}">Pedí tu prueba gratis</a>
+        <a class="portada__cta-texto" href="{% url 'login' %}" hx-boost="false">Ya tengo cuenta</a>
       </div>
-      <p class="portada__hero-nota">Probá {{ precios_dias_gratis }} días gratis · sin tarjeta</p>
+      <p class="portada__hero-nota">{{ precios_dias_gratis }} días gratis · sin tarjeta · sin permanencia</p>
     </div>
-  </header>
 
-  {# --- Dolores --- #}
-  <section class="portada__seccion portada__inner">
-    <h2 class="portada__h2">Si esto te suena, es hora de cambiar</h2>
-    <ul class="portada__dolores">
-      <li>La cuota la anotás en un cuaderno y a fin de mes no sabés bien quién debe.</li>
-      <li>Las rutinas van por WhatsApp y se pierden entre mil mensajes.</li>
-      <li>Tu planilla de Excel solo la entendés vos, y cada tanto se rompe.</li>
-      <li>Los turnos se anotan en papel y siempre se arma lío con los cupos.</li>
-      <li>Tus alumnos te preguntan lo mismo todo el tiempo: “¿cuánto peso hago hoy?”.</li>
-    </ul>
+    <div class="portada__hero-demo">
+      <div class="maqueta" data-demo role="img" aria-label="Vista de ejemplo: el panel del dueño en la computadora y el portal del alumno en el celular, con la marca del gimnasio">
+        <div class="maqueta__escena" aria-hidden="true">
+
+          {# Panel del dueño (escritorio) #}
+          <div class="disp-pantalla">
+            <div class="disp-pantalla__barra"><span></span><span></span><span></span></div>
+            <div class="app-panel">
+              <div class="app-panel__top">
+                <span class="app-logo">GN</span>
+                <span class="app-panel__nombre">Gimnasio Norte</span>
+              </div>
+              <div class="app-panel__nav"><span class="is-activo">Dashboard</span><span>Alumnos</span><span>Rutinas</span><span>Pagos</span><span>Turnos</span></div>
+              <div class="app-panel__metricas">
+                <div class="app-metrica"><span class="app-metrica__etiqueta">Alumnos activos</span><span class="app-metrica__valor">128</span></div>
+                <div class="app-metrica"><span class="app-metrica__etiqueta">Alumnos con pago pendiente</span><span class="app-metrica__valor">9</span></div>
+                <div class="app-metrica"><span class="app-metrica__etiqueta">Alumnos con plan vigente</span><span class="app-metrica__valor">112</span></div>
+              </div>
+              <div class="app-grafico">
+                <span class="app-grafico__titulo">Ingresos por mes</span>
+                <div class="app-grafico__barras">
+                  <i style="--h:46%"></i><i style="--h:52%"></i><i style="--h:50%"></i><i style="--h:61%"></i><i style="--h:68%"></i><i style="--h:74%"></i><i style="--h:83%" class="is-actual"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {% include 'partials/portada_celular.html' %}
+
+        </div>
+      </div>
+
+      <div class="paisajes" role="group" aria-label="Probá con otro paisaje de colores">
+        <span class="paisajes__etiqueta">Probá con otro paisaje:</span>
+        {% for p in paletas_demo %}
+          <button type="button" class="paisajes__chip" data-paisaje
+                  data-fondo="{{ p.fondo }}" data-primario="{{ p.primario }}" data-secundario="{{ p.secundario }}"
+                  style="--chip-p: {{ p.primario }}; --chip-s: {{ p.secundario }};"
+                  aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}">
+            <span class="paisajes__muestra" aria-hidden="true"></span>{{ p.nombre }}
+          </button>
+        {% endfor %}
+      </div>
+      <p class="portada__ejemplo">Nombres y números de ejemplo.</p>
+    </div>
   </section>
 
-  {# --- Comparativa vs Excel + WhatsApp --- #}
+  {# ================= Hechos ================= #}
+  <ul class="portada__hechos" aria-label="Lo que tenés que saber">
+    <li><strong>En español</strong> y hecha en Argentina</li>
+    <li><strong>Se instala</strong> en el celular de tus alumnos</li>
+    <li><strong>Importa tus planes</strong> desde Excel</li>
+    <li><strong>Avisos al celular</strong> de turnos, cuotas y novedades</li>
+  </ul>
+
+  {# ================= Antes / ahora ================= #}
   <section class="portada__seccion portada__inner">
     <h2 class="portada__h2">Del quilombo de siempre a una sola app</h2>
+    <p class="portada__intro">Si anotás la cuota en un cuaderno, mandás la rutina por WhatsApp y tus alumnos te preguntan todo el tiempo «¿cuánto peso hago hoy?», esto es para vos.</p>
     <div class="portada__comparativa">
       <div class="portada__col portada__col--antes">
         <p class="portada__col-titulo">Excel + papel + WhatsApp</p>
         <ul>
-          <li>Los cobros los sumás a mano</li>
-          <li>Rutinas como fotos sueltas en el chat</li>
-          <li>Fichas de alumnos en una planilla frágil</li>
-          <li>Cupos de turnos anotados en papel</li>
+          <li>A fin de mes no sabés bien quién debe</li>
+          <li>Las rutinas se pierden entre mil mensajes</li>
+          <li>La planilla solo la entendés vos, y se rompe</li>
+          <li>Los cupos de los turnos, anotados en papel</li>
           <li>Todo con el aspecto de una app ajena</li>
         </ul>
       </div>
       <div class="portada__col portada__col--ahora">
         <p class="portada__col-titulo">Con TuGimApp</p>
         <ul>
-          <li>Los pendientes se generan solos, vos confirmás</li>
-          <li>Rutinas con video, ordenadas por día y semana</li>
-          <li>Ficha completa de cada alumno, siempre a mano</li>
-          <li>Reserva de turnos con cupo automático</li>
+          <li>Las cuotas se generan solas, vos confirmás el pago</li>
+          <li>Cada alumno ve su rutina con video, por día y semana</li>
+          <li>La ficha de cada alumno, siempre a mano</li>
+          <li>Reservas de turnos con cupo automático</li>
           <li>Tu logo, tus colores y tu nombre en toda la app</li>
         </ul>
       </div>
     </div>
   </section>
 
-  {# --- Cómo funciona --- #}
+  {# ================= Funciones ================= #}
+  <section class="portada__seccion portada__inner" id="funciones">
+    <h2 class="portada__h2 portada__h2--centro">Todo lo del día a día<span class="pt">,</span> en un solo lugar</h2>
+    <p class="portada__ejemplo portada__ejemplo--centro">Pantallas con datos de ejemplo. Cambian de color con el paisaje que elijas arriba.</p>
+
+    <div class="funcion">
+      <div class="funcion__texto">
+        <h3 class="funcion__titulo">Rutinas por semana, con video</h3>
+        <p>Armás el plan una vez, con la progresión de cada semana, y se lo asignás a cada alumno. Él lo ve en su celular: qué hace hoy, cuántas series, con cuánto peso y el video del ejercicio. Y te cuenta cómo le fue.</p>
+      </div>
+      <div class="funcion__demo" data-demo aria-hidden="true">
+        <div class="mini">
+          <div class="app-pestanas"><span>Semana 1</span><span class="is-activo">Semana 2</span><span>Semana 3</span><span>Semana 4</span></div>
+          <div class="mini__fila"><span class="mini__bloque">A1</span><span class="mini__nombre">Press de banca</span><span class="mini__num">4 × 8</span><span class="mini__dato">40 kg</span></div>
+          <div class="mini__fila"><span class="mini__bloque">A2</span><span class="mini__nombre">Remo con barra</span><span class="mini__num">4 × 10</span><span class="mini__dato">35 kg</span></div>
+          <div class="mini__fila"><span class="mini__bloque">B1</span><span class="mini__nombre">Estocadas</span><span class="mini__num">3 × 12</span><span class="mini__dato">12 kg</span></div>
+          <div class="mini__fila"><span class="mini__bloque">B2</span><span class="mini__nombre">Plancha</span><span class="mini__num">3 × 40 s</span><span class="mini__dato"><span class="app-video app-video--chico"><span class="app-video__play"></span>Video</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="funcion funcion--invertida">
+      <div class="funcion__texto">
+        <h3 class="funcion__titulo">Cobros sin planilla</h3>
+        <p>Cada ciclo la app genera la cuota de cada alumno. Él sube el comprobante desde su celular y vos confirmás el pago con un toque. Ves de un vistazo quién está al día, quién debe y cuánto facturaste en el mes.</p>
+      </div>
+      <div class="funcion__demo" data-demo aria-hidden="true">
+        <div class="mini">
+          <div class="mini__fila"><span class="mini__nombre">Lucas Pereyra</span><span class="badge badge--ok">Pagada</span></div>
+          <div class="mini__fila"><span class="mini__nombre">Martina Gómez</span><span class="badge badge--alerta">Pendiente</span><span class="mini__accion">Confirmar pago</span></div>
+          <div class="mini__fila"><span class="mini__nombre">Tomás Ruiz</span><span class="badge badge--riesgo">Vencida</span></div>
+          <div class="mini__fila"><span class="mini__nombre">Carla Sosa</span><span class="badge badge--ok">Pagada</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="funcion">
+      <div class="funcion__texto">
+        <h3 class="funcion__titulo">Turnos con cupo</h3>
+        <p>Cargás tus horarios y cuántos entran por clase. Tus alumnos reservan y cancelan solos; cuando se llena, se llena. Se terminó el ida y vuelta de mensajes para ver si queda lugar.</p>
+      </div>
+      <div class="funcion__demo" data-demo aria-hidden="true">
+        <div class="mini mini--turnos">
+          <div class="turno"><span class="turno__hora">8:00</span><span class="turno__cupo">5/12</span></div>
+          <div class="turno"><span class="turno__hora">9:00</span><span class="turno__cupo">8/12</span></div>
+          <div class="turno turno--lleno"><span class="turno__hora">18:00</span><span class="badge badge--riesgo">Completo</span></div>
+          <div class="turno turno--mio"><span class="turno__hora">19:00</span><span class="turno__cupo">Tu reserva</span></div>
+          <div class="turno"><span class="turno__hora">20:00</span><span class="turno__cupo">3/12</span></div>
+          <div class="turno"><span class="turno__hora">21:00</span><span class="turno__cupo">6/12</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="funcion funcion--invertida">
+      <div class="funcion__texto">
+        <h3 class="funcion__titulo">Tus planes, desde tu Excel</h3>
+        <p>No empezás de cero: subís la planilla con la que ya trabajás y la app arma los planes y tu biblioteca de ejercicios, con sus videos. Revisás lo que leyó y confirmás.</p>
+      </div>
+      <div class="funcion__demo" data-demo aria-hidden="true">
+        <div class="excel">
+          <div class="excel__hoja">
+            <div class="excel__fila excel__fila--cab"><span>EJERCICIO</span><span>SERIES</span><span>REPS</span></div>
+            <div class="excel__fila"><span>Sentadilla</span><span>4</span><span>10</span></div>
+            <div class="excel__fila"><span>Peso muerto</span><span>3</span><span>8</span></div>
+            <div class="excel__fila"><span>Dominadas</span><span>3</span><span>6</span></div>
+          </div>
+          <span class="excel__flecha"></span>
+          <div class="mini excel__plan">
+            <div class="mini__fila"><span class="mini__nombre">Sentadilla</span><span class="mini__num">4 × 10</span></div>
+            <div class="mini__fila"><span class="mini__nombre">Peso muerto</span><span class="mini__num">3 × 8</span></div>
+            <div class="mini__fila"><span class="mini__nombre">Dominadas</span><span class="mini__num">3 × 6</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {# ================= Cómo empezás ================= #}
   <section class="portada__seccion portada__inner">
-    <h2 class="portada__h2">Cómo empezás</h2>
+    <h2 class="portada__h2 portada__h2--centro">Cómo empezás</h2>
     <ol class="portada__pasos">
       <li class="portada__paso">
         <span class="portada__paso-n">1</span>
-        <div>
-          <h3 class="portada__paso-t">Nos escribís</h3>
-          <p>Dejás tus datos en un formulario y te contactamos para activar tu cuenta.</p>
-        </div>
+        <h3 class="portada__paso-t">Nos escribís</h3>
+        <p>Dejás tus datos en un formulario y te contactamos para activar tu cuenta.</p>
       </li>
       <li class="portada__paso">
         <span class="portada__paso-n">2</span>
-        <div>
-          <h3 class="portada__paso-t">Cargás tu gimnasio</h3>
-          <p>Subís tu logo, elegís tus colores y sumás tus alumnos —o los importás de tu Excel.</p>
-        </div>
+        <h3 class="portada__paso-t">Cargás tu gimnasio</h3>
+        <p>Subís tu logo, elegís tus colores e importás tus planes desde Excel.</p>
       </li>
       <li class="portada__paso">
         <span class="portada__paso-n">3</span>
-        <div>
-          <h3 class="portada__paso-t">Empezás a usarla</h3>
-          <p>Tus alumnos entran a su propio portal y vos manejás todo desde el panel.</p>
-        </div>
+        <h3 class="portada__paso-t">Tus alumnos entran</h3>
+        <p>Cada uno ve su rutina y su cuota en su celular. Vos manejás todo desde el panel.</p>
       </li>
     </ol>
   </section>
 
-  {# --- Precios --- #}
-  <section class="portada__seccion portada__inner" id="precios">
-    <h2 class="portada__h2">Un precio que crece con vos</h2>
-    <p class="portada__precio-intro">Empezás con {{ precios_dias_gratis }} días gratis y sin tarjeta.
-      Pagás según cuántos alumnos activos tengas — <strong>todas las funciones incluidas</strong> en cualquier plan.</p>
-    <div class="portada__precios">
-      {% for fila in precios_filas %}
-      <div class="portada__precio {% if fila.destacado %}portada__precio--destacado{% endif %}">
-        <p class="portada__precio-tramo">{{ fila.etiqueta }}</p>
-        <p class="portada__precio-monto"><span class="portada__precio-moneda">USD</span> <span class="portada__precio-num">{{ fila.precio_usd }}</span> <span class="portada__precio-mes">/ mes</span></p>
-        {% if fila.precio_ars %}<p class="portada__precio-ars">≈ ${{ fila.precio_ars|floatformat:0 }} por mes</p>{% endif %}
-        <a class="boton portada__precio-cta" href="{% url 'solicitudes:solicitar' %}">Empezar gratis</a>
+  {# ================= Precios ================= #}
+  <section class="portada__precios-campo" id="precios">
+    <div class="portada__inner">
+      <h2 class="portada__h2 portada__h2--claro">Un precio que crece con vos</h2>
+      <p class="portada__precio-intro">Empezás con {{ precios_dias_gratis }} días gratis. Después pagás según cuántos alumnos activos tengas, con <strong>todas las funciones incluidas</strong> en cualquier tramo.</p>
+      <div class="portada__precios">
+        {% for fila in precios_filas %}
+        <div class="portada__precio">
+          <p class="portada__precio-tramo">{{ fila.etiqueta }}</p>
+          <p class="portada__precio-monto"><span class="portada__precio-moneda">USD</span> <span class="portada__precio-num">{{ fila.precio_usd }}</span> <span class="portada__precio-mes">/ mes</span></p>
+          {% if fila.precio_ars %}<p class="portada__precio-ars">≈ ${{ fila.precio_ars|floatformat:0 }} por mes</p>{% endif %}
+          <ul class="portada__incluye">
+            <li>Todas las funciones</li>
+            <li>Portal para tus alumnos</li>
+            <li>Tu logo y tus colores</li>
+            <li>Planes desde Excel</li>
+          </ul>
+          <a class="portada-pildora portada__precio-cta" href="{% url 'solicitudes:solicitar' %}">Pedí tu prueba gratis</a>
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
+      <p class="portada__precio-pie">Sin permanencia. Lo cancelás cuando quieras.</p>
     </div>
-    <p class="portada__precio-pie">Sin permanencia. Lo cancelás cuando quieras.</p>
   </section>
 
-  {# --- FAQ --- #}
-  <section class="portada__seccion portada__inner">
-    <h2 class="portada__h2">Preguntas frecuentes</h2>
+  {# ================= FAQ ================= #}
+  <section class="portada__seccion portada__inner portada__faq-grilla" id="preguntas">
+    <div class="portada__faq-cab">
+      <h2 class="portada__h2">Preguntas frecuentes</h2>
+      <p class="portada__faq-sub">¿Te quedó otra duda? Pedí tu prueba y te la respondemos cuando te contactemos.</p>
+      <a class="portada-pildora" href="{% url 'solicitudes:solicitar' %}">Pedí tu prueba gratis</a>
+    </div>
     <div class="portada__faq">
       <details><summary>¿Necesito tarjeta para la prueba?</summary>
         <p>No. Los {{ precios_dias_gratis }} días son gratis y sin datos de pago.</p></details>
       <details><summary>¿Mis alumnos también usan la app?</summary>
-        <p>Sí. Cada alumno tiene su propio portal donde ve su rutina, su cuota y las novedades, y reserva turnos.</p></details>
-      <details><summary>¿Puedo importar mis datos de Excel?</summary>
-        <p>Sí. Podés importar tus alumnos, ejercicios y planes desde una planilla, sin cargarlos uno por uno.</p></details>
+        <p>Sí. Cada alumno tiene su propio portal donde ve su rutina, su cuota y las novedades, y reserva turnos. La puede instalar en el celular como cualquier app.</p></details>
+      <details><summary>¿Puedo traer lo que tengo en Excel?</summary>
+        <p>Sí, tus planes de entrenamiento y tu biblioteca de ejercicios: subís la planilla y la app los arma sin que los cargues uno por uno. A los alumnos los das de alta desde el panel.</p></details>
       <details><summary>¿La app tiene mi marca?</summary>
-        <p>Sí. Tu logo, tus colores y el nombre de tu gimnasio en toda la app — para tus alumnos es “tu” app, no una plataforma genérica.</p></details>
+        <p>Sí. Tu logo, tus colores y el nombre de tu gimnasio en toda la app: para tus alumnos es «tu» app, no una plataforma genérica.</p></details>
       <details><summary>¿Sirve para entrenadores sin local?</summary>
         <p>Sí. Funciona igual para un entrenador que arma rutinas personalizadas, aunque no tenga un gimnasio físico.</p></details>
       <details><summary>¿Cómo me dan de alta?</summary>
@@ -145,18 +280,25 @@ inventada: no hay clientes pagos todavía (PRODUCT.md).
     </div>
   </section>
 
-  {# --- CTA final --- #}
-  <section class="portada__cierre">
-    <div class="portada__inner">
+  {# ================= Cierre ================= #}
+  <div class="portada__inner">
+    <section class="portada__cierre">
       <h2 class="portada__cierre-t">Dejá la planilla esta semana</h2>
-      <p class="portada__cierre-sub">Probá TuGimApp {{ precios_dias_gratis }} días gratis. Sin tarjeta, sin vueltas.</p>
-      <a class="portada__cta-primario" href="{% url 'solicitudes:solicitar' %}">Solicitar una cuenta</a>
-    </div>
-  </section>
+      <p class="portada__cierre-sub">{{ precios_dias_gratis }} días gratis para probarla con tus alumnos.</p>
+      <a class="portada-pildora portada-pildora--clara" href="{% url 'solicitudes:solicitar' %}">Pedí tu prueba gratis</a>
+    </section>
+  </div>
 
   <footer class="portada__footer portada__inner">
-    <span>TuGimApp</span>
-    <a href="{% url 'politica_privacidad' %}">Política de privacidad</a>
+    <span class="portada-nav__marca"><span class="portada-nav__isotipo" aria-hidden="true"></span>TuGimApp</span>
+    <nav class="portada__footer-links" aria-label="Pie de página">
+      <a href="#funciones">Funciones</a>
+      <a href="#precios">Precios</a>
+      <a href="#preguntas">Preguntas</a>
+      <a href="{% url 'login' %}" hx-boost="false">Ingresar</a>
+      <a href="{% url 'politica_privacidad' %}">Privacidad</a>
+    </nav>
   </footer>
 </div>
+<script src="{% static 'js/portada.js' %}" defer></script>
 {% endblock %}

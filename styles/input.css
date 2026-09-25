@@ -48,6 +48,10 @@
        sin su propio overflow-x, esto evita que arrastre TODA la página en
        vez de quedarse contenido. Ver .tabla más abajo. */
     overflow-x: hidden;
+    /* Sin esto, en una página más corta que la ventana (el login) los blobs
+       del canvas terminan donde termina el contenido y queda un corte seco
+       contra el color plano de abajo. */
+    min-height: 100dvh;
     /* Canvas atmosférico: en vez de un solo color plano, el lienzo de fondo
        lleva 3 blobs radiales muy suaves del paisaje del gimnasio, mezclados
        con color-mix() (nunca un hex fijo -- ver "The Runtime Brand Rule" en
@@ -1435,88 +1439,409 @@
     @apply text-gray-600;
   }
 
-  /* Landing de PRODUCTO (portada.html, raíz `/` para anónimos). Misma familia
-     "Persuade" que `.landing` del gimnasio, pero es la venta del SaaS en sí.
-     Sin gimnasio en contexto usa el paisaje Bosque del :root; el canvas
-     atmosférico ya lo pinta `body`, así que acá no se repite -- solo el hero y
-     el cierre llevan el degradé de marca fuerte. */
+  /* Landing de PRODUCTO (portada.html, raíz `/` para anónimos). Modo Persuade.
+     Estructura tomada de crossfyapp.com a pedido del dueño del producto (nav
+     fija, hero con el producto a la vista, funciones alternadas, precios sobre
+     campo de marca), con la voz propia del sistema. Sin gimnasio en contexto
+     usa el paisaje Bosque del :root; el canvas atmosférico ya lo pinta `body`.
+
+     Los dispositivos (`.maqueta`, `.disp-*`, `.app-*`, `.mini`) son
+     ILUSTRACIONES de producto, no superficies de UI: por eso el marco del
+     celular lleva un radio propio fuera de la Two-Radius Rule. La UI de
+     adentro sí usa md/2xl/full, y la profundidad sale del bisel oscuro, no de
+     una sombra más fuerte (One Shadow Rule intacta). Ver DESIGN.md. */
   .portada {
-    @apply pb-16;
+    @apply pb-10;
   }
   .portada ::selection {
     background-color: color-mix(in oklab, var(--color-primario) 22%, transparent);
   }
+  .portada a:focus-visible,
+  .portada button:focus-visible,
+  .portada summary:focus-visible,
+  .portada-nav a:focus-visible {
+    outline: 2px solid var(--color-primario);
+    outline-offset: 3px;
+    border-radius: 0.375rem;
+  }
   .portada__inner {
-    @apply max-w-5xl mx-auto px-4;
+    @apply max-w-6xl mx-auto px-4;
   }
-  .portada__hero {
-    @apply w-full text-center px-4 py-20 sm:py-28;
-    background-image: linear-gradient(135deg, var(--color-primario), var(--color-secundario));
+
+  /* --- Nav fija --- */
+  .portada-nav {
+    @apply sticky top-0 z-40 border-b border-transparent transition-colors duration-300;
+    background-color: color-mix(in oklab, var(--color-fondo) 94%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    -webkit-backdrop-filter: saturate(1.4) blur(10px);
   }
-  .portada__hero-cuerpo {
-    @apply max-w-3xl;
-    animation: portada-subir 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  .portada-nav--scroll {
+    border-bottom-color: color-mix(in oklab, var(--color-primario) 14%, var(--color-fondo));
   }
-  .portada__titulo {
-    @apply text-4xl sm:text-5xl font-bold text-white mb-5;
-    line-height: 1.1;
-    letter-spacing: -0.02em;
+  .portada-nav__inner {
+    @apply max-w-6xl mx-auto px-4 h-16 flex items-center justify-between gap-4;
   }
-  .portada__sub {
-    @apply text-lg text-white/90 mb-8 max-w-2xl mx-auto;
+  .portada-nav__marca {
+    @apply inline-flex items-center gap-2 text-lg font-extrabold text-gray-900 no-underline;
+    letter-spacing: -0.03em;
   }
-  .portada__cta {
-    @apply flex flex-wrap items-center justify-center gap-3;
+  .portada-nav__isotipo {
+    @apply relative inline-block h-6 w-6 rounded-md;
+    background-color: var(--color-primario);
   }
-  .portada__cta-primario {
-    @apply inline-flex items-center justify-center rounded-full bg-white px-7 py-3
-      text-base font-semibold no-underline shadow-sm transition hover:opacity-90;
+  .portada-nav__isotipo::after {
+    content: "";
+    @apply absolute rounded-full;
+    inset: auto 0.3rem 0.3rem auto;
+    width: 0.5rem;
+    height: 0.5rem;
+    background-color: var(--color-secundario);
+  }
+  .portada-nav__anclas {
+    @apply hidden md:flex items-center gap-7 text-sm font-semibold text-gray-600;
+  }
+  .portada-nav__anclas a {
+    @apply text-gray-600 no-underline transition-colors hover:text-gray-900;
+  }
+  .portada-nav__acciones {
+    @apply flex items-center gap-2 sm:gap-4;
+  }
+  .portada-nav__ingresar {
+    @apply text-sm font-semibold text-gray-700 no-underline px-2 py-2 hover:text-gray-900;
+  }
+
+  /* Píldora primaria de la portada: una sola forma para todos los CTA. */
+  .portada-pildora {
+    @apply inline-flex items-center justify-center rounded-full px-7 py-3.5
+      text-base font-bold text-white no-underline whitespace-nowrap transition-colors duration-200;
+    background-color: var(--color-primario);
+  }
+  .portada-pildora:hover {
+    background-color: color-mix(in oklab, var(--color-primario) 84%, black);
+  }
+  .portada-pildora--chica {
+    @apply px-4 py-2 text-sm;
+  }
+  .portada-pildora--contorno {
+    @apply bg-transparent;
+    color: var(--color-primario);
+    box-shadow: inset 0 0 0 2px var(--color-primario);
+  }
+  .portada-pildora--contorno:hover {
+    background-color: color-mix(in oklab, var(--color-primario) 10%, transparent);
+  }
+  .portada-pildora--clara {
+    @apply bg-white;
     color: var(--color-primario);
   }
-  .portada__cta-fantasma {
-    @apply inline-flex items-center justify-center rounded-full border border-white/70
-      px-7 py-3 text-base font-semibold text-white no-underline transition
-      hover:bg-white/10;
+  .portada-pildora--clara:hover {
+    background-color: color-mix(in oklab, white 88%, var(--color-primario));
+  }
+  @media (max-width: 380px) {
+    .portada-pildora--chica {
+      @apply px-3 text-xs;
+    }
+  }
+
+  /* --- Hero --- */
+  .portada__hero {
+    @apply max-w-6xl mx-auto px-4 pt-8 sm:pt-12 pb-12 grid grid-cols-1
+      lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] gap-12 lg:gap-14 items-center;
+  }
+  .portada__hero-copy {
+    animation: portada-subir 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .portada__titulo {
+    @apply font-extrabold text-gray-900;
+    font-size: clamp(2.3rem, 4.4vw, 3.5rem);
+    line-height: 1.03;
+    letter-spacing: -0.035em;
+    text-wrap: balance;
+  }
+  /* Plus Jakarta Sans en 800 trae el punto y la coma con mucho aire a la
+     izquierda: en tamaño display se leen como «app .». Ajuste óptico solo en
+     los titulares. */
+  .portada .pt {
+    margin-left: -0.1em;
+  }
+  .portada__titulo-marca {
+    @apply block mt-1;
+    color: var(--color-primario);
+  }
+  .portada__sub {
+    @apply mt-6 text-lg text-gray-700 max-w-[34rem];
+    text-wrap: pretty;
+  }
+  .portada__cta {
+    @apply mt-8 flex flex-wrap items-center gap-x-6 gap-y-3;
+  }
+  .portada__cta-texto {
+    @apply text-base font-semibold text-gray-800 underline decoration-2 underline-offset-4;
+    text-decoration-color: color-mix(in oklab, var(--color-primario) 45%, transparent);
+  }
+  .portada__cta-texto:hover {
+    text-decoration-color: var(--color-primario);
   }
   .portada__hero-nota {
-    @apply mt-5 text-sm text-white/80;
+    @apply mt-5 text-sm text-gray-600;
   }
+  .portada__hero-demo {
+    @apply min-w-0;
+  }
+
+  /* --- La maqueta: panel + celular --- */
+  .maqueta {
+    @apply relative;
+    animation: portada-subir 0.9s 0.12s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .maqueta__escena {
+    @apply relative md:pb-[15.5rem] md:pl-14;
+  }
+  /* El cambio de paisaje se ve como un fundido, no como un salto. Las
+     custom properties no transicionan solas; sí los colores computados. */
+  .maqueta__escena *,
+  .funcion__demo,
+  .funcion__demo * {
+    transition: background-color 0.45s ease, color 0.45s ease, border-color 0.45s ease;
+  }
+  .disp-pantalla {
+    @apply hidden md:block rounded-2xl bg-gray-900 p-2 shadow-sm;
+  }
+  .disp-pantalla__barra {
+    @apply flex gap-1.5 px-2 pb-2 pt-0.5;
+  }
+  .disp-pantalla__barra span {
+    @apply h-2 w-2 rounded-full bg-gray-600;
+  }
+  .app-panel {
+    @apply rounded-md overflow-hidden text-[11px] leading-tight;
+    background-color: var(--color-fondo);
+  }
+  .app-panel__top {
+    @apply flex items-center gap-2 bg-white px-3 py-2 border-b border-gray-200;
+  }
+  .app-panel__nombre {
+    @apply font-bold text-gray-900 text-xs;
+  }
+  .app-logo {
+    @apply inline-grid place-items-center h-7 w-7 rounded-md text-[10px] font-extrabold text-white;
+    background-color: var(--color-primario);
+  }
+  .app-logo--chico {
+    @apply h-6 w-6 bg-white;
+    color: var(--color-primario);
+  }
+  .app-panel__nav {
+    @apply flex gap-4 bg-white px-3 text-[10px] font-semibold text-gray-500 border-b border-gray-200;
+  }
+  .app-panel__nav span {
+    @apply py-1.5 border-b-2 border-transparent;
+  }
+  .app-panel__nav .is-activo {
+    color: var(--color-primario);
+    border-bottom-color: var(--color-primario);
+  }
+  .app-panel__metricas {
+    @apply grid grid-cols-3 gap-2 p-3 pb-0;
+  }
+  .app-metrica {
+    @apply flex flex-col justify-between gap-2 rounded-md border border-gray-200 bg-white p-2.5;
+  }
+  .app-metrica__etiqueta {
+    @apply text-[9px] font-medium text-gray-500;
+  }
+  .app-metrica__valor {
+    @apply text-xl font-extrabold text-gray-900 tabular-nums;
+  }
+  .app-grafico {
+    @apply m-3 rounded-md border border-gray-200 bg-white p-3;
+  }
+  /* A la derecha: el celular del hero tapa la esquina izquierda del gráfico. */
+  .app-grafico__titulo {
+    @apply block text-right text-[10px] font-bold text-gray-700;
+  }
+  .app-grafico__barras {
+    @apply mt-2 flex items-end gap-2 h-24;
+  }
+  .app-grafico__barras i {
+    @apply flex-1 rounded-t-md;
+    height: var(--h);
+    background-color: color-mix(in oklab, var(--color-primario) 28%, white);
+  }
+  .app-grafico__barras i.is-actual {
+    background-color: var(--color-primario);
+  }
+
+  .disp-celu {
+    @apply relative mx-auto w-[15.5rem] rounded-[2.25rem] bg-gray-900 p-2 shadow-sm
+      md:absolute md:mx-0 md:left-0 md:top-[13.5rem] md:w-[36%] md:max-w-[13.5rem];
+  }
+  .disp-celu::before {
+    content: "";
+    @apply absolute left-1/2 top-3.5 z-10 h-1.5 w-12 -translate-x-1/2 rounded-full bg-gray-900;
+  }
+  .disp-celu__pantalla {
+    @apply overflow-hidden rounded-[1.75rem] text-[11px] leading-tight;
+    background-color: var(--color-fondo);
+  }
+  .app-alumno__top {
+    @apply flex items-center gap-2 px-3 pt-6 pb-2.5 text-[11px] font-bold text-white;
+    background-color: var(--color-primario);
+  }
+  .app-alumno__cuerpo {
+    @apply space-y-2 p-3;
+  }
+  .app-alumno__hola {
+    @apply text-sm font-extrabold text-gray-900;
+  }
+  .app-pestanas {
+    @apply flex gap-1 rounded-full border border-gray-200 bg-white p-1 text-[9px] font-semibold text-gray-500;
+  }
+  .app-pestanas span {
+    @apply flex-1 rounded-full py-1 text-center whitespace-nowrap;
+  }
+  .app-pestanas .is-activo {
+    @apply text-white;
+    background-color: var(--color-primario);
+  }
+  .app-ejercicio {
+    @apply rounded-md border border-gray-200 bg-white p-2.5;
+  }
+  .app-ejercicio__cab {
+    @apply flex items-start justify-between gap-2;
+  }
+  .app-ejercicio__nombre {
+    @apply text-[11px] font-bold text-gray-900;
+  }
+  .app-ejercicio .badge {
+    @apply px-1.5 text-[9px];
+  }
+  .app-ejercicio__presc {
+    @apply mt-1 block text-xl font-extrabold text-gray-900 tabular-nums;
+  }
+  .app-ejercicio__detalle {
+    @apply block text-[10px] text-gray-500 tabular-nums;
+  }
+  .app-ejercicio--compacto .app-ejercicio__presc {
+    @apply text-base;
+  }
+  .app-video {
+    @apply mt-1.5 inline-flex items-center gap-1.5 text-[10px] font-bold;
+    color: var(--color-primario);
+  }
+  .app-video__play {
+    @apply inline-grid place-items-center h-4 w-4 rounded-full;
+    background-color: var(--color-secundario);
+  }
+  .app-video__play::after {
+    content: "";
+    margin-left: 1px;
+    border-style: solid;
+    border-width: 3px 0 3px 5px;
+    border-color: transparent transparent transparent white;
+  }
+  .app-video--chico {
+    @apply mt-0;
+  }
+  .app-boton {
+    @apply block rounded-full py-2 text-center text-[11px] font-bold text-white;
+    background-color: var(--color-primario);
+  }
+
+  /* Selector de paisaje: el único control del hero además de los CTA. */
+  .paisajes {
+    @apply mt-8 flex flex-wrap items-center justify-center md:justify-start gap-2;
+  }
+  .paisajes__etiqueta {
+    @apply w-full text-center md:text-left text-sm font-semibold text-gray-700 mb-1;
+  }
+  .paisajes__chip {
+    @apply basis-[44%] md:basis-auto justify-center inline-flex items-center gap-2 rounded-full border border-gray-300 bg-white
+      px-3.5 py-2 text-sm font-semibold text-gray-700 cursor-pointer transition-colors
+      hover:border-gray-500;
+  }
+  .paisajes__chip[aria-pressed="true"] {
+    @apply text-gray-900;
+    border-color: var(--chip-p);
+    box-shadow: inset 0 0 0 1px var(--chip-p);
+  }
+  .paisajes__muestra {
+    @apply h-4 w-4 rounded-full;
+    background-image: linear-gradient(135deg, var(--chip-p) 50%, var(--chip-s) 50%);
+  }
+  .portada__ejemplo {
+    @apply mt-3 text-xs text-gray-500 text-center md:text-left;
+  }
+  .portada__ejemplo--centro {
+    @apply -mt-2 mb-4 md:-mt-6 md:mb-6 md:text-center;
+  }
+
+  /* --- Hechos: cuatro verdades, sin números inventados --- */
+  .portada__hechos {
+    @apply max-w-6xl mx-auto px-4 mt-6 grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-6
+      text-sm text-gray-600;
+  }
+  .portada__hechos li {
+    @apply pt-4 border-t-2;
+    border-color: color-mix(in oklab, var(--color-primario) 30%, var(--color-fondo));
+  }
+  .portada__hechos strong {
+    @apply block text-base font-bold text-gray-900;
+  }
+
+  /* --- Secciones --- */
   .portada__seccion {
-    @apply pt-16;
+    @apply pt-24 sm:pt-28;
+    scroll-margin-top: 3rem;
   }
   .portada__h2 {
-    @apply text-2xl sm:text-3xl font-bold text-gray-900 mb-6;
-    letter-spacing: -0.01em;
+    @apply mb-4 font-extrabold text-gray-900;
+    font-size: clamp(1.9rem, 3.6vw, 2.75rem);
+    line-height: 1.06;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+  .portada__h2--centro {
+    @apply mx-auto max-w-3xl text-center mb-6 md:mb-10;
+  }
+  .portada__h2--claro {
+    @apply text-white;
+  }
+  .portada__intro {
+    @apply mb-10 max-w-2xl text-lg text-gray-700;
+    text-wrap: pretty;
   }
 
-  /* Dolores: lista editorial separada por hairlines -- NO tarjetas de
-     ícono+título+texto (el molde perezoso que el craft floor prohíbe). */
-  .portada__dolores {
-    @apply text-lg text-gray-700;
-  }
-  .portada__dolores li {
-    @apply py-3.5 border-t border-gray-200 first:border-t-0;
-  }
-
-  /* Comparativa: dos paneles. El peso visual (muted vs. marca) cuenta la
-     historia sin íconos por ítem. */
+  /* Antes / ahora: el peso visual (apagado vs. marca) cuenta la historia. */
   .portada__comparativa {
-    @apply grid grid-cols-1 sm:grid-cols-2 gap-4;
+    @apply grid grid-cols-1 md:grid-cols-2 gap-4;
   }
   .portada__col {
-    @apply rounded-2xl border p-6;
+    @apply rounded-2xl border p-7 sm:p-8;
   }
   .portada__col ul {
-    @apply space-y-2.5 text-sm;
+    @apply space-y-3.5 text-base;
+  }
+  .portada__col li {
+    @apply relative pl-7;
+  }
+  .portada__col li::before {
+    content: "";
+    @apply absolute left-0.5;
   }
   .portada__col-titulo {
-    @apply font-semibold mb-4;
+    @apply mb-5 text-lg font-extrabold;
+    letter-spacing: -0.01em;
   }
   .portada__col--antes {
-    @apply border-gray-200 bg-gray-50 text-gray-500;
+    @apply border-gray-200 text-gray-500;
+    background-color: color-mix(in oklab, var(--color-fondo) 55%, white);
   }
   .portada__col--antes .portada__col-titulo {
     @apply text-gray-500;
+  }
+  .portada__col--antes li::before {
+    @apply top-[0.7rem] h-0.5 w-3 rounded-full bg-gray-400;
   }
   .portada__col--ahora {
     @apply bg-white shadow-sm text-gray-800;
@@ -1525,107 +1850,274 @@
   .portada__col--ahora .portada__col-titulo {
     color: var(--color-primario);
   }
+  /* Tilde dibujado con dos bordes, no un glifo. */
+  .portada__col--ahora li::before,
+  .portada__incluye li::before {
+    @apply top-[0.3rem] h-2.5 w-1.5 border-b-2 border-r-2;
+    border-color: var(--color-primario);
+    transform: rotate(45deg);
+  }
 
-  /* Cómo funciona: pasos numerados (la secuencia es la información). */
-  .portada__pasos {
-    @apply grid grid-cols-1 sm:grid-cols-3 gap-6;
+  /* --- Funciones: bloques alternados --- */
+  .funcion {
+    @apply grid grid-cols-1 md:grid-cols-2 items-center gap-8 md:gap-16 py-10 md:py-14;
   }
-  .portada__paso {
-    @apply flex gap-4;
+  .funcion--invertida .funcion__texto {
+    @apply md:order-2;
   }
-  .portada__paso-n {
-    @apply flex-none inline-flex items-center justify-center h-10 w-10 rounded-full
-      text-white text-lg font-bold;
+  .funcion__titulo {
+    @apply mb-3 text-2xl sm:text-3xl font-extrabold text-gray-900;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+  .funcion__texto p {
+    @apply max-w-[34rem] text-lg text-gray-700;
+    text-wrap: pretty;
+  }
+  .funcion__demo {
+    @apply min-w-0 rounded-2xl p-5 sm:p-10;
+    background-color: color-mix(in oklab, var(--color-primario) 13%, white);
+  }
+  .funcion--invertida .funcion__demo {
+    background-color: color-mix(in oklab, var(--color-secundario) 18%, white);
+  }
+  .mini {
+    @apply rounded-2xl border border-gray-200 bg-white p-4 shadow-sm text-sm;
+  }
+  .mini .app-pestanas {
+    @apply mb-2 text-[11px];
+  }
+  .mini__fila {
+    @apply flex items-center gap-3 py-2.5 border-b border-gray-100 last:border-b-0;
+  }
+  .mini__bloque {
+    @apply inline-grid place-items-center h-7 w-8 flex-none rounded-md text-[11px] font-bold;
+    background-color: color-mix(in oklab, var(--color-primario) 12%, white);
+    color: var(--color-primario);
+  }
+  .mini__nombre {
+    @apply flex-1 min-w-0 truncate font-semibold text-gray-800;
+  }
+  .mini__num {
+    @apply font-extrabold text-gray-900 tabular-nums whitespace-nowrap;
+  }
+  .mini__dato {
+    @apply w-16 flex-none text-right text-xs text-gray-500 tabular-nums;
+  }
+  .mini__accion {
+    @apply hidden sm:inline-flex rounded-full px-2.5 py-1 text-xs font-bold text-white whitespace-nowrap;
     background-color: var(--color-primario);
   }
-  .portada__paso-t {
-    @apply text-base font-semibold text-gray-900 mb-1;
+  .mini--turnos {
+    @apply grid grid-cols-2 sm:grid-cols-3 gap-2;
   }
-  .portada__paso p {
-    @apply text-sm text-gray-600;
+  .turno {
+    @apply flex flex-col gap-1 rounded-md border border-gray-200 p-3;
+  }
+  .turno__hora {
+    @apply font-extrabold text-gray-900 tabular-nums;
+  }
+  .turno__cupo {
+    @apply text-xs text-gray-500 tabular-nums;
+  }
+  .turno .badge {
+    @apply self-start;
+  }
+  .turno--lleno {
+    @apply bg-gray-50;
+  }
+  .turno--mio {
+    border-color: var(--color-primario);
+    background-color: color-mix(in oklab, var(--color-primario) 8%, white);
+  }
+  .turno--mio .turno__cupo {
+    @apply font-bold;
+    color: var(--color-primario);
   }
 
-  /* Precios. */
+  /* Planilla -> plan. */
+  .excel {
+    @apply grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4;
+  }
+  .excel__hoja {
+    @apply overflow-hidden rounded-md border border-gray-300 bg-white text-xs text-gray-700;
+  }
+  .excel__fila {
+    @apply grid grid-cols-[1.7fr_1fr_1fr] border-b border-gray-200 last:border-b-0;
+  }
+  .excel__fila span {
+    @apply truncate border-r border-gray-200 px-2 py-2 last:border-r-0 tabular-nums;
+  }
+  .excel__fila--cab {
+    @apply bg-gray-100 text-[10px] font-bold text-gray-500;
+  }
+  .excel__flecha {
+    @apply relative mx-auto h-8 w-0.5 sm:h-0.5 sm:w-10;
+    background-color: var(--color-primario);
+  }
+  .excel__flecha::after {
+    content: "";
+    @apply absolute h-2.5 w-2.5 border-b-2 border-r-2;
+    border-color: var(--color-primario);
+    left: 50%;
+    bottom: 0;
+    transform: translate(-50%, 0) rotate(45deg);
+  }
+  @media (min-width: 640px) {
+    .excel__flecha::after {
+      left: auto;
+      right: 0;
+      bottom: 50%;
+      transform: translate(0, 50%) rotate(-45deg);
+    }
+  }
+  .excel__plan {
+    @apply p-3;
+  }
+
+  /* --- Cómo empezás: la línea que une los pasos ES la secuencia --- */
+  .portada__pasos {
+    @apply relative mt-4 grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-8;
+  }
+  .portada__pasos::before {
+    content: "";
+    @apply absolute hidden md:block left-6 right-[calc(33.333%-2.5rem)] top-6 h-0.5;
+    background-color: color-mix(in oklab, var(--color-primario) 25%, var(--color-fondo));
+  }
+  .portada__paso {
+    @apply relative;
+  }
+  .portada__paso-n {
+    @apply relative z-10 inline-grid place-items-center h-12 w-12 rounded-full
+      text-lg font-extrabold text-white;
+    background-color: var(--color-primario);
+    box-shadow: 0 0 0 6px var(--color-fondo);
+  }
+  .portada__paso-t {
+    @apply mt-5 mb-1.5 text-xl font-extrabold text-gray-900;
+    letter-spacing: -0.02em;
+  }
+  .portada__paso p {
+    @apply max-w-xs text-gray-700;
+  }
+
+  /* --- Precios: el verde de marca como campo entero --- */
+  .portada__precios-campo {
+    @apply mt-24 sm:mt-28 py-20 sm:py-24;
+    scroll-margin-top: 3rem;
+    background-color: color-mix(in oklab, var(--color-primario) 72%, black);
+  }
   .portada__precio-intro {
-    @apply text-gray-600 mb-6 max-w-2xl;
+    @apply max-w-2xl text-lg;
+    color: color-mix(in oklab, white 82%, var(--color-primario));
+  }
+  .portada__precio-intro strong {
+    @apply text-white;
   }
   .portada__precios {
-    @apply grid grid-cols-1 sm:grid-cols-3 gap-4 items-stretch;
+    @apply mt-10 grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch;
   }
   .portada__precio {
-    @apply flex flex-col rounded-2xl border border-gray-200 bg-white shadow-sm p-6;
-  }
-  .portada__precio--destacado {
-    border-color: var(--color-primario);
-    border-width: 2px;
+    @apply flex flex-col rounded-2xl bg-white p-7;
   }
   .portada__precio-tramo {
-    @apply text-sm font-semibold text-gray-500 mb-2;
+    @apply mb-3 text-sm font-bold text-gray-500;
   }
   .portada__precio-monto {
-    @apply text-gray-900 mb-1;
+    @apply text-gray-900;
     font-variant-numeric: tabular-nums;
   }
   .portada__precio-moneda {
-    @apply text-base font-semibold align-top;
+    @apply align-top text-base font-bold;
   }
   .portada__precio-num {
-    @apply text-4xl font-bold;
+    @apply text-5xl font-extrabold;
+    letter-spacing: -0.03em;
   }
   .portada__precio-mes {
-    @apply text-sm font-normal text-gray-500;
+    @apply text-sm font-medium text-gray-500;
   }
   .portada__precio-ars {
-    @apply text-sm text-gray-500 mb-4;
+    @apply mt-1 text-sm text-gray-500;
     font-variant-numeric: tabular-nums;
   }
+  .portada__incluye {
+    @apply mt-6 mb-8 space-y-2.5 border-t border-gray-100 pt-6 text-sm text-gray-700;
+  }
+  .portada__incluye li {
+    @apply relative pl-6;
+  }
+  .portada__incluye li::before {
+    content: "";
+    @apply absolute left-0.5;
+  }
   .portada__precio-cta {
-    @apply mt-auto text-center;
+    @apply mt-auto w-full;
   }
   .portada__precio-pie {
-    @apply mt-4 text-sm text-gray-500;
+    @apply mt-8 text-sm;
+    color: color-mix(in oklab, white 72%, var(--color-primario));
   }
 
-  /* FAQ: <details> con un chevron dibujado (no glifo). */
-  .portada__faq {
-    @apply divide-y divide-gray-200 border-t border-b border-gray-200;
+  /* --- FAQ en dos columnas --- */
+  .portada__faq-grilla {
+    @apply md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)] md:gap-16;
   }
-  .portada__faq details {
-    @apply py-2;
+  .portada__faq-cab {
+    @apply mb-8 md:mb-0 md:sticky md:top-24 md:self-start;
+  }
+  .portada__faq-sub {
+    @apply mb-6 max-w-sm text-gray-700;
+  }
+  .portada__faq {
+    @apply divide-y divide-gray-200 border-y border-gray-200;
   }
   .portada__faq summary {
-    @apply flex items-center justify-between gap-4 cursor-pointer list-none
-      py-2 font-semibold text-gray-900;
+    @apply flex cursor-pointer list-none items-center justify-between gap-4 py-5
+      text-base font-bold text-gray-900;
   }
   .portada__faq summary::-webkit-details-marker {
     display: none;
   }
   .portada__faq summary::after {
     content: "";
-    @apply flex-none h-2.5 w-2.5 border-r-2 border-b-2 border-gray-400 transition-transform;
+    @apply h-2.5 w-2.5 flex-none border-b-2 border-r-2 transition-transform duration-200;
+    border-color: var(--color-primario);
     transform: rotate(45deg);
   }
   .portada__faq details[open] summary::after {
     transform: rotate(225deg);
   }
   .portada__faq p {
-    @apply pb-3 text-gray-600 max-w-2xl;
+    @apply max-w-2xl pb-5 text-gray-700;
   }
 
-  /* Cierre: segundo bloque de marca a todo el ancho. */
+  /* --- Cierre y pie --- */
   .portada__cierre {
-    @apply w-full text-center px-4 py-20 mt-16;
-    background-image: linear-gradient(135deg, var(--color-primario), var(--color-secundario));
+    @apply mt-24 sm:mt-28 rounded-2xl px-6 py-16 sm:py-20 text-center;
+    background-color: var(--color-primario);
   }
   .portada__cierre-t {
-    @apply text-3xl font-bold text-white mb-3;
+    @apply mb-3 font-extrabold text-white;
+    font-size: clamp(1.9rem, 3.6vw, 2.75rem);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
   }
   .portada__cierre-sub {
-    @apply text-lg text-white/90 mb-8;
+    @apply mb-8 text-lg text-white/90;
   }
   .portada__footer {
-    @apply mt-12 pt-6 flex items-center justify-between text-sm text-gray-500;
+    @apply mt-12 flex flex-col sm:flex-row items-center justify-between gap-4
+      border-t border-gray-200 pt-8 text-sm text-gray-600;
   }
+  .portada__footer-links {
+    @apply flex flex-wrap justify-center gap-x-5 gap-y-2;
+  }
+  .portada__footer-links a {
+    @apply text-gray-600 no-underline hover:text-gray-900;
+  }
+
 
   /* Login: único lugar del sistema fuera de landing.html que rompe el ancho
      de .contenido -- mismo truco que .landing (main_class vacío + wrapper
@@ -1659,11 +2151,49 @@
   }
 
   .auth-hero__titulo {
-    @apply text-3xl sm:text-4xl font-bold text-gray-900 mb-4;
+    @apply mb-4 font-extrabold text-gray-900;
+    font-size: clamp(2rem, 3.6vw, 2.75rem);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+
+  /* Login genérico: misma voz que la portada (ver `.portada__titulo`). El
+     ajuste óptico de `.pt` vale acá por el mismo motivo. */
+  .auth-hero--producto {
+    @apply max-w-6xl pt-10 sm:pt-16 lg:gap-20;
+  }
+  .auth-hero__titulo--producto {
+    font-size: clamp(2.3rem, 4.4vw, 3.5rem);
+    line-height: 1.03;
+    letter-spacing: -0.035em;
+  }
+  .auth-hero .pt {
+    margin-left: -0.1em;
+  }
+  .auth-hero__titulo-marca {
+    @apply block mt-1;
+    color: var(--color-primario);
   }
 
   .auth-hero__subtitulo {
-    @apply text-base text-gray-600 max-w-md mx-auto lg:mx-0;
+    @apply text-lg text-gray-700 max-w-md mx-auto lg:mx-0;
+    text-wrap: pretty;
+  }
+
+  /* El celular de la portada, suelto: acá no se superpone a ningún panel. */
+  .auth-hero__demo {
+    @apply hidden lg:block mt-10;
+  }
+  .auth-hero__demo-nota {
+    @apply hidden lg:block mt-3 text-xs text-gray-500;
+  }
+  .auth-hero__demo .disp-celu {
+    position: relative;
+    inset: auto;
+    margin: 0;
+    width: 15rem;
+    max-width: none;
   }
 
   .auth-hero__cambiar-gimnasio {
@@ -1675,55 +2205,106 @@
   }
 
   .auth-hero__form {
-    @apply w-full max-w-sm mx-auto lg:mx-0 lg:justify-self-end;
+    @apply w-full max-w-md mx-auto lg:mx-0 lg:justify-self-end;
   }
 
-  /* Banda de atletas: la marca de color viene de --color-primario, nunca un
-     hex fijo (The Runtime Brand Rule) -- currentColor en el SVG hereda de
-     acá. */
-  .auth-frieze {
-    @apply flex items-end justify-center lg:justify-start gap-5 sm:gap-8
-      mb-6 text-[var(--color-primario)];
+  .auth-hero__sin-cuenta {
+    @apply mt-5 text-center text-sm text-gray-600;
+  }
+  .auth-hero__sin-cuenta a {
+    @apply font-bold underline decoration-2 underline-offset-4;
   }
 
-  /* Primer motion pattern del sistema (ver "The Restrained Motion Rule" en
-     DESIGN.md): amplitud chica, ease-in-out, sin bounce. El delay
-     escalonado por figura ("efecto ola") viene del `style` inline que arma
-     el `{% cycle %}` de partials/atletas_frieze.html, no de reglas
-     :nth-child acá -- agregar/sacar una figura no implica tocar dos
-     archivos. */
-  .auth-frieze__figura {
-    @apply w-9 sm:w-11 h-auto;
-    animation: auth-frieze-levantar 2.4s ease-in-out infinite alternate;
+  /* Tarjeta del formulario de ingreso (las dos variantes del login). Los
+     colores salen de las variables del `.auth-hero`, así que en
+     g/<slug>/login/ el botón y el foco son los del gimnasio. */
+  .auth-card {
+    @apply rounded-2xl border border-gray-200 bg-white p-7 sm:p-9 shadow-sm;
+  }
+  .auth-card__titulo {
+    @apply mb-6 text-2xl font-extrabold text-gray-900;
+    letter-spacing: -0.02em;
+  }
+  .auth-card__form {
+    @apply space-y-5;
+  }
+  .auth-card__campo label {
+    @apply mb-1.5 block text-sm font-bold text-gray-800;
+  }
+  .auth-card__label-fila {
+    @apply flex items-baseline justify-between gap-3;
+  }
+  .auth-card__olvido {
+    @apply mb-1.5 text-sm font-semibold;
+  }
+  .auth-card__campo input {
+    @apply block w-full rounded-md border border-gray-300 bg-white px-4 py-3 text-base
+      text-gray-900 transition-colors;
+  }
+  .auth-card__campo input:focus {
+    @apply outline-none border-transparent;
+    box-shadow: 0 0 0 2px var(--color-primario);
+  }
+  .auth-card__ayuda {
+    @apply mt-1.5 mb-0 text-xs text-gray-500;
+  }
+  .auth-card__error {
+    @apply rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800;
+  }
+  .auth-card__error p {
+    @apply m-0 text-red-800;
+  }
+  .auth-card__error-campo {
+    @apply mt-1.5 mb-0 text-sm font-semibold text-red-700;
+  }
+  .auth-card__entrar {
+    @apply w-full cursor-pointer border-0;
+  }
+  .auth-card__entrar:focus-visible,
+  .auth-card__google:focus-visible {
+    outline: 2px solid var(--color-primario);
+    outline-offset: 3px;
+  }
+  .auth-card__o {
+    @apply my-5 flex items-center gap-3 text-xs font-semibold uppercase text-gray-400;
+    letter-spacing: 0.08em;
+  }
+  .auth-card__o::before,
+  .auth-card__o::after {
+    content: "";
+    @apply h-px flex-1 bg-gray-200;
+  }
+  .auth-card__google {
+    @apply flex w-full items-center justify-center rounded-full border border-gray-300
+      bg-white px-6 py-3 text-base font-bold text-gray-800 no-underline transition-colors
+      hover:border-gray-500 hover:no-underline;
+  }
+  .auth-card__nota {
+    @apply mt-2 mb-0 text-center text-xs text-gray-500;
   }
 
-  @keyframes auth-frieze-levantar {
-    from { transform: translateY(0) rotate(0deg); }
-    to { transform: translateY(-6px) rotate(-2deg); }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .auth-frieze__figura {
-      animation: none;
-    }
-  }
-
-  /* Único momento animado de la portada: la entrada del hero (aparece desde
-     ya-visible, ease-out exponencial). Respeta prefers-reduced-motion. */
+  /* Entrada del hero de la portada (copy y maqueta, escalonadas): el único
+     momento animado de carga. Ease-out exponencial, respeta reduced-motion. */
   @keyframes portada-subir {
     from { opacity: 0; transform: translateY(14px); }
     to { opacity: 1; transform: translateY(0); }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .portada__hero-cuerpo {
+    .portada__hero-copy,
+    .maqueta {
       animation: none;
+    }
+    .maqueta__escena *,
+    .funcion__demo,
+    .funcion__demo * {
+      transition: none;
     }
   }
 
-  /* Splash de instalación (mancuerna): SEGUNDA excepción deliberada a la
-     Restrained Motion Rule (la primera es .auth-frieze arriba) -- ver
-     DESIGN.md, sección Motion, "Segunda excepción". Un evento de una sola
+  /* Splash de instalación (mancuerna): excepción deliberada a la
+     Restrained Motion Rule -- ver
+     DESIGN.md, sección Motion, "Excepción deliberada". Un evento de una sola
      vez por dispositivo (primera apertura standalone, pwa.js) justifica un
      movimiento más protagónico que el resto del sistema; no es licencia
      para animar nada más del panel. El fondo usa var(--color-primario)/

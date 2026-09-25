@@ -9,6 +9,7 @@ mockean en la costura (`intercambiar_code`/`_decodificar_id_token`), no la
 librería de más abajo -- mismo espíritu que `calendario/tests.py` mockeando
 `calendario.services.intercambiar_code`.
 """
+import re
 
 from unittest.mock import MagicMock, patch
 
@@ -206,17 +207,14 @@ class LoginTemplateGoogleButtonTests(TestCase):
         response = self.client.get(reverse("login"))
         self.assertNotContains(response, "Iniciar sesión con Google")
 
-    # PASSWORD_RESET_ENABLED explícito en False: si quedara en lo que tenga
-    # el entorno, el link "¿Olvidaste tu contraseña?" (también hx-boost="false")
-    # metería un count de más y este test "pasaría" aunque el botón de
-    # Google perdiera el suyo -- exactamente la fragilidad que rompió en
-    # silencio la primera versión del test análogo en tests_password_reset.py.
-    @override_settings(GOOGLE_STAFF_LOGIN_ENABLED=True, PASSWORD_RESET_ENABLED=False)
+    # Se mira el atributo en el <a> del botón mismo, no un conteo de toda la
+    # página: el conteo se rompía con cualquier link nuevo que también lo
+    # lleve (la nav pública del login trae varios) y, al revés, un link de
+    # más podía tapar que el botón perdiera el suyo.
+    @override_settings(GOOGLE_STAFF_LOGIN_ENABLED=True)
     def test_boton_lleva_hx_boost_false(self):
-        # Sin loguearse, la página ya trae 2 hx-boost="false" (el link de
-        # marca del topbar y el form de contraseña) -- si el botón de Google
-        # no lo llevara, este count seguiría dando 2 en vez de 3 y el test
-        # lo detectaría (a diferencia de un assertContains simple, que
-        # pasaría igual con cualquiera de los otros dos).
         response = self.client.get(reverse("login"))
-        self.assertContains(response, 'hx-boost="false"', count=3)
+        self.assertRegex(
+            response.content.decode(),
+            r'<a href="%s[^"]*"[^>]*hx-boost="false"' % re.escape(reverse("login_google")),
+        )
