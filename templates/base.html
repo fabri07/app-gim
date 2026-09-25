@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}App Gimnasios{% endblock %}</title>
+  {% block meta_extra %}{% endblock %}
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   {% if user.is_authenticated and user.perfil.gimnasio %}
     {% with gimnasio=user.perfil.gimnasio %}
@@ -199,7 +200,7 @@
       {% if user.is_authenticated and user.perfil.gimnasio.logo %}
         <img src="{{ user.perfil.gimnasio.logo_url_cacheable }}" alt="{{ user.perfil.gimnasio.nombre }}">
       {% endif %}
-      <span>{{ user.perfil.gimnasio.nombre|default:"App Gimnasios" }}</span>
+      <span>{{ user.perfil.gimnasio.nombre|default:"TuGimApp" }}</span>
     </a>
     <div class="flex items-center gap-3">
       {% if user.is_authenticated and user.perfil.gimnasio %}

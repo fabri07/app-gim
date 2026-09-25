@@ -1435,6 +1435,198 @@
     @apply text-gray-600;
   }
 
+  /* Landing de PRODUCTO (portada.html, raíz `/` para anónimos). Misma familia
+     "Persuade" que `.landing` del gimnasio, pero es la venta del SaaS en sí.
+     Sin gimnasio en contexto usa el paisaje Bosque del :root; el canvas
+     atmosférico ya lo pinta `body`, así que acá no se repite -- solo el hero y
+     el cierre llevan el degradé de marca fuerte. */
+  .portada {
+    @apply pb-16;
+  }
+  .portada ::selection {
+    background-color: color-mix(in oklab, var(--color-primario) 22%, transparent);
+  }
+  .portada__inner {
+    @apply max-w-5xl mx-auto px-4;
+  }
+  .portada__hero {
+    @apply w-full text-center px-4 py-20 sm:py-28;
+    background-image: linear-gradient(135deg, var(--color-primario), var(--color-secundario));
+  }
+  .portada__hero-cuerpo {
+    @apply max-w-3xl;
+    animation: portada-subir 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .portada__titulo {
+    @apply text-4xl sm:text-5xl font-bold text-white mb-5;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .portada__sub {
+    @apply text-lg text-white/90 mb-8 max-w-2xl mx-auto;
+  }
+  .portada__cta {
+    @apply flex flex-wrap items-center justify-center gap-3;
+  }
+  .portada__cta-primario {
+    @apply inline-flex items-center justify-center rounded-full bg-white px-7 py-3
+      text-base font-semibold no-underline shadow-sm transition hover:opacity-90;
+    color: var(--color-primario);
+  }
+  .portada__cta-fantasma {
+    @apply inline-flex items-center justify-center rounded-full border border-white/70
+      px-7 py-3 text-base font-semibold text-white no-underline transition
+      hover:bg-white/10;
+  }
+  .portada__hero-nota {
+    @apply mt-5 text-sm text-white/80;
+  }
+  .portada__seccion {
+    @apply pt-16;
+  }
+  .portada__h2 {
+    @apply text-2xl sm:text-3xl font-bold text-gray-900 mb-6;
+    letter-spacing: -0.01em;
+  }
+
+  /* Dolores: lista editorial separada por hairlines -- NO tarjetas de
+     ícono+título+texto (el molde perezoso que el craft floor prohíbe). */
+  .portada__dolores {
+    @apply text-lg text-gray-700;
+  }
+  .portada__dolores li {
+    @apply py-3.5 border-t border-gray-200 first:border-t-0;
+  }
+
+  /* Comparativa: dos paneles. El peso visual (muted vs. marca) cuenta la
+     historia sin íconos por ítem. */
+  .portada__comparativa {
+    @apply grid grid-cols-1 sm:grid-cols-2 gap-4;
+  }
+  .portada__col {
+    @apply rounded-2xl border p-6;
+  }
+  .portada__col ul {
+    @apply space-y-2.5 text-sm;
+  }
+  .portada__col-titulo {
+    @apply font-semibold mb-4;
+  }
+  .portada__col--antes {
+    @apply border-gray-200 bg-gray-50 text-gray-500;
+  }
+  .portada__col--antes .portada__col-titulo {
+    @apply text-gray-500;
+  }
+  .portada__col--ahora {
+    @apply bg-white shadow-sm text-gray-800;
+    border-color: color-mix(in oklab, var(--color-primario) 45%, var(--color-fondo));
+  }
+  .portada__col--ahora .portada__col-titulo {
+    color: var(--color-primario);
+  }
+
+  /* Cómo funciona: pasos numerados (la secuencia es la información). */
+  .portada__pasos {
+    @apply grid grid-cols-1 sm:grid-cols-3 gap-6;
+  }
+  .portada__paso {
+    @apply flex gap-4;
+  }
+  .portada__paso-n {
+    @apply flex-none inline-flex items-center justify-center h-10 w-10 rounded-full
+      text-white text-lg font-bold;
+    background-color: var(--color-primario);
+  }
+  .portada__paso-t {
+    @apply text-base font-semibold text-gray-900 mb-1;
+  }
+  .portada__paso p {
+    @apply text-sm text-gray-600;
+  }
+
+  /* Precios. */
+  .portada__precio-intro {
+    @apply text-gray-600 mb-6 max-w-2xl;
+  }
+  .portada__precios {
+    @apply grid grid-cols-1 sm:grid-cols-3 gap-4 items-stretch;
+  }
+  .portada__precio {
+    @apply flex flex-col rounded-2xl border border-gray-200 bg-white shadow-sm p-6;
+  }
+  .portada__precio--destacado {
+    border-color: var(--color-primario);
+    border-width: 2px;
+  }
+  .portada__precio-tramo {
+    @apply text-sm font-semibold text-gray-500 mb-2;
+  }
+  .portada__precio-monto {
+    @apply text-gray-900 mb-1;
+    font-variant-numeric: tabular-nums;
+  }
+  .portada__precio-moneda {
+    @apply text-base font-semibold align-top;
+  }
+  .portada__precio-num {
+    @apply text-4xl font-bold;
+  }
+  .portada__precio-mes {
+    @apply text-sm font-normal text-gray-500;
+  }
+  .portada__precio-ars {
+    @apply text-sm text-gray-500 mb-4;
+    font-variant-numeric: tabular-nums;
+  }
+  .portada__precio-cta {
+    @apply mt-auto text-center;
+  }
+  .portada__precio-pie {
+    @apply mt-4 text-sm text-gray-500;
+  }
+
+  /* FAQ: <details> con un chevron dibujado (no glifo). */
+  .portada__faq {
+    @apply divide-y divide-gray-200 border-t border-b border-gray-200;
+  }
+  .portada__faq details {
+    @apply py-2;
+  }
+  .portada__faq summary {
+    @apply flex items-center justify-between gap-4 cursor-pointer list-none
+      py-2 font-semibold text-gray-900;
+  }
+  .portada__faq summary::-webkit-details-marker {
+    display: none;
+  }
+  .portada__faq summary::after {
+    content: "";
+    @apply flex-none h-2.5 w-2.5 border-r-2 border-b-2 border-gray-400 transition-transform;
+    transform: rotate(45deg);
+  }
+  .portada__faq details[open] summary::after {
+    transform: rotate(225deg);
+  }
+  .portada__faq p {
+    @apply pb-3 text-gray-600 max-w-2xl;
+  }
+
+  /* Cierre: segundo bloque de marca a todo el ancho. */
+  .portada__cierre {
+    @apply w-full text-center px-4 py-20 mt-16;
+    background-image: linear-gradient(135deg, var(--color-primario), var(--color-secundario));
+  }
+  .portada__cierre-t {
+    @apply text-3xl font-bold text-white mb-3;
+  }
+  .portada__cierre-sub {
+    @apply text-lg text-white/90 mb-8;
+  }
+  .portada__footer {
+    @apply mt-12 pt-6 flex items-center justify-between text-sm text-gray-500;
+  }
+
   /* Login: único lugar del sistema fuera de landing.html que rompe el ancho
      de .contenido -- mismo truco que .landing (main_class vacío + wrapper
      propio). Por default (sin `gimnasio` en contexto -- login genérico, o
@@ -1512,6 +1704,19 @@
 
   @media (prefers-reduced-motion: reduce) {
     .auth-frieze__figura {
+      animation: none;
+    }
+  }
+
+  /* Único momento animado de la portada: la entrada del hero (aparece desde
+     ya-visible, ease-out exponencial). Respeta prefers-reduced-motion. */
+  @keyframes portada-subir {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .portada__hero-cuerpo {
       animation: none;
     }
   }

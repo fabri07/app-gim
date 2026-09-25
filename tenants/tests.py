@@ -494,9 +494,13 @@ class PortadaViewTests(TestCase):
 
     def test_precios_muestra_los_tres_escalones_y_la_prueba(self):
         response = self.client.get(reverse("home"))
-        self.assertContains(response, "USD 10")
-        self.assertContains(response, "USD 15")
-        self.assertContains(response, "USD 20")
+        # Los tres montos (el markup separa "USD" del número, así que se
+        # verifica el número dentro de su span) y los tres tramos.
+        self.assertContains(response, ">10</span>")
+        self.assertContains(response, ">15</span>")
+        self.assertContains(response, ">20</span>")
+        self.assertContains(response, "Hasta 100 alumnos")
+        self.assertContains(response, "Más de 300 alumnos")
         self.assertContains(response, "días gratis")
 
     def test_sin_cotizacion_no_muestra_pesos(self):

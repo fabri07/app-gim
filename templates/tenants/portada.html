@@ -2,43 +2,162 @@
 {% load static %}
 
 {% comment %}
-Landing de producto (raíz `/` para anónimos). Placeholder de Fase 1: estructura
-y datos correctos; el diseño fino se hace en Fase 2 con la skill `impeccable`.
-Se auto-abastece de colores con `style` inline en el wrapper, porque el
-`<style>` del <head> de base.html solo se llena para usuarios autenticados.
+Landing de producto (raíz `/` para anónimos). Modo Persuade del sistema "Un
+Paisaje por Gimnasio": hero con degradé de marca a todo el ancho, tipografía
+display bold, precios con tabular-nums. Sin gimnasio en contexto usa el paisaje
+Bosque por defecto (los tokens `--color-*` salen del `:root` de app.css; el
+canvas atmosférico ya lo pinta `body`, no se repite acá). Sin prueba social
+inventada: no hay clientes pagos todavía (PRODUCT.md).
 {% endcomment %}
 
-{% block title %}TuGimApp — Gestión simple para tu gimnasio{% endblock %}
+{% block title %}TuGimApp — la app para tu gimnasio, con tu marca{% endblock %}
+
+{% block meta_extra %}
+  <meta name="description" content="Alumnos, rutinas con video, pagos y turnos en una sola app con tu logo y tus colores. Simple, en español, para gimnasios y entrenadores. Probá 30 días gratis.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="TuGimApp — la app para tu gimnasio, con tu marca">
+  <meta property="og:description" content="Dejá la planilla y el WhatsApp: gestioná alumnos, rutinas, pagos y turnos en un solo lugar. 30 días gratis.">
+  <meta property="og:url" content="https://www.tugimapp.com/">
+  <meta property="og:image" content="{% static 'img/portada/og.png' %}">
+  <meta name="twitter:card" content="summary_large_image">
+{% endblock %}
 
 {% block main_class %}{% endblock %}
 
 {% block content %}
-<div class="portada" style="--color-fondo:#f4f7f5; --color-primario:#2f6d4f; --color-secundario:#6aa889;">
-  <section class="portada__hero">
-    <h1>Dejá la planilla y el WhatsApp. Gestioná tu gimnasio en un solo lugar.</h1>
-    <p>Alumnos, rutinas con video, pagos, turnos y novedades — simple, en
-      español, pensado para gimnasios y entrenadores.</p>
-    <div class="portada__cta">
-      <a class="boton" href="{% url 'solicitudes:solicitar' %}">Solicitar una cuenta</a>
-      <a class="boton-secundario" href="{% url 'login' %}" hx-boost="false">Ya tengo cuenta</a>
+<div class="portada">
+
+  {# --- Hero --- #}
+  <header class="portada__hero">
+    <div class="portada__inner portada__hero-cuerpo">
+      <h1 class="portada__titulo">Tu gimnasio, ordenado.<br>Sin planillas, sin papeles, sin perder mensajes.</h1>
+      <p class="portada__sub">Alumnos, rutinas con video, pagos y turnos en una
+        sola app — con tu logo, tus colores y tu nombre. Simple, en español,
+        hecha para gimnasios y entrenadores de Argentina.</p>
+      <div class="portada__cta">
+        <a class="portada__cta-primario" href="{% url 'solicitudes:solicitar' %}">Solicitar una cuenta</a>
+        <a class="portada__cta-fantasma" href="{% url 'login' %}" hx-boost="false">Ya tengo cuenta</a>
+      </div>
+      <p class="portada__hero-nota">Probá {{ precios_dias_gratis }} días gratis · sin tarjeta</p>
+    </div>
+  </header>
+
+  {# --- Dolores --- #}
+  <section class="portada__seccion portada__inner">
+    <h2 class="portada__h2">Si esto te suena, es hora de cambiar</h2>
+    <ul class="portada__dolores">
+      <li>La cuota la anotás en un cuaderno y a fin de mes no sabés bien quién debe.</li>
+      <li>Las rutinas van por WhatsApp y se pierden entre mil mensajes.</li>
+      <li>Tu planilla de Excel solo la entendés vos, y cada tanto se rompe.</li>
+      <li>Los turnos se anotan en papel y siempre se arma lío con los cupos.</li>
+      <li>Tus alumnos te preguntan lo mismo todo el tiempo: “¿cuánto peso hago hoy?”.</li>
+    </ul>
+  </section>
+
+  {# --- Comparativa vs Excel + WhatsApp --- #}
+  <section class="portada__seccion portada__inner">
+    <h2 class="portada__h2">Del quilombo de siempre a una sola app</h2>
+    <div class="portada__comparativa">
+      <div class="portada__col portada__col--antes">
+        <p class="portada__col-titulo">Excel + papel + WhatsApp</p>
+        <ul>
+          <li>Los cobros los sumás a mano</li>
+          <li>Rutinas como fotos sueltas en el chat</li>
+          <li>Fichas de alumnos en una planilla frágil</li>
+          <li>Cupos de turnos anotados en papel</li>
+          <li>Todo con el aspecto de una app ajena</li>
+        </ul>
+      </div>
+      <div class="portada__col portada__col--ahora">
+        <p class="portada__col-titulo">Con TuGimApp</p>
+        <ul>
+          <li>Los pendientes se generan solos, vos confirmás</li>
+          <li>Rutinas con video, ordenadas por día y semana</li>
+          <li>Ficha completa de cada alumno, siempre a mano</li>
+          <li>Reserva de turnos con cupo automático</li>
+          <li>Tu logo, tus colores y tu nombre en toda la app</li>
+        </ul>
+      </div>
     </div>
   </section>
 
-  <section class="portada__precio">
-    <h2>Precios</h2>
-    <p>Probá {{ precios_dias_gratis }} días gratis. Después pagás según cuántos
-      alumnos activos tengas.</p>
-    <div class="portada__precio-grilla">
+  {# --- Cómo funciona --- #}
+  <section class="portada__seccion portada__inner">
+    <h2 class="portada__h2">Cómo empezás</h2>
+    <ol class="portada__pasos">
+      <li class="portada__paso">
+        <span class="portada__paso-n">1</span>
+        <div>
+          <h3 class="portada__paso-t">Nos escribís</h3>
+          <p>Dejás tus datos en un formulario y te contactamos para activar tu cuenta.</p>
+        </div>
+      </li>
+      <li class="portada__paso">
+        <span class="portada__paso-n">2</span>
+        <div>
+          <h3 class="portada__paso-t">Cargás tu gimnasio</h3>
+          <p>Subís tu logo, elegís tus colores y sumás tus alumnos —o los importás de tu Excel.</p>
+        </div>
+      </li>
+      <li class="portada__paso">
+        <span class="portada__paso-n">3</span>
+        <div>
+          <h3 class="portada__paso-t">Empezás a usarla</h3>
+          <p>Tus alumnos entran a su propio portal y vos manejás todo desde el panel.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  {# --- Precios --- #}
+  <section class="portada__seccion portada__inner" id="precios">
+    <h2 class="portada__h2">Un precio que crece con vos</h2>
+    <p class="portada__precio-intro">Empezás con {{ precios_dias_gratis }} días gratis y sin tarjeta.
+      Pagás según cuántos alumnos activos tengas — <strong>todas las funciones incluidas</strong> en cualquier plan.</p>
+    <div class="portada__precios">
       {% for fila in precios_filas %}
-      <div class="tarjeta">
+      <div class="portada__precio {% if forloop.counter == 2 %}portada__precio--destacado{% endif %}">
         <p class="portada__precio-tramo">{{ fila.etiqueta }}</p>
-        <p class="portada__precio-usd">USD {{ fila.precio_usd }} <span>/ mes</span></p>
-        {% if fila.precio_ars %}
-        <p class="portada__precio-ars">≈ ${{ fila.precio_ars }} ARS</p>
-        {% endif %}
+        <p class="portada__precio-monto"><span class="portada__precio-moneda">USD</span> <span class="portada__precio-num">{{ fila.precio_usd }}</span> <span class="portada__precio-mes">/ mes</span></p>
+        {% if fila.precio_ars %}<p class="portada__precio-ars">≈ ${{ fila.precio_ars|floatformat:0 }} por mes</p>{% endif %}
+        <a class="boton portada__precio-cta" href="{% url 'solicitudes:solicitar' %}">Empezar gratis</a>
       </div>
       {% endfor %}
     </div>
+    <p class="portada__precio-pie">Sin permanencia. Lo cancelás cuando quieras.</p>
   </section>
+
+  {# --- FAQ --- #}
+  <section class="portada__seccion portada__inner">
+    <h2 class="portada__h2">Preguntas frecuentes</h2>
+    <div class="portada__faq">
+      <details><summary>¿Necesito tarjeta para la prueba?</summary>
+        <p>No. Los {{ precios_dias_gratis }} días son gratis y sin datos de pago.</p></details>
+      <details><summary>¿Mis alumnos también usan la app?</summary>
+        <p>Sí. Cada alumno tiene su propio portal donde ve su rutina, su cuota y las novedades, y reserva turnos.</p></details>
+      <details><summary>¿Puedo importar mis datos de Excel?</summary>
+        <p>Sí. Podés importar tus alumnos, ejercicios y planes desde una planilla, sin cargarlos uno por uno.</p></details>
+      <details><summary>¿La app tiene mi marca?</summary>
+        <p>Sí. Tu logo, tus colores y el nombre de tu gimnasio en toda la app — para tus alumnos es “tu” app, no una plataforma genérica.</p></details>
+      <details><summary>¿Sirve para entrenadores sin local?</summary>
+        <p>Sí. Funciona igual para un entrenador que arma rutinas personalizadas, aunque no tenga un gimnasio físico.</p></details>
+      <details><summary>¿Cómo me dan de alta?</summary>
+        <p>Dejás una solicitud y te contactamos para activarte. Todavía no hay autoservicio: nos aseguramos de que arranques bien.</p></details>
+    </div>
+  </section>
+
+  {# --- CTA final --- #}
+  <section class="portada__cierre">
+    <div class="portada__inner">
+      <h2 class="portada__cierre-t">Dejá la planilla esta semana</h2>
+      <p class="portada__cierre-sub">Probá TuGimApp {{ precios_dias_gratis }} días gratis. Sin tarjeta, sin vueltas.</p>
+      <a class="portada__cta-primario" href="{% url 'solicitudes:solicitar' %}">Solicitar una cuenta</a>
+    </div>
+  </section>
+
+  <footer class="portada__footer portada__inner">
+    <span>TuGimApp</span>
+    <a href="{% url 'politica_privacidad' %}">Política de privacidad</a>
+  </footer>
 </div>
 {% endblock %}
