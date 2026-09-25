@@ -51,6 +51,7 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from tenants import analitica
 from tenants.models import Gimnasio, Perfil, RegistroSuplantacion
+from tenants.views import GIMNASIO_COOKIE_NOMBRE
 
 
 class RegistroPublicoCerradoTests(TestCase):
@@ -353,11 +354,14 @@ class LoginLogoutTests(TestCase):
             usuario=self.user, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
         )
 
-    def test_home_requiere_login(self):
+    def test_home_anonimo_sin_cookie_muestra_landing(self):
+        """La raíz `/` ya no redirige al login para un anónimo: muestra la
+        landing de producto (ver `PortadaView`). El comportamiento viejo
+        (redirect a `login?next=/`) se cambió a propósito al hacer público el
+        sitio."""
         response = self.client.get(reverse("home"))
-        self.assertRedirects(
-            response, f"{reverse('login')}?next={reverse('home')}"
-        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "días gratis")
 
     def test_login_y_home_muestra_el_gimnasio_del_perfil(self):
         self.client.login(username="alumno1", password="clave-123456")
@@ -365,11 +369,16 @@ class LoginLogoutTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Gimnasio de Prueba")
 
-    def test_logout_saca_la_sesion(self):
+    def test_logout_deja_ver_la_landing_no_el_dashboard(self):
+        """Tras cerrar sesión, `/` muestra la landing pública (200), no el
+        portal del alumno. `client.login` no pasa por `form_valid`, así que no
+        deja la cookie `gimnasio_preferido`: el anónimo cae en la landing."""
         self.client.login(username="alumno1", password="clave-123456")
         self.client.post(reverse("logout"))
         response = self.client.get(reverse("home"))
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "días gratis")
+        self.assertNotContains(response, "Gimnasio de Prueba")
 
     def test_form_de_login_no_queda_boosteado(self):
         """El <style> del fondo del gimnasio vive en <head>, que hx-boost no
@@ -410,6 +419,98 @@ class LoginLogoutTests(TestCase):
         self.client.login(username="alumno1", password="clave-123456")
         response = self.client.get(reverse("login"))
         self.assertRedirects(response, reverse("home"))
+
+
+class PortadaViewTests(TestCase):
+    """La raíz `/` (`PortadaView`) bifurca según quién llega, sin romper el
+    flujo del alumno ni del staff. Ver `tenants/views.py::PortadaView`."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Box Fuerza", slug="box-fuerza")
+        self.staff = User.objects.create_user("staff1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = User.objects.create_user("alumno1", password="clave-123456")
+        Perfil.objects.create(
+            usuario=self.alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.super_sin_perfil = User.objects.create_superuser(
+            "super", "super@ejemplo.com", "clave-123456"
+        )
+
+    def test_anonimo_sin_cookie_ve_la_landing(self):
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "tenants/portada.html")
+
+    def test_anonimo_con_cookie_valida_va_al_login_de_su_gimnasio(self):
+        self.client.cookies[GIMNASIO_COOKIE_NOMBRE] = self.gimnasio.slug
+        response = self.client.get(reverse("home"))
+        self.assertRedirects(
+            response,
+            reverse("login_gimnasio", args=[self.gimnasio.slug]),
+            fetch_redirect_response=False,
+        )
+
+    def test_anonimo_con_otro_gimnasio_ve_landing_y_borra_cookie(self):
+        self.client.cookies[GIMNASIO_COOKIE_NOMBRE] = self.gimnasio.slug
+        response = self.client.get(reverse("home"), {"otro_gimnasio": "1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "tenants/portada.html")
+        self.assertEqual(response.cookies[GIMNASIO_COOKIE_NOMBRE]["max-age"], 0)
+
+    def test_anonimo_con_cookie_invalida_ve_landing_y_borra_cookie(self):
+        self.client.cookies[GIMNASIO_COOKIE_NOMBRE] = "gimnasio-que-no-existe"
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "tenants/portada.html")
+        self.assertEqual(response.cookies[GIMNASIO_COOKIE_NOMBRE]["max-age"], 0)
+
+    def test_staff_autenticado_ve_su_dashboard(self):
+        self.client.login(username="staff1", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "tenants/home.html")
+
+    def test_superadmin_sin_perfil_va_al_panel_de_plataforma(self):
+        self.client.login(username="super", password="clave-123456")
+        response = self.client.get(reverse("home"))
+        self.assertRedirects(
+            response, reverse("plataforma:inicio"), fetch_redirect_response=False
+        )
+
+    def test_regresion_alumno_con_cookie_llega_a_su_login_por_ambas_puertas(self):
+        """La cookie del alumno tiene que seguir funcionando IGUAL por `/` (la
+        portada nueva) y por `/accounts/login/` (el login genérico de siempre)."""
+        self.client.cookies[GIMNASIO_COOKIE_NOMBRE] = self.gimnasio.slug
+        destino = reverse("login_gimnasio", args=[self.gimnasio.slug])
+        self.assertRedirects(
+            self.client.get(reverse("home")), destino, fetch_redirect_response=False
+        )
+        self.assertRedirects(
+            self.client.get(reverse("login")), destino, fetch_redirect_response=False
+        )
+
+    def test_precios_muestra_los_tres_escalones_y_la_prueba(self):
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "USD 10")
+        self.assertContains(response, "USD 15")
+        self.assertContains(response, "USD 20")
+        self.assertContains(response, "días gratis")
+
+    def test_sin_cotizacion_no_muestra_pesos(self):
+        """Bajo TESTING `cotizacion_dolar` devuelve None, así que la landing
+        muestra solo USD (mismo contrato que el panel)."""
+        response = self.client.get(reverse("home"))
+        self.assertNotContains(response, "ARS")
+
+    def test_cotizacion_se_pide_una_sola_vez_por_request(self):
+        with patch(
+            "plataforma.cambio.cotizacion_dolar", return_value=None
+        ) as mock_cot:
+            self.client.get(reverse("home"))
+        self.assertEqual(mock_cot.call_count, 1)
 
 
 class TenantIsolationTests(TestCase):

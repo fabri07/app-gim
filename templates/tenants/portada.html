@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% comment %}
+Landing de producto (raíz `/` para anónimos). Placeholder de Fase 1: estructura
+y datos correctos; el diseño fino se hace en Fase 2 con la skill `impeccable`.
+Se auto-abastece de colores con `style` inline en el wrapper, porque el
+`<style>` del <head> de base.html solo se llena para usuarios autenticados.
+{% endcomment %}
+
+{% block title %}TuGimApp — Gestión simple para tu gimnasio{% endblock %}
+
+{% block main_class %}{% endblock %}
+
+{% block content %}
+<div class="portada" style="--color-fondo:#f4f7f5; --color-primario:#2f6d4f; --color-secundario:#6aa889;">
+  <section class="portada__hero">
+    <h1>Dejá la planilla y el WhatsApp. Gestioná tu gimnasio en un solo lugar.</h1>
+    <p>Alumnos, rutinas con video, pagos, turnos y novedades — simple, en
+      español, pensado para gimnasios y entrenadores.</p>
+    <a class="boton" href="{% url 'login' %}" hx-boost="false">Ingresar</a>
+  </section>
+
+  <section class="portada__precio">
+    <h2>Precios</h2>
+    <p>Probá {{ precios_dias_gratis }} días gratis. Después pagás según cuántos
+      alumnos activos tengas.</p>
+    <div class="portada__precio-grilla">
+      {% for fila in precios_filas %}
+      <div class="tarjeta">
+        <p class="portada__precio-tramo">{{ fila.etiqueta }}</p>
+        <p class="portada__precio-usd">USD {{ fila.precio_usd }} <span>/ mes</span></p>
+        {% if fila.precio_ars %}
+        <p class="portada__precio-ars">≈ ${{ fila.precio_ars }} ARS</p>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}
