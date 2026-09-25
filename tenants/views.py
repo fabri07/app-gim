@@ -21,6 +21,7 @@ from django.core.mail import send_mail
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.templatetags.static import static
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
@@ -385,9 +386,13 @@ def _contexto_precios():
     from plataforma import cambio, precios
 
     cotizacion = cambio.cotizacion_dolar()
+    # El tramo "destacado" se deriva de los datos (el del medio), no de un
+    # índice fijo en el template: si ESCALONES gana o pierde un escalón, el
+    # resaltado sigue cayendo en un plan real.
+    destacado_idx = len(precios.ESCALONES) // 2
     filas = []
     desde = 1
-    for tope, precio in precios.ESCALONES:
+    for idx, (tope, precio) in enumerate(precios.ESCALONES):
         if tope is not None:
             etiqueta = f"Hasta {tope} alumnos"
         else:
@@ -399,6 +404,7 @@ def _contexto_precios():
                 "etiqueta": etiqueta,
                 "precio_usd": precio,
                 "precio_ars": cambio.pesos(precio, cotizacion),
+                "destacado": idx == destacado_idx,
             }
         )
         if tope is not None:
@@ -445,6 +451,13 @@ class PortadaView(TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context.update(_contexto_precios())
+        # og:image ABSOLUTA: los crawlers de redes no bajan una URL relativa.
+        # Se arma con la URL de storage (hasheada por el manifest en prod) +
+        # build_absolute_uri, no un hex/host hardcodeado.
+        context["og_image"] = self.request.build_absolute_uri(
+            static("img/portada/og.png")
+        )
+        context["og_url"] = self.request.build_absolute_uri("/")
         return context
 
 

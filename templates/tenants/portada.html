@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% load static %}
 
 {% comment %}
 Landing de producto (raíz `/` para anónimos). Modo Persuade del sistema "Un
@@ -17,8 +16,8 @@ inventada: no hay clientes pagos todavía (PRODUCT.md).
   <meta property="og:type" content="website">
   <meta property="og:title" content="TuGimApp — la app para tu gimnasio, con tu marca">
   <meta property="og:description" content="Dejá la planilla y el WhatsApp: gestioná alumnos, rutinas, pagos y turnos en un solo lugar. 30 días gratis.">
-  <meta property="og:url" content="https://www.tugimapp.com/">
-  <meta property="og:image" content="{% static 'img/portada/og.png' %}">
+  <meta property="og:url" content="{{ og_url }}">
+  <meta property="og:image" content="{{ og_image }}">
   <meta name="twitter:card" content="summary_large_image">
 {% endblock %}
 
@@ -116,7 +115,7 @@ inventada: no hay clientes pagos todavía (PRODUCT.md).
       Pagás según cuántos alumnos activos tengas — <strong>todas las funciones incluidas</strong> en cualquier plan.</p>
     <div class="portada__precios">
       {% for fila in precios_filas %}
-      <div class="portada__precio {% if forloop.counter == 2 %}portada__precio--destacado{% endif %}">
+      <div class="portada__precio {% if fila.destacado %}portada__precio--destacado{% endif %}">
         <p class="portada__precio-tramo">{{ fila.etiqueta }}</p>
         <p class="portada__precio-monto"><span class="portada__precio-moneda">USD</span> <span class="portada__precio-num">{{ fila.precio_usd }}</span> <span class="portada__precio-mes">/ mes</span></p>
         {% if fila.precio_ars %}<p class="portada__precio-ars">≈ ${{ fila.precio_ars|floatformat:0 }} por mes</p>{% endif %}

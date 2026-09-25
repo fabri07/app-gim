@@ -88,10 +88,15 @@ def verificar(*, token_str, url_panel_para):
         # Ya verificado antes (idempotente) o vencido (sigue NO_VERIFICADA).
         return solicitud, False
     with transaction.atomic():
-        token.usado_en = timezone.now()
-        token.save(update_fields=["usado_en", "modificado"])
+        # Lock sobre la fila (mismo criterio que aprobar/_decidir): dos GETs
+        # concurrentes del mismo link (doble click, prefetch, escáner de mails
+        # + persona) no pueden transicionar los dos y duplicar el aviso al
+        # dueño. El segundo espera el lock, relee estado=PENDIENTE y corta.
+        solicitud = SolicitudAcceso.objects.select_for_update().get(pk=solicitud.pk)
         if solicitud.estado != _Estado.NO_VERIFICADA:
             return solicitud, False
+        token.usado_en = timezone.now()
+        token.save(update_fields=["usado_en", "modificado"])
         de = solicitud.estado
         solicitud.estado = _Estado.PENDIENTE
         solicitud.verificada_en = timezone.now()

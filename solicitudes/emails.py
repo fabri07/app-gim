@@ -18,7 +18,16 @@ from django.template.loader import render_to_string
 def _enviar(asunto, base_template, contexto, destinatario):
     """Manda un mail de TEXTO PLANO (mismo criterio YAGNI que el reset de
     contraseña del proyecto: nada de HTML email). El backend lo decide
-    settings: SMTP si hay `EMAIL_*`, consola si no, locmem en tests."""
+    settings: SMTP si hay `EMAIL_*`, consola si no, locmem en tests.
+
+    **`fail_silently=True` a propósito:** estos envíos se disparan por
+    `transaction.on_commit`, DESPUÉS de que la fila se commiteó. Si un fallo
+    transitorio de SMTP levantara acá, el error subiría por el callback de
+    on_commit y tiraría un 500 al interesado con la solicitud YA creada — y el
+    índice único parcial le impediría reintentar. El mail es best-effort (mismo
+    criterio que el push del proyecto: "esto es telemetría y no puede tumbar una
+    página"); la recuperación es el reenvío desde el panel y el cron de
+    expiración, no un 500."""
     if not destinatario:
         return
     cuerpo = render_to_string(f"solicitudes/email/{base_template}.txt", contexto)
@@ -27,7 +36,7 @@ def _enviar(asunto, base_template, contexto, destinatario):
         cuerpo,
         settings.DEFAULT_FROM_EMAIL or None,
         [destinatario],
-        fail_silently=False,
+        fail_silently=True,
     )
 
 

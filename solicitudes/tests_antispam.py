@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from django.core import signing
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
 from solicitudes import antispam
@@ -46,3 +46,18 @@ class AntispamTests(TestCase):
         h = antispam.hash_de("1.2.3.4")
         self.assertNotIn("1.2.3.4", h)
         self.assertEqual(len(h), 64)
+
+    def test_ip_prefiere_cf_connecting_ip_no_el_xff_spoofeable(self):
+        rf = RequestFactory()
+        # Un cliente que falsea X-Forwarded-For no debe poder cambiar la IP
+        # usada para el rate-limit: gana CF-Connecting-IP (lo pone Cloudflare).
+        req = rf.get(
+            "/",
+            HTTP_X_FORWARDED_FOR="6.6.6.6",
+            HTTP_CF_CONNECTING_IP="200.1.2.3",
+            REMOTE_ADDR="10.0.0.1",
+        )
+        self.assertEqual(antispam.ip_de(req), "200.1.2.3")
+        # Sin Cloudflare, cae a REMOTE_ADDR (no al XFF del cliente).
+        req2 = rf.get("/", HTTP_X_FORWARDED_FOR="6.6.6.6", REMOTE_ADDR="10.0.0.1")
+        self.assertEqual(antispam.ip_de(req2), "10.0.0.1")

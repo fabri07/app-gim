@@ -58,11 +58,17 @@ def honeypot_lleno(valor):
 
 
 def ip_de(request):
-    """IP del cliente. Detrás de Cloudflare/Render viene en X-Forwarded-For
-    (primer hop); si no, `REMOTE_ADDR`."""
-    xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if xff:
-        return xff.split(",")[0].strip()
+    """IP del cliente, para el hash anti-abuso.
+
+    El sitio va PROXEADO por Cloudflare (ver CLAUDE.md § Deploy), que setea
+    `CF-Connecting-IP` con la IP real del cliente — ese header es confiable
+    porque lo pone Cloudflare, no el cliente. El primer valor de
+    `X-Forwarded-For` NO se usa: el cliente puede mandarlo falseado y rotarlo
+    para saltear el rate-limit/dedup (Cloudflare agrega la IP real al final,
+    no reemplaza lo que el cliente mandó). Fallback a `REMOTE_ADDR`."""
+    cf = request.META.get("HTTP_CF_CONNECTING_IP", "")
+    if cf:
+        return cf.strip()
     return request.META.get("REMOTE_ADDR", "")
 
 
