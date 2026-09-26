@@ -2178,8 +2178,14 @@
     .auth-hero--sin-info .auth-gimnasio__copia { align-self: center; }
   }
 
+  /* La info y «Qué vas a encontrar adentro» van sobre un panel claro: con una
+     foto de fondo (fondo_tipo "imagen"), el velo del 55% no alcanza para leer
+     texto chico encima de un logo o una sala llena. Visto en producción con
+     `gimnasio-verificacion-r2`; sobre el canvas liso el panel igual ordena. */
   .auth-gimnasio__info {
-    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-8 w-full max-w-md sm:max-w-none mx-auto lg:mx-0;
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-8 w-full max-w-md sm:max-w-none mx-auto lg:mx-0
+      rounded-2xl border border-gray-200 p-6 shadow-sm;
+    background-color: color-mix(in oklab, white 90%, transparent);
   }
   .auth-gimnasio__bloque {
     @apply flex flex-col items-center lg:items-start gap-3 text-center lg:text-left;
@@ -2204,7 +2210,9 @@
     @apply w-full max-w-5xl mx-auto px-4 pb-12 sm:pb-16;
   }
   .auth-gimnasio__adentro {
-    @apply grid grid-cols-1 lg:grid-cols-[auto_minmax(0,1fr)] gap-10 lg:gap-16 items-center;
+    @apply grid grid-cols-1 lg:grid-cols-[auto_minmax(0,1fr)] gap-10 lg:gap-16 items-center
+      w-[calc(100%-2rem)] max-w-[62rem] mb-12 sm:mb-16 rounded-2xl border border-gray-200 p-6 sm:p-10 shadow-sm;
+    background-color: color-mix(in oklab, white 90%, transparent);
   }
   .auth-gimnasio__celu {
     @apply hidden lg:block;
