@@ -2,10 +2,17 @@
 Celular de ejemplo con el portal del alumno (datos inventados, rotulados donde
 se usa). Lo comparten la portada y el login genérico. Los colores salen de las
 variables del contenedor: en la portada las cambia el selector de paisaje.
+
+Con `gimnasio` (login de un gimnasio) la barra lleva SU logo y SU nombre: al
+alumno que entra a su gimnasio no se le muestra uno inventado.
 {% endcomment %}
 <div class="disp-celu">
   <div class="disp-celu__pantalla">
-    <div class="app-alumno__top"><span class="app-logo app-logo--chico">GN</span>Gimnasio Norte</div>
+    {% if gimnasio %}
+      <div class="app-alumno__top">{% if gimnasio.logo %}<img src="{{ gimnasio.logo_url_cacheable }}" alt="" class="app-logo app-logo--chico app-logo--img">{% else %}<span class="app-logo app-logo--chico">{{ gimnasio.nombre|slice:":1"|upper }}</span>{% endif %}{{ gimnasio.nombre }}</div>
+    {% else %}
+      <div class="app-alumno__top"><span class="app-logo app-logo--chico">GN</span>Gimnasio Norte</div>
+    {% endif %}
     <div class="app-alumno__cuerpo">
       <p class="app-alumno__hola">Hola, Sofi</p>
       <div class="app-pestanas"><span>Sem 1</span><span class="is-activo">Sem 2</span><span>Sem 3</span><span>Sem 4</span></div>

@@ -5,10 +5,25 @@
 {% block topbar %}
   {% comment %}
     Login genérico: la misma nav del sitio público (la portada), sin «Ingresar»
-    porque ya estás acá. Login de un gimnasio: la barra de siempre -- la marca
-    de esa pantalla es la del gimnasio, no la del producto.
+    porque ya estás acá.
+
+    Login de un gimnasio: la barra de siempre, pero con la marca de ESE
+    gimnasio y apuntando a su página pública. La marca por default de un
+    visitante anónimo es «TuGimApp» → `home`, o sea la portada de venta: en la
+    pantalla de un gimnasio mandaba a su alumno a la página donde se les venden
+    cuentas a los dueños. hx-boost="false": la landing del gimnasio pinta su
+    fondo desde <head> (extra_style), que un swap boosteado no reemplaza.
   {% endcomment %}
-  {% if gimnasio %}{{ block.super }}{% else %}{% include 'partials/portada_nav.html' with anclas_base="/" en_login=True %}{% endif %}
+  {% if gimnasio %}
+    <header class="topbar">
+      <a href="{% url 'landing_gimnasio' gimnasio.slug %}" class="topbar__marca" hx-boost="false">
+        {% if gimnasio.logo %}<img src="{{ gimnasio.logo_url_cacheable }}" alt="">{% endif %}
+        <span>{{ gimnasio.nombre }}</span>
+      </a>
+    </header>
+  {% else %}
+    {% include 'partials/portada_nav.html' with anclas_base="/" en_login=True %}
+  {% endif %}
 {% endblock %}
 
 {% block extra_style %}
@@ -22,10 +37,15 @@
     heredar. En vez de generalizar ese bloque, se duplica el mismo criterio de
     landing.html -- variables CSS inline en el wrapper propio de esta página --
     para no acoplar el head-style de TODA página autenticada a esta necesidad.
+
+    El fondo va en `.auth-gimnasio` (el envoltorio a todo el ancho), no en
+    `.auth-hero`: la grilla tiene `max-w-5xl`, y cuando el fondo vivía ahí la
+    foto del gimnasio quedaba encerrada en una caja de 1024 px con el crema
+    del sitio a los costados.
   {% endcomment %}
   {% if gimnasio.fondo_tipo == "imagen" and gimnasio.fondo_imagen %}
     <style>
-      .auth-hero--gimnasio {
+      .auth-gimnasio {
         background-image:
           linear-gradient(color-mix(in oklab, var(--color-fondo) 55%, transparent), color-mix(in oklab, var(--color-fondo) 55%, transparent)),
           {% comment %}
@@ -43,11 +63,11 @@
     <style>
       {% comment %}
         isolation:isolate -- mismo motivo que .landing (ver landing.html):
-        sin esto, el fondo propio de .auth-hero--gimnasio pintaría ENCIMA
-        del ::before con z-index:-1, tapando el doodle por completo.
+        sin esto, el fondo propio de .auth-gimnasio pintaría ENCIMA del
+        ::before con z-index:-1, tapando el doodle por completo.
       {% endcomment %}
-      .auth-hero--gimnasio { isolation: isolate; }
-      .auth-hero--gimnasio::before {
+      .auth-gimnasio { isolation: isolate; }
+      .auth-gimnasio::before {
         content: "";
         position: fixed;
         inset: 0;
@@ -66,10 +86,32 @@
 {% endblock %}
 
 {% block content %}
-<div class="auth-hero{% if gimnasio %} auth-hero--gimnasio{% else %} auth-hero--producto{% endif %}"
-     {% if gimnasio %}style="--color-fondo: {{ gimnasio.color_fondo_css }}; --color-primario: {{ gimnasio.color_primario_css }}; --color-secundario: {{ gimnasio.color_secundario_css }}; font-family: {{ gimnasio.tipografia_css_family|safe }};"{% endif %}>
-  <div class="auth-hero__copy">
-    {% if gimnasio %}
+{% if gimnasio %}
+{% comment %}
+  Login de UN gimnasio. No es solo el formulario: es la puerta del gimnasio, y
+  la usan también quienes todavía no son alumnos. Por eso muestra lo que el
+  gimnasio ya cargó para su página pública (contacto, redes, horarios) y lo que
+  el alumno va a encontrar adentro.
+
+  Reglas:
+  - Cada bloque depende de su dato: sin horarios no hay sección de horarios ni
+    se prometen turnos; sin ningún contacto no hay bloque de consultas. Consultas y
+    horarios van juntos en la columna del nombre: es la información del
+    gimnasio, y así una tarjeta suelta no deja media pantalla vacía.
+  - «Qué vas a encontrar adentro» no depende de nada, así la pantalla nunca
+    queda vacía aunque el gimnasio no haya cargado nada.
+  - Cada dato UNA vez: el WhatsApp va como botón con texto, así que las redes
+    salen sin su ícono.
+  - Nada vende TuGimApp: el pie la nombra y nada más. Al alumno que entra a su
+    gimnasio no se le ofrece una cuenta para dueños.
+  - Orden en celular: nombre → formulario → consultas. Entrar es lo que vino a
+    hacer la mayoría; los contactos no pueden empujar el formulario hacia abajo.
+{% endcomment %}
+<div class="auth-gimnasio"
+     style="--color-fondo: {{ gimnasio.color_fondo_css }}; --color-primario: {{ gimnasio.color_primario_css }}; --color-secundario: {{ gimnasio.color_secundario_css }}; font-family: {{ gimnasio.tipografia_css_family|safe }};">
+  {% with hay_consultas=gimnasio.link_whatsapp|default:gimnasio.contacto|default:gimnasio.link_instagram|default:gimnasio.link_facebook %}
+  <div class="auth-hero auth-hero--gimnasio{% if not hay_consultas and not horarios_por_dia %} auth-hero--sin-info{% endif %}">
+    <div class="auth-hero__copy auth-gimnasio__copia">
       {% if gimnasio.logo %}
         <span class="landing__logo-marco">
           <img src="{{ gimnasio.logo_url_cacheable }}" alt="{{ gimnasio.nombre }}" class="landing__logo">
@@ -77,18 +119,6 @@
       {% endif %}
       <h1 class="auth-hero__titulo">{{ gimnasio.nombre }}</h1>
       <p class="auth-hero__subtitulo">{{ gimnasio.texto_bienvenida|default:"Ingresá con tu usuario y contraseña." }}</p>
-      {% comment %}
-        Va DENTRO de la rama `{% if gimnasio %}`: en el login genérico no hay
-        tenant en contexto, y mostrar las redes de alguien ahí sería filtrar
-        un gimnasio en una pantalla que no le pertenece a ninguno.
-
-        No necesita hx-boost="false" pese al gotcha del <head> que afecta a
-        todos los demás links de esta página: htmx solo boostea un <a> si es
-        link LOCAL y su target es "" o "_self" (htmx 2.0.3, `shouldBoost`),
-        y el partial los emite cross-origin y con target="_blank" -- fallan
-        las dos condiciones.
-      {% endcomment %}
-      {% include 'partials/redes_sociales.html' with gimnasio=gimnasio %}
       {% comment %}
         hx-boost="false": mismo motivo que el link "Iniciar sesión" de
         landing.html -- el <style> de extra_style (fondo imagen/doodle)
@@ -101,87 +131,98 @@
           ¿No es tu gimnasio?
         </a>
       </p>
-    {% else %}
-      {% comment %}
-        Misma voz que la portada (titular 800 con la segunda frase en color de
-        marca) y el mismo celular de ejemplo, que acá reemplaza a la banda de
-        atletas. Le habla a los dos públicos que llegan acá: el staff y el
-        alumno que LOGIN_URL mandó desde una vista protegida.
-      {% endcomment %}
-      <h1 class="auth-hero__titulo auth-hero__titulo--producto">Hola de nuevo<span class="pt">.</span> <span class="auth-hero__titulo-marca">Entrá a tu gimnasio<span class="pt">.</span></span></h1>
-      <p class="auth-hero__subtitulo">Dueños y entrenadores manejan todo desde el panel. Los alumnos ven su rutina, su cuota y sus turnos. Todos entran por acá.</p>
-      <div class="auth-hero__demo" aria-hidden="true">
-        {% include 'partials/portada_celular.html' %}
-      </div>
-      <p class="auth-hero__demo-nota">Así ven su rutina tus alumnos. Datos de ejemplo.</p>
-    {% endif %}
-  </div>
-  <div class="auth-hero__form">
-    <div class="auth-card">
-      <h2 class="auth-card__titulo">Ingresar</h2>
-      {% comment %}
-        hx-boost="false": mismo motivo que el form de logout en base.html --
-        el <style> con el fondo del gimnasio vive en <head>, que hx-boost no
-        swapea, así que sin esto el fondo no aparece recién logueado hasta un
-        refresh manual.
+    </div>
 
-        Campo por campo y no `form.as_p`: `.errorlist` no tiene estilo en este
-        proyecto, y un rechazo que no se ve es igual a un login que no anda
-        (ver CLAUDE.md, «Un formulario que rechaza sin que se note»). La
-        etiqueta dice «Usuario» a secas: el form no normaliza lo que se
-        escribe, así que invitar a tipear «el teléfono» haría fallar a quien lo
-        escriba en otro formato que el que le cargó el gimnasio.
+    <div class="auth-hero__form auth-gimnasio__form">
+      {% include 'registration/_tarjeta_ingreso.html' %}
+      <p class="auth-hero__sin-cuenta">¿Todavía no sos alumno? <a href="{% url 'landing_gimnasio' gimnasio.slug %}" hx-boost="false">Conocé {{ gimnasio.nombre }}</a></p>
+    </div>
+
+    {% if hay_consultas or horarios_por_dia %}
+      {% comment %}
+        La información del gimnasio junta, en la columna del nombre: consultas
+        y horarios. No necesita hx-boost="false" pese al gotcha del <head>:
+        htmx solo boostea un <a> LOCAL con target "" o "_self" (htmx 2.0.3,
+        `shouldBoost`), y estos links son externos y con target="_blank".
       {% endcomment %}
-      <form method="post" novalidate hx-boost="false" class="auth-card__form">
-        {% csrf_token %}
-        {% if form.non_field_errors %}
-          <div class="auth-card__error" role="alert">
-            {% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}
+      <div class="auth-gimnasio__info">
+        {% if hay_consultas %}
+          <div class="auth-gimnasio__bloque">
+            <h2 class="auth-gimnasio__info-titulo">¿Tenés una consulta?</h2>
+            {% if gimnasio.link_whatsapp %}
+              <a class="portada-pildora portada-pildora--contorno auth-gimnasio__whatsapp" href="{{ gimnasio.link_whatsapp }}" target="_blank" rel="noopener">Consultanos por WhatsApp</a>
+            {% endif %}
+            {% if gimnasio.contacto %}
+              <p class="auth-gimnasio__contacto">{{ gimnasio.contacto }}</p>
+            {% endif %}
+            {% include 'partials/redes_sociales.html' with gimnasio=gimnasio sin_whatsapp=True %}
           </div>
         {% endif %}
-        <div class="auth-card__campo">
-          <label for="{{ form.username.id_for_label }}">Usuario</label>
-          {{ form.username }}
-          <p class="auth-card__ayuda">El que te pasó tu gimnasio, tal cual te lo pasó.</p>
-          {% for e in form.username.errors %}<p class="auth-card__error-campo">{{ e }}</p>{% endfor %}
-        </div>
-        <div class="auth-card__campo">
-          <div class="auth-card__label-fila">
-            <label for="{{ form.password.id_for_label }}">Contraseña</label>
-            {% if PASSWORD_RESET_DISPONIBLE %}
-              {% comment %}
-                hx-boost="false" por consistencia con el resto de los links de
-                esta página: en g/<slug>/login/ el <head> lleva colores/manifest
-                del gimnasio vía extra_style, y un swap boosteado (que solo
-                reemplaza <body>) los dejaría pegados.
-              {% endcomment %}
-              <a href="{% url 'password_reset' %}" hx-boost="false" class="auth-card__olvido">¿Olvidaste tu contraseña?</a>
-            {% endif %}
+        {% if horarios_por_dia %}
+          <div class="auth-gimnasio__bloque auth-gimnasio__bloque--horarios">
+            <h2 class="auth-gimnasio__info-titulo">Horarios</h2>
+            <ul class="landing__horarios">
+              {% for dia, horarios in horarios_por_dia %}
+                <li class="landing__horarios-fila">
+                  <span class="landing__horarios-dia">{{ dia }}</span>
+                  <span class="landing__horarios-franjas">
+                    {% for h in horarios %}{{ h.hora_desde|time:"H:i" }}–{{ h.hora_hasta|time:"H:i" }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                  </span>
+                </li>
+              {% endfor %}
+            </ul>
           </div>
-          {{ form.password }}
-          {% for e in form.password.errors %}<p class="auth-card__error-campo">{{ e }}</p>{% endfor %}
-        </div>
-        <button type="submit" class="portada-pildora auth-card__entrar">Entrar</button>
-      </form>
-      {% if GOOGLE_STAFF_LOGIN_DISPONIBLE %}
-        <p class="auth-card__o"><span>o</span></p>
-        {% comment %}
-          hx-boost="false": el link redirige cross-origin a
-          accounts.google.com -- mismo gotcha (y misma solución) que
-          "Conectar mi Google Calendar" en templates/turnos/mis_turnos.html.
-          `next` ya viene validado por LoginView.get_context_data (Django
-          nunca expone un `next` inseguro acá), mismo criterio que el link
-          "¿No es tu gimnasio?" de arriba.
-        {% endcomment %}
-        <a href="{% url 'login_google' %}{% if next %}?next={{ next|urlencode }}{% endif %}" class="auth-card__google" hx-boost="false">
-          Iniciar sesión con Google
-        </a>
-        <p class="auth-card__nota">Solo para dueños y entrenadores.</p>
-      {% endif %}
-    </div>
-    {% if not gimnasio %}
-      <p class="auth-hero__sin-cuenta">¿Todavía no tenés cuenta? <a href="{% url 'solicitudes:solicitar' %}">Pedí tu prueba gratis</a></p>
+        {% endif %}
+      </div>
     {% endif %}
   </div>
+  {% endwith %}
+
+  <section class="auth-gimnasio__seccion auth-gimnasio__adentro">
+    <div class="auth-gimnasio__celu" aria-hidden="true">
+      {% include 'partials/portada_celular.html' with gimnasio=gimnasio %}
+    </div>
+    <div>
+      <h2 class="auth-gimnasio__titulo">Qué vas a encontrar adentro</h2>
+      <p class="auth-gimnasio__bajada">Con el usuario y la contraseña que te da {{ gimnasio.nombre }}:</p>
+      <ul class="auth-gimnasio__lista">
+        <li><strong>Tu rutina, semana por semana.</strong> Cada ejercicio con su video, y al terminar lo marcás como entrenado.</li>
+        <li><strong>Tu cuota al día.</strong> Cuánto pagás y qué período cubre, y el comprobante lo subís desde el celular.</li>
+        {% if horarios_por_dia %}
+          <li><strong>Tus turnos.</strong> Reservás tu lugar en la clase y lo liberás si no podés ir.</li>
+        {% endif %}
+        <li><strong>Las novedades del gimnasio.</strong> Cambios de horario, feriados y avisos, en un solo lugar.</li>
+        <li><strong>En tu pantalla de inicio.</strong> La instalás en el celular como una app, sin pasar por ninguna tienda.</li>
+      </ul>
+      <p class="auth-gimnasio__nota">La pantalla de al lado es de ejemplo.</p>
+    </div>
+  </section>
+
+  <footer class="auth-gimnasio__pie">
+    <span>Hecho con <a href="/" hx-boost="false">TuGimApp</a></span>
+    <a href="{% url 'politica_privacidad' %}" hx-boost="false">Privacidad</a>
+  </footer>
 </div>
+{% else %}
+<div class="auth-hero auth-hero--producto">
+  <div class="auth-hero__copy">
+    {% comment %}
+      Misma voz que la portada (titular 800 con la segunda frase en color de
+      marca) y el mismo celular de ejemplo, que acá reemplaza a la banda de
+      atletas. Le habla a los dos públicos que llegan acá: el staff y el
+      alumno que LOGIN_URL mandó desde una vista protegida.
+    {% endcomment %}
+    <h1 class="auth-hero__titulo auth-hero__titulo--producto">Hola de nuevo<span class="pt">.</span> <span class="auth-hero__titulo-marca">Entrá a tu gimnasio<span class="pt">.</span></span></h1>
+    <p class="auth-hero__subtitulo">Dueños y entrenadores manejan todo desde el panel. Los alumnos ven su rutina, su cuota y sus turnos. Todos entran por acá.</p>
+    <div class="auth-hero__demo" aria-hidden="true">
+      {% include 'partials/portada_celular.html' %}
+    </div>
+    <p class="auth-hero__demo-nota">Así ven su rutina tus alumnos. Datos de ejemplo.</p>
+  </div>
+  <div class="auth-hero__form">
+    {% include 'registration/_tarjeta_ingreso.html' %}
+    <p class="auth-hero__sin-cuenta">¿Todavía no tenés cuenta? <a href="{% url 'solicitudes:solicitar' %}">Pedí tu prueba gratis</a></p>
+  </div>
+</div>
+{% endif %}
 {% endblock %}

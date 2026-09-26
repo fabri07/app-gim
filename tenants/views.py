@@ -792,6 +792,22 @@ class FondoGimnasioView(ArchivoDeGimnasioView):
     campo = "fondo_imagen"
 
 
+def horarios_por_dia(gimnasio):
+    """Franjas de atención del gimnasio agrupadas por día, en el orden de
+    `HorarioAtencion.Meta.ordering` (día, hora): `[(etiqueta_dia, [horarios])]`.
+    Una sola query. La comparten su landing pública y su login, para que las
+    dos pantallas no puedan mostrar horarios distintos."""
+    # Import tardío de HorarioAtencion: mismo criterio que Alumno en
+    # SuplantarView/HomeView -- `tenants` está antes que `turnos` en el
+    # orden de dependencia de las apps.
+    from turnos.models import HorarioAtencion
+
+    por_dia = {}
+    for horario in HorarioAtencion.objects.for_gimnasio(gimnasio):
+        por_dia.setdefault(horario.dia_semana, []).append(horario)
+    return [(horarios[0].get_dia_semana_display(), horarios) for horarios in por_dia.values()]
+
+
 class GimnasioLandingView(DetailView):
     """Landing pública de un gimnasio (subproyecto 5): la primera vista del
     proyecto sin ningún mixin de autenticación -- accesible por cualquiera,
@@ -825,18 +841,7 @@ class GimnasioLandingView(DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # Import tardío de HorarioAtencion: mismo criterio que Alumno en
-        # SuplantarView/HomeView -- `tenants` está antes que `turnos` en el
-        # orden de dependencia de las apps.
-        from turnos.models import HorarioAtencion
-
-        horarios_por_dia = {}
-        for horario in HorarioAtencion.objects.for_gimnasio(self.object):
-            horarios_por_dia.setdefault(horario.dia_semana, []).append(horario)
-        context["horarios_por_dia"] = [
-            (horarios[0].get_dia_semana_display(), horarios)
-            for horarios in horarios_por_dia.values()
-        ]
+        context["horarios_por_dia"] = horarios_por_dia(self.object)
         return context
 
 
@@ -870,6 +875,9 @@ class GimnasioLoginView(LoginView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["gimnasio"] = self.gimnasio
+        # La pantalla no es solo el formulario: muestra también cómo
+        # contactar al gimnasio y cuándo abre (ver login.html).
+        context["horarios_por_dia"] = horarios_por_dia(self.gimnasio)
         return context
 
 

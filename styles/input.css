@@ -1631,6 +1631,10 @@
     @apply h-6 w-6 bg-white;
     color: var(--color-primario);
   }
+  /* El logo real del gimnasio (login del gimnasio) en lugar de las iniciales. */
+  .app-logo--img {
+    @apply object-contain p-0.5;
+  }
   .app-panel__nav {
     @apply flex gap-4 bg-white px-3 text-[10px] font-semibold text-gray-500 border-b border-gray-200;
   }
@@ -2134,16 +2138,112 @@
       lg:grid-cols-2 gap-10 lg:gap-16 items-center;
   }
 
-  /* Mismo canvas atmosférico que `.landing` (ver el comentario largo más
-     arriba), con las variables que pisa el `style` inline de
-     `login.html` (paisaje del gimnasio visitado, no el :root global). */
-  .auth-hero--gimnasio {
+  /* Login de UN gimnasio (g/<slug>/login/). El envoltorio va a todo el ancho
+     y lleva el fondo: mismo canvas atmosférico que `.landing` (ver el
+     comentario largo más arriba), con las variables que pisa el `style`
+     inline de `login.html` (paisaje del gimnasio visitado, no el :root
+     global). Antes el fondo vivía en `.auth-hero`, que tiene `max-w-5xl`, y
+     la foto del gimnasio quedaba encerrada en una caja de 1024 px. */
+  .auth-gimnasio {
+    @apply w-full min-h-dvh flex flex-col;
     background-color: var(--color-fondo);
     background-image:
       radial-gradient(ellipse 70% 55% at 10% -10%, color-mix(in oklab, var(--color-primario) 16%, transparent), transparent 60%),
       radial-gradient(ellipse 60% 50% at 100% 15%, color-mix(in oklab, var(--color-secundario) 14%, transparent), transparent 65%),
       radial-gradient(ellipse 55% 45% at -5% 100%, color-mix(in oklab, var(--color-primario) 10%, transparent), transparent 60%);
     background-repeat: no-repeat;
+  }
+
+  /* Tres áreas. En celular, el orden del HTML: nombre → formulario → info
+     del gimnasio (entrar primero; los contactos y horarios no empujan el
+     formulario). En escritorio, nombre e info a la izquierda y el formulario
+     a la derecha ocupando las dos filas. Sin info (`--sin-info`), una sola
+     fila con el nombre centrado contra el formulario. */
+  .auth-hero--gimnasio {
+    @apply pb-10 sm:pb-14 lg:gap-y-8;
+  }
+  @media (min-width: 64rem) {
+    .auth-hero--gimnasio {
+      grid-template-areas: "copia form" "info form";
+      grid-template-rows: auto 1fr;
+      align-items: start;
+    }
+    .auth-gimnasio__copia { grid-area: copia; align-self: end; }
+    .auth-gimnasio__form { grid-area: form; align-self: center; }
+    .auth-gimnasio__info { grid-area: info; }
+    .auth-hero--sin-info {
+      grid-template-areas: "copia form";
+      grid-template-rows: auto;
+    }
+    .auth-hero--sin-info .auth-gimnasio__copia { align-self: center; }
+  }
+
+  .auth-gimnasio__info {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-8 w-full max-w-md sm:max-w-none mx-auto lg:mx-0;
+  }
+  .auth-gimnasio__bloque {
+    @apply flex flex-col items-center lg:items-start gap-3 text-center lg:text-left;
+  }
+  .auth-gimnasio__bloque--horarios {
+    @apply items-stretch;
+  }
+  .auth-gimnasio__bloque--horarios .landing__horarios {
+    @apply m-0 p-0 list-none w-full max-w-sm mx-auto lg:mx-0;
+  }
+  .auth-gimnasio__info-titulo {
+    @apply m-0 text-sm font-bold text-gray-800;
+  }
+  .auth-gimnasio__contacto {
+    @apply m-0 text-sm text-gray-700;
+  }
+  .auth-gimnasio__bloque .redes-sociales {
+    @apply mt-1 justify-center lg:justify-start;
+  }
+
+  .auth-gimnasio__seccion {
+    @apply w-full max-w-5xl mx-auto px-4 pb-12 sm:pb-16;
+  }
+  .auth-gimnasio__adentro {
+    @apply grid grid-cols-1 lg:grid-cols-[auto_minmax(0,1fr)] gap-10 lg:gap-16 items-center;
+  }
+  .auth-gimnasio__celu {
+    @apply hidden lg:block;
+  }
+  .auth-gimnasio__celu .disp-celu {
+    position: relative;
+    inset: auto;
+    margin: 0;
+    width: 15rem;
+    max-width: none;
+  }
+  .auth-gimnasio__titulo {
+    @apply mb-2 text-2xl sm:text-3xl font-extrabold text-gray-900;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  .auth-gimnasio__bajada {
+    @apply mb-6 text-gray-700;
+  }
+  .auth-gimnasio__lista {
+    @apply m-0 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 p-0 list-none;
+  }
+  .auth-gimnasio__lista li {
+    @apply pl-4 text-sm leading-relaxed text-gray-700;
+    border-left: 3px solid var(--color-primario);
+  }
+  .auth-gimnasio__lista strong {
+    @apply block text-base text-gray-900;
+  }
+  .auth-gimnasio__nota {
+    @apply hidden lg:block mt-6 mb-0 text-xs text-gray-500;
+  }
+  .auth-gimnasio__pie {
+    @apply mt-auto w-full max-w-5xl mx-auto flex flex-wrap items-center justify-center sm:justify-between
+      gap-x-6 gap-y-2 border-t px-4 py-6 text-xs text-gray-600;
+    border-color: color-mix(in oklab, var(--color-primario) 18%, transparent);
+  }
+  .auth-gimnasio__pie a {
+    @apply font-semibold text-gray-700 underline underline-offset-2 hover:text-gray-900;
   }
 
   .auth-hero__copy {
