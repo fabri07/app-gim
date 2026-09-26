@@ -1495,9 +1495,12 @@ class GimnasioLoginViewTests(TestCase):
         response = self.client.get(reverse("login_gimnasio", args=["central"]))
 
         self.assertContains(response, "redes-sociales__boton")
-        self.assertContains(response, 'aria-label="WhatsApp"')
         self.assertContains(response, 'aria-label="Instagram"')
         self.assertNotContains(response, 'aria-label="Facebook"')
+        # WhatsApp sale como botón con texto («Consultanos por WhatsApp») y
+        # no además como ícono: el mismo link dos veces en el mismo bloque.
+        self.assertNotContains(response, 'aria-label="WhatsApp"')
+        self.assertContains(response, "https://wa.me/5491112345678", count=1)
 
     def test_el_login_generico_no_muestra_redes_de_ningun_gimnasio(self):
         """Sin slug no hay gimnasio en contexto: mostrar las redes de
@@ -1558,6 +1561,73 @@ class GimnasioLoginViewTests(TestCase):
         response = self.client.get(reverse("login_gimnasio", args=["central"]))
         self.assertContains(response, "otro_gimnasio=1")
         self.assertContains(response, 'hx-boost="false"')
+
+
+class GimnasioLoginContenidoTests(TestCase):
+    """El login de un gimnasio no es solo el formulario: muestra lo que el
+    gimnasio cargó (consultas, horarios) y lo que el alumno encuentra adentro.
+    Cada bloque depende de su dato, y la pantalla nunca queda vacía."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Box Andes", slug="box-andes")
+        self.url = reverse("login_gimnasio", args=["box-andes"])
+
+    def test_gimnasio_sin_datos_igual_muestra_que_hay_adentro(self):
+        response = self.client.get(self.url)
+        self.assertContains(response, "Qué vas a encontrar adentro")
+        self.assertContains(response, "Tu rutina, semana por semana.")
+        self.assertNotContains(response, "auth-gimnasio__info")
+        self.assertNotContains(response, ">Horarios<")
+
+    def test_sin_horarios_no_promete_turnos(self):
+        response = self.client.get(self.url)
+        self.assertNotContains(response, "Tus turnos.")
+
+    def test_con_horarios_los_muestra_y_ofrece_turnos(self):
+        from turnos.models import DiaSemana, HorarioAtencion
+
+        HorarioAtencion.objects.create(
+            gimnasio=self.gimnasio,
+            dia_semana=DiaSemana.LUNES,
+            hora_desde=time(8, 0),
+            hora_hasta=time(12, 0),
+        )
+        response = self.client.get(self.url)
+        self.assertContains(response, ">Horarios<")
+        self.assertContains(response, "Lunes")
+        self.assertContains(response, "08:00–12:00")
+        self.assertContains(response, "Tus turnos.")
+
+    def test_consultas_con_whatsapp_y_contacto(self):
+        self.gimnasio.link_whatsapp = "https://wa.me/5491100000000"
+        self.gimnasio.contacto = "Av. Siempreviva 742"
+        self.gimnasio.save()
+        response = self.client.get(self.url)
+        self.assertContains(response, "Consultanos por WhatsApp")
+        self.assertContains(response, "Av. Siempreviva 742")
+
+    def test_el_celular_de_ejemplo_lleva_el_nombre_del_gimnasio(self):
+        response = self.client.get(self.url)
+        self.assertNotContains(response, "Gimnasio Norte")
+        self.assertContains(response, 'class="app-alumno__top"')
+
+    def test_la_marca_lleva_a_la_pagina_del_gimnasio_y_no_a_la_portada(self):
+        """La marca por default del visitante anónimo es «TuGimApp» → `home`,
+        o sea la portada de venta: desde el login de un gimnasio mandaba a su
+        alumno a la página donde se les venden cuentas a los dueños."""
+        response = self.client.get(self.url)
+        landing = reverse("landing_gimnasio", args=["box-andes"])
+        self.assertRegex(
+            response.content.decode(),
+            rf'<a href="{landing}" class="topbar__marca" hx-boost="false">',
+        )
+        self.assertContains(response, f'<a href="{landing}" hx-boost="false">Conocé Box Andes</a>', html=False)
+        self.assertContains(response, '<a href="/" hx-boost="false">TuGimApp</a>')
+
+    def test_el_login_generico_no_muestra_el_contenido_del_gimnasio(self):
+        response = self.client.get(reverse("login"))
+        self.assertNotContains(response, "Qué vas a encontrar adentro")
+        self.assertNotContains(response, "auth-gimnasio")
 
 
 class GimnasioPreferidoCookieTests(TestCase):

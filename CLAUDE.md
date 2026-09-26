@@ -2040,15 +2040,35 @@ atmosférico de 3 blobs radiales que ya usan `body` y `.landing` — tercera
 copia a propósito, mismo criterio ya documentado ahí: sin preprocesador CSS
 no hay forma limpia de compartirlo.
 
-Con `gimnasio` en contexto, el copy de marketing genérico
-("Gestionar tu gimnasio es más fácil...") y el dibujo de atletas
-(`atletas_frieze.html`) se reemplazan por el nombre del gimnasio y su
-`texto_bienvenida` — decisión explícita del dueño del producto: un alumno
-logueándose a SU gimnasio no debería ver un pitch de venta dirigido a
-dueños de gimnasios. Sin `gimnasio` en contexto (login genérico, o cuando
-Django redirige acá desde `LOGIN_URL` por una vista protegida — ese flujo
-no tiene forma de saber el slug), el template renderiza EXACTAMENTE igual
-que antes: paisaje Bosque default, copy de marketing y atletas.
+Con `gimnasio` en contexto, el copy de marketing genérico se reemplaza por el
+nombre del gimnasio y su `texto_bienvenida` — decisión explícita del dueño del
+producto: un alumno logueándose a SU gimnasio no debería ver un pitch de venta
+dirigido a dueños de gimnasios. Sin `gimnasio` en contexto (login genérico, o
+cuando Django redirige acá desde `LOGIN_URL` por una vista protegida — ese
+flujo no tiene forma de saber el slug) va la versión de producto, con la
+misma voz que la portada.
+
+**El login del gimnasio es la puerta del gimnasio, no solo un formulario**
+(2026-09-26, el dueño del producto la encontró «muy vacía»). Muestra lo que el
+gimnasio ya cargó para su landing —consultas (WhatsApp, `contacto`, redes) y
+horarios, vía `tenants/views.py::horarios_por_dia`, compartida con
+`GimnasioLandingView`— y un bloque fijo «Qué vas a encontrar adentro» con lo
+que el portal del alumno hace de verdad. Reglas que conviene no deshacer:
+- **Cada bloque depende de su dato**, y el ítem «Tus turnos» sale solo si hay
+  horarios: sin agenda, prometer turnos es falso. El bloque fijo existe para
+  que un gimnasio que no cargó nada igual tenga una pantalla completa.
+- **Cada dato una vez**: WhatsApp va como botón con texto, así que las redes
+  salen con `sin_whatsapp=True` (parámetro de `partials/redes_sociales.html`).
+- **En celular el formulario va antes que los contactos** (grilla con áreas
+  nombradas en `.auth-hero--gimnasio`): la mayoría viene a entrar.
+- **La marca de la topbar lleva a la landing del gimnasio**, no a `home`: para
+  un anónimo `home` es la portada de VENTA. TuGimApp aparece solo en el pie
+  («Hecho con TuGimApp»), sin ningún CTA — el test «no vende el producto» lo
+  fija.
+- **El fondo vive en `.auth-gimnasio`** (envoltorio a todo el ancho), no en
+  `.auth-hero`: con `max-w-5xl` la foto quedaba encerrada en una caja de
+  1024 px. El formulario es un include compartido por las dos variantes
+  (`registration/_tarjeta_ingreso.html`).
 
 `landing.html` enlaza "Iniciar sesión" a `login_gimnasio` con el slug del
 gimnasio que se está visitando (antes iba al login genérico, sin contexto).

@@ -21,10 +21,14 @@ ver `Gimnasio.PALETAS`).
 
 Los paths son los logos oficiales en viewBox 24×24, dibujados con `fill` (por
 eso `fill="currentColor"` y no `stroke`): heredan el color del botón.
+
+`sin_whatsapp=True` saca el ícono de WhatsApp: lo usa el login del gimnasio,
+que ya lo ofrece como botón con texto al lado («Consultanos por WhatsApp»), y
+el mismo link dos veces en el mismo bloque es ruido.
 {% endcomment %}
-{% if gimnasio.link_whatsapp or gimnasio.link_instagram or gimnasio.link_facebook %}
+{% if gimnasio.link_whatsapp and not sin_whatsapp or gimnasio.link_instagram or gimnasio.link_facebook %}
   <div class="redes-sociales">
-    {% if gimnasio.link_whatsapp %}
+    {% if gimnasio.link_whatsapp and not sin_whatsapp %}
       <a class="redes-sociales__boton" href="{{ gimnasio.link_whatsapp }}"
          target="_blank" rel="noopener" aria-label="WhatsApp" title="WhatsApp">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">

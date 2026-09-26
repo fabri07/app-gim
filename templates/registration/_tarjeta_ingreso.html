@@ -1,0 +1,67 @@
+{% comment %}
+Tarjeta del formulario de ingreso. La comparten las dos variantes de
+login.html (genérica y de un gimnasio): el formulario es uno solo, lo que
+cambia es lo que lo rodea.
+{% endcomment %}
+<div class="auth-card">
+  <h2 class="auth-card__titulo">Ingresar</h2>
+  {% comment %}
+    hx-boost="false": mismo motivo que el form de logout en base.html --
+    el <style> con el fondo del gimnasio vive en <head>, que hx-boost no
+    swapea, así que sin esto el fondo no aparece recién logueado hasta un
+    refresh manual.
+
+    Campo por campo y no `form.as_p`: `.errorlist` no tiene estilo en este
+    proyecto, y un rechazo que no se ve es igual a un login que no anda
+    (ver CLAUDE.md, «Un formulario que rechaza sin que se note»). La
+    etiqueta dice «Usuario» a secas: el form no normaliza lo que se
+    escribe, así que invitar a tipear «el teléfono» haría fallar a quien lo
+    escriba en otro formato que el que le cargó el gimnasio.
+  {% endcomment %}
+  <form method="post" novalidate hx-boost="false" class="auth-card__form">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="auth-card__error" role="alert">
+        {% for e in form.non_field_errors %}<p>{{ e }}</p>{% endfor %}
+      </div>
+    {% endif %}
+    <div class="auth-card__campo">
+      <label for="{{ form.username.id_for_label }}">Usuario</label>
+      {{ form.username }}
+      <p class="auth-card__ayuda">El que te pasó tu gimnasio, tal cual te lo pasó.</p>
+      {% for e in form.username.errors %}<p class="auth-card__error-campo">{{ e }}</p>{% endfor %}
+    </div>
+    <div class="auth-card__campo">
+      <div class="auth-card__label-fila">
+        <label for="{{ form.password.id_for_label }}">Contraseña</label>
+        {% if PASSWORD_RESET_DISPONIBLE %}
+          {% comment %}
+            hx-boost="false" por consistencia con el resto de los links de
+            esta página: en g/<slug>/login/ el <head> lleva colores/manifest
+            del gimnasio vía extra_style, y un swap boosteado (que solo
+            reemplaza <body>) los dejaría pegados.
+          {% endcomment %}
+          <a href="{% url 'password_reset' %}" hx-boost="false" class="auth-card__olvido">¿Olvidaste tu contraseña?</a>
+        {% endif %}
+      </div>
+      {{ form.password }}
+      {% for e in form.password.errors %}<p class="auth-card__error-campo">{{ e }}</p>{% endfor %}
+    </div>
+    <button type="submit" class="portada-pildora auth-card__entrar">Entrar</button>
+  </form>
+  {% if GOOGLE_STAFF_LOGIN_DISPONIBLE %}
+    <p class="auth-card__o"><span>o</span></p>
+    {% comment %}
+      hx-boost="false": el link redirige cross-origin a
+      accounts.google.com -- mismo gotcha (y misma solución) que
+      "Conectar mi Google Calendar" en templates/turnos/mis_turnos.html.
+      `next` ya viene validado por LoginView.get_context_data (Django
+      nunca expone un `next` inseguro acá), mismo criterio que el link
+      "¿No es tu gimnasio?" de arriba.
+    {% endcomment %}
+    <a href="{% url 'login_google' %}{% if next %}?next={{ next|urlencode }}{% endif %}" class="auth-card__google" hx-boost="false">
+      Iniciar sesión con Google
+    </a>
+    <p class="auth-card__nota">Solo para dueños y entrenadores.</p>
+  {% endif %}
+</div>
