@@ -193,6 +193,20 @@ evento en diferido. **Medir en Render una tanda de tarjetas y el padrón; si una
 lectura online espera más de ~1 s detrás de ellos, pasar a más de un worker**
 (o sacar esos trabajos a una cola). Spec, riesgo aceptado 15.
 
+**Pendiente: confirmar que de verdad es UN worker.** Todo lo de arriba sale de
+`render.yaml:46` (`startCommand: gunicorn config.wsgi:application`, sin
+`--workers`), pero el servicio vivo es **`app-gim-virginia`, que NO lo maneja el
+Blueprint** (se creó a mano, ver `CLAUDE.md` § Deploy): su start command es el
+que quedó cargado en el dashboard de Render, no el del archivo. Y gunicorn toma
+la cantidad de workers de la variable `WEB_CONCURRENCY` si existe, sin que
+aparezca en el comando. Mirar en el dashboard de `app-gim-virginia` → Settings
+el **Start Command** real y en Environment si hay `WEB_CONCURRENCY`. De eso
+dependen dos cosas de `ingreso`: el freno por IP de `ingreso/limites.py`, que
+vive en `LocMemCache` (por proceso: con dos workers cada uno cuenta sus propias
+fallas y el freno se afloja en silencio), y el tamaño de las tandas
+(`TARJETAS_POR_TANDA`), que se eligió pensando en que un request largo bloquea
+la puerta entera.
+
 ---
 
 ## [2026-09-28] El 304 del padrón de la puerta cuesta lo mismo que un 200
