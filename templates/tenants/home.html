@@ -127,6 +127,42 @@
     </div>
   </div>
 
+  {% comment %}
+    «Control de ingreso»: va arriba de las cuotas porque un lector callado es
+    la señal de que la puerta puede estar caída, y eso es lo único de esta
+    tarjeta que pide actuar YA. Ámbar (no rojo) cuando hay un lector sin
+    contacto: es algo para revisar, no un error del sistema. Sin ningún lector
+    no hay números («0 ingresos» no dice nada): la invitación a configurarla va
+    más abajo, al lado de las novedades. Ver `presentacion.resumen_para_el_panel`.
+  {% endcomment %}
+  {% if control_ingreso.usa_la_puerta %}
+    {% with hoy=control_ingreso.hoy|date:"Y-m-d" %}
+      <div class="tarjeta{% if control_ingreso.lectores_sin_contacto %} aviso-urgente{% endif %}">
+        <div class="acciones-lista">
+          <h2>Control de ingreso</h2>
+          <a class="boton-secundario" href="{% url 'ingreso:listado' %}?desde={{ hoy }}&amp;hasta={{ hoy }}">Ver los de hoy</a>
+        </div>
+        <p>
+          <strong>{{ control_ingreso.ingresos_hoy }} ingreso{{ control_ingreso.ingresos_hoy|pluralize }} hoy</strong>
+          &middot;
+          {% if control_ingreso.rechazos_hoy %}
+            <a href="{% url 'ingreso:listado' %}?resultado=rechazados&amp;desde={{ hoy }}&amp;hasta={{ hoy }}">{{ control_ingreso.rechazos_hoy }} rechazo{{ control_ingreso.rechazos_hoy|pluralize }}</a>
+          {% else %}
+            <span class="texto-suave">sin rechazos</span>
+          {% endif %}
+        </p>
+        {% if control_ingreso.lectores_sin_contacto %}
+          <p>
+            {% if control_ingreso.lectores_sin_contacto == 1 %}Un lector de la puerta no se comunica con la app{% else %}{{ control_ingreso.lectores_sin_contacto }} lectores de la puerta no se comunican con la app{% endif %}
+            hace más de una hora (o nunca lo hizo). Puede estar apagado o sin
+            internet: revisalo antes de que alguien se quede afuera.
+            <a class="boton-urgente" href="{% url 'ingreso:dispositivos' %}">Ver lectores</a>
+          </p>
+        {% endif %}
+      </div>
+    {% endwith %}
+  {% endif %}
+
   <div class="tarjeta">
     <div class="acciones-lista">
       <h2>Cuotas en curso</h2>
@@ -172,6 +208,23 @@
       <p class="texto-suave">No hay novedades publicadas todavía.</p>
     {% endfor %}
   </div>
+
+  {% comment %}
+    Sin ningún lector activo: el nav de staff no tiene ítem para la puerta,
+    así que esta tarjeta es la única forma de descubrirla (spec §9).
+  {% endcomment %}
+  {% if control_ingreso and not control_ingreso.usa_la_puerta %}
+    <div class="tarjeta">
+      <div class="acciones-lista">
+        <h2>Control de ingreso</h2>
+        <a class="boton-secundario" href="{% url 'ingreso:dispositivos' %}">Configurar la puerta</a>
+      </div>
+      <p class="texto-suave">
+        Conectá un lector de QR o de cara en la entrada y vas a ver acá quién
+        vino de verdad cada día, y quién intentó entrar y no pudo.
+      </p>
+    </div>
+  {% endif %}
 
   <div class="tarjeta">
     <h2>Asistencia por día y horario</h2>

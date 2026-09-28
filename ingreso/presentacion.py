@@ -22,11 +22,30 @@ Tres decisiones que conviene no deshacer:
 """
 
 from dataclasses import dataclass
+from datetime import datetime, time, timedelta
 
+from django.db.models import Count, Q
 from django.http import HttpResponse
+from django.utils import timezone
 
 from ingreso import qr
-from ingreso.models import ConfiguracionIngreso, Credencial, Dispositivo
+from ingreso.models import (
+    ConfiguracionIngreso,
+    Credencial,
+    Dispositivo,
+    EventoIngreso,
+)
+
+#: Cuánto puede estar callado un lector activo antes de que el panel lo marque.
+#: Todo request autenticado del lector actualiza `ultimo_contacto`, y el poll
+#: del padrón hace de latido aunque nadie pase por la puerta (el lector lo
+#: pide cada pocos minutos para poder abrir sin internet). Una hora sin ningún
+#: request es entonces un lector apagado, sin internet o con la clave mal
+#: cargada: la puerta puede estar funcionando offline con un padrón viejo, o
+#: directamente sin abrir. Una hora y no quince minutos para que un corte de
+#: internet corto o un reinicio del equipo no tiñan el panel de ámbar por nada
+#: -- un aviso que salta seguido se aprende a ignorar.
+UMBRAL_LECTOR_SIN_CONTACTO = timedelta(hours=1)
 
 
 class Estado:
@@ -115,6 +134,75 @@ def tarjeta_del_portal(alumno, gimnasio, *, bloqueo):
         "codigo_ingreso": codigo,
         "aviso_deuda_en_puerta": aviso,
         "estados_codigo": Estado,
+    }
+
+
+def inicio_del_dia(dia):
+    """Medianoche LOCAL de `dia`, con zona. Filtrar por `momento__date` o
+    comparar contra medianoche UTC corre el corte tres horas: un ingreso a las
+    22:30 de Buenos Aires ya es el día siguiente en UTC."""
+    return timezone.make_aware(datetime.combine(dia, time.min))
+
+
+def resumen_para_el_panel(gimnasio):
+    """La tarjeta «Control de ingreso» del panel del staff.
+
+    **Dos queries, siempre**, porque corre en cada carga del panel: un
+    `aggregate` sobre los lectores activos (cuántos hay y cuántos están
+    callados) y otro sobre los eventos de hoy (ingresos y rechazos en la misma
+    pasada). Nada por fila, nada que crezca con el historial: el rango de
+    `momento` lo cubre `ingreso_listado_idx` (`gimnasio, -momento`).
+
+    - «Hoy» es el día LOCAL, cortado en la medianoche de Buenos Aires.
+    - Un ingreso es un PERMITIDO de ENTRADA: la salida no es alguien que vino.
+      Los rechazos son todos los no permitidos, igual que el filtro
+      `rechazados` de `ingreso:listado`, al que lleva el link.
+    - `usa_la_puerta` es falso sin ningún lector activo ni movimiento hoy: ahí
+      la tarjeta no muestra «0 ingresos» sino que invita a configurar la
+      puerta (spec §9). El movimiento cuenta aparte para que desactivar un
+      lector a la tarde no esconda lo que entró a la mañana.
+    """
+    ahora = timezone.now()
+    hoy = timezone.localdate(ahora)
+    lectores = (
+        Dispositivo.objects.for_gimnasio(gimnasio)
+        .filter(activo=True)
+        .aggregate(
+            activos=Count("pk"),
+            sin_contacto=Count(
+                "pk",
+                filter=Q(ultimo_contacto__isnull=True)
+                | Q(ultimo_contacto__lt=ahora - UMBRAL_LECTOR_SIN_CONTACTO),
+            ),
+        )
+    )
+    eventos = (
+        EventoIngreso.objects.for_gimnasio(gimnasio)
+        .filter(
+            momento__gte=inicio_del_dia(hoy),
+            momento__lt=inicio_del_dia(hoy + timedelta(days=1)),
+        )
+        .aggregate(
+            total=Count("pk"),
+            ingresos=Count(
+                "pk",
+                filter=Q(
+                    resultado=EventoIngreso.Resultado.PERMITIDO,
+                    sentido=EventoIngreso.Sentido.ENTRADA,
+                ),
+            ),
+            rechazos=Count(
+                "pk", filter=~Q(resultado=EventoIngreso.Resultado.PERMITIDO)
+            ),
+        )
+    )
+    return {
+        "usa_la_puerta": bool(lectores["activos"] or eventos["total"]),
+        "hoy": hoy,
+        "ingresos_hoy": eventos["ingresos"],
+        "rechazos_hoy": eventos["rechazos"],
+        "lectores_activos": lectores["activos"],
+        "lectores_sin_contacto": lectores["sin_contacto"],
     }
 
 

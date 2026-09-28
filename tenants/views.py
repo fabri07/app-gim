@@ -188,6 +188,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
     @staticmethod
     def _metricas_dashboard(gimnasio):
         from alumnos.models import Alumno
+        from ingreso import presentacion as presentacion_ingreso
         from novedades.models import Novedad
         from pagos import acceso
         from pagos.models import Cuota
@@ -246,6 +247,13 @@ class HomeView(LoginRequiredMixin, TemplateView):
             # viviera solo en la ficha de cada alumno, habría que sospechar
             # primero para encontrarlo.
             "planes_por_vencer": RutinaAsignada.por_vencer_de(gimnasio=gimnasio),
+            # «Control de ingreso»: ingresos y rechazos de hoy, y los lectores
+            # que no hablan con la app hace rato (la puerta puede estar
+            # caída). Dos queries fijas; sin lectores, invita a configurar.
+            # No reemplaza a la «asistencia» de `analitica` (que cuenta
+            # `Reserva`): la spec no lo pide y un gimnasio sin lector se
+            # quedaría sin esos números.
+            "control_ingreso": presentacion_ingreso.resumen_para_el_panel(gimnasio),
             # Solo broadcasts en el dashboard del staff: las personales son de
             # un alumno puntual, no del panel de gestión (Parte B).
             "ultimas_novedades": Novedad.objects.for_gimnasio(gimnasio)

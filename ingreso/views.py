@@ -6,7 +6,7 @@ escriben: el registro vive en `ingreso/services.py`.
 """
 
 import json
-from datetime import date, datetime, time, timedelta
+from datetime import date, timedelta
 
 from django.contrib import messages
 from django.db import IntegrityError, transaction
@@ -411,11 +411,9 @@ def _fecha_o_nada(texto):
         return None
 
 
-def _inicio_del_dia(dia):
-    """Medianoche LOCAL de `dia`, con zona. Filtrar por `momento__date` o
-    comparar contra medianoche UTC corre el corte tres horas: un ingreso a las
-    22:30 de Buenos Aires ya es el día siguiente en UTC."""
-    return timezone.make_aware(datetime.combine(dia, time.min))
+# Vive en `presentacion` porque la comparte la tarjeta del panel: el listado
+# y el «hoy» del panel tienen que cortar el día en el mismo lugar.
+_inicio_del_dia = presentacion.inicio_del_dia
 
 
 class EventoIngresoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
