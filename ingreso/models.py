@@ -70,6 +70,13 @@ class Dispositivo(TenantOwnedModel):
     token_hash = models.CharField(max_length=64, unique=True, editable=False)
     activo = models.BooleanField(default=True)
     ultimo_contacto = models.DateTimeField(null=True, blank=True, editable=False)
+    # El tope diario de `ingreso/limites.py`: eventos NUEVOS registrados por
+    # este lector en `eventos_hoy_fecha` (día local). Un contador y no un
+    # `COUNT` de `EventoIngreso`: contar por `momento` lo esquiva un lote en
+    # diferido fechado en los siete días anteriores, y contar por `creado`
+    # recorre todo el historial del lector en cada request.
+    eventos_hoy = models.PositiveIntegerField(default=0, editable=False)
+    eventos_hoy_fecha = models.DateField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = "lector de la puerta"

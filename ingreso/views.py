@@ -17,7 +17,7 @@ from django.utils.http import quote_etag
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from ingreso import auth, services
+from ingreso import auth, limites, services
 from ingreso.decision import Lectura
 from ingreso.models import Credencial, Dispositivo, EventoIngreso
 
@@ -216,20 +216,45 @@ def _parsear(cuerpo):
     return entradas
 
 
+def _demasiado(motivo, error, segundos):
+    respuesta = JsonResponse({"error": error, "motivo": motivo}, status=429)
+    respuesta["Retry-After"] = str(segundos)
+    return respuesta
+
+
 def _lector_del_request(request):
     """`(dispositivo, None)` si el token es bueno, o `(None, respuesta)` con el
-    401/403 listo. Compartido por las dos vistas de la API para que no puedan
-    divergir en qué es un token válido.
+    401/403/429 listo. Compartido por las dos vistas de la API para que no
+    puedan divergir en qué es un token válido ni en el freno por IP.
+
+    **El freno por IP (`ingreso/limites.py`) es del camino de FALLO**: con la
+    IP frenada, un token que no se conoce recibe 429 sin tocar la base; uno
+    que ya autenticó bien pasa siempre, porque una lectura online frenada es
+    una puerta cerrada. El 403 no suma fallas: solo lo alcanza un token
+    válido. Y **no se mira `estado_cuenta`** (invariante de la Tarea 9).
 
     Todo request autenticado es además el latido del lector (no hay endpoint
     aparte): `update()` para no tocar `modificado`.
     """
+    ip = limites.ip_de(request)
+    token_hash = auth.hash_presentado(request)
+    if limites.demasiados_intentos_fallidos(ip) and not limites.lector_conocido(
+        token_hash
+    ):
+        return None, _demasiado(
+            "intentos_fallidos",
+            "demasiados intentos con un token inválido desde esta IP: revisá "
+            "el token del lector y esperá un minuto",
+            limites.SEGUNDOS_VENTANA_FALLOS,
+        )
     try:
-        dispositivo = auth.dispositivo_autenticado(request)
+        dispositivo = auth.dispositivo_autenticado(request, token_hash=token_hash)
     except auth.LectorDesactivado:
         return None, JsonResponse({"error": "lector desactivado"}, status=403)
     except auth.ErrorDeAutenticacion:
+        limites.anotar_fallo(ip)
         return None, JsonResponse({"error": "token invalido"}, status=401)
+    limites.recordar_lector(token_hash)
     Dispositivo.objects.filter(pk=dispositivo.pk).update(
         ultimo_contacto=timezone.now()
     )
@@ -263,6 +288,17 @@ class EventosApiView(View):
         dispositivo, rechazo = _lector_del_request(request)
         if rechazo is not None:
             return rechazo
+        # Solo acá y no en `_lector_del_request`: el padrón no escribe, y
+        # cortarle el poll a un lector hace que la puerta abra hoy y deje de
+        # abrir mañana.
+        if limites.cupo_diario_excedido(dispositivo):
+            return _demasiado(
+                "tope_diario",
+                f"este lector ya registró {limites.MAX_EVENTOS_POR_DIA} "
+                "ingresos hoy, el tope diario; se reinicia a la medianoche. "
+                "Revisá que el puente no esté reenviando lecturas en bucle",
+                limites.segundos_hasta_medianoche(),
+            )
 
         try:
             entradas = _parsear(request.body)

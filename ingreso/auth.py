@@ -29,18 +29,29 @@ class LectorDesactivado(ErrorDeAutenticacion):
     "revisá el token", 403 es "el gimnasio apagó este lector"."""
 
 
-def dispositivo_autenticado(request):
+def hash_presentado(request):
+    """El `sha256` del token que mandó el lector, o `None` si no mandó uno con
+    la forma `Bearer <token>`. No toca la base."""
     esquema, _, presentado = (
         request.META.get("HTTP_AUTHORIZATION", "").strip().partition(" ")
     )
     if esquema.lower() != ESQUEMA:
-        raise SinToken()
+        return None
     presentado = presentado.strip()
     if not presentado:
+        return None
+    return tokens.hash_de(presentado)
+
+
+def dispositivo_autenticado(request, *, token_hash=None):
+    """`token_hash` evita volver a hashear si quien llama ya lo calculó."""
+    if token_hash is None:
+        token_hash = hash_presentado(request)
+    if not token_hash:
         raise SinToken()
     try:
         dispositivo = Dispositivo.objects.select_related("gimnasio").get(
-            token_hash=tokens.hash_de(presentado)
+            token_hash=token_hash
         )
     except Dispositivo.DoesNotExist:
         raise SinToken() from None

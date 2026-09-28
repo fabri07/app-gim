@@ -14,6 +14,7 @@ from datetime import timezone as dt_timezone
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.db import connection
 from django.test import Client, TestCase
 from django.test.utils import CaptureQueriesContext
@@ -21,7 +22,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from alumnos.models import Alumno
-from ingreso import decision, services, tokens
+from ingreso import decision, limites, services, tokens
 from ingreso.models import (
     ConfiguracionIngreso,
     Credencial,
@@ -42,6 +43,11 @@ from turnos.models import Reserva
 
 class _BaseApi(TestCase):
     def setUp(self):
+        # El freno por IP vive en el cache (`LocMemCache`, por proceso), que
+        # sobrevive entre tests: sin esto, los 401 de toda la suite se suman
+        # contra 127.0.0.1 y un test cualquiera recibe un 429 que no buscó.
+        cache.clear()
+        self.addCleanup(cache.clear)
         self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
         self.token = tokens.generar()
         self.dispositivo = Dispositivo.objects.create(
@@ -54,8 +60,8 @@ class _BaseApi(TestCase):
         self.qr = services.generar_credencial_qr(self.alumno)
         self.url = reverse("ingreso:api_eventos")
 
-    def _post(self, cuerpo, token=None):
-        cabeceras = {}
+    def _post(self, cuerpo, token=None, **extra):
+        cabeceras = dict(extra)
         if token is not None:
             cabeceras["HTTP_AUTHORIZATION"] = f"Bearer {token}"
         return self.client.post(
@@ -1534,3 +1540,306 @@ class PadronCostoTests(_BasePadron):
         self.assertEqual(sum(1 for f in filas_grande if f["qr"]), 31)
         self.assertEqual(sum(1 for f in filas_grande if f["id_facial"]), 30)
         self.assertEqual(grande, chico)
+
+
+class FrenoPorIpTests(_BasePadron):
+    """El camino de FALLO (sin token o con uno que no matchea) no es gratis:
+    pasadas `MAX_FALLOS_POR_MINUTO` fallas desde una IP, el resto de la
+    ventana responde 429 sin tocar la base.
+
+    Y la otra mitad, que pesa más: **un lector legítimo no recibe nunca este
+    429**. Una lectura online frenada es una puerta cerrada, y la IP de un
+    gimnasio es compartida (NAT) con cualquier cosa que esté mal configurada
+    en el mismo edificio.
+    """
+
+    def _fallar(self, veces, **extra):
+        for _ in range(veces):
+            respuesta = self._post({"eventos": []}, token="invalido", **extra)
+            self.assertEqual(respuesta.status_code, 401)
+
+    def test_muchos_intentos_fallidos_desde_la_misma_ip_dan_429(self):
+        self._fallar(limites.MAX_FALLOS_POR_MINUTO)
+
+        respuesta = self._post({"eventos": []}, token="invalido")
+
+        self.assertEqual(respuesta.status_code, 429)
+        self.assertEqual(respuesta.json()["motivo"], "intentos_fallidos")
+        self.assertEqual(
+            respuesta["Retry-After"], str(limites.SEGUNDOS_VENTANA_FALLOS)
+        )
+
+    def test_sin_token_tambien_cuenta_como_fallo(self):
+        for _ in range(limites.MAX_FALLOS_POR_MINUTO):
+            self.assertEqual(self._post({"eventos": []}).status_code, 401)
+
+        self.assertEqual(self._post({"eventos": []}).status_code, 429)
+
+    def test_el_freno_cubre_tambien_el_padron(self):
+        """Vive en `_lector_del_request`: las fallas contra eventos frenan el
+        padrón y al revés, porque es el mismo atacante probando llaves."""
+        self._fallar(limites.MAX_FALLOS_POR_MINUTO // 2)
+        for _ in range(limites.MAX_FALLOS_POR_MINUTO // 2):
+            self.assertEqual(self._get(token="invalido").status_code, 401)
+
+        self.assertEqual(self._get(token="invalido").status_code, 429)
+        self.assertEqual(
+            self._post({"eventos": []}, token="invalido").status_code, 429
+        )
+
+    def test_con_la_ip_frenada_un_token_invalido_no_llega_a_la_base(self):
+        """Es el punto del freno: el atacante sin llave no cuesta ni la query
+        del token."""
+        self._fallar(limites.MAX_FALLOS_POR_MINUTO)
+
+        with self.assertNumQueries(0):
+            respuesta = self._post({"eventos": []}, token="invalido")
+
+        self.assertEqual(respuesta.status_code, 429)
+
+    def test_pasada_la_ventana_vuelve_a_responder_401(self):
+        ahora = 2_000_000_000.0
+        with patch("time.time", return_value=ahora):
+            self._fallar(limites.MAX_FALLOS_POR_MINUTO)
+            self.assertEqual(
+                self._post({"eventos": []}, token="invalido").status_code, 429
+            )
+        with patch(
+            "time.time",
+            return_value=ahora + limites.SEGUNDOS_VENTANA_FALLOS + 1,
+        ):
+            respuesta = self._post({"eventos": []}, token="invalido")
+
+        self.assertEqual(respuesta.status_code, 401)
+
+    def test_el_limite_no_frena_al_lector_legitimo(self):
+        """Un gimnasio a las 19:00 es legítimamente a ráfagas: el límite es del
+        camino de FALLO, no del autenticado."""
+        for _ in range(limites.MAX_FALLOS_POR_MINUTO + 5):
+            respuesta = self._post({"eventos": []}, token=self.token)
+            self.assertEqual(respuesta.status_code, 200)
+            self.assertEqual(self._get(token=self.token).status_code, 200)
+
+    def test_el_lector_legitimo_sigue_abriendo_con_su_ip_frenada(self):
+        """Un puente viejo con el token rotado, en la misma red del gimnasio,
+        martillando la API: frena su IP, que es la misma del molinete bueno.
+        El bueno sigue abriendo."""
+        self.assertEqual(self._get(token=self.token).status_code, 200)
+        self._fallar(limites.MAX_FALLOS_POR_MINUTO)
+        self.assertEqual(
+            self._post({"eventos": []}, token="invalido").status_code, 429
+        )
+
+        respuesta = self._post_eventos({"tipo": "qr", "valor": self.qr.valor})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.json()["resultados"][0]["permitido"])
+        self.assertEqual(self._get(token=self.token).status_code, 200)
+
+    def test_se_cuenta_por_ip_de_cloudflare_y_no_por_x_forwarded_for(self):
+        """`X-Forwarded-For` lo manda el cliente y lo puede rotar para saltear
+        el límite. Mismo criterio que `solicitudes/antispam.py::ip_de`."""
+        self._fallar(
+            limites.MAX_FALLOS_POR_MINUTO,
+            HTTP_CF_CONNECTING_IP="1.2.3.4",
+            HTTP_X_FORWARDED_FOR="8.8.8.8",
+        )
+
+        respuesta = self._post(
+            {"eventos": []}, token="invalido",
+            HTTP_CF_CONNECTING_IP="1.2.3.4",
+            HTTP_X_FORWARDED_FOR="9.9.9.9",
+        )
+
+        self.assertEqual(respuesta.status_code, 429)
+
+    def test_el_freno_de_una_ip_no_alcanza_a_otra(self):
+        self._fallar(
+            limites.MAX_FALLOS_POR_MINUTO, HTTP_CF_CONNECTING_IP="1.2.3.4"
+        )
+
+        respuesta = self._post(
+            {"eventos": []}, token="invalido", HTTP_CF_CONNECTING_IP="5.6.7.8"
+        )
+
+        self.assertEqual(respuesta.status_code, 401)
+
+    def test_un_lector_desactivado_no_suma_fallos(self):
+        """El 403 solo se alcanza con un token VÁLIDO: no es alguien probando
+        llaves, es un lector apagado que sigue polleando. Si contara, frenaría
+        la IP del gimnasio justo cuando instalan el lector nuevo, que todavía
+        no es conocido y se comería el 429."""
+        Dispositivo.objects.filter(pk=self.dispositivo.pk).update(activo=False)
+        for _ in range(limites.MAX_FALLOS_POR_MINUTO + 5):
+            self.assertEqual(self._get(token=self.token).status_code, 403)
+
+        token_nuevo = tokens.generar()
+        Dispositivo.objects.create(
+            gimnasio=self.gimnasio, nombre="Puerta nueva",
+            token_hash=tokens.hash_de(token_nuevo),
+        )
+
+        self.assertEqual(self._get(token=token_nuevo).status_code, 200)
+
+
+class TopeDiarioTests(_BasePadron):
+    """El respaldo durable del freno: un tope de eventos NUEVOS por lector y
+    por día, contado en la base (`Dispositivo.eventos_hoy`), que sobrevive a un
+    reinicio y a `--workers 2`. Contra un token robado, o un puente que reenvía
+    la misma lectura en bucle, pone un techo a lo que se escribe en
+    `EventoIngreso`.
+
+    El tope se parchea: llegar a las 20.000 filas reales sería medio minuto de
+    suite por un test que prueba una comparación.
+    """
+
+    def _llenar(self, dispositivo, cantidad, fecha=None):
+        Dispositivo.objects.filter(pk=dispositivo.pk).update(
+            eventos_hoy=cantidad,
+            eventos_hoy_fecha=fecha or timezone.localdate(),
+        )
+
+    def _leidos(self, dispositivo):
+        dispositivo.refresh_from_db()
+        return dispositivo.eventos_hoy
+
+    def _lote(self, *ids):
+        return {"eventos": [
+            {"tipo": "qr", "valor": self.qr.valor, "id_evento_equipo": i}
+            for i in ids
+        ]}
+
+    @patch.object(limites, "MAX_EVENTOS_POR_DIA", 3)
+    def test_un_lector_pasado_de_tope_recibe_un_429_claro(self):
+        self._llenar(self.dispositivo, 3)
+
+        respuesta = self._post_eventos({"tipo": "qr", "valor": self.qr.valor})
+
+        self.assertEqual(respuesta.status_code, 429)
+        self.assertEqual(respuesta.json()["motivo"], "tope_diario")
+        self.assertIn("3", respuesta.json()["error"])
+        self.assertTrue(0 < int(respuesta["Retry-After"]) <= 24 * 60 * 60)
+        self.assertFalse(EventoIngreso.objects.exists())
+
+    @patch.object(limites, "MAX_EVENTOS_POR_DIA", 3)
+    def test_el_tope_diario_no_corta_el_padron(self):
+        """Invariante de la Tarea 9: si el lector no pudiera refrescar su
+        padrón, la puerta abriría hoy y dejaría de abrir mañana. El padrón no
+        escribe nada, así que no hay nada que acotar."""
+        self._llenar(self.dispositivo, 3)
+
+        respuesta = self._get(token=self.token)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(self._fila(self.alumno, respuesta.json())["habilitado"])
+
+    @patch.object(limites, "MAX_EVENTOS_POR_DIA", 3)
+    def test_cuenta_los_eventos_nuevos_hasta_el_tope(self):
+        self.assertEqual(self._post(self._lote("a", "b"), token=self.token).status_code, 200)
+        self.assertEqual(self._leidos(self.dispositivo), 2)
+        self.assertEqual(self._post(self._lote("c"), token=self.token).status_code, 200)
+        self.assertEqual(self._leidos(self.dispositivo), 3)
+
+        respuesta = self._post(self._lote("d"), token=self.token)
+
+        self.assertEqual(respuesta.status_code, 429)
+        self.assertEqual(EventoIngreso.objects.count(), 3)
+
+    @patch.object(limites, "MAX_EVENTOS_POR_DIA", 3)
+    def test_los_reintentos_idempotentes_no_gastan_el_tope(self):
+        """Un puente que perdió la respuesta reintenta el MISMO lote con los
+        mismos ids, y está bien que lo haga (es el contrato). Si eso gastara
+        cupo, una conexión inestable le cerraría la puerta a un gimnasio sin
+        que haya entrado nadie de más."""
+        for _ in range(5):
+            respuesta = self._post(self._lote("a", "b"), token=self.token)
+            self.assertEqual(respuesta.status_code, 200)
+
+        self.assertEqual(self._leidos(self.dispositivo), 2)
+        self.assertEqual(EventoIngreso.objects.count(), 2)
+        self.assertEqual(self._post(self._lote("c"), token=self.token).status_code, 200)
+
+    def test_un_evento_invalido_no_gasta_el_tope(self):
+        """No se registra: no hay nada que acotar."""
+        self._post_eventos({"tipo": "rfid", "valor": "x"})
+
+        self.assertEqual(self._leidos(self.dispositivo), 0)
+
+    @patch.object(limites, "MAX_EVENTOS_POR_DIA", 3)
+    def test_el_tope_de_un_lector_no_afecta_a_otro(self):
+        """Un gimnasio con dos puertas no se traba entero porque una se pasó."""
+        token_b = tokens.generar()
+        puerta_b = Dispositivo.objects.create(
+            gimnasio=self.gimnasio, nombre="Puerta B",
+            token_hash=tokens.hash_de(token_b),
+        )
+        self._llenar(self.dispositivo, 3)
+
+        respuesta = self._post(
+            {"eventos": [{"tipo": "qr", "valor": self.qr.valor}]}, token=token_b
+        )
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.json()["resultados"][0]["permitido"])
+        self.assertEqual(self._leidos(puerta_b), 1)
+        self.assertEqual(self._leidos(self.dispositivo), 3)
+        self.assertEqual(
+            self._post_eventos({"tipo": "qr", "valor": self.qr.valor}).status_code,
+            429,
+        )
+
+    @patch.object(limites, "MAX_EVENTOS_POR_DIA", 3)
+    def test_el_contador_arranca_de_cero_cada_dia(self):
+        """Si arrastrara el historial, un lector con dos años de uso quedaría
+        trabado para siempre."""
+        self._llenar(
+            self.dispositivo, 3, fecha=timezone.localdate() - timedelta(days=1)
+        )
+
+        respuesta = self._post_eventos({"tipo": "qr", "valor": self.qr.valor})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.dispositivo.refresh_from_db()
+        self.assertEqual(self.dispositivo.eventos_hoy, 1)
+        self.assertEqual(self.dispositivo.eventos_hoy_fecha, timezone.localdate())
+
+    @patch.object(limites, "MAX_EVENTOS_POR_DIA", 3)
+    def test_el_dia_es_el_local_y_no_el_de_utc(self):
+        """A las 23:30 de Buenos Aires la fecha UTC ya es la de mañana: con
+        `now().date()` el tope se reiniciaría tres horas antes de medianoche.
+        Reloj congelado en una fecha lejana, para que no pase por casualidad."""
+        congelado = datetime(2031, 3, 10, 2, 30, tzinfo=dt_timezone.utc)
+        with patch("django.utils.timezone.now", return_value=congelado):
+            self._llenar(self.dispositivo, 3, fecha=date(2031, 3, 9))
+
+            respuesta = self._post_eventos({"tipo": "qr", "valor": self.qr.valor})
+
+        self.assertEqual(respuesta.status_code, 429)
+        # Retry-After apunta a la medianoche LOCAL: faltan 30 minutos.
+        self.assertEqual(int(respuesta["Retry-After"]), 30 * 60)
+
+    def test_contar_no_toca_modificado(self):
+        """`version_media` no deriva de acá, pero el criterio del proyecto es
+        el mismo que el latido: una escritura de telemetría no es una edición."""
+        modificado = self.dispositivo.modificado
+
+        self._post_eventos({"tipo": "qr", "valor": self.qr.valor})
+
+        self.dispositivo.refresh_from_db()
+        self.assertEqual(self.dispositivo.modificado, modificado)
+        self.assertEqual(self.dispositivo.eventos_hoy, 1)
+
+    @patch.object(limites, "MAX_EVENTOS_POR_DIA", 3)
+    def test_el_tope_no_mira_el_estado_de_la_cuenta(self):
+        """Invariante de la Tarea 9: con cupo, un gimnasio congelado abre
+        igual. El freno es de volumen, no de cobranza."""
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            estado_cuenta=Gimnasio.EstadoCuenta.SUSPENDIDA,
+            estado_cuenta_desde=timezone.now(),
+        )
+        self._llenar(self.dispositivo, 2)
+
+        respuesta = self._post_eventos({"tipo": "qr", "valor": self.qr.valor})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.json()["resultados"][0]["permitido"])

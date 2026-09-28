@@ -6,7 +6,7 @@ import json
 from django.db import transaction
 
 from alumnos.models import Alumno
-from ingreso import tokens
+from ingreso import limites, tokens
 from ingreso.models import Credencial, EventoIngreso, obtener_configuracion
 
 LARGO_DETALLE = EventoIngreso._meta.get_field("detalle").max_length
@@ -222,6 +222,11 @@ def registrar_lote(dispositivo, lecturas):
     # chequeo de arriba no ve. Ojo: no puebla los pk ni dice qué insertó, así
     # que la respuesta sale de `decidir()` y nunca de lo que devuelve esto.
     EventoIngreso.objects.bulk_create(a_crear, ignore_conflicts=True)
+    # El tope diario cuenta lo que se ESCRIBIÓ: un reintento idempotente no
+    # suma (no escribe) y un lote que solo trae reintentos no paga la query.
+    # Con `ignore_conflicts` puede sobrecontar un reintento simultáneo: a
+    # favor del freno, y por un lote como mucho.
+    limites.sumar_al_cupo(dispositivo, len(a_crear))
     return respuestas
 
 
