@@ -622,6 +622,7 @@ def vaciar_gimnasio(*, gimnasio):
     from calendario.models import GoogleCalendarCredential
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.models import Importacion
+    from ingreso.models import ConfiguracionIngreso
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import Cuota, MedioCobro
@@ -690,6 +691,7 @@ def vaciar_gimnasio(*, gimnasio):
         CupoExcepcion.objects.for_gimnasio(gimnasio).delete()
         HorarioAtencion.objects.for_gimnasio(gimnasio).delete()
         ConfiguracionTurnos.objects.for_gimnasio(gimnasio).delete()
+        ConfiguracionIngreso.objects.for_gimnasio(gimnasio).delete()
 
         # Las que quedan son las del staff. Borrarlas es lo que evita el push
         # cruzado: `SuscripcionPush` cuelga del `User`, así que si dos dueños

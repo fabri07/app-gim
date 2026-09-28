@@ -3995,6 +3995,7 @@ def _ensuciar(gimnasio, staff, marca="X"):
     from alumnos.models import Alumno
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.models import Importacion
+    from ingreso.models import ConfiguracionIngreso
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import Cuota, MedioCobro
@@ -4062,6 +4063,7 @@ def _ensuciar(gimnasio, staff, marca="X"):
         gimnasio=gimnasio, alumno=alumno,
         fecha=timezone.localdate(), hora_inicio=time(9),
     )
+    ConfiguracionIngreso.objects.create(gimnasio=gimnasio)
     return alumno
 
 

@@ -255,6 +255,15 @@ HOJAS = (
             ("hora_inicio", "hora_inicio"), ("creado", "creado"),
         ),
     ),
+    Hoja(
+        "control-de-ingreso", "ingreso.ConfiguracionIngreso", "gimnasio",
+        "Cómo está configurada la puerta del gimnasio.",
+        (
+            ("bloquea_por_deuda", "bloquea_por_deuda"),
+            ("exige_reserva", "exige_reserva"),
+            ("minutos_antipassback", "minutos_antipassback"),
+        ),
+    ),
 )
 
 #: Modelos que NO se exportan, con el motivo que se le cuenta al gimnasio en el

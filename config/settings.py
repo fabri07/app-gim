@@ -77,6 +77,8 @@ INSTALLED_APPS = [
     #   pagos      -> Cuota (FK a alumnos)
     #   novedades  -> Novedad (sin dependencias de dominio)
     #   turnos     -> ConfiguracionTurnos/HorarioAtencion/CupoExcepcion/Reserva (FK a alumnos)
+    #   ingreso    -> ConfiguracionIngreso (control de ingreso por molinete/
+    #                 lector facial; lee pagos y turnos)
     #   calendario -> integración opcional con Google Calendar (FK a alumnos/turnos)
     #   notificaciones -> manifest/SW/push (FK a Gimnasio/Perfil, lee
     #                     Novedad/RutinaAsignada/Reserva/Cuota) -- depende
@@ -96,6 +98,7 @@ INSTALLED_APPS = [
     'pagos',
     'novedades',
     'turnos',
+    'ingreso',
     'calendario',
     'notificaciones',
     'solicitudes',
