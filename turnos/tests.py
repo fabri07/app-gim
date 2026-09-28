@@ -174,6 +174,74 @@ class ReservaVigenteTests(TestCase):
         self.assertEqual(len(pocos), len(muchos))
 
 
+class ReservasVigentesEnRangoTests(TestCase):
+    """La versión de `reservas_vigentes` para un lote de lecturas con momentos
+    distintos (el lector que estuvo offline y sube tres horas de eventos).
+
+    Es la misma regla escrita dos veces -- la ventana en SQL de
+    `reservas_vigentes` y `ReservasEnRango.vigente` en Python --, así que el
+    test central las compara instante por instante, cruzando la medianoche.
+    Si tocás una, la otra tiene que seguirla.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        obtener_configuracion(self.gimnasio)  # duracion_minutos = 60
+        self.alumnos = []
+        horarios = [
+            (date(2026, 9, 27), time(18)),
+            (date(2026, 9, 27), time(19, 45)),
+            (date(2026, 9, 27), time(23, 30)),  # cruza la medianoche
+            (date(2026, 9, 28), time(0, 10)),
+            (date(2026, 9, 28), time(8)),
+        ]
+        for i, (fecha, hora) in enumerate(horarios):
+            alumno = Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=f"A{i}", apellido="X"
+            )
+            Reserva.objects.create(
+                gimnasio=self.gimnasio, alumno=alumno, fecha=fecha, hora_inicio=hora
+            )
+            self.alumnos.append(alumno)
+
+    def test_coincide_con_reservas_vigentes_en_cada_instante(self):
+        # 2026-09-27 17:00 local -> 2026-09-28 10:00 local, de a 5 minutos.
+        inicio = datetime(2026, 9, 27, 20, 0, tzinfo=dt_timezone.utc)
+        instantes = [inicio + timedelta(minutes=5 * i) for i in range(17 * 12)]
+
+        en_rango = services.reservas_vigentes_en_rango(
+            self.gimnasio, self.alumnos, instantes[0], instantes[-1]
+        )
+
+        vistos = 0
+        for ahora in instantes:
+            esperado = set(
+                services.reservas_vigentes(self.gimnasio, self.alumnos, ahora)
+            )
+            obtenido = {
+                a.pk for a in self.alumnos
+                if en_rango.vigente(a.pk, ahora) is not None
+            }
+            self.assertEqual(obtenido, esperado, ahora)
+            vistos += len(esperado)
+        # Que la comparación haya visto reservas de verdad, no dos vacíos.
+        self.assertGreater(vistos, 50)
+
+    def test_una_query_mas_la_configuracion_sin_importar_el_rango(self):
+        desde = datetime(2026, 9, 27, 20, 0, tzinfo=dt_timezone.utc)
+        with CaptureQueriesContext(connection) as corto:
+            services.reservas_vigentes_en_rango(
+                self.gimnasio, self.alumnos, desde, desde + timedelta(hours=1)
+            )
+        with CaptureQueriesContext(connection) as largo:
+            rango = services.reservas_vigentes_en_rango(
+                self.gimnasio, self.alumnos, desde, desde + timedelta(days=3)
+            )
+
+        self.assertEqual(len(rango.por_alumno), 5)
+        self.assertEqual(len(corto), len(largo))
+
+
 class ConfiguracionTurnosModelTests(TestCase):
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(

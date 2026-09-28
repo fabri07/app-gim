@@ -139,3 +139,40 @@ def contar_bloqueados(gimnasio, *, hoy=None):
         .filter(Exists(bloquea))
         .count()
     )
+
+
+def bloqueados_entre(gimnasio, alumnos, *, hoy=None):
+    """De `alumnos`, los pk de los que hoy están bloqueados por falta de pago.
+
+    La hermana en bloque de `bloqueo_de`, para la puerta (`ingreso/decision.py`):
+    un lote de cien lecturas no puede pagar una query por alumno. UNA query con
+    el mismo `Exists(OuterRef)` que `contar_bloqueados` -- y acá, igual que
+    allá, llamar a `bloqueo_de` por fila es el N+1 que este proyecto ya pagó
+    con un 502 en producción.
+
+    **Es la misma regla, no una segunda**: `_umbral` y los mismos cuatro
+    filtros que `bloqueo_de`. `pagos/tests.py::BloqueadosEntreTests` las
+    compara alumno por alumno; si tocás una, la otra tiene que seguirla.
+    """
+    from django.utils import timezone
+
+    from alumnos.models import Alumno
+
+    hoy = hoy or timezone.localdate()
+    umbral = _umbral(gimnasio, hoy)
+    ids = [a.pk for a in alumnos]
+    if umbral is None or not ids:
+        return set()
+
+    bloquea = Cuota.objects.filter(
+        alumno=OuterRef("pk"),
+        gimnasio=gimnasio,
+        estado__in=Cuota.ESTADOS_IMPAGOS,
+        periodo_inicio__lte=umbral,
+        periodo_inicio__gte=gimnasio.fecha_activacion_bloqueo,
+    )
+    return set(
+        Alumno.objects.filter(pk__in=ids)
+        .filter(Exists(bloquea))
+        .values_list("pk", flat=True)
+    )
