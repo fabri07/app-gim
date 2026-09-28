@@ -589,6 +589,15 @@ dependencia nueva.
 9. **No se notifica al staff un intento rechazado.** Hay un caso real ahí (alguien
    insistiendo en la puerta con una tarjeta revocada), pero el proyecto tiene 7
    eventos de push y la regla de no sumar el octavo sin que alguien lo pida.
+10. **La deuda se evalúa contra hoy, no contra el `momento` de la lectura.** La
+    reserva y el antipassback sí se miden contra el `momento` de cada evento,
+    pero `bloqueados_entre` corre una vez por lote con `timezone.localdate()`.
+    En un lote muy diferido (un lector que estuvo días sin internet) el
+    veredicto guardado refleja la situación de pago del día del upload, no la
+    del día del ingreso: el que pagó en el medio figura como que entró al día,
+    y el que dejó de pagar en el medio, como que entró debiendo. Medirlo por
+    evento exigiría una consulta de deuda por fecha distinta del lote, y el
+    veredicto de un evento diferido es informativo (la puerta ya abrió).
 
 ## Fuera de alcance
 

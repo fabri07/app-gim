@@ -79,7 +79,7 @@ def _ventana_de_reservas(ahora, duracion_minutos):
     `notificaciones/management/commands/enviar_recordatorios.py`.
 
     Su gemela en Python es `_en_curso`: **si tocás una, la otra tiene que
-    seguirla** (`ReservasVigentesEnRangoTests` las compara instante por
+    seguirla** (`ReservasVigentesEnMomentosTests` las compara instante por
     instante).
     """
     return _inicio_entre(
@@ -133,7 +133,7 @@ def reservas_vigentes(gimnasio, alumnos, ahora=None) -> dict:
 
 
 @dataclass(frozen=True)
-class ReservasEnRango:
+class ReservasDelLote:
     """Las reservas de un lote de lecturas con momentos distintos, ya traídas.
 
     `vigente()` responde "¿tenía turno en curso en ESE instante?" sin tocar la
@@ -153,27 +153,35 @@ class ReservasEnRango:
         return None
 
 
-def reservas_vigentes_en_rango(gimnasio, alumnos, desde, hasta) -> ReservasEnRango:
-    """Las reservas de `alumnos` que están en curso en ALGÚN instante de
-    `[desde, hasta]`. UNA query (más la de la configuración), sin importar
-    cuántos alumnos ni cuán largo sea el rango.
+def reservas_vigentes_en_momentos(gimnasio, pares) -> ReservasDelLote:
+    """Las reservas en curso de cada `(alumno, ahora)` de `pares`.
 
-    La hermana de `reservas_vigentes` para cuando no hay un único "ahora".
+    UNA query (más la de la configuración), sin importar cuántos pares haya:
+    una ventana de `_ventana_de_reservas` por momento distinto, unidas con OR.
+    **Por momento y no un rango `[min, max]`**: un lector con el reloj
+    reseteado manda una lectura del 2000-01-01, y con un rango único esa sola
+    lectura traería el historial ENTERO de reservas de todo el lote.
+
+    La hermana de `reservas_vigentes` para cuando no hay un único "ahora" (un
+    lote en diferido trae horas de eventos). La decisión fina por lectura la
+    hace `ReservasDelLote.vigente`, sin tocar la base.
     """
-    desde, hasta = _a_hora_local(desde), _a_hora_local(hasta)
     config = obtener_configuracion(gimnasio)
-    reservas = Reserva.objects.filter(
-        _inicio_entre(
-            desde - timedelta(minutes=config.duracion_minutos),
-            hasta + TOLERANCIA_INGRESO,
-        ),
-        gimnasio=gimnasio,
-        alumno_id__in=[a.pk for a in alumnos],
-    )
+    por_momento = {}
+    for alumno, ahora in pares:
+        por_momento.setdefault(_a_hora_local(ahora), set()).add(alumno.pk)
+    if not por_momento:
+        return ReservasDelLote(config.duracion_minutos, {})
+
+    filtro = Q()
+    for ahora, ids in por_momento.items():
+        filtro |= Q(alumno_id__in=ids) & _ventana_de_reservas(
+            ahora, config.duracion_minutos
+        )
     por_alumno = {}
-    for reserva in reservas:
+    for reserva in Reserva.objects.filter(filtro, gimnasio=gimnasio):
         por_alumno.setdefault(reserva.alumno_id, []).append(reserva)
-    return ReservasEnRango(config.duracion_minutos, por_alumno)
+    return ReservasDelLote(config.duracion_minutos, por_alumno)
 
 
 def reserva_vigente(gimnasio, alumno, ahora=None):

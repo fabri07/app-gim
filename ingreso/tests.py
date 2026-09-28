@@ -126,6 +126,17 @@ class CredencialTests(TestCase):
         self.assertNotEqual(segunda.valor, valor_viejo)
         self.assertEqual(Credencial.objects.count(), 1)
 
+    def test_el_valor_se_guarda_sin_espacios_ni_salto_de_linea(self):
+        """La puerta busca por el valor normalizado: un id facial copiado con
+        " 42\r\n" no matchearía nunca si se guardara tal cual."""
+        credencial = Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            tipo=Credencial.Tipo.FACIAL, valor="  42\r\n",
+        )
+
+        credencial.refresh_from_db()
+        self.assertEqual(credencial.valor, "42")
+
     def test_un_alumno_no_puede_tener_dos_credenciales_del_mismo_tipo(self):
         services.generar_credencial_qr(self.alumno)
 

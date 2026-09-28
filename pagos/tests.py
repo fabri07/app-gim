@@ -1274,21 +1274,44 @@ class BloqueadosEntreTests(TestCase):
         self._cuota(historico, date(2026, 5, 1))  # anterior a la activación
         vencido = self._alumno("Vencido")
         self._cuota(vencido, date(2026, 7, 5), estado=Cuota.Estado.VENCIDO)
-        return [al_dia, debe, en_tolerancia, pago, anulado, historico, vencido]
+        # Los dos bordes de la regla, cada uno en su alumno: sin ellos, un
+        # `<=` que pasa a `<` (o un `>=` a `>`) en una sola de las dos
+        # versiones no rompía nada.
+        en_el_umbral = self._alumno("EnElUmbral")
+        self._cuota(en_el_umbral, date(2026, 7, 17))  # hoy - 3 exacto
+        en_la_activacion = self._alumno("EnLaActivacion")
+        self._cuota(en_la_activacion, date(2026, 7, 1))  # == activación
+        return [
+            al_dia, debe, en_tolerancia, pago, anulado, historico, vencido,
+            en_el_umbral, en_la_activacion,
+        ]
 
     def test_coincide_con_bloqueo_de_alumno_por_alumno(self):
         alumnos = self._conjunto_mixto()
 
         bloqueados = acceso.bloqueados_entre(self.gimnasio, alumnos, hoy=self.hoy)
 
-        esperados = {
-            a.pk for a in alumnos
-            if acceso.bloqueo_de(a, hoy=self.hoy) is not None
-        }
+        esperados = {}
+        for alumno in alumnos:
+            bloqueo = acceso.bloqueo_de(alumno, hoy=self.hoy)
+            if bloqueo is not None:
+                esperados[alumno.pk] = bloqueo.periodo_inicio
         # Sin esto, un conjunto donde nadie debe haría pasar la comparación
-        # con dos conjuntos vacíos.
-        self.assertEqual(len(esperados), 2)
+        # con dos vacíos. Cuatro: Debe, Vencido y los dos bordes.
+        self.assertEqual(len(esperados), 4)
+        self.assertEqual(set(bloqueados), set(esperados))
+        # Y el valor es el arranque de la MISMA cuota que muestra el portal.
         self.assertEqual(bloqueados, esperados)
+
+    def test_el_valor_es_la_cuota_mas_vieja_de_las_que_bloquean(self):
+        alumno = self._alumno("Juan")
+        self._cuota(alumno, date(2026, 7, 10))
+        self._cuota(alumno, date(2026, 7, 3))
+
+        self.assertEqual(
+            acceso.bloqueados_entre(self.gimnasio, [alumno], hoy=self.hoy),
+            {alumno.pk: date(2026, 7, 3)},
+        )
 
     def test_con_la_tolerancia_apagada_no_bloquea_a_nadie(self):
         alumnos = self._conjunto_mixto()
@@ -1302,13 +1325,13 @@ class BloqueadosEntreTests(TestCase):
                 self.gimnasio, alumnos, hoy=self.hoy
             )
 
-        self.assertEqual(bloqueados, set())
+        self.assertEqual(bloqueados, {})
         self.assertEqual(len(ctx), 0)
 
     def test_sin_alumnos_no_consulta(self):
         with CaptureQueriesContext(connection) as ctx:
             self.assertEqual(
-                acceso.bloqueados_entre(self.gimnasio, [], hoy=self.hoy), set()
+                acceso.bloqueados_entre(self.gimnasio, [], hoy=self.hoy), {}
             )
         self.assertEqual(len(ctx), 0)
 
@@ -1323,7 +1346,7 @@ class BloqueadosEntreTests(TestCase):
         )
 
         self.assertEqual(
-            acceso.bloqueados_entre(self.gimnasio, [alumno], hoy=self.hoy), set()
+            acceso.bloqueados_entre(self.gimnasio, [alumno], hoy=self.hoy), {}
         )
 
     def test_el_costo_no_crece_con_los_alumnos(self):

@@ -174,14 +174,14 @@ class ReservaVigenteTests(TestCase):
         self.assertEqual(len(pocos), len(muchos))
 
 
-class ReservasVigentesEnRangoTests(TestCase):
+class ReservasVigentesEnMomentosTests(TestCase):
     """La versión de `reservas_vigentes` para un lote de lecturas con momentos
     distintos (el lector que estuvo offline y sube tres horas de eventos).
 
-    Es la misma regla escrita dos veces -- la ventana en SQL de
-    `reservas_vigentes` y `ReservasEnRango.vigente` en Python --, así que el
-    test central las compara instante por instante, cruzando la medianoche.
-    Si tocás una, la otra tiene que seguirla.
+    Es la misma regla escrita dos veces -- la ventana en SQL y
+    `ReservasDelLote.vigente` en Python --, así que el test central las compara
+    instante por instante, cruzando la medianoche y con dos duraciones de
+    turno. Si tocás una, la otra tiene que seguirla.
     """
 
     def setUp(self):
@@ -204,42 +204,85 @@ class ReservasVigentesEnRangoTests(TestCase):
             )
             self.alumnos.append(alumno)
 
-    def test_coincide_con_reservas_vigentes_en_cada_instante(self):
+    def _comparar_en_cada_instante(self):
+        """Dos lecturas por instante: un lote de UN momento (donde el SQL ya
+        recorta) y un lote con TODOS los momentos juntos, que es el uso real.
+        En el segundo la base trae reservas de otras lecturas y la que decide
+        es la gemela en Python: sin él, una `_en_curso` más laxa que el SQL
+        pasaba este test."""
         # 2026-09-27 17:00 local -> 2026-09-28 10:00 local, de a 5 minutos.
         inicio = datetime(2026, 9, 27, 20, 0, tzinfo=dt_timezone.utc)
         instantes = [inicio + timedelta(minutes=5 * i) for i in range(17 * 12)]
-
-        en_rango = services.reservas_vigentes_en_rango(
-            self.gimnasio, self.alumnos, instantes[0], instantes[-1]
+        lote_entero = services.reservas_vigentes_en_momentos(
+            self.gimnasio, [(a, m) for a in self.alumnos for m in instantes]
         )
-
         vistos = 0
         for ahora in instantes:
             esperado = set(
                 services.reservas_vigentes(self.gimnasio, self.alumnos, ahora)
             )
-            obtenido = {
-                a.pk for a in self.alumnos
-                if en_rango.vigente(a.pk, ahora) is not None
-            }
-            self.assertEqual(obtenido, esperado, ahora)
+            lote_de_uno = services.reservas_vigentes_en_momentos(
+                self.gimnasio, [(a, ahora) for a in self.alumnos]
+            )
+            for lote in (lote_de_uno, lote_entero):
+                obtenido = {
+                    a.pk for a in self.alumnos
+                    if lote.vigente(a.pk, ahora) is not None
+                }
+                self.assertEqual(obtenido, esperado, ahora)
             vistos += len(esperado)
+        return vistos
+
+    def test_coincide_con_reservas_vigentes_en_cada_instante(self):
         # Que la comparación haya visto reservas de verdad, no dos vacíos.
-        self.assertGreater(vistos, 50)
+        self.assertGreater(self._comparar_en_cada_instante(), 50)
 
-    def test_una_query_mas_la_configuracion_sin_importar_el_rango(self):
+    def test_coincide_tambien_con_turnos_de_45_minutos(self):
+        """Con 60 minutos un desfasaje en la duración puede quedar tapado por
+        la grilla de 5 minutos del barrido; con 45 el borde cae en otro lado."""
+        ConfiguracionTurnos.objects.filter(gimnasio=self.gimnasio).update(
+            duracion_minutos=45
+        )
+
+        self.assertGreater(self._comparar_en_cada_instante(), 40)
+
+    def test_no_trae_reservas_fuera_de_las_ventanas_de_cada_momento(self):
+        """Un reloj reseteado manda una lectura de hace años: con un rango
+        `[min, max]` esa sola lectura traería todas las reservas del medio."""
+        alumno = self.alumnos[0]
+        viejo = datetime(2000, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        ahora = datetime(2026, 9, 27, 21, 30, tzinfo=dt_timezone.utc)  # 18:30
+
+        # La de las 18:00 del 27 (en curso a las 18:30) y ninguna más, aunque
+        # el alumno tenga otras entre el 2000 y hoy.
+        Reserva.objects.create(
+            gimnasio=self.gimnasio, alumno=alumno,
+            fecha=date(2010, 5, 5), hora_inicio=time(10),
+        )
+        lote = services.reservas_vigentes_en_momentos(
+            self.gimnasio, [(alumno, viejo), (alumno, ahora)]
+        )
+        self.assertEqual(
+            [r.fecha for r in lote.por_alumno[alumno.pk]], [date(2026, 9, 27)]
+        )
+
+    def test_una_query_mas_la_configuracion_sin_importar_los_pares(self):
         desde = datetime(2026, 9, 27, 20, 0, tzinfo=dt_timezone.utc)
-        with CaptureQueriesContext(connection) as corto:
-            services.reservas_vigentes_en_rango(
-                self.gimnasio, self.alumnos, desde, desde + timedelta(hours=1)
+        # 100 momentos distintos (el tope del lote) de a 10 minutos: de las
+        # 17:00 a las 09:30 del día siguiente, así caen las cinco reservas.
+        instantes = [desde + timedelta(minutes=10 * i) for i in range(100)]
+        with CaptureQueriesContext(connection) as pocos:
+            services.reservas_vigentes_en_momentos(
+                self.gimnasio, [(a, desde) for a in self.alumnos[:1]]
             )
-        with CaptureQueriesContext(connection) as largo:
-            rango = services.reservas_vigentes_en_rango(
-                self.gimnasio, self.alumnos, desde, desde + timedelta(days=3)
+        with CaptureQueriesContext(connection) as muchos:
+            lote = services.reservas_vigentes_en_momentos(
+                self.gimnasio,
+                [(a, m) for a in self.alumnos for m in instantes],
             )
 
-        self.assertEqual(len(rango.por_alumno), 5)
-        self.assertEqual(len(corto), len(largo))
+        self.assertEqual(len(lote.por_alumno), 5)
+        self.assertEqual(len(pocos), len(muchos))
 
 
 class ConfiguracionTurnosModelTests(TestCase):

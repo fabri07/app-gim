@@ -129,6 +129,17 @@ class Credencial(TenantOwnedModel):
     def clean(self):
         validar_gimnasio_de(self.gimnasio, alumno=self.alumno)
 
+    def save(self, *args, **kwargs):
+        # La puerta compara contra `Lectura.valor_normalizado` (`strip()`): un
+        # id facial copiado con un espacio o un salto de línea al final no
+        # matchearía nunca, y "la cara no anda" sin que nadie sepa por qué.
+        # Va en `save()` y no solo en `clean()` porque el QR nace por
+        # `get_or_create` y un `ModelForm` no es el único camino de alta.
+        # (`bulk_create`/`update()` no pasan por acá: los usa solo el QR, que
+        # sale de `tokens.generar()` sin espacios.)
+        self.valor = (self.valor or "").strip()
+        super().save(*args, **kwargs)
+
 
 class EventoIngreso(TenantOwnedModel):
     """Cada intento de pasar por la puerta, permitido o rechazado.

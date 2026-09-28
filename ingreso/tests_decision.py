@@ -157,6 +157,8 @@ class DecisionTests(TestCase):
 
         self.assertFalse(resultado.permitido)
         self.assertEqual(resultado.resultado, EventoIngreso.Resultado.DEUDA)
+        # Spec §4.4: el mensaje dice los días de atraso, como `Bloqueo`.
+        self.assertIn("30 días", resultado.mensaje)
 
     def test_con_el_bloqueo_apagado_el_deudor_abre_igual(self):
         crear_cuota(
@@ -288,6 +290,90 @@ class DecisionTests(TestCase):
         resultado = self._decidir(self.qr.valor, momento=lectura)
 
         self.assertEqual(resultado.resultado, EventoIngreso.Resultado.DUPLICADO)
+
+    def test_un_rechazo_guardado_no_cuenta_para_el_antipassback(self):
+        """Solo un ingreso PERMITIDO traba el siguiente: el que fue rechazado
+        por deuda hace 30 segundos y pagó en el mostrador tiene que poder
+        pasar."""
+        EventoIngreso.objects.create(
+            gimnasio=self.gimnasio, dispositivo=self.dispositivo,
+            alumno=self.alumno, credencial=self.qr,
+            resultado=EventoIngreso.Resultado.DEUDA,
+            momento=timezone.now() - timedelta(seconds=30),
+        )
+
+        self.assertTrue(self._decidir(self.qr.valor).permitido)
+
+    def test_un_ingreso_un_minuto_POSTERIOR_a_la_lectura_es_duplicado(self):
+        """En diferido la base puede tener un ingreso posterior a la lectura
+        que se está subiendo: la distancia se mide en valor absoluto."""
+        lectura = timezone.now() - timedelta(hours=1)
+        self._evento(lectura + timedelta(minutes=1))
+
+        resultado = self._decidir(self.qr.valor, momento=lectura)
+
+        self.assertEqual(resultado.resultado, EventoIngreso.Resultado.DUPLICADO)
+
+    def test_un_ingreso_un_dia_POSTERIOR_a_la_lectura_no_la_traba(self):
+        lectura = timezone.now() - timedelta(days=2)
+        self._evento(lectura + timedelta(days=1))
+
+        self.assertTrue(self._decidir(self.qr.valor, momento=lectura).permitido)
+
+    def test_una_lectura_del_lote_un_dia_POSTERIOR_no_traba_a_la_anterior(self):
+        """El mismo caso dentro del lote, donde no hay ventana de query que lo
+        filtre: lo único que separa "un día después" de "duplicado" es el
+        `abs()` (una resta negativa siempre es menor que el límite)."""
+        ahora = timezone.now()
+        lecturas = [
+            self._lectura(self.qr.valor, momento=ahora),
+            self._lectura(self.qr.valor, momento=ahora - timedelta(days=1)),
+        ]
+        contexto = decision.contexto_de(self.dispositivo, lecturas)
+
+        self.assertTrue(decision.decidir(lecturas[0], contexto).permitido)
+        self.assertTrue(decision.decidir(lecturas[1], contexto).permitido)
+
+    def test_a_exactamente_el_limite_del_antipassback_se_permite(self):
+        """Borde definido: con 2 minutos, a 120 segundos justos ya pasa (`<`
+        estricto). A 119 todavía es duplicado."""
+        lectura = timezone.now() - timedelta(hours=1)
+        self._evento(lectura - timedelta(seconds=120))
+
+        self.assertTrue(self._decidir(self.qr.valor, momento=lectura).permitido)
+
+        EventoIngreso.objects.all().delete()
+        self._evento(lectura - timedelta(seconds=119))
+        self.assertEqual(
+            self._decidir(self.qr.valor, momento=lectura).resultado,
+            EventoIngreso.Resultado.DUPLICADO,
+        )
+
+    def test_un_reloj_reseteado_no_trae_el_historial_del_medio(self):
+        """Un lector sin pila manda una lectura del 2000 junto con una de
+        ahora. Con un rango `[min, max]` del lote, `contexto_de` traería TODOS
+        los ingresos y reservas del alumno entre las dos fechas; tiene que
+        traer solo lo que cae en la ventana de cada lectura."""
+        self._configurar(exige_reserva=True)
+        ahora = timezone.now()
+        hace_700_dias = ahora - timedelta(days=700)
+        # Adentro de las ventanas: tienen que venir.
+        self._evento(ahora - timedelta(seconds=30))
+        self._evento(hace_700_dias - timedelta(seconds=30))
+        self._reserva_en(ahora - timedelta(minutes=10))
+        # Afuera de las dos, en el medio: no pueden venir.
+        self._evento(ahora - timedelta(days=350))
+        self._reserva_en(ahora - timedelta(days=350))
+        lecturas = [
+            self._lectura(self.qr.valor, momento=hace_700_dias),
+            self._lectura(self.qr.valor, momento=ahora),
+        ]
+
+        contexto = decision.contexto_de(self.dispositivo, lecturas)
+
+        clave = (self.alumno.pk, EventoIngreso.Sentido.ENTRADA)
+        self.assertEqual(len(contexto.ultimo_permitido[clave]), 2)
+        self.assertEqual(len(contexto.reservas.por_alumno[self.alumno.pk]), 1)
 
     def test_dos_lecturas_del_mismo_alumno_en_EL_MISMO_lote(self):
         """Review Focus 3: el antipassback tiene que verlas entre sí, no solo

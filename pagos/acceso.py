@@ -28,7 +28,7 @@ Tres decisiones que conviene no deshacer sin querer:
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Subquery
 
 from pagos.models import Cuota
 
@@ -142,17 +142,23 @@ def contar_bloqueados(gimnasio, *, hoy=None):
 
 
 def bloqueados_entre(gimnasio, alumnos, *, hoy=None):
-    """De `alumnos`, los pk de los que hoy están bloqueados por falta de pago.
+    """`{alumno_id: periodo_inicio}` de los `alumnos` que hoy están bloqueados
+    por falta de pago; el valor es el arranque de la cuota MÁS VIEJA de las que
+    bloquean, la misma que devuelve `bloqueo_de`. Con eso quien llama calcula
+    `dias_de_atraso` igual que `Bloqueo` (`(hoy - periodo_inicio).days`). Un
+    alumno al día no figura, así que `alumno.pk in bloqueados` sigue sirviendo.
 
-    La hermana en bloque de `bloqueo_de`, para la puerta (`ingreso/decision.py`):
-    un lote de cien lecturas no puede pagar una query por alumno. UNA query con
-    el mismo `Exists(OuterRef)` que `contar_bloqueados` -- y acá, igual que
-    allá, llamar a `bloqueo_de` por fila es el N+1 que este proyecto ya pagó
-    con un 502 en producción.
+    La hermana en bloque de `bloqueo_de`, para la puerta (`ingreso/decision.py`)
+    y el padrón offline: un lote de cien lecturas no puede pagar una query por
+    alumno. UNA query con el mismo `Exists(OuterRef)` que `contar_bloqueados`
+    más una `Subquery` para la cuota más vieja -- y acá, igual que allá, llamar
+    a `bloqueo_de` por fila es el N+1 que este proyecto ya pagó con un 502 en
+    producción.
 
     **Es la misma regla, no una segunda**: `_umbral` y los mismos cuatro
     filtros que `bloqueo_de`. `pagos/tests.py::BloqueadosEntreTests` las
-    compara alumno por alumno; si tocás una, la otra tiene que seguirla.
+    compara alumno por alumno, bordes incluidos; si tocás una, la otra tiene
+    que seguirla.
     """
     from django.utils import timezone
 
@@ -162,7 +168,7 @@ def bloqueados_entre(gimnasio, alumnos, *, hoy=None):
     umbral = _umbral(gimnasio, hoy)
     ids = [a.pk for a in alumnos]
     if umbral is None or not ids:
-        return set()
+        return {}
 
     bloquea = Cuota.objects.filter(
         alumno=OuterRef("pk"),
@@ -171,8 +177,13 @@ def bloqueados_entre(gimnasio, alumnos, *, hoy=None):
         periodo_inicio__lte=umbral,
         periodo_inicio__gte=gimnasio.fecha_activacion_bloqueo,
     )
-    return set(
+    return dict(
         Alumno.objects.filter(pk__in=ids)
-        .filter(Exists(bloquea))
-        .values_list("pk", flat=True)
+        .annotate(
+            bloqueado_desde=Subquery(
+                bloquea.order_by("periodo_inicio").values("periodo_inicio")[:1]
+            )
+        )
+        .filter(bloqueado_desde__isnull=False)
+        .values_list("pk", "bloqueado_desde")
     )

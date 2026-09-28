@@ -28,6 +28,9 @@ Cuatro decisiones que conviene no deshacer:
 from dataclasses import dataclass, field
 from datetime import timedelta
 
+from django.db.models import Q
+from django.utils import timezone
+
 from alumnos.models import Alumno
 from ingreso.models import Credencial, EventoIngreso, obtener_configuracion
 
@@ -73,8 +76,8 @@ class Contexto:
 
     config: object
     credenciales: dict            # (tipo, valor normalizado) -> Credencial
-    bloqueados: set               # alumno_id de los que deben
-    reservas: object              # turnos.services.ReservasEnRango, o None
+    bloqueados: dict              # alumno_id -> días de atraso, de los que deben
+    reservas: object              # turnos.services.ReservasDelLote, o None
     #: `(alumno_id, sentido) -> [momento, ...]` de los ingresos PERMITIDOS ya
     #: guardados dentro de la ventana del lote. Una lista y no "el último":
     #: en diferido, el último de la base puede estar lejos de una lectura y
@@ -113,48 +116,67 @@ def contexto_de(dispositivo, lecturas):
     alumnos = list({c.alumno_id: c.alumno for c in credenciales.values()}.values())
     if not alumnos:
         return Contexto(
-            config=config, credenciales=credenciales, bloqueados=set(),
+            config=config, credenciales=credenciales, bloqueados={},
             reservas=None, ultimo_permitido={},
         )
 
-    momentos = [l.momento for l in lecturas]
-    desde, hasta = min(momentos), max(momentos)
+    # Cada lectura con el alumno que la credencial identifica. Las consultas
+    # de abajo se acotan a una ventana ALREDEDOR DE CADA LECTURA y nunca a un
+    # rango `[min, max]` del lote: un lector con el reloj reseteado manda una
+    # lectura del 2000-01-01, y con un rango único esa sola lectura traería a
+    # memoria el historial ENTERO de ingresos y reservas de todo el lote.
+    pares = {
+        (credencial.alumno, lectura.momento)
+        for lectura in lecturas
+        if (credencial := credenciales.get(
+            (lectura.tipo, lectura.valor_normalizado)
+        )) is not None
+    }
 
     # La regla de deuda NO se reescribe acá: `pagos/acceso.py` dice en su
     # docstring que es "el único lugar donde se decide si un alumno está
     # bloqueado por falta de pago", y copiar su `Exists` sería la segunda copia
     # que ese módulo existe para evitar. `bloqueados_entre` es su versión en
     # bloque. Se evalúa contra HOY (no contra el momento de cada lectura): la
-    # deuda es un estado de la cuenta, no del instante del evento.
-    bloqueados = set()
+    # deuda es un estado de la cuenta, no del instante del evento -- riesgo
+    # aceptado en la spec.
+    bloqueados = {}
     if config.bloquea_por_deuda:
-        bloqueados = acceso.bloqueados_entre(gimnasio, alumnos)
+        hoy = timezone.localdate()
+        bloqueados = {
+            alumno_id: (hoy - desde).days
+            for alumno_id, desde in acceso.bloqueados_entre(
+                gimnasio, alumnos, hoy=hoy
+            ).items()
+        }
 
     reservas = None
     if config.exige_reserva:
-        reservas = turnos_services.reservas_vigentes_en_rango(
-            gimnasio, alumnos, desde, hasta
-        )
+        reservas = turnos_services.reservas_vigentes_en_momentos(gimnasio, pares)
 
     ultimo_permitido = {}
     minutos = config.minutos_antipassback
     if minutos:
-        # **El piso de fecha es obligatorio, no una optimización.** Sin él esta
-        # query trae el historial ENTERO de cada alumno del lote: un socio con
-        # dos años de ingresos son ~500 filas, y cien de ellos en un lote son
-        # 50.000 filas a memoria en cada scan. La cantidad de QUERIES sería la
-        # misma, así que un test que solo cuenta queries pasa con el bug puesto
-        # -- exactamente la trampa que este proyecto ya pagó. Lo que se mide es
-        # el piso, con su propio test.
+        # **La ventana por lectura es obligatoria, no una optimización.** Sin
+        # ella esta query trae el historial ENTERO de cada alumno del lote: un
+        # socio con dos años de ingresos son ~500 filas, y cien de ellos en un
+        # lote son 50.000 filas a memoria en cada scan. La cantidad de QUERIES
+        # sería la misma, así que un test que solo cuenta queries pasa con el
+        # bug puesto -- exactamente la trampa que este proyecto ya pagó. Lo que
+        # se mide es la ventana, con sus propios tests.
         ventana = timedelta(minutes=minutos)
+        por_momento = {}
+        for alumno, momento in pares:
+            por_momento.setdefault(momento, set()).add(alumno.pk)
+        filtro = Q()
+        for momento, ids in por_momento.items():
+            filtro |= Q(
+                alumno_id__in=ids,
+                momento__range=(momento - ventana, momento + ventana),
+            )
         previos = (
             EventoIngreso.objects.for_gimnasio(gimnasio)
-            .filter(
-                alumno__in=alumnos,
-                resultado=EventoIngreso.Resultado.PERMITIDO,
-                momento__gte=desde - ventana,
-                momento__lte=hasta + ventana,
-            )
+            .filter(filtro, resultado=EventoIngreso.Resultado.PERMITIDO)
             .values_list("alumno_id", "sentido", "momento")
         )
         for alumno_id, sentido, momento in previos:
@@ -198,9 +220,11 @@ def decidir(lectura, contexto):
             alumno, credencial,
         )
     if alumno.pk in contexto.bloqueados:
+        dias = contexto.bloqueados[alumno.pk]
         return Decision(
             False, EventoIngreso.Resultado.DEUDA,
-            "Tenés una cuota sin pagar. Pasá por el mostrador.",
+            f"Tenés una cuota sin pagar hace {dias} "
+            f"{'día' if dias == 1 else 'días'}. Pasá por el mostrador.",
             alumno, credencial,
         )
     if contexto.config.exige_reserva and (
