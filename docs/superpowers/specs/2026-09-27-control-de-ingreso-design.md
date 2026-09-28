@@ -76,6 +76,11 @@ pertenecen, se los lleva al exportar, se borran al vaciar la demo).
 default `False`), `exige_reserva` (bool, default `False`), `minutos_antipassback`
 (`PositiveSmallIntegerField`, default 2, 0 = apagado).
 
+El nombre `obtener_configuracion` se repite a propósito para que sea el mismo molde,
+pero **ojo que `turnos.models` ya tiene una función con ese nombre exacto**: el
+módulo que necesite las dos las importa calificadas por módulo, nunca
+`from ... import obtener_configuracion` de las dos.
+
 *Por qué modelo propio y no cuatro campos en `Gimnasio`*: `Gimnasio.version_media`
 deriva de `modificado` y versiona la URL del logo, la del fondo y la del ícono de
 la PWA. Guardar una preferencia de la puerta le haría volver a bajar todo eso a
@@ -125,12 +130,21 @@ el id que el evento tiene **en el equipo**, para la idempotencia del lote — se
 llama así y no `id_externo` para no confundirlo con el id facial que guarda
 `Credencial.valor`), `detalle` (`CharField(200)`, `blank`).
 
-`Meta`: `ordering = ["-momento", "-id"]`; `Index(gimnasio, -momento, -id)` **con
-el `-id`, para que el índice cubra el `ordering`** (mismo criterio que el
-`Meta.indexes` de `RutinaAsignada`); `Index(gimnasio, alumno, -momento)` para el
-antipassback; `UniqueConstraint(dispositivo, id_evento_equipo,
-condition=~Q(id_evento_equipo=""))`, parcial para que los eventos sin id no
-choquen entre sí.
+`Meta`: `verbose_name`/`verbose_name_plural` explícitos (ver §10: no son
+cosméticos); `ordering = ["-momento", "-id"]`; `Index(gimnasio, -momento, -id)`
+**con el `-id`, para que el índice cubra el `ordering`** — el precedente real de un
+índice descendente es `rutinas/migrations/0012`, con
+`Index(fields=["alumno", "-fecha_inicio", "-id"], name="rutina_vigente_idx")`;
+`Index(gimnasio, alumno, -momento)` para el antipassback; y
+`UniqueConstraint(dispositivo, id_evento_equipo, condition=~Q(id_evento_equipo=""))`,
+parcial para que los eventos sin id no choquen entre sí.
+
+**El `UniqueConstraint` parcial es el primero del proyecto**: los `condition=` que
+ya existen son todos `CheckConstraint` (`turnos/migrations/0001`,
+`plataforma/models.py:93`). Es seguro y está verificado, no asumido: la suite corre
+sobre SQLite 3.50.4 y `DatabaseFeatures.supports_partial_indexes` es `True`. Se
+menciona acá por la misma razón que el primer `csrf_exempt` y el primer 401: para
+que quien lo lea sepa que no está copiando un patrón ya rodado.
 
 **El valor leído NO se guarda en el evento.** De una credencial desconocida se
 guardan los últimos 6 caracteres en `detalle`: alcanza para diagnosticar "esta
@@ -296,9 +310,14 @@ necesita: 401 = revisá el token, 403 = el gimnasio apagó este lector.
   nuevo. La carrera del reintento simultáneo la cubre un `try/except
   IntegrityError` dentro de un `atomic()` (precedente: el doble submit de
   `PagoPlataforma`).
-- `MAX_EVENTOS_POR_LOTE = 100`, por encima 400. Con `contexto_de` el costo son
+- `MAX_EVENTOS_POR_LOTE = 100`; por encima, 400. Con `contexto_de` el costo son
   unas pocas queries fijas más **un solo `bulk_create`** con
-  `ignore_conflicts=True` (mismo patrón que `ActividadDiaria`), no 500 queries.
+  `ignore_conflicts=True` — dos precedentes reales: `plataforma/middleware.py:193`
+  (`ActividadDiaria`) y `pagos/models.py:290` (emisión de cuotas). No 500 queries.
+  **Consecuencia de `ignore_conflicts`**: Django no puebla los pk de los objetos
+  devueltos y no dice cuáles insertó de verdad. No molesta, porque el veredicto que
+  se responde sale de `decidir()` en Python y no de las filas guardadas — pero
+  significa que la respuesta no puede derivarse de lo que devolvió `bulk_create`.
 - Body inválido → 400, con el `except (KeyError, ValueError, TypeError,
   json.JSONDecodeError)` de `notificaciones/views.py:142`.
 
@@ -361,6 +380,15 @@ se quiere:
 Dos tests lo fijan por separado: con un gimnasio `SUSPENDIDA`, la API responde el
 veredicto normal **y** la pantalla de staff muestra el cartel. Sin el primero,
 alguien "ordena" el middleware y le corta la puerta a un gimnasio.
+
+**Detalle que hay que respetar al escribir ese test: el cliente NO se loguea.**
+Verificado en `plataforma/middleware.py:234-237`, el corte es
+`if usuario is None or not usuario.is_authenticated: return None`. Si el test
+hiciera `client.login(...)` como staff antes de pegarle a la API, el usuario SÍ
+estaría autenticado, el middleware seguiría hasta `sin_acceso(perfil)` y el POST
+terminaría redirigido a `home` — el test fallaría por el motivo equivocado y
+alguien "arreglaría" el código. El lector real nunca tiene cookie de sesión, así
+que el test tampoco.
 
 ### 7. Rate limiting, honesto sobre sus límites
 
@@ -426,7 +454,7 @@ Todo campo renderizado sin `form.as_p` va con el partial `partials/campo_form.ht
 porque `core.tests.ErroresDeFormularioVisiblesTests` barre todos los templates y
 falla si un campo no muestra sus errores.
 
-### 10. Los tres lugares
+### 10. Los tres lugares, y por qué NO son una tarea aparte al final
 
 | Modelo | `vaciar_gimnasio` | `_ensuciar` | Exportador |
 |---|---|---|---|
@@ -435,9 +463,54 @@ falla si un campo no muestra sus errores.
 | `Dispositivo` | 3º | sí | `HOJAS` **sin `token_hash`** |
 | `ConfiguracionIngreso` | 4º | sí | `HOJAS` |
 
-El orden lo impone el `PROTECT` de `EventoIngreso.dispositivo` y **no es
-reordenable**. Los dos tests de cobertura por introspección se actualizan juntos:
-solo sirven de a pares.
+**Son CUATRO los tests por introspección que cada modelo nuevo rompe, y los rompe
+en el instante en que el modelo existe** (todos enumeran con `apps.get_models()`
+filtrando `TenantOwnedModel`, así que no hay forma de postergarlos):
+
+- `tenants/tests.py::test_ensuciar_cubre_todos_los_modelos_tenant_owned` — exige que
+  `_ensuciar` cree al menos una fila del modelo.
+- `tenants/tests.py::test_deja_en_cero_todos_los_modelos_tenant_owned` — exige que
+  `vaciar_gimnasio` lo barra.
+- `tenants/tests_exportacion.py::test_todo_modelo_tenant_owned_esta_exportado_o_excluido_a_proposito`
+  — exige que esté en `HOJAS` o en `EXCLUIDOS` con su motivo.
+- `tenants/tests_exportacion.py::test_cada_csv_de_cada_carpeta_tiene_datos` — exige
+  que `_ensuciar_para_exportar` produzca filas, o el CSV sale vacío.
+
+**Consecuencia para el orden de las tareas**: los tres lugares no pueden ser una
+tarea al final. Cada modelo entra a sus cuatro lugares **en el mismo commit que lo
+crea**, o la suite queda roja desde la primera tarea hasta la última.
+
+#### El orden de borrado, y el motivo real de cada paso
+
+Leyendo `tenants/demo.py::vaciar_gimnasio` de verdad, el orden no sale solo de los
+`PROTECT`:
+
+- **`EventoIngreso` antes que `Credencial`** no es por un `PROTECT` (no hay):
+  `EventoIngreso.credencial` es `SET_NULL`, así que borrar las credenciales primero
+  dispara un `UPDATE` masivo sobre filas que estamos por borrar igual.
+- **`EventoIngreso` se borra explícitamente y no por cascada**: los eventos con
+  `alumno=None` (las lecturas de credenciales desconocidas) **no cascadean** desde
+  `alumnos.delete()`, así que sobrevivirían y seguirían protegiendo al
+  `Dispositivo`. Es el mismo motivo por el que el archivo ya borra `Reserva` y
+  `Novedad` a mano: "para no depender de por dónde entra la cascada".
+- **Ubicación concreta**: `EventoIngreso` y `Credencial` van en el bloque que está
+  antes de `alumnos.delete()`, al lado de `Reserva`/`Novedad`. `Dispositivo` y
+  `ConfiguracionIngreso` van en el bloque final ("sin relaciones entrantes"), con
+  un comentario que diga que `Dispositivo` tiene que ir después de los eventos.
+
+#### `verbose_name` y `verbose_name_plural` son load-bearing, no cosméticos
+
+`core/borrado.py::_relaciones` construye el aviso de borrado con
+`verbose_name`/`verbose_name_plural` del modelo relacionado (y se llama con
+`PROTECT` **y** con `CASCADE`). Sin ellos, la pantalla de borrar un alumno le dice
+al dueño "se van a borrar 40 eventoingresos".
+
+Por lo mismo, **el `related_name` del FK a `Gimnasio` NO se pisa**: la base genera
+`%(class)ss`, o sea `gimnasio.credencials` y `gimnasio.configuracioningresos`. El
+proyecto ya convive con `novedads`, `importacions`, `suscripcionpushs` y
+`configuracionturnoss`, y el accessor inverso **no se usa en ningún lado** (todo va
+por `Model.objects.for_gimnasio(...)`). Seguir la base es lo consistente; pisarlo
+sería divergir por estética en algo que nadie lee.
 
 Los dos modelos con una columna sensible se tratan **igual** (la hoja va sin esa
 columna y la `descripcion` dice por qué), en vez de excluir un modelo entero por
