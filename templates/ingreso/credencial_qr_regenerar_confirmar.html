@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Código nuevo para {{ alumno }} · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>¿Generar un código nuevo para {{ alumno.nombre }} {{ alumno.apellido }}?</h1>
+
+  <p>Qué pasa si seguís:</p>
+  <ul class="list-disc pl-6 texto-suave">
+    <li><strong>El código actual deja de abrir la puerta en el acto</strong>, y
+      no se puede recuperar.</li>
+    <li>Si {{ alumno.nombre }} tenía la tarjeta impresa, hay que imprimirle una
+      nueva. En el celular le aparece el código nuevo solo, la próxima vez que
+      lo abra.</li>
+  </ul>
+
+  <p class="texto-suave">
+    Conviene hacerlo si perdió la tarjeta o si sospechás que su código lo tiene
+    otra persona. Si solo querés que deje de entrar, usá «Dar de baja».
+  </p>
+
+  <form method="post" class="acciones-lista">
+    {% csrf_token %}
+    <input type="hidden" name="regenerar" value="1">
+    <button type="submit" class="boton-peligro">Sí, generar un código nuevo</button>
+    <a class="boton-secundario" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

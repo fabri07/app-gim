@@ -22,7 +22,9 @@ from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.cache import add_never_cache_headers
+from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.cache import never_cache
 from django.views.generic import CreateView, DetailView, ListView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
 
@@ -112,9 +114,16 @@ class AlumnoUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
         return reverse("alumnos:detalle", args=[self.object.pk])
 
 
+@method_decorator(never_cache, name="dispatch")
 class AlumnoDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView):
     """La "ficha" del alumno: sus datos + secciones de solo lectura de sus
-    pagos (app `pagos`) y su rutina activa (app `rutinas`)."""
+    pagos (app `pagos`) y su rutina activa (app `rutinas`).
+
+    **`never_cache`**: la ficha dibuja el QR de ingreso del alumno, que es una
+    llave al portador (el template le agrega `hx-history="false"` para que
+    htmx tampoco la guarde en `localStorage`). Va sobre toda la vista y no
+    solo cuando hay QR: la ficha es un dato personal de todas formas.
+    """
 
     model = Alumno
     template_name = "alumnos/alumno_detail.html"
@@ -132,7 +141,30 @@ class AlumnoDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView):
         # vez de archivarse, sin esta lista no habría forma de llegar a los
         # anteriores.
         context["rutinas_del_alumno"] = self.object.rutinas_asignadas.all()[:10]
+        context.update(self._control_de_ingreso())
         return context
+
+    ULTIMOS_INGRESOS = 5
+
+    def _control_de_ingreso(self):
+        """La tarjeta «Credencial de ingreso». Costo fijo: una query por las
+        credenciales (a lo sumo dos filas, una por tipo) y una por los últimos
+        ingresos, con el lector en el mismo JOIN -- sin el `select_related`
+        cada fila del listado es una query más."""
+        from ingreso import presentacion
+        from ingreso.models import Credencial
+
+        por_tipo = {c.tipo: c for c in self.object.credenciales.all()}
+        return {
+            "codigo_ingreso": presentacion.codigo_de(
+                self.object, por_tipo.get(Credencial.Tipo.QR)
+            ),
+            "credencial_facial": por_tipo.get(Credencial.Tipo.FACIAL),
+            "ultimos_ingresos": self.object.eventos_ingreso.select_related(
+                "dispositivo"
+            )[: self.ULTIMOS_INGRESOS],
+            "estados_codigo": presentacion.Estado,
+        }
 
 
 class AlumnoDeleteView(

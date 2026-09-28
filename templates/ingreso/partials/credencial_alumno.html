@@ -1,0 +1,119 @@
+{% comment %}
+  Tarjeta «Credencial de ingreso» de la ficha del alumno. El título NO es
+  «Acceso»: esa tarjeta ya existe en la ficha y significa usuario+contraseña.
+
+  Contexto (lo arma `AlumnoDetailView._control_de_ingreso`): `alumno`,
+  `codigo_ingreso` (`ingreso.presentacion.CodigoParaMostrar`),
+  `credencial_facial`, `ultimos_ingresos` y `estados_codigo`.
+
+  El QR se dibuja SOLO si abre la puerta. Donde se dibuja lleva
+  `hx-history="false"`: es una llave al portador, y sin el atributo htmx
+  guarda el `<body>` en `localStorage` antes de navegar. La vista pone además
+  `no-store` en toda la ficha.
+{% endcomment %}
+<div class="tarjeta">
+  <h2>Credencial de ingreso</h2>
+  <p class="texto-suave">Lo que abre la puerta del gimnasio: su código QR o su cara en el lector facial.</p>
+
+  <h3 class="mt-4 font-semibold">Código QR</h3>
+  {% if codigo_ingreso.estado == estados_codigo.VIGENTE %}
+    <div hx-history="false" class="mt-2">
+      <div class="w-full max-w-[12rem]">{{ codigo_ingreso.svg|safe }}</div>
+      <p class="texto-suave">
+        <span class="badge badge--ok">Activo</span>
+        Vigente desde el {{ codigo_ingreso.credencial.modificado|date:"d/m/Y" }}.
+      </p>
+    </div>
+    <div class="acciones-lista">
+      <a class="boton-secundario" href="{% url 'ingreso:credencial_qr' alumno.pk %}">Regenerar código</a>
+      <a class="boton-peligro" href="{% url 'ingreso:credencial_baja' codigo_ingreso.credencial.pk %}">Dar de baja</a>
+    </div>
+  {% elif codigo_ingreso.estado == estados_codigo.ALUMNO_INACTIVO %}
+    <p>
+      <span class="badge badge--riesgo">No abre la puerta</span>
+      <span class="texto-suave">
+        {{ alumno.nombre }} está dado de baja como alumno. El código vuelve a
+        abrir si lo reactivás.
+      </span>
+    </p>
+    <a class="boton-peligro" href="{% url 'ingreso:credencial_baja' codigo_ingreso.credencial.pk %}">Dar de baja el código</a>
+  {% elif codigo_ingreso.estado == estados_codigo.DADO_DE_BAJA %}
+    <p>
+      <span class="badge badge--riesgo">Dado de baja</span>
+      <span class="texto-suave">
+        el {{ codigo_ingreso.credencial.modificado|date:"d/m/Y" }}. Ese código
+        ya no abre y no se puede reactivar.
+      </span>
+    </p>
+    <form method="post" action="{% url 'ingreso:credencial_qr' alumno.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="regenerar" value="1">
+      <button type="submit" class="boton">Generar un código nuevo</button>
+    </form>
+  {% else %}
+    <p class="texto-suave">Todavía no tiene código.</p>
+    <form method="post" action="{% url 'ingreso:credencial_qr' alumno.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="boton">Generar código</button>
+    </form>
+  {% endif %}
+
+  <h3 class="mt-4 font-semibold">Lector facial</h3>
+  {% if credencial_facial %}
+    <p>
+      Usuario N° <strong>{{ credencial_facial.valor }}</strong> en el lector
+      {% if credencial_facial.activa %}
+        <span class="badge badge--ok">Activo</span>
+      {% else %}
+        <span class="badge badge--riesgo">Dado de baja</span>
+      {% endif %}
+    </p>
+    <div class="acciones-lista">
+      <a class="boton-secundario" href="{% url 'ingreso:credencial_facial' alumno.pk %}">
+        {% if credencial_facial.activa %}Cambiar número{% else %}Volver a cargar el número{% endif %}
+      </a>
+      {% if credencial_facial.activa %}
+        <a class="boton-peligro" href="{% url 'ingreso:credencial_baja' credencial_facial.pk %}">Dar de baja</a>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="texto-suave">Sin cara registrada en el lector.</p>
+    <a class="boton-secundario" href="{% url 'ingreso:credencial_facial' alumno.pk %}">Cargar número del lector facial</a>
+  {% endif %}
+
+  <h3 class="mt-4 font-semibold">Últimos ingresos</h3>
+  {% if ultimos_ingresos %}
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th scope="col">Cuándo</th>
+            <th scope="col">Lector</th>
+            <th scope="col">Resultado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in ultimos_ingresos %}
+            <tr>
+              {% comment %} El filtro `date` pasa a la hora local: `momento` se guarda en UTC. {% endcomment %}
+              <td>{{ e.momento|date:"d/m/Y H:i" }}</td>
+              <td>{{ e.dispositivo.nombre }}</td>
+              <td>
+                {% if e.resultado == "permitido" %}
+                  <span class="badge badge--ok">{{ e.get_resultado_display }}</span>
+                {% elif e.resultado == "duplicado" %}
+                  <span class="badge badge--neutro">{{ e.get_resultado_display }}</span>
+                {% else %}
+                  <span class="badge badge--riesgo">{{ e.get_resultado_display }}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="texto-suave">Todavía no pasó por la puerta.</p>
+  {% endif %}
+  <a href="{% url 'ingreso:listado' %}?alumno={{ alumno.pk }}">Ver todos sus ingresos</a>
+</div>

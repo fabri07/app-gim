@@ -44,6 +44,8 @@ urlpatterns = [
         views.CredencialQrView.as_view(),
         name="credencial_qr",
     ),
+    # Portal del alumno: sin pk, el alumno es el de la sesión.
+    path("mi-codigo/", views.MiCodigoView.as_view(), name="mi_codigo"),
     path(
         "alumnos/<int:alumno_pk>/facial/",
         views.CredencialFacialView.as_view(),

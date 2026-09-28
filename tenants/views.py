@@ -98,6 +98,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         dominio que mostrar, así que devolvemos `alumno=None` y el template
         renderiza un estado vacío en vez de 500.
         """
+        from ingreso import presentacion
         from novedades.models import Novedad
         from pagos import acceso
         from pagos.models import MedioCobro
@@ -155,6 +156,12 @@ class HomeView(LoginRequiredMixin, TemplateView):
         bloqueo = acceso.bloqueo_de(alumno, hoy=hoy)
 
         return {
+            # «Tu código para entrar»: solo el estado y el link a
+            # `ingreso:mi_codigo`, nunca el QR (así el inicio sigue cacheable
+            # y entrando en el historial de htmx). Una o dos queries fijas.
+            **presentacion.tarjeta_del_portal(
+                alumno, perfil.gimnasio, bloqueo=bloqueo
+            ),
             "alumno": alumno,
             "bloqueo": bloqueo,
             "rutina_actual": None if bloqueo else rutina_actual,

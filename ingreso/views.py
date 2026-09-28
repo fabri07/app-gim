@@ -21,12 +21,18 @@ from django.utils.http import quote_etag
 from django.views import View
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import CreateView, FormView, ListView, UpdateView
+from django.views.generic import (
+    CreateView,
+    FormView,
+    ListView,
+    TemplateView,
+    UpdateView,
+)
 from django.views.generic.detail import SingleObjectMixin
 
 from alumnos.models import Alumno
 from core.mixins import TenantScopedMixin
-from ingreso import auth, limites, services
+from ingreso import auth, limites, presentacion, services
 from ingreso.decision import Lectura
 from ingreso.forms import (
     ERROR_NOMBRE_REPETIDO,
@@ -42,7 +48,8 @@ from ingreso.models import (
     EventoIngreso,
     obtener_configuracion,
 )
-from tenants.mixins import StaffRequiredMixin
+from pagos import acceso
+from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 
 LARGO_ID_EVENTO_EQUIPO = EventoIngreso._meta.get_field("id_evento_equipo").max_length
 
@@ -624,10 +631,29 @@ class _AlumnoDelGimnasioMixin(StaffRequiredMixin, TenantScopedMixin):
 
 
 class CredencialQrView(_AlumnoDelGimnasioMixin, View):
-    """«Generar código» y «Regenerar» desde la ficha. POST-only. El valor no
-    viaja por `messages`: la ficha lo dibuja como QR."""
+    """«Generar código» y «Regenerar» desde la ficha. El valor no viaja por
+    `messages`: la ficha lo dibuja como QR.
 
-    http_method_names = ["post"]
+    El GET es la confirmación de REGENERAR, y solo el POST escribe (mismo
+    criterio que `DispositivoRotarTokenView`). Regenerar deja sin abrir la
+    tarjeta impresa del alumno y el código que tiene guardado en el celular,
+    y no tiene vuelta atrás: eso se lee antes de apretar. «Generar código»
+    (la primera vez) no pide confirmación porque no le quita nada a nadie:
+    es un POST directo desde la ficha."""
+
+    http_method_names = ["get", "post"]
+
+    def get(self, request, *args, **kwargs):
+        alumno = self.get_alumno()
+        credencial = presentacion.qr_de(alumno)
+        if credencial is None:
+            # Nada que regenerar: el botón de la ficha es «Generar código».
+            return self._a_la_ficha(alumno)
+        return render(
+            request,
+            "ingreso/credencial_qr_regenerar_confirmar.html",
+            {"alumno": alumno, "credencial": credencial},
+        )
 
     def post(self, request, *args, **kwargs):
         alumno = self.get_alumno()
@@ -727,13 +753,71 @@ class CredencialFacialView(_AlumnoDelGimnasioMixin, FormView):
 
 
 class CredencialBajaView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):
-    """Da de baja una credencial (QR o facial) sin borrarla. POST-only."""
+    """Da de baja una credencial (QR o facial) sin borrarla.
+
+    El GET es la confirmación y solo el POST escribe: un QR dado de baja no se
+    reactiva nunca (la baja pudo ser por una tarjeta robada), así que el
+    alumno necesita un código nuevo y una tarjeta nueva."""
 
     model = Credencial
-    http_method_names = ["post"]
+    http_method_names = ["get", "post"]
+
+    def get(self, request, *args, **kwargs):
+        credencial = self.get_object()
+        return render(
+            request,
+            "ingreso/credencial_baja_confirmar.html",
+            {"credencial": credencial, "alumno": credencial.alumno},
+        )
 
     def post(self, request, *args, **kwargs):
         credencial = self.get_object()
         services.dar_de_baja_credencial(credencial)
         messages.success(request, "Credencial dada de baja: ya no abre la puerta.")
         return redirect("alumnos:detalle", pk=credencial.alumno_id)
+
+
+@method_decorator(never_cache, name="dispatch")
+class MiCodigoView(AlumnoRequiredMixin, TemplateView):
+    """«Tu código para entrar»: el QR del alumno, grande, para mostrarlo en el
+    lector de la puerta.
+
+    - **Sin pk en la URL**: el alumno es el de la sesión, así que no hay forma
+      de pedir el de otro.
+    - **`never_cache` sobre el `dispatch` entero** (`no-store, private`) y
+      `hx-history="false"` en el template: el QR es una llave al portador y no
+      puede quedar ni en el caché del navegador ni en el historial de htmx,
+      que guarda el `<body>` en `localStorage`.
+    - **Bloqueado por deuda lo ve igual**: la puerta decide. Si ESTE gimnasio
+      rechaza por deuda en la puerta, se le avisa, para que no crea que el
+      código anda mal.
+    - **Suplantación: el staff SÍ lo ve.** Ya lo ve y lo regenera desde la
+      ficha, así que ocultarlo no protege nada, y le sacaría justo lo que vino
+      a revisar cuando el alumno dice «no me aparece el código».
+    - Con la cuenta del gimnasio congelada, `PlataformaMiddleware` corta esta
+      pantalla como todo el portal: `ingreso` no está en su allowlist.
+
+    Una sola pantalla del portal dibuja el QR, y no es el inicio: así el inicio
+    sigue entrando en el historial de htmx y la llave vive en un solo lugar.
+    """
+
+    template_name = "ingreso/mi_codigo.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        alumno = self.alumno
+        codigo = presentacion.codigo_de(alumno, presentacion.qr_de(alumno)) if alumno else None
+        aviso = False
+        if codigo is not None and codigo.vigente:
+            # Primero la configuración (una lectura, sin crearla) y recién si
+            # la puerta rechaza por deuda, la regla de `pagos/acceso.py`.
+            aviso = presentacion.la_puerta_rechaza_por_deuda(self.gimnasio) and bool(
+                acceso.bloqueo_de(alumno, hoy=timezone.localdate())
+            )
+        context.update(
+            gimnasio=self.gimnasio,
+            codigo=codigo,
+            aviso_deuda_en_puerta=aviso,
+            estados=presentacion.Estado,
+        )
+        return context

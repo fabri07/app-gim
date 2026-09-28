@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}Tu código para entrar · {{ gimnasio.nombre }}{% endblock %}
+{% block main_class %}contenido{% endblock %}
+
+{% block content %}
+{% comment %}
+  `hx-history="false"`: el QR es una llave al portador. Sin el atributo, htmx 2
+  guarda el `<body>` en `localStorage["htmx-history-cache"]` antes de navegar,
+  sin vencimiento, y el «atrás» lo restaura sin pedirlo al servidor. La vista
+  responde además `no-store, private`. Lo exige
+  `ingreso.tests_ficha_y_portal.MiCodigoTests`.
+
+  Solo el nombre del gimnasio: nada de datos personales en una pantalla que se
+  muestra en la puerta.
+{% endcomment %}
+<div class="tarjeta text-center" hx-history="false">
+  <h1>Tu código para entrar</h1>
+  <p class="texto-suave">{{ gimnasio.nombre }}</p>
+
+  {% if codigo.estado == estados.VIGENTE %}
+    {% if aviso_deuda_en_puerta %}
+      <div class="tarjeta aviso-urgente text-left">
+        <p>
+          Tenés una cuota pendiente, así que
+          <strong>la puerta no te va a dejar pasar</strong>
+          hasta que el gimnasio registre el pago. Tu código sigue siendo este:
+          no hace falta pedir otro.
+        </p>
+        <a href="{% url 'home' %}">Ver tu cuota</a>
+      </div>
+    {% endif %}
+    <div class="mx-auto mt-4 w-full max-w-[18rem]">{{ codigo.svg|safe }}</div>
+    <p class="mt-4">Acercá la pantalla al lector de la puerta.</p>
+    <p class="texto-suave">
+      Si no lo lee, subí el brillo del celular. Es personal: con este código
+      se abre la puerta a tu nombre, no lo compartas.
+    </p>
+  {% elif codigo.estado == estados.DADO_DE_BAJA %}
+    <p class="mt-4">
+      Tu código fue dado de baja y ya no abre la puerta. Pedile al gimnasio que
+      te genere uno nuevo.
+    </p>
+  {% elif codigo.estado == estados.ALUMNO_INACTIVO %}
+    <p class="mt-4">
+      Tu código no abre la puerta mientras estés dado de baja en el gimnasio.
+    </p>
+  {% else %}
+    <p class="mt-4">Todavía no tenés código, pedíselo al gimnasio.</p>
+  {% endif %}
+
+  <a class="boton-secundario mt-4" href="{% url 'home' %}">Volver al inicio</a>
+</div>
+{% endblock %}

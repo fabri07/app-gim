@@ -813,9 +813,12 @@ class CredencialQrTests(_BaseVistas):
         self._login("alumno-a")
         self.assertEqual(self.client.post(self._url()).status_code, 403)
 
-    def test_get_da_405(self):
+    def test_get_no_genera_nada(self):
+        """Desde la Tarea 13 el GET es la confirmación de regenerar
+        (`tests_ficha_y_portal.ConfirmacionesTests`): nunca escribe."""
         self._login()
-        self.assertEqual(self.client.get(self._url()).status_code, 405)
+        self.client.get(self._url())
+        self.assertFalse(Credencial.objects.filter(alumno=self.alumno).exists())
 
 
 class CredencialesEnBloqueTests(_BaseVistas):
