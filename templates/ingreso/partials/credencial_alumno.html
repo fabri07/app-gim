@@ -18,7 +18,7 @@
   <h3 class="mt-4 font-semibold">Código QR</h3>
   {% if codigo_ingreso.estado == estados_codigo.VIGENTE %}
     <div hx-history="false" class="mt-2">
-      <div class="w-full max-w-[12rem]">{{ codigo_ingreso.svg|safe }}</div>
+      <div class="w-full max-w-[12rem]" role="img" aria-label="Código de ingreso de {{ alumno.nombre }}">{{ codigo_ingreso.svg|safe }}</div>
       <p class="texto-suave">
         <span class="badge badge--ok">Activo</span>
         Vigente desde el {{ codigo_ingreso.credencial.modificado|date:"d/m/Y" }}.

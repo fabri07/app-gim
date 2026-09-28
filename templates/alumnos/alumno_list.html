@@ -74,7 +74,7 @@
               {% endif %}
             </td>
             <td>
-              <a href="{% url 'alumnos:detalle' a.pk %}">Ver</a>
+              <a hx-boost="false" href="{% url 'alumnos:detalle' a.pk %}">Ver</a>
               &middot;
               <a href="{% url 'alumnos:editar' a.pk %}">Editar</a>
             </td>

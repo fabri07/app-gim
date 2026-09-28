@@ -68,7 +68,7 @@
             <td>{{ e.momento|date:"d/m/Y H:i" }}</td>
             <td>
               {% if e.alumno %}
-                <a href="{% url 'alumnos:detalle' e.alumno.pk %}">{{ e.alumno.nombre }} {{ e.alumno.apellido }}</a>
+                <a hx-boost="false" href="{% url 'alumnos:detalle' e.alumno.pk %}">{{ e.alumno.nombre }} {{ e.alumno.apellido }}</a>
               {% else %}
                 <span class="texto-suave">Desconocido</span>
               {% endif %}

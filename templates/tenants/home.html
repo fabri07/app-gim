@@ -811,6 +811,9 @@
         con `no-store` y fuera del historial de htmx. El inicio no lleva la
         llave de la puerta. Sin código y sin lector de QR en el gimnasio,
         `codigo_ingreso` es None y la tarjeta no aparece.
+        El link lleva `hx-boost="false"`: el QR tiene que llegar como documento
+        propio con `no-store`; boosteado quedaría en el DOM de ESTE documento,
+        que sí entra al bfcache (ver `ingreso.presentacion.fuera_del_boost`).
       {% endcomment %}
       <div class="tarjeta">
         <h2>Tu código para entrar</h2>
@@ -820,10 +823,10 @@
           {% else %}
             <p class="texto-suave">Mostralo en el lector de la puerta.</p>
           {% endif %}
-          <a class="boton w-full mt-2" href="{% url 'ingreso:mi_codigo' %}">Mostrar mi código</a>
-        {% elif codigo_ingreso.estado == "dado_de_baja" %}
+          <a class="boton w-full mt-2" hx-boost="false" href="{% url 'ingreso:mi_codigo' %}">Mostrar mi código</a>
+        {% elif codigo_ingreso.estado == estados_codigo.DADO_DE_BAJA %}
           <p class="texto-suave">Tu código fue dado de baja y ya no abre la puerta. Pedile uno nuevo al gimnasio.</p>
-        {% elif codigo_ingreso.estado == "alumno_inactivo" %}
+        {% elif codigo_ingreso.estado == estados_codigo.ALUMNO_INACTIVO %}
           <p class="texto-suave">Tu código no abre la puerta mientras estés dado de baja en el gimnasio.</p>
         {% else %}
           <p class="texto-suave">Todavía no tenés código, pedíselo al gimnasio.</p>

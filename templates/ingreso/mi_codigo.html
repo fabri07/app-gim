@@ -29,7 +29,8 @@
         <a href="{% url 'home' %}">Ver tu cuota</a>
       </div>
     {% endif %}
-    <div class="mx-auto mt-4 w-full max-w-[18rem]">{{ codigo.svg|safe }}</div>
+    {% comment %} `role="img"` + `aria-label` sin el valor: un lector de pantalla anuncia qué es, nunca la llave. {% endcomment %}
+    <div class="mx-auto mt-4 w-full max-w-[18rem]" role="img" aria-label="Tu código de ingreso">{{ codigo.svg|safe }}</div>
     <p class="mt-4">Acercá la pantalla al lector de la puerta.</p>
     <p class="texto-suave">
       Si no lo lee, subí el brillo del celular. Es personal: con este código

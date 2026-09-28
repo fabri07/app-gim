@@ -23,6 +23,8 @@ Tres decisiones que conviene no deshacer:
 
 from dataclasses import dataclass
 
+from django.http import HttpResponse
+
 from ingreso import qr
 from ingreso.models import ConfiguracionIngreso, Credencial, Dispositivo
 
@@ -109,4 +111,33 @@ def tarjeta_del_portal(alumno, gimnasio, *, bloqueo):
     if codigo.estado == Estado.SIN_CODIGO and not hay_lector_de_qr(gimnasio):
         return {"codigo_ingreso": None, "aviso_deuda_en_puerta": False}
     aviso = bool(bloqueo) and codigo.vigente and la_puerta_rechaza_por_deuda(gimnasio)
-    return {"codigo_ingreso": codigo, "aviso_deuda_en_puerta": aviso}
+    return {
+        "codigo_ingreso": codigo,
+        "aviso_deuda_en_puerta": aviso,
+        "estados_codigo": Estado,
+    }
+
+
+def fuera_del_boost(request):
+    """Una pantalla que dibuja el QR tiene que ser un DOCUMENTO propio, nunca
+    un `<body>` cambiado por htmx adentro de otro.
+
+    Con el `hx-boost` global, una navegación boosteada trae la respuesta por
+    XHR y la mete en el documento de la página anterior, que no lleva
+    `no-store`: al salir con una navegación completa («Salir»), ese documento
+    queda en el bfcache con el QR en el DOM, y el «atrás» del próximo que
+    agarre el celular lo muestra. El `no-store` de la respuesta no alcanza,
+    porque es el documento de afuera el que se guarda.
+
+    Los links que llevan acá van con `hx-boost="false"`; esto es la red para
+    lo que no pasa por esos links (el redirect después de un POST boosteado,
+    o un link que alguien agregue mañana): ante un GET boosteado responde
+    `HX-Redirect`, y htmx hace `window.location = url`, una navegación
+    completa que carga la pantalla como documento propio. Devuelve `None` si
+    no hace falta.
+    """
+    if request.method == "GET" and request.headers.get("HX-Boosted") == "true":
+        respuesta = HttpResponse()
+        respuesta["HX-Redirect"] = request.get_full_path()
+        return respuesta
+    return None

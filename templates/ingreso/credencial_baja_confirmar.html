@@ -25,7 +25,7 @@
   <form method="post" class="acciones-lista">
     {% csrf_token %}
     <button type="submit" class="boton-peligro">Sí, dar de baja</button>
-    <a class="boton-secundario" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
+    <a class="boton-secundario" hx-boost="false" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
   </form>
 </div>
 {% endblock %}

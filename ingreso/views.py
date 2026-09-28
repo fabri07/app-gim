@@ -803,6 +803,13 @@ class MiCodigoView(AlumnoRequiredMixin, TemplateView):
 
     template_name = "ingreso/mi_codigo.html"
 
+    def get(self, request, *args, **kwargs):
+        # Documento propio, nunca un swap de htmx: ver
+        # `presentacion.fuera_del_boost`.
+        return presentacion.fuera_del_boost(request) or super().get(
+            request, *args, **kwargs
+        )
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         alumno = self.alumno

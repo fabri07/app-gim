@@ -30,7 +30,7 @@
       <tbody>
         {% for alumno in alumnos %}
           <tr>
-            <td><a href="{% url 'alumnos:detalle' alumno.pk %}">{{ alumno }}</a></td>
+            <td><a hx-boost="false" href="{% url 'alumnos:detalle' alumno.pk %}">{{ alumno }}</a></td>
             <td>
               {% if alumno.perfil %}
                 <code>{{ alumno.perfil.usuario.username }}</code>

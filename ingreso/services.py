@@ -3,7 +3,7 @@
 import hashlib
 import json
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from alumnos.models import Alumno
@@ -112,7 +112,10 @@ def dar_de_baja_credencial(credencial):
     """La credencial deja de abrir (`CREDENCIAL_INACTIVA` en la puerta) pero
     no se borra: los eventos que ya la usaron la siguen nombrando, y el
     rechazo le explica al dueño que alguien intentó entrar con una revocada."""
-    Credencial.objects.filter(pk=credencial.pk).update(
+    # `activa=True` en el filtro: dar de baja dos veces (doble click, o la
+    # confirmación abierta en dos pestañas) no mueve la fecha de la baja, que
+    # es la que muestra la ficha.
+    Credencial.objects.filter(pk=credencial.pk, activa=True).update(
         activa=False, modificado=timezone.now()
     )
 
@@ -124,12 +127,20 @@ def generar_credencial_qr(alumno, *, regenerar=False):
     Regenerar es un UPDATE en la misma fila, así que no queda rastro del
     código anterior: es el costo asumido de la unicidad por alumno.
     """
-    credencial, creada = Credencial.objects.get_or_create(
-        gimnasio=alumno.gimnasio,
-        alumno=alumno,
-        tipo=Credencial.Tipo.QR,
-        defaults={"valor": tokens.generar()},
-    )
+    clave = {"gimnasio": alumno.gimnasio, "alumno": alumno, "tipo": Credencial.Tipo.QR}
+    try:
+        # `atomic` propio: si choca, el `IntegrityError` no deja rota la
+        # transacción de afuera (`messages` y la sesión viven en la base).
+        with transaction.atomic():
+            credencial, creada = Credencial.objects.get_or_create(
+                **clave, defaults={"valor": tokens.generar()}
+            )
+    except IntegrityError:
+        # El doble submit de «Generar código» (el form va boosteado por htmx):
+        # los dos requests ven que no hay fila, uno inserta y el otro choca
+        # contra `credencial_una_por_alumno_y_tipo`. El segundo devuelve la
+        # que creó el primero en vez de un 500.
+        credencial, creada = Credencial.objects.get(**clave), False
     if not creada and regenerar:
         credencial.valor = tokens.generar()
         credencial.activa = True

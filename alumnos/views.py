@@ -146,6 +146,18 @@ class AlumnoDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView):
 
     ULTIMOS_INGRESOS = 5
 
+    def render_to_response(self, context, **response_kwargs):
+        # Si la ficha dibuja el QR, tiene que ser un documento propio y no un
+        # swap de htmx adentro de otra página (que quedaría en el bfcache con
+        # la llave en el DOM): ver `ingreso.presentacion.fuera_del_boost`.
+        from ingreso import presentacion
+
+        if context["codigo_ingreso"].vigente:
+            fuera = presentacion.fuera_del_boost(self.request)
+            if fuera is not None:
+                return fuera
+        return super().render_to_response(context, **response_kwargs)
+
     def _control_de_ingreso(self):
         """La tarjeta «Credencial de ingreso». Costo fijo: una query por las
         credenciales (a lo sumo dos filas, una por tipo) y una por los últimos
@@ -160,9 +172,12 @@ class AlumnoDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView):
                 self.object, por_tipo.get(Credencial.Tipo.QR)
             ),
             "credencial_facial": por_tipo.get(Credencial.Tipo.FACIAL),
-            "ultimos_ingresos": self.object.eventos_ingreso.select_related(
-                "dispositivo"
-            )[: self.ULTIMOS_INGRESOS],
+            # `gimnasio` en el filtro: es el que abre el índice
+            # `ingreso_antipassback_idx` (gimnasio, alumno, -momento), y deja
+            # el aislamiento explícito en vez de heredado del alumno.
+            "ultimos_ingresos": self.object.eventos_ingreso.filter(
+                gimnasio=self.object.gimnasio_id
+            ).select_related("dispositivo")[: self.ULTIMOS_INGRESOS],
             "estados_codigo": presentacion.Estado,
         }
 

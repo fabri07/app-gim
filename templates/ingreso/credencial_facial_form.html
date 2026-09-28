@@ -14,7 +14,7 @@
     {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
     {% include 'partials/campo_form.html' with campo=form.valor %}
     <button type="submit" class="boton">Guardar</button>
-    <a class="boton-secundario" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
+    <a class="boton-secundario" hx-boost="false" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
   </form>
 </div>
 {% endblock %}
