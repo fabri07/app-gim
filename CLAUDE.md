@@ -990,7 +990,9 @@ es su «código», y en el modelo es `Credencial.valor`. **Ningún modelo lleva
   `SALUDO`, `mensaje_de`), compartidos por la puerta online y el padrón.
 - **`services.py`** — todas las escrituras: `crear_dispositivo`, `rotar_token`,
   las credenciales (`generar_credencial_qr`, `generar_credenciales_en_bloque`
-  con un solo `bulk_create`, `guardar_credencial_facial`,
+  con un solo `bulk_create(ignore_conflicts=True)` contra la carrera de dos
+  POST, y el número de creadas contado en la base porque así Django no lo
+  informa, `guardar_credencial_facial`,
   `dar_de_baja_credencial`), `registrar_lote` y `padron_de`.
 - **`auth.py`** — `dispositivo_autenticado()`: 401 sin token o con uno que no
   matchea (sin distinguir cuál), 403 solo con un token válido de un lector

@@ -154,6 +154,15 @@ def generar_credenciales_en_bloque(gimnasio):
 
     Un `bulk_create` y no una query por alumno: el gimnasio de 200 alumnos es
     justo el caso que motiva el botón.
+
+    **`ignore_conflicts` cierra la carrera de dos POST** (doble click, o dos
+    pestañas): los dos calculan los mismos faltantes y el segundo chocaba
+    contra `credencial_una_por_alumno_y_tipo` con un 500. Con
+    `ignore_conflicts` Django no dice cuántas filas insertó (ni puebla los
+    pk), así que el número que se devuelve se cuenta en la base: las
+    credenciales de ESTE gimnasio con alguno de los valores recién generados.
+    Los valores son 256 bits de `secrets`, así que solo matchean las filas que
+    insertó este request. Una query más, fija.
     """
     ya_tienen = Credencial.objects.for_gimnasio(gimnasio).filter(
         tipo=Credencial.Tipo.QR
@@ -170,8 +179,12 @@ def generar_credenciales_en_bloque(gimnasio):
         )
         for alumno in faltantes
     ]
-    Credencial.objects.bulk_create(nuevas)
-    return len(nuevas)
+    if not nuevas:
+        return 0
+    Credencial.objects.bulk_create(nuevas, ignore_conflicts=True)
+    return Credencial.objects.for_gimnasio(gimnasio).filter(
+        tipo=Credencial.Tipo.QR, valor__in=[c.valor for c in nuevas]
+    ).count()
 
 
 def nombre_corto(alumno):

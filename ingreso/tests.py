@@ -295,6 +295,36 @@ class CredencialTests(TestCase):
         # query_por_ejercicio_nuevo`.
         self.assertLess(len(ctx), pocas + 5)
 
+    def test_el_alta_en_bloque_sobrevive_a_la_carrera_y_cuenta_solo_lo_suyo(self):
+        """Dos POST de «Generar códigos» calculan los mismos faltantes. Se
+        simula que el otro request inserta el QR de un alumno justo después de
+        que este calculó la lista: sin `ignore_conflicts` choca contra la
+        unicidad (un 500), y con él el número informado tiene que ser lo que
+        ESTE request insertó, no el largo de la lista."""
+        otros = [
+            Alumno.objects.create(gimnasio=self.gimnasio, nombre=f"A{i}", apellido="X")
+            for i in range(3)
+        ]
+        generar_de_verdad = tokens.generar
+        ya_compitio = []
+
+        def generar_mientras_el_otro_request_inserta():
+            if not ya_compitio:
+                ya_compitio.append(True)
+                Credencial.objects.create(
+                    gimnasio=self.gimnasio, alumno=self.alumno,
+                    tipo=Credencial.Tipo.QR, valor=generar_de_verdad(),
+                )
+            return generar_de_verdad()
+
+        with patch("ingreso.tokens.generar", generar_mientras_el_otro_request_inserta):
+            creadas = services.generar_credenciales_en_bloque(self.gimnasio)
+
+        self.assertEqual(creadas, 3)
+        self.assertEqual(Credencial.objects.filter(tipo=Credencial.Tipo.QR).count(), 4)
+        for alumno in [self.alumno, *otros]:
+            self.assertEqual(alumno.credenciales.filter(tipo="qr").count(), 1)
+
     def test_el_alta_en_bloque_no_toca_a_los_alumnos_inactivos(self):
         Alumno.objects.create(
             gimnasio=self.gimnasio, nombre="Baja", apellido="X",
