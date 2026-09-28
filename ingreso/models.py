@@ -7,6 +7,7 @@ persona tiene EN el equipo (`Credencial` de tipo FACIAL). Ver
 """
 
 from django.db import models
+from django.db.models.functions import Lower
 
 from core.models import TenantOwnedModel, validar_gimnasio_de
 
@@ -83,8 +84,18 @@ class Dispositivo(TenantOwnedModel):
         verbose_name_plural = "lectores de la puerta"
         ordering = ["nombre"]
         constraints = [
+            # Sin distinguir mayúsculas, la misma regla que
+            # `DispositivoForm.clean_nombre`: «Puerta» y «puerta» en el mismo
+            # gimnasio hacen ilegible el listado de ingresos. Es una
+            # constraint por EXPRESIÓN (índice único sobre
+            # `(gimnasio_id, lower(nombre))`, con el gimnasio adelante para
+            # que sirva también al listado), soportada por SQLite y Postgres.
+            # Ojo: en SQLite tanto `lower()` como el `iexact` del form pliegan
+            # solo ASCII (una «Á» no se iguala a «á» en la suite); en Postgres
+            # los dos pliegan Unicode. Form y base coinciden en cada motor.
             models.UniqueConstraint(
-                fields=["gimnasio", "nombre"], name="dispositivo_nombre_unico_por_gim"
+                models.F("gimnasio"), Lower("nombre"),
+                name="dispositivo_nombre_ci_unico_por_gim",
             )
         ]
 

@@ -183,6 +183,13 @@ incluida la cuenta de demostración.
   veces). Idempotente: saltea a los que ya tienen.
 - El portal del alumno sin credencial muestra un estado vacío ("todavía no tenés
   código, pedíselo al gimnasio"), nunca un error.
+- **Reactivar no es simétrico entre los dos tipos, a propósito.** Un id facial
+  dado de baja se reactiva volviéndolo a cargar: lo que abre es la cara, que
+  reconoce el equipo, y no hay nada al portador que alguien se pueda haber
+  llevado. Un QR dado de baja **no** se reactiva con el mismo valor: la baja
+  pudo ser por una tarjeta perdida o robada, y reactivarlo le devolvería la
+  puerta a quien la tenga. "Generar código" sobre un QR dado de baja lo avisa y
+  ofrece regenerar (valor nuevo, tarjeta nueva).
 
 ### 4. El árbol de decisión — `ingreso/decision.py` (nuevo)
 
@@ -671,6 +678,15 @@ dependencia nueva.
     posible, si hiciera falta: un freno por token de ~60 requests por minuto,
     **solo en el padrón** (el camino online de eventos no se frena nunca). La
     otra salida sigue siendo rotar el token.
+
+14. **Con la cuenta SUSPENDIDA, el dueño del gimnasio no puede revocar un
+    token robado.** `ingreso` no está en `APPS_SIN_BLOQUEO` (§6), así que las
+    pantallas de lectores también muestran el cartel. No se abre una excepción
+    en la allowlist: la salida es el dueño del producto, desde `/admin/`
+    (que sí está en la allowlist), destildando `activo` del `Dispositivo`. La
+    API responde 403 desde el request siguiente, porque la autenticación mira
+    `activo` en la base y no en el set cacheado; el `save_model` del admin
+    invalida además ese set. Procedimiento en `ISSUES.md` [2026-09-28].
 
 ## Fuera de alcance
 

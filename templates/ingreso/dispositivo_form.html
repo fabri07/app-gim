@@ -27,10 +27,7 @@
       de funcionar en el acto</strong>, así que el lector no va a abrir hasta
       que cargues la nueva en el equipo.
     </p>
-    <form method="post" action="{% url 'ingreso:dispositivo_rotar' object.pk %}">
-      {% csrf_token %}
-      <button type="submit" class="boton-secundario">Generar una clave nueva</button>
-    </form>
+    <a class="boton-secundario" href="{% url 'ingreso:dispositivo_rotar' object.pk %}">Generar una clave nueva</a>
   </div>
 {% endif %}
 {% endblock %}

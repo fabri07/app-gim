@@ -20,6 +20,22 @@ del log.
 
 ---
 
+## [2026-09-28] Revocar un lector de la puerta con la cuenta del gimnasio suspendida
+**Estado:** aceptado (riesgo asumido a propósito, con procedimiento)
+**Impacto:** con `estado_cuenta = SUSPENDIDA`, `PlataformaMiddleware` le corta
+al staff todo el panel, incluidas las pantallas de `ingreso`: si en ese
+momento le roban el token a un lector, el dueño del gimnasio no puede rotarlo
+ni desactivarlo. La puerta, en cambio, sigue abriendo (invariante de la
+Tarea 9), así que el token robado también.
+**Resolución / próximo paso:** procedimiento: **con la cuenta suspendida, un
+token robado se revoca desde /admin/ destildando `activo`** del `Dispositivo`
+(Ingreso → Lectores de la puerta). El superadmin nunca queda bloqueado y
+`/admin/` está en `APPS_SIN_BLOQUEO`. La API responde 403 desde el request
+siguiente (`ingreso/auth.py` mira `activo` en la base) y
+`DispositivoAdmin.save_model` invalida el set cacheado del freno por IP. No se
+agregó `ingreso` a la allowlist: abriría el panel entero de un gimnasio
+congelado. Lo fija `ingreso.tests_vistas.RevocarDesdeElAdminTests`.
+
 ## [2026-09-28] Verificar en producción la IP que ve el freno de la puerta
 **Estado:** abierto (pendiente previo al lanzamiento del control de ingreso)
 

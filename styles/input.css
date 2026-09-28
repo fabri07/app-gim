@@ -1022,6 +1022,16 @@
     @apply border-l-4 border-l-amber-500 bg-amber-50;
   }
 
+  /* Nota informativa DENTRO de una tarjeta o un formulario: algo que hay que
+     saber, no algo que hacer. Neutra a propósito, para que no compita con
+     `.aviso-urgente` (ámbar = "hay algo para hacer") y no sea una tarjeta
+     anidada dentro de otra. Nació en la configuración de la puerta: lo que el
+     lector no puede aplicar sin internet va al lado de los campos. */
+  .nota-informativa {
+    @apply rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 my-4 text-sm
+      text-gray-700;
+  }
+
   /* Resumen de un formulario RECHAZADO, arriba de la página. Rojo porque acá
      algo impidió guardar (a diferencia de `.aviso-urgente`, que es "hay algo
      para hacer"). Nació en el preview del importador: el error por fila

@@ -80,6 +80,15 @@ class CredencialFacialForm(forms.Form):
         # `CharField` ya hace `strip()` (espacios, `\r\n`): el mismo criterio
         # que `Credencial.save()` y que la puerta al comparar.
         valor = self.cleaned_data["valor"]
+        otro = self.otro_alumno_con(valor)
+        if otro is not None:
+            raise forms.ValidationError(error_valor_repetido(otro))
+        return valor
+
+    def otro_alumno_con(self, valor):
+        """El alumno del mismo gimnasio que ya tiene este id en el lector, o
+        `None`. La usa `clean_valor` y la vista, que la vuelve a correr ante un
+        `IntegrityError` para distinguir un choque real de un doble submit."""
         otra = (
             Credencial.objects.for_gimnasio(self.alumno.gimnasio)
             .filter(tipo=Credencial.Tipo.FACIAL, valor=valor)
@@ -87,12 +96,8 @@ class CredencialFacialForm(forms.Form):
             .select_related("alumno")
             .first()
         )
-        if otra is not None:
-            raise forms.ValidationError(error_valor_repetido(otra.alumno))
-        return valor
+        return otra.alumno if otra is not None else None
 
 
-def error_valor_repetido(alumno=None):
-    if alumno is None:
-        return "Ese número ya lo tiene otro alumno en el lector."
+def error_valor_repetido(alumno):
     return f"Ese número ya lo tiene {alumno} en el lector."

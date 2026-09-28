@@ -16,7 +16,7 @@ from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
 from django.contrib.sessions.models import Session
 from django.core.cache import cache
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -204,6 +204,23 @@ class ListadoDeIngresosTests(_GuardiasMixin, _BaseVistas):
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(len(respuesta.context["eventos"]), 1)
 
+    def test_fechas_en_los_extremos_del_calendario_no_dan_500(self):
+        """`hasta=9999-12-31` no tiene día siguiente: `+ timedelta(days=1)`
+        levantaba `OverflowError`. Queda sin tope."""
+        self._evento(alumno=self.alumno)
+        self._login()
+
+        for filtros, cantidad in (
+            ({"hasta": "9999-12-31"}, 1),
+            ({"desde": "9999-12-31"}, 0),
+            ({"desde": "0001-01-01", "hasta": "9999-12-31"}, 1),
+            ({"hasta": "0001-01-01"}, 0),
+        ):
+            with self.subTest(filtros):
+                respuesta = self.client.get(reverse("ingreso:listado"), filtros)
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertEqual(len(respuesta.context["eventos"]), cantidad)
+
     def test_pagina_y_conserva_los_filtros_en_los_links(self):
         for _ in range(55):
             self._evento(alumno=self.alumno)
@@ -349,16 +366,31 @@ class DispositivosTests(_GuardiasMixin, _BaseVistas):
         """La carrera del doble submit: el `clean` no lo ve, la base sí."""
         self._login()
 
-        with patch("ingreso.forms.DispositivoForm.clean_nombre", lambda f: "Puerta principal"):
+        with patch("ingreso.forms.DispositivoForm.clean_nombre", lambda f: "PUERTA principal"):
             respuesta = self.client.post(
                 reverse("ingreso:dispositivo_crear"),
-                {"nombre": "Puerta principal", "tipo": Dispositivo.Tipo.QR},
+                {"nombre": "PUERTA principal", "tipo": Dispositivo.Tipo.QR},
             )
 
         self.assertEqual(respuesta.status_code, 200)
         self.assertFormError(
             respuesta.context["form"], "nombre",
             "Ya tenés un lector con ese nombre.",
+        )
+
+    def test_la_base_tampoco_distingue_mayusculas(self):
+        """La misma regla que el form, en la base: si el `clean_nombre` no
+        corre (otro camino de alta, la carrera), «PUERTA PRINCIPAL» choca
+        igual contra «Puerta principal»."""
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Dispositivo.objects.create(
+                gimnasio=self.gimnasio, nombre="PUERTA PRINCIPAL",
+                token_hash=tokens.hash_de(tokens.generar()),
+            )
+        # En otro gimnasio, el mismo nombre sí.
+        Dispositivo.objects.create(
+            gimnasio=self.otro, nombre="PUERTA PRINCIPAL",
+            token_hash=tokens.hash_de(tokens.generar()),
         )
 
     def test_el_mismo_nombre_en_otro_gimnasio_se_puede(self):
@@ -511,7 +543,7 @@ class RotarTokenTests(_BaseVistas):
         self.puerta.refresh_from_db()
         self.assertEqual(self.puerta.token_hash, viejo)
 
-    def test_get_no_rota(self):
+    def test_get_muestra_la_confirmacion_y_no_rota(self):
         viejo = self.puerta.token_hash
         self._login()
 
@@ -519,9 +551,47 @@ class RotarTokenTests(_BaseVistas):
             reverse("ingreso:dispositivo_rotar", args=[self.puerta.pk])
         )
 
-        self.assertEqual(respuesta.status_code, 405)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTemplateUsed(respuesta, "ingreso/dispositivo_rotar_confirmar.html")
+        self.assertContains(respuesta, "deja de funcionar en el acto")
         self.puerta.refresh_from_db()
         self.assertEqual(self.puerta.token_hash, viejo)
+
+    def test_get_de_otro_gimnasio_da_404(self):
+        self._login("staff-b")
+        respuesta = self.client.get(
+            reverse("ingreso:dispositivo_rotar", args=[self.puerta.pk])
+        )
+        self.assertEqual(respuesta.status_code, 404)
+
+    def test_la_ficha_del_lector_linkea_a_la_confirmacion_sin_rotar(self):
+        """El botón de la ficha es un link (GET) a la confirmación, no un
+        form que postea directo."""
+        self._login()
+
+        respuesta = self.client.get(
+            reverse("ingreso:dispositivo_editar", args=[self.puerta.pk])
+        )
+
+        url = reverse("ingreso:dispositivo_rotar", args=[self.puerta.pk])
+        self.assertContains(respuesta, f'href="{url}"')
+        self.assertNotContains(respuesta, f'action="{url}"')
+
+    def test_con_el_lector_desactivado_la_confirmacion_y_la_clave_lo_aclaran(self):
+        Dispositivo.objects.filter(pk=self.puerta.pk).update(activo=False)
+        self._login()
+
+        confirmacion = self.client.get(
+            reverse("ingreso:dispositivo_rotar", args=[self.puerta.pk])
+        )
+        clave = self._rotar()
+
+        self.assertContains(confirmacion, "Este lector está desactivado")
+        self.assertContains(clave, "Este lector está desactivado")
+
+    def test_con_el_lector_activo_no_dice_que_esta_desactivado(self):
+        self._login()
+        self.assertNotContains(self._rotar(), "Este lector está desactivado")
 
     def test_alumno_recibe_403(self):
         self._login("alumno-a")
@@ -704,6 +774,24 @@ class CredencialQrTests(_BaseVistas):
         self.assertNotEqual(qr.valor, viejo)
         self.assertTrue(qr.activa)
 
+    def test_generar_sobre_un_qr_dado_de_baja_no_lo_reactiva(self):
+        """La baja pudo ser por una tarjeta robada: reactivar el mismo valor le
+        devolvería la puerta a quien la tiene. Se avisa y se ofrece regenerar."""
+        qr = services.generar_credencial_qr(self.alumno)
+        services.dar_de_baja_credencial(qr)
+        valor = qr.valor
+        self._login()
+
+        respuesta = self.client.post(self._url())
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTemplateUsed(respuesta, "ingreso/credencial_qr_dada_de_baja.html")
+        self.assertContains(respuesta, 'name="regenerar" value="1"')
+        self.assertContains(respuesta, f'action="{self._url()}"')
+        qr.refresh_from_db()
+        self.assertEqual((qr.valor, qr.activa), (valor, False))
+        self.assertEqual(list(get_messages(respuesta.wsgi_request)), [])
+
     def test_el_valor_no_viaja_por_messages(self):
         self._login()
 
@@ -840,6 +928,30 @@ class CredencialFacialTests(_BaseVistas):
         self.assertEqual(respuesta.status_code, 200)
         self.assertTrue(respuesta.context["form"].errors["valor"])
 
+    def test_doble_submit_del_primer_alta_no_da_un_error_falso(self):
+        """El `IntegrityError` puede ser la unicidad (gimnasio, alumno, tipo):
+        el otro request del doble submit ya guardó. No hay otro alumno con ese
+        número, así que no se inventa «ya lo tiene otro»: se vuelve a la
+        ficha."""
+        self._login()
+
+        def ya_lo_guardo_el_otro_request(alumno, valor):
+            Credencial.objects.create(
+                gimnasio=alumno.gimnasio, alumno=alumno, tipo="facial", valor=valor
+            )
+            raise IntegrityError("credencial_una_por_alumno_y_tipo")
+
+        with patch(
+            "ingreso.views.services.guardar_credencial_facial",
+            ya_lo_guardo_el_otro_request,
+        ):
+            respuesta = self.client.post(self._url(), {"valor": "42"})
+
+        self.assertRedirects(
+            respuesta, reverse("alumnos:detalle", args=[self.alumno.pk]),
+            fetch_redirect_response=False,
+        )
+
     def test_el_mismo_id_en_otro_gimnasio_se_puede(self):
         """Cada lector numera a su gente: el 42 de un gimnasio no es el del
         otro, y el error no puede revelar que existe."""
@@ -920,3 +1032,146 @@ class EntradaALaSeccionTests(_BaseVistas):
 
         base = (Path(settings.BASE_DIR) / "templates" / "base.html").read_text()
         self.assertNotIn("ingreso:", base)
+
+
+# ---------------------------------------------------------------------------
+# Secretos fuera del caché de historial de htmx
+# ---------------------------------------------------------------------------
+
+
+class SecretosFueraDelHistorialDeHtmxTests(_BaseVistas):
+    """Toda pantalla que muestra un secreto UNA vez lleva `hx-history="false"`.
+
+    Antes de navegar, htmx 2 (el que carga `base.html`) guarda el `<body>`
+    actual en `localStorage["htmx-history-cache"]`, sin vencimiento, y el
+    «atrás» lo restaura sin pedirlo al servidor: el `no-store` no alcanza. Con
+    el atributo en cualquier elemento de la página, htmx no la guarda.
+    """
+
+    ATRIBUTO = 'hx-history="false"'
+
+    def _clave_de_un_lector(self):
+        self._login()
+        return self.client.post(
+            reverse("ingreso:dispositivo_crear"),
+            {"nombre": "Molinete", "tipo": Dispositivo.Tipo.QR},
+        )
+
+    def _clave_rotada(self):
+        self._login()
+        return self.client.post(
+            reverse("ingreso:dispositivo_rotar", args=[self.puerta.pk])
+        )
+
+    def _contrasenia_de_un_alumno(self):
+        self._login()
+        return self.client.post(
+            reverse("alumnos:acceso_crear", args=[self.alumno.pk]),
+            {"tipo": "email", "identificador": "juan@ejemplo.com"},
+        )
+
+    def _contrasenia_de_un_gimnasio_nuevo(self):
+        User.objects.create_superuser("jefe", "jefe@ejemplo.com", CLAVE)
+        self.client.login(username="jefe", password=CLAVE)
+        return self.client.post(
+            reverse("plataforma:gimnasio_crear"),
+            {"nombre": "Gimnasio Nuevo", "email": "duenio@ejemplo.com"},
+        )
+
+    def test_cada_pantalla_de_secreto_queda_fuera_del_historial(self):
+        pantallas = {
+            "ingreso/dispositivo_token.html (alta)": (
+                self._clave_de_un_lector, "token"
+            ),
+            "ingreso/dispositivo_token.html (rotación)": (
+                self._clave_rotada, "token"
+            ),
+            "alumnos/acceso_credenciales.html": (
+                self._contrasenia_de_un_alumno, "password"
+            ),
+            "plataforma/gimnasio_creado.html": (
+                self._contrasenia_de_un_gimnasio_nuevo, "password"
+            ),
+        }
+        for nombre, (pedir, clave) in pantallas.items():
+            with self.subTest(nombre):
+                self.client.logout()
+                respuesta = pedir()
+                self.assertEqual(respuesta.status_code, 200)
+                # Que de verdad sea la pantalla del secreto, no un error.
+                secreto = respuesta.context[clave]
+                self.assertTrue(secreto)
+                self.assertContains(respuesta, secreto)
+                self.assertContains(respuesta, self.ATRIBUTO)
+
+
+# ---------------------------------------------------------------------------
+# Cuenta suspendida: el superadmin revoca desde /admin/
+# ---------------------------------------------------------------------------
+
+
+class RevocarDesdeElAdminTests(_BaseVistas):
+    """Con la cuenta SUSPENDIDA el dueño del gimnasio no ve las pantallas de
+    `ingreso` (riesgo aceptado 14 de la spec): un token robado lo revoca el
+    dueño del producto desde `/admin/`, destildando `activo`."""
+
+    def setUp(self):
+        super().setUp()
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            estado_cuenta=Gimnasio.EstadoCuenta.SUSPENDIDA
+        )
+        self.token = tokens.generar()
+        Dispositivo.objects.filter(pk=self.puerta.pk).update(
+            token_hash=tokens.hash_de(self.token)
+        )
+        self.puerta.refresh_from_db()
+        User.objects.create_superuser("jefe", "jefe@ejemplo.com", CLAVE)
+
+    def _padron(self):
+        return self.client.get(
+            reverse("ingreso:api_padron"), HTTP_AUTHORIZATION=f"Bearer {self.token}"
+        )
+
+    def _desactivar_desde_el_admin(self):
+        self.client.login(username="jefe", password=CLAVE)
+        respuesta = self.client.post(
+            reverse("admin:ingreso_dispositivo_change", args=[self.puerta.pk]),
+            {
+                "gimnasio": self.gimnasio.pk,
+                "nombre": self.puerta.nombre,
+                "tipo": self.puerta.tipo,
+                # `activo` ausente = destildado
+            },
+        )
+        self.client.logout()
+        return respuesta
+
+    def test_desactivado_desde_el_admin_la_api_responde_403(self):
+        self.assertEqual(self._padron().status_code, 200)
+
+        respuesta = self._desactivar_desde_el_admin()
+
+        self.assertEqual(respuesta.status_code, 302)
+        self.puerta.refresh_from_db()
+        self.assertFalse(self.puerta.activo)
+        self.assertEqual(self._padron().status_code, 403)
+
+    def test_desactivar_desde_el_admin_invalida_el_set_de_activos(self):
+        self.assertIn(self.puerta.token_hash, limites.hashes_activos())
+
+        self._desactivar_desde_el_admin()
+
+        self.assertNotIn(self.puerta.token_hash, limites.hashes_activos())
+
+    def test_el_admin_no_muestra_el_hash_del_token(self):
+        self.client.login(username="jefe", password=CLAVE)
+
+        ficha = self.client.get(
+            reverse("admin:ingreso_dispositivo_change", args=[self.puerta.pk])
+        )
+        listado = self.client.get(reverse("admin:ingreso_dispositivo_changelist"))
+
+        self.assertEqual(ficha.status_code, 200)
+        self.assertEqual(listado.status_code, 200)
+        self.assertNotContains(ficha, self.puerta.token_hash[:12])
+        self.assertNotContains(listado, self.puerta.token_hash[:12])

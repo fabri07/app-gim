@@ -2,7 +2,15 @@
 {% block title %}{{ gimnasio.nombre }} creado · Plataforma{% endblock %}
 
 {% block content %}
-<div class="tarjeta">
+{% comment %}
+  `hx-history="false"`: antes de cada navegación boosteada, htmx 2 guarda el
+  `<body>` en `localStorage["htmx-history-cache"]` (sin vencimiento) y el
+  «atrás» lo restaura sin pedirlo al servidor. Con el atributo en cualquier
+  elemento de la página, htmx no la guarda: el secreto no queda en disco y el
+  «atrás» vuelve al servidor, que responde `no-store`. Lo exige
+  `ingreso.tests_vistas.SecretosFueraDelHistorialDeHtmxTests`.
+{% endcomment %}
+<div class="tarjeta" hx-history="false">
   <h1>Gimnasio creado</h1>
 
   {% comment %}

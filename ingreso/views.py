@@ -437,9 +437,14 @@ class EventoIngresoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         if (desde := _fecha_o_nada(self.desde)) is not None:
             queryset = queryset.filter(momento__gte=_inicio_del_dia(desde))
         if (hasta := _fecha_o_nada(self.hasta)) is not None:
-            queryset = queryset.filter(
-                momento__lt=_inicio_del_dia(hasta + timedelta(days=1))
-            )
+            try:
+                limite = _inicio_del_dia(hasta + timedelta(days=1))
+            except OverflowError:
+                # `?hasta=9999-12-31`: no hay día siguiente que representar,
+                # y «hasta el fin de los tiempos» es lo mismo que sin tope.
+                limite = None
+            if limite is not None:
+                queryset = queryset.filter(momento__lt=limite)
         if self.resultado == self.FILTRO_RECHAZADOS:
             queryset = queryset.exclude(resultado=EventoIngreso.Resultado.PERMITIDO)
         elif self.resultado in EventoIngreso.Resultado.values:
@@ -547,11 +552,22 @@ class DispositivoUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
 
 @method_decorator(never_cache, name="dispatch")
 class DispositivoRotarTokenView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):
-    """POST-only: muta la llave del lector, nunca con un GET (un link o un
-    prefetch del navegador la rotarían sin querer)."""
+    """GET muestra la confirmación y SOLO el POST rota: la llave nunca cambia
+    con un GET (un link o un prefetch del navegador la rotarían sin querer).
+
+    Con confirmación, mismo espíritu que las pantallas de borrar: rotar deja
+    la puerta sin abrir hasta que alguien vaya al equipo a cargar la clave
+    nueva, y eso hay que leerlo antes de apretar."""
 
     model = Dispositivo
-    http_method_names = ["post"]
+    http_method_names = ["get", "post"]
+
+    def get(self, request, *args, **kwargs):
+        return render(
+            request,
+            "ingreso/dispositivo_rotar_confirmar.html",
+            {"dispositivo": self.get_object()},
+        )
 
     def post(self, request, *args, **kwargs):
         dispositivo = self.get_object()
@@ -616,6 +632,19 @@ class CredencialQrView(_AlumnoDelGimnasioMixin, View):
     def post(self, request, *args, **kwargs):
         alumno = self.get_alumno()
         regenerar = request.POST.get("regenerar") == "1"
+        if not regenerar:
+            actual = alumno.credenciales.filter(tipo=Credencial.Tipo.QR).first()
+            if actual is not None and not actual.activa:
+                # NO se reactiva el mismo valor: la baja pudo ser por una
+                # tarjeta robada, y reactivarlo le devolvería la puerta a quien
+                # la tiene. Un QR vuelve solo con un valor nuevo. (Un id facial
+                # sí se reactiva volviéndolo a cargar: el equipo es el que
+                # reconoce la cara, no hay nada al portador que se pueda robar.)
+                return render(
+                    request,
+                    "ingreso/credencial_qr_dada_de_baja.html",
+                    {"alumno": alumno},
+                )
         services.generar_credencial_qr(alumno, regenerar=regenerar)
         if regenerar:
             messages.success(
@@ -680,11 +709,19 @@ class CredencialFacialView(_AlumnoDelGimnasioMixin, FormView):
         return context
 
     def form_valid(self, form):
+        valor = form.cleaned_data["valor"]
         try:
-            services.guardar_credencial_facial(self.alumno, form.cleaned_data["valor"])
+            services.guardar_credencial_facial(self.alumno, valor)
         except IntegrityError:
-            form.add_error("valor", error_valor_repetido())
-            return self.form_invalid(form)
+            # Se vuelve a mirar QUÉ chocó. Si otro alumno tiene ese número, es
+            # la carrera del `clean_valor`: error de campo. Si no, chocó la
+            # unicidad (gimnasio, alumno, tipo): un doble submit del primer
+            # alta de ESTE alumno, que el otro request ya guardó -- decirle
+            # «ese número ya lo tiene otro» sería un error falso.
+            otro = form.otro_alumno_con(valor)
+            if otro is not None:
+                form.add_error("valor", error_valor_repetido(otro))
+                return self.form_invalid(form)
         messages.success(self.request, "Número del lector facial guardado.")
         return self._a_la_ficha(self.alumno)
 

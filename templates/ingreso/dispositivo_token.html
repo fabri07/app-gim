@@ -2,7 +2,15 @@
 {% block title %}Clave de {{ dispositivo.nombre }} · App Gimnasios{% endblock %}
 
 {% block content %}
-<div class="tarjeta">
+{% comment %}
+  `hx-history="false"`: antes de cada navegación boosteada, htmx 2 guarda el
+  `<body>` en `localStorage["htmx-history-cache"]` (sin vencimiento) y el
+  «atrás» lo restaura sin pedirlo al servidor. Con el atributo en cualquier
+  elemento de la página, htmx no la guarda: el secreto no queda en disco y el
+  «atrás» vuelve al servidor, que responde `no-store`. Lo exige
+  `ingreso.tests_vistas.SecretosFueraDelHistorialDeHtmxTests`.
+{% endcomment %}
+<div class="tarjeta" hx-history="false">
   <h1>{% if modo == "alta" %}Lector dado de alta{% else %}Clave nueva{% endif %}</h1>
 
   <p class="texto-suave">
@@ -12,6 +20,11 @@
     recuperarla. Si se pierde, generás una nueva desde el lector.
     {% if modo == "rotacion" %}La clave anterior ya no abre la puerta.{% endif %}
   </p>
+
+  {% if not dispositivo.activo %}
+    <p><strong>Este lector está desactivado:</strong> aunque cargues la clave,
+    no va a abrir la puerta hasta que lo vuelvas a activar desde su ficha.</p>
+  {% endif %}
 
   <table class="tabla-detalle">
     <tr>
