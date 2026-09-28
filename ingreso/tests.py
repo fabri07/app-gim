@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
 from django.test import SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 
 from alumnos.models import Alumno
 from ingreso import services, tokens
@@ -161,17 +162,45 @@ class CredencialTests(TestCase):
 
     def test_el_alta_en_bloque_saltea_a_los_que_ya_tienen_y_no_crece_en_queries(self):
         """Un gimnasio con 200 alumnos no puede clickear 200 veces, y el alta
-        no puede ser una query por alumno."""
+        no puede ser una query por alumno.
+
+        Se mide de verdad, comparando dos tamaños de conjunto con diferencia
+        real (no un `assertNumQueries` fijo, que se rompe con cambios internos
+        de Django) -- mismo molde que
+        `importaciones.tests.PreviewPlantillasEscalaTests`.
+        """
         services.generar_credencial_qr(self.alumno)
         for i in range(4):
             Alumno.objects.create(
                 gimnasio=self.gimnasio, nombre=f"A{i}", apellido="X"
             )
 
-        creadas = services.generar_credenciales_en_bloque(self.gimnasio)
+        with CaptureQueriesContext(connection) as ctx:
+            creadas = services.generar_credenciales_en_bloque(self.gimnasio)
 
         self.assertEqual(creadas, 4)
         self.assertEqual(Credencial.objects.count(), 5)
+        pocas = len(ctx)
+
+        gimnasio_grande = Gimnasio.objects.create(
+            nombre="Gimnasio Grande", slug="gimnasio-grande"
+        )
+        Alumno.objects.bulk_create(
+            Alumno(gimnasio=gimnasio_grande, nombre=f"B{i}", apellido="X")
+            for i in range(40)
+        )
+
+        with CaptureQueriesContext(connection) as ctx:
+            creadas_en_el_grande = services.generar_credenciales_en_bloque(
+                gimnasio_grande
+            )
+
+        self.assertEqual(creadas_en_el_grande, 40)
+        # `bulk_create` agrega un par de statements por lote, así que se pide
+        # O(lotes) y no igualdad exacta -- mismo criterio que
+        # `PreviewPlantillasEscalaTests.test_el_post_del_preview_no_hace_una_
+        # query_por_ejercicio_nuevo`.
+        self.assertLess(len(ctx), pocas + 5)
 
     def test_el_alta_en_bloque_no_toca_a_los_alumnos_inactivos(self):
         Alumno.objects.create(
