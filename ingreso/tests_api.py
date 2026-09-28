@@ -1,4 +1,5 @@
-"""Tests de la API de la puerta (`POST /ingreso/v1/eventos/`).
+"""Tests de la API de la puerta (`POST /ingreso/v1/eventos/` y
+`GET /ingreso/v1/padron/`).
 
 Lo que se fija acá: la autenticación por token (y que una sesión de staff no
 alcanza), la idempotencia del lote, que el lote se decide en orden cronológico
@@ -18,9 +19,10 @@ from django.urls import reverse
 from django.utils import timezone
 
 from alumnos.models import Alumno
-from ingreso import services, tokens
+from ingreso import decision, services, tokens
 from ingreso.models import (
     ConfiguracionIngreso,
+    Credencial,
     Dispositivo,
     EventoIngreso,
     obtener_configuracion,
@@ -820,4 +822,549 @@ class CostoConLasTresReglasTests(_Escala):
         chico = self._medir_ramas(self._lote(2, "chico"), 2)  # 8 eventos
         grande = self._medir_ramas(self._lote(10, "grande"), 10)  # 40
 
+        self.assertEqual(grande, chico)
+
+
+class _BasePadron(_BaseApi):
+    """El padrón: lo que el lector guarda para abrir sin internet."""
+
+    def setUp(self):
+        super().setUp()
+        # `self.url` sigue siendo la de eventos: varios tests comparan contra
+        # lo que la puerta online responde.
+        self.url_padron = reverse("ingreso:api_padron")
+
+    def _get(self, token=None, **extra):
+        cabeceras = {"HTTP_AUTHORIZATION": f"Bearer {token}"} if token else {}
+        return self.client.get(self.url_padron, **cabeceras, **extra)
+
+    def _padron(self):
+        respuesta = self._get(token=self.token)
+        self.assertEqual(respuesta.status_code, 200)
+        return respuesta.json()
+
+    def _fila(self, alumno, datos=None):
+        datos = datos or self._padron()
+        filas = [f for f in datos["alumnos"] if f["id"] == alumno.pk]
+        self.assertLessEqual(len(filas), 1)
+        return filas[0] if filas else None
+
+    def _prender_deuda(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            dias_tolerancia_pago=5, fecha_activacion_bloqueo=date(2026, 1, 1)
+        )
+        ConfiguracionIngreso.objects.filter(
+            pk=obtener_configuracion(self.gimnasio).pk
+        ).update(bloquea_por_deuda=True)
+
+    def _deber(self, alumno):
+        crear_cuota(
+            gimnasio=self.gimnasio, alumno=alumno,
+            inicio=timezone.localdate() - timedelta(days=30),
+            estado=Cuota.Estado.VENCIDO,
+        )
+
+
+class PadronAutenticacionTests(_BasePadron):
+    def test_sin_token_da_401(self):
+        self.assertEqual(self._get().status_code, 401)
+
+    def test_con_un_token_alterado_da_401(self):
+        self.assertEqual(self._get(token=self.token + "x").status_code, 401)
+
+    def test_un_lector_desactivado_da_403(self):
+        Dispositivo.objects.filter(pk=self.dispositivo.pk).update(activo=False)
+
+        self.assertEqual(self._get(token=self.token).status_code, 403)
+
+    def test_una_sesion_de_staff_no_alcanza(self):
+        staff = User.objects.create_user("staff-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.login(username="staff-a", password="clave-123456")
+
+        self.assertEqual(self._get().status_code, 401)
+
+    def test_solo_acepta_get(self):
+        respuesta = self.client.post(
+            self.url_padron, HTTP_AUTHORIZATION=f"Bearer {self.token}"
+        )
+
+        self.assertEqual(respuesta.status_code, 405)
+
+    def test_el_ultimo_contacto_se_actualiza_sin_tocar_modificado(self):
+        """El poll del padrón es el latido del lector."""
+        modificado_antes = self.dispositivo.modificado
+
+        self._get(token=self.token)
+
+        self.dispositivo.refresh_from_db()
+        self.assertIsNotNone(self.dispositivo.ultimo_contacto)
+        self.assertEqual(self.dispositivo.modificado, modificado_antes)
+
+    def test_un_304_tambien_cuenta_como_latido(self):
+        etag = self._get(token=self.token)["ETag"]
+        Dispositivo.objects.filter(pk=self.dispositivo.pk).update(
+            ultimo_contacto=None
+        )
+
+        self._get(token=self.token, HTTP_IF_NONE_MATCH=etag)
+
+        self.dispositivo.refresh_from_db()
+        self.assertIsNotNone(self.dispositivo.ultimo_contacto)
+
+
+class PadronContenidoTests(_BasePadron):
+    def test_trae_al_alumno_con_su_credencial(self):
+        datos = self._padron()
+
+        self.assertEqual(datos["alumnos"], [{
+            "id": self.alumno.pk,
+            "nombre": "Juan P.",
+            "habilitado": True,
+            "motivo": None,
+            "mensaje": "¡Hola, Juan! Pasá.",
+            "qr": self.qr.valor,
+            "id_facial": None,
+        }])
+
+    def test_el_nombre_es_el_mismo_que_muestra_la_puerta_online(self):
+        """Online y offline la pantallita tiene que decir lo mismo: sale de
+        `services.nombre_corto`, igual que la respuesta de eventos."""
+        online = self._post_eventos({"tipo": "qr", "valor": self.qr.valor})
+
+        self.assertEqual(
+            self._fila(self.alumno)["nombre"],
+            online.json()["resultados"][0]["alumno"],
+        )
+
+    def test_la_cara_y_el_qr_del_mismo_alumno_van_en_una_sola_fila(self):
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            tipo=Credencial.Tipo.FACIAL, valor="42",
+        )
+
+        datos = self._padron()
+
+        self.assertEqual(len(datos["alumnos"]), 1)
+        self.assertEqual(datos["alumnos"][0]["qr"], self.qr.valor)
+        self.assertEqual(datos["alumnos"][0]["id_facial"], "42")
+
+    def test_un_alumno_solo_con_cara_trae_qr_nulo(self):
+        ana = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gomez"
+        )
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=ana,
+            tipo=Credencial.Tipo.FACIAL, valor="7",
+        )
+
+        fila = self._fila(ana)
+
+        self.assertIsNone(fila["qr"])
+        self.assertEqual(fila["id_facial"], "7")
+
+    def test_declara_las_reglas_que_no_puede_aplicar_offline(self):
+        """El equipo con el padrón cacheado no puede exigir reserva ni aplicar
+        antipassback, y la app lo dice en vez de prometerlo."""
+        datos = self._padron()
+
+        self.assertIn("reserva", datos["reglas_no_incluidas"])
+        self.assertIn("antipassback", datos["reglas_no_incluidas"])
+
+    def test_trae_el_mensaje_para_una_credencial_desconocida(self):
+        """Offline, una credencial que no está en el padrón es la misma
+        pantalla que online da SIN_CREDENCIAL."""
+        self.assertEqual(
+            self._padron()["mensaje_sin_credencial"],
+            decision.MENSAJES[EventoIngreso.Resultado.SIN_CREDENCIAL],
+        )
+
+    def test_una_credencial_dada_de_baja_no_viaja(self):
+        """Una llave revocada no se reparte: offline no está, así que no abre."""
+        Credencial.objects.filter(pk=self.qr.pk).update(activa=False)
+
+        datos = self._padron()
+
+        self.assertEqual(datos["alumnos"], [])
+        self.assertNotIn(self.qr.valor, json.dumps(datos))
+
+    def test_la_cara_de_baja_no_viaja_pero_el_qr_activo_si(self):
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            tipo=Credencial.Tipo.FACIAL, valor="42", activa=False,
+        )
+
+        fila = self._fila(self.alumno)
+
+        self.assertEqual(fila["qr"], self.qr.valor)
+        self.assertIsNone(fila["id_facial"])
+
+    def test_el_alumno_dado_de_baja_viaja_como_no_habilitado(self):
+        Alumno.objects.filter(pk=self.alumno.pk).update(
+            estado=Alumno.Estado.INACTIVO
+        )
+
+        fila = self._fila(self.alumno)
+
+        self.assertFalse(fila["habilitado"])
+        self.assertEqual(fila["motivo"], EventoIngreso.Resultado.ALUMNO_INACTIVO)
+        self.assertEqual(
+            fila["mensaje"],
+            decision.MENSAJES[EventoIngreso.Resultado.ALUMNO_INACTIVO],
+        )
+
+    def test_el_deudor_viaja_como_no_habilitado(self):
+        self._prender_deuda()
+        self._deber(self.alumno)
+
+        fila = self._fila(self.alumno)
+
+        self.assertFalse(fila["habilitado"])
+        self.assertEqual(fila["motivo"], EventoIngreso.Resultado.DEUDA)
+        # El texto genérico, sin los días de atraso: el padrón vive en el
+        # lector hasta el próximo poll y un «hace 3 días» ahí envejece.
+        self.assertEqual(
+            fila["mensaje"], decision.MENSAJES[EventoIngreso.Resultado.DEUDA]
+        )
+
+    def test_la_deuda_no_cuenta_si_el_gimnasio_no_la_pidio_en_la_puerta(self):
+        """Misma regla que online: con `bloquea_por_deuda` apagado el que
+        debe entra, aunque el portal lo tenga bloqueado."""
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            dias_tolerancia_pago=5, fecha_activacion_bloqueo=date(2026, 1, 1)
+        )
+        self._deber(self.alumno)
+
+        self.assertTrue(self._fila(self.alumno)["habilitado"])
+
+    def test_la_baja_gana_sobre_la_deuda_igual_que_online(self):
+        self._prender_deuda()
+        self._deber(self.alumno)
+        Alumno.objects.filter(pk=self.alumno.pk).update(
+            estado=Alumno.Estado.INACTIVO
+        )
+
+        self.assertEqual(
+            self._fila(self.alumno)["motivo"],
+            EventoIngreso.Resultado.ALUMNO_INACTIVO,
+        )
+
+    def test_la_reserva_y_el_antipassback_no_deshabilitan(self):
+        """Son momentáneas: dependen de la hora de la lectura. Precomputadas
+        acá, dejarían afuera a todo el que no reservó para la hora del poll."""
+        ConfiguracionIngreso.objects.filter(
+            pk=obtener_configuracion(self.gimnasio).pk
+        ).update(exige_reserva=True, minutos_antipassback=30)
+        EventoIngreso.objects.create(
+            gimnasio=self.gimnasio, dispositivo=self.dispositivo,
+            alumno=self.alumno, credencial=self.qr,
+            resultado=EventoIngreso.Resultado.PERMITIDO,
+            momento=timezone.now() - timedelta(minutes=1),
+        )
+
+        self.assertTrue(self._fila(self.alumno)["habilitado"])
+
+
+class PadronCoherenteConLaPuertaTests(_BasePadron):
+    """Lo que el lector offline abre con el padrón es exactamente lo que la
+    puerta online abriría, salvo reserva y antipassback. Se arma un gimnasio
+    con un alumno en cada rama del árbol y se le pregunta a los DOS."""
+
+    def test_offline_abre_lo_mismo_que_online(self):
+        self._prender_deuda()
+        ConfiguracionIngreso.objects.filter(
+            pk=obtener_configuracion(self.gimnasio).pk
+        ).update(minutos_antipassback=0)
+
+        def alumno(nombre, **extra):
+            return Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=nombre, apellido="X", **extra
+            )
+
+        credenciales = [self.qr]
+        credenciales.append(Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            tipo=Credencial.Tipo.FACIAL, valor="1",
+        ))
+        deudor = alumno("Deudor")
+        self._deber(deudor)
+        credenciales.append(services.generar_credencial_qr(deudor))
+        baja = alumno("Baja", estado=Alumno.Estado.INACTIVO)
+        credenciales.append(services.generar_credencial_qr(baja))
+        revocada = services.generar_credencial_qr(alumno("Revocada"))
+        Credencial.objects.filter(pk=revocada.pk).update(activa=False)
+        credenciales.append(revocada)
+        cara_revocada = Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=alumno("CaraRevocada"),
+            tipo=Credencial.Tipo.FACIAL, valor="2", activa=False,
+        )
+        credenciales.append(cara_revocada)
+
+        datos = self._padron()
+        abre_offline = {}
+        for fila in datos["alumnos"]:
+            for tipo, clave in (("qr", "qr"), ("facial", "id_facial")):
+                if fila[clave] is not None:
+                    abre_offline[(tipo, fila[clave])] = fila["habilitado"]
+
+        for credencial in credenciales:
+            online = self._post_eventos(
+                {"tipo": credencial.tipo, "valor": credencial.valor}
+            ).json()["resultados"][0]
+            with self.subTest(alumno=credencial.alumno.nombre, tipo=credencial.tipo):
+                self.assertEqual(
+                    abre_offline.get((credencial.tipo, credencial.valor), False),
+                    online["permitido"],
+                )
+        # Y que el caso no sea trivial: hay de las dos.
+        self.assertIn(True, abre_offline.values())
+        self.assertIn(False, abre_offline.values())
+
+
+class PadronAislamientoTests(_BasePadron):
+    def setUp(self):
+        super().setUp()
+        self.otro = Gimnasio.objects.create(nombre="B", slug="b")
+        self.ajeno = Alumno.objects.create(
+            gimnasio=self.otro, nombre="Ana", apellido="Gomez"
+        )
+        self.qr_ajeno = services.generar_credencial_qr(self.ajeno)
+        # El mismo id facial en los dos gimnasios: la unicidad es por
+        # gimnasio, así que es legal y es justo el caso que confundiría un
+        # filtro por valor sin gimnasio.
+        for gimnasio, alumno in (
+            (self.gimnasio, self.alumno), (self.otro, self.ajeno)
+        ):
+            Credencial.objects.create(
+                gimnasio=gimnasio, alumno=alumno,
+                tipo=Credencial.Tipo.FACIAL, valor="42",
+            )
+
+    def test_el_padron_no_trae_alumnos_ni_credenciales_del_otro(self):
+        respuesta = self._get(token=self.token)
+        datos = respuesta.json()
+
+        self.assertEqual([f["id"] for f in datos["alumnos"]], [self.alumno.pk])
+        self.assertNotIn(self.qr_ajeno.valor, respuesta.content.decode())
+        self.assertNotIn("Ana", respuesta.content.decode())
+
+    def test_el_token_del_otro_gimnasio_trae_SU_padron(self):
+        token_ajeno = tokens.generar()
+        Dispositivo.objects.create(
+            gimnasio=self.otro, nombre="Puerta B",
+            token_hash=tokens.hash_de(token_ajeno),
+        )
+
+        datos = self._get(token=token_ajeno).json()
+
+        self.assertEqual([f["id"] for f in datos["alumnos"]], [self.ajeno.pk])
+        self.assertEqual(datos["alumnos"][0]["qr"], self.qr_ajeno.valor)
+
+    def test_la_deuda_del_otro_gimnasio_no_toca_este_padron(self):
+        """`bloqueados_entre` recibe el gimnasio: una cuota impaga de otro
+        tenant no deshabilita a nadie acá."""
+        self._prender_deuda()
+        crear_cuota(
+            gimnasio=self.otro, alumno=self.ajeno,
+            inicio=timezone.localdate() - timedelta(days=30),
+            estado=Cuota.Estado.VENCIDO,
+        )
+
+        self.assertTrue(self._fila(self.alumno)["habilitado"])
+
+
+class PadronDatosPersonalesTests(_BasePadron):
+    """El padrón queda escrito en la memoria de un equipo de terceros: lleva
+    las llaves (es su razón de ser) y nada más."""
+
+    def test_no_lleva_datos_personales_ni_de_pago(self):
+        Alumno.objects.filter(pk=self.alumno.pk).update(
+            apellido="Zabaleta-Unico",
+            email="juan.secreto@correo-privado.com",
+            telefono="+5491155550199",
+            fecha_nacimiento=date(1987, 3, 14),
+            observaciones="nota-interna-del-staff",
+            discapacidad_detalle="detalle-de-salud-1",
+            enfermedad_cronica_detalle="detalle-de-salud-2",
+            deportes_practica="deporte-privado",
+        )
+        self._prender_deuda()
+        crear_cuota(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            inicio=timezone.localdate() - timedelta(days=30),
+            estado=Cuota.Estado.VENCIDO, monto=98765,
+        )
+
+        respuesta = self._get(token=self.token)
+        cuerpo = respuesta.content.decode()
+
+        for dato in (
+            "Zabaleta", "juan.secreto", "5550199", "1987", "nota-interna",
+            "detalle-de-salud", "deporte-privado", "98765",
+            self.dispositivo.token_hash, self.token,
+        ):
+            with self.subTest(dato=dato):
+                self.assertNotIn(dato, cuerpo)
+        self.assertEqual(set(respuesta.json()), {
+            "version", "reglas_no_incluidas", "mensaje_sin_credencial",
+            "alumnos",
+        })
+        self.assertEqual(set(respuesta.json()["alumnos"][0]), {
+            "id", "nombre", "habilitado", "motivo", "mensaje", "qr",
+            "id_facial",
+        })
+        self.assertEqual(respuesta.json()["alumnos"][0]["nombre"], "Juan Z.")
+
+
+class PadronCacheTests(_BasePadron):
+    def test_el_etag_es_la_version_entre_comillas(self):
+        respuesta = self._get(token=self.token)
+
+        self.assertEqual(respuesta["ETag"], f'"{respuesta.json()["version"]}"')
+
+    def test_un_padron_sin_cambios_responde_304(self):
+        primera = self._get(token=self.token)
+
+        segunda = self._get(token=self.token, HTTP_IF_NONE_MATCH=primera["ETag"])
+
+        self.assertEqual(segunda.status_code, 304)
+        self.assertEqual(segunda.content, b"")
+        self.assertEqual(segunda["ETag"], primera["ETag"])
+
+    def test_el_etag_debilitado_por_un_proxy_tambien_da_304(self):
+        """Cloudflare pasa a `W/` el ETag de una respuesta que comprime: el
+        puente lo devuelve así y tiene que seguir valiendo."""
+        etag = self._get(token=self.token)["ETag"]
+
+        segunda = self._get(token=self.token, HTTP_IF_NONE_MATCH=f"W/{etag}")
+
+        self.assertEqual(segunda.status_code, 304)
+
+    def test_la_version_sin_comillas_tambien_da_304(self):
+        """Un puente que guarda `version` del cuerpo y la manda pelada."""
+        version = self._padron()["version"]
+
+        segunda = self._get(token=self.token, HTTP_IF_NONE_MATCH=version)
+
+        self.assertEqual(segunda.status_code, 304)
+
+    def test_un_etag_viejo_trae_el_padron_nuevo(self):
+        etag = self._get(token=self.token)["ETag"]
+        Alumno.objects.filter(pk=self.alumno.pk).update(
+            estado=Alumno.Estado.INACTIVO
+        )
+
+        segunda = self._get(token=self.token, HTTP_IF_NONE_MATCH=etag)
+
+        self.assertEqual(segunda.status_code, 200)
+        self.assertFalse(segunda.json()["alumnos"][0]["habilitado"])
+        self.assertNotEqual(segunda["ETag"], etag)
+
+    def test_la_version_cambia_con_lo_que_el_lector_guarda(self):
+        v1 = self._padron()["version"]
+        services.generar_credencial_qr(self.alumno, regenerar=True)
+
+        self.assertNotEqual(self._padron()["version"], v1)
+
+    def test_la_version_es_estable_si_nada_cambio(self):
+        self.assertEqual(self._padron()["version"], self._padron()["version"])
+
+    def test_no_queda_en_caches_intermedios(self):
+        """El padrón son las llaves de la puerta y Cloudflare proxea el sitio:
+        ni el 200 ni el 304 pueden quedar guardados en el edge."""
+        primera = self._get(token=self.token)
+        segunda = self._get(token=self.token, HTTP_IF_NONE_MATCH=primera["ETag"])
+
+        for respuesta in (primera, segunda):
+            with self.subTest(status=respuesta.status_code):
+                self.assertIn("no-store", respuesta["Cache-Control"])
+                self.assertIn("private", respuesta["Cache-Control"])
+
+
+class PadronConLaCuentaSuspendidaTests(_BasePadron):
+    """La mitad offline de "la puerta sigue abriendo aunque el gimnasio no
+    pague la app": si el padrón dejara de refrescarse, la puerta abriría hoy
+    y dejaría de abrir mañana. El cliente no se loguea: el lector no tiene
+    cookie."""
+
+    def test_el_padron_responde_con_la_cuenta_suspendida(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            estado_cuenta=Gimnasio.EstadoCuenta.SUSPENDIDA
+        )
+
+        respuesta = self._get(token=self.token)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.json()["alumnos"][0]["habilitado"])
+
+    def test_no_setea_ninguna_cookie(self):
+        respuesta = self._get(token=self.token)
+
+        self.assertEqual(dict(respuesta.cookies), {})
+
+
+class PadronCostoTests(_BasePadron):
+    """El costo no crece con el padrón. Crece lo que de verdad multiplica el
+    costo: alumnos DISTINTOS, con QR y cara, repartidos entre habilitados,
+    deudores y dados de baja, con la regla de deuda prendida. `habilitado` se
+    anota con `bloqueados_entre` (una query), nunca con `bloqueo_de` por
+    fila."""
+
+    def setUp(self):
+        super().setUp()
+        self._prender_deuda()
+
+    def _poblar(self, por_rama, prefijo):
+        for rama in ("al_dia", "deudor", "baja"):
+            for i in range(por_rama):
+                alumno = Alumno.objects.create(
+                    gimnasio=self.gimnasio, nombre=f"{rama}{prefijo}{i}",
+                    apellido="X",
+                    estado=(
+                        Alumno.Estado.INACTIVO if rama == "baja"
+                        else Alumno.Estado.ACTIVO
+                    ),
+                )
+                services.generar_credencial_qr(alumno)
+                Credencial.objects.create(
+                    gimnasio=self.gimnasio, alumno=alumno,
+                    tipo=Credencial.Tipo.FACIAL, valor=f"{prefijo}-{rama}-{i}",
+                )
+                if rama == "deudor":
+                    self._deber(alumno)
+
+    def _medir(self):
+        with CaptureQueriesContext(connection) as ctx:
+            respuesta = self._get(token=self.token)
+        self.assertEqual(respuesta.status_code, 200)
+        return len(ctx), respuesta.json()["alumnos"]
+
+    def _motivos(self, filas):
+        conteo = {}
+        for fila in filas:
+            conteo[fila["motivo"]] = conteo.get(fila["motivo"], 0) + 1
+        return conteo
+
+    def test_el_costo_no_crece_con_la_cantidad_de_alumnos(self):
+        self._medir()  # costos de primera vez (la fila de configuración)
+        self._poblar(2, "chico")
+        chico, filas_chico = self._medir()
+        self._poblar(13, "grande")
+        grande, filas_grande = self._medir()
+
+        # Sin esto, un padrón vacío por un filtro roto pasaría el test.
+        self.assertEqual(self._motivos(filas_chico), {
+            None: 3,
+            EventoIngreso.Resultado.DEUDA: 2,
+            EventoIngreso.Resultado.ALUMNO_INACTIVO: 2,
+        })
+        self.assertEqual(self._motivos(filas_grande), {
+            None: 16,
+            EventoIngreso.Resultado.DEUDA: 15,
+            EventoIngreso.Resultado.ALUMNO_INACTIVO: 15,
+        })
+        self.assertEqual(sum(1 for f in filas_grande if f["qr"]), 46)
+        self.assertEqual(sum(1 for f in filas_grande if f["id_facial"]), 45)
         self.assertEqual(grande, chico)

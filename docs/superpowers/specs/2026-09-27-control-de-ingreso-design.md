@@ -333,10 +333,18 @@ necesita: 401 = revisá el token, 403 = el gimnasio apagó este lector.
 #### `GET /ingreso/v1/padron/`
 
     {"version": "…", "reglas_no_incluidas": ["reserva", "antipassback"],
+     "mensaje_sin_credencial": "Credencial no reconocida. Pasá por el mostrador.",
      "alumnos": [{"id": 12, "nombre": "Juan P.", "habilitado": true,
+                  "motivo": null, "mensaje": "¡Hola, Juan! Pasá.",
                   "qr": "…", "id_facial": "42"}]}
 
-Con `ETag` igual a `version` y `304` ante `If-None-Match`. Es lo que hace
+Con `ETag` igual a `version` (entre comillas) y `304` ante `If-None-Match`, que
+acepta también la versión debilitada por un proxy (`W/"…"`) o pelada. `motivo`
+es el `resultado` que daría online (`alumno_inactivo` o `deuda`, `null` si
+pasa) y `mensaje` el texto de la pantalla, de `decision.MENSAJES` (el de deuda,
+sin los días de atraso). Una credencial dada de baja no viaja: offline es una
+desconocida. Responde con `Cache-Control: no-store, private` (el 200 y el 304):
+son las llaves de la puerta y el sitio va proxeado por Cloudflare. Es lo que hace
 funcionar al lector **offline** y lo que el puente usa para dar de alta y de baja
 usuarios en el equipo facial. `habilitado` es la decisión de la puerta **menos**
 antipassback y reserva, que son momentáneos y no se pueden precomputar.

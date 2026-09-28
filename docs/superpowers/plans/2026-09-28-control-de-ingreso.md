@@ -2736,6 +2736,19 @@ de este plan; el código manda):
   aceptado 11 de la spec).
 - El esquema `Bearer` no distingue mayúsculas.
 
+**Notas que dejó la Tarea 8** (padrón):
+
+- Cada fila trae además `motivo` (`null`, `"alumno_inactivo"` o `"deuda"`) y
+  `mensaje` (el texto de la pantalla), y el cuerpo trae
+  `mensaje_sin_credencial`: con eso el lector offline muestra lo mismo que
+  online. El de deuda es el genérico, sin los días.
+- Una credencial dada de baja no viaja; un alumno sin ninguna credencial
+  activa no figura. El puente debe dar de baja del equipo facial a quien ya no
+  figura, y bloquear (no borrar) a quien viene con `habilitado: false`.
+- El `ETag` va entre comillas; el 304 acepta `W/"…"` y la versión pelada.
+- `Cache-Control: no-store`: el puente guarda su copia y manda
+  `If-None-Match`; ningún intermediario la guarda.
+
 ---
 
 ### Task 18: Documentación del proyecto

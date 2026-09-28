@@ -1,10 +1,13 @@
-"""Las escrituras del control de ingreso. Las vistas no escriben."""
+"""Las escrituras del control de ingreso, y el padrón. Las vistas no escriben."""
+
+import hashlib
+import json
 
 from django.db import transaction
 
 from alumnos.models import Alumno
 from ingreso import tokens
-from ingreso.models import Credencial, EventoIngreso
+from ingreso.models import Credencial, EventoIngreso, obtener_configuracion
 
 LARGO_DETALLE = EventoIngreso._meta.get_field("detalle").max_length
 
@@ -220,3 +223,109 @@ def registrar_lote(dispositivo, lecturas):
     # que la respuesta sale de `decidir()` y nunca de lo que devuelve esto.
     EventoIngreso.objects.bulk_create(a_crear, ignore_conflicts=True)
     return respuestas
+
+
+REGLAS_NO_INCLUIDAS = ["reserva", "antipassback"]
+"""Lo que el equipo NO puede aplicar con el padrón cacheado, declarado en la
+respuesta. Son momentáneas: dependen de la hora exacta de la lectura y de los
+eventos que el equipo todavía no subió, así que no se pueden precomputar. Van
+siempre, estén o no prendidas: es la lista de lo que el padrón no contempla,
+no de lo que este gimnasio configuró. La pantalla de configuración dice lo
+mismo al lado de los dos checkboxes (riesgo aceptado 4 de la spec)."""
+
+LARGO_VERSION_PADRON = 32
+
+
+def padron_de(gimnasio):
+    """Quién puede entrar, para que el lector funcione sin internet.
+
+    **`habilitado` es el árbol de `decision.decidir` menos reserva y
+    antipassback**, y se arma con las mismas piezas para que online y offline
+    no puedan divergir: la baja del alumno antes que la deuda, la deuda por
+    `acceso.bloqueados_entre` (la misma regla que el portal y que la puerta
+    online, que dice que es el único lugar donde vive) y solo si el gimnasio
+    prendió `bloquea_por_deuda`. Una credencial dada de baja **no viaja**: una
+    llave revocada no se reparte, y offline es lo mismo que una desconocida.
+    El texto de la pantalla sale de `decision.MENSAJES`; el de DEUDA es el
+    genérico (sin «hace N días»), porque el padrón vive en el lector hasta el
+    próximo poll y los días envejecen ahí adentro -- y cambiarían la versión
+    todos los días.
+
+    **Queries fijas, no una por alumno**: la configuración, las credenciales
+    con su alumno, y los deudores con `bloqueados_entre` (una sola, con el
+    mismo `Exists(OuterRef)` de `contar_bloqueados`). Llamar a `bloqueo_de` por
+    fila acá es el N+1 que este proyecto ya pagó con un 502, y es peor que en
+    una pantalla: el lector pollea esto cada pocos minutos.
+
+    **Solo lleva lo necesario**: el padrón queda escrito en la memoria de un
+    equipo de terceros. Nombre corto («Juan P.», el mismo `nombre_corto` que la
+    respuesta online), si puede pasar y las llaves; nunca email, teléfono,
+    datos de salud ni de pago. El `.only()` lo cumple ya desde la query: esos
+    campos ni se traen a memoria.
+    """
+    from pagos import acceso
+
+    from ingreso.decision import MENSAJES, mensaje_de
+
+    config = obtener_configuracion(gimnasio)
+    # `order_by` por pk y no por apellido: la versión es el hash del
+    # contenido, así que el orden tiene que ser total (dos «Juan Pérez»
+    # empatarían) y no puede depender de un campo que no viaja.
+    credenciales = list(
+        Credencial.objects.for_gimnasio(gimnasio)
+        .filter(activa=True)
+        .select_related("alumno")
+        .only(
+            "tipo", "valor", "alumno",
+            "alumno__nombre", "alumno__apellido", "alumno__estado",
+        )
+        .order_by("alumno_id", "tipo")
+    )
+    alumnos = list({c.alumno_id: c.alumno for c in credenciales}.values())
+    bloqueados = (
+        acceso.bloqueados_entre(gimnasio, alumnos)
+        if config.bloquea_por_deuda else {}
+    )
+
+    por_alumno = {}
+    for credencial in credenciales:
+        alumno = credencial.alumno
+        fila = por_alumno.get(alumno.pk)
+        if fila is None:
+            # Mismo orden que `decidir`: la baja gana sobre la deuda.
+            if alumno.estado != Alumno.Estado.ACTIVO:
+                motivo = EventoIngreso.Resultado.ALUMNO_INACTIVO
+            elif alumno.pk in bloqueados:
+                motivo = EventoIngreso.Resultado.DEUDA
+            else:
+                motivo = None
+            fila = por_alumno[alumno.pk] = {
+                "id": alumno.pk,
+                "nombre": nombre_corto(alumno),
+                "habilitado": motivo is None,
+                "motivo": motivo and str(motivo),
+                # `mensaje_de` es el texto de un veredicto ya decidido: el
+                # saludo si pasa, el genérico de `MENSAJES` si no.
+                "mensaje": mensaje_de(
+                    motivo or EventoIngreso.Resultado.PERMITIDO, alumno
+                ),
+                "qr": None,
+                "id_facial": None,
+            }
+        clave = "qr" if credencial.tipo == Credencial.Tipo.QR else "id_facial"
+        fila[clave] = credencial.valor
+
+    cuerpo = {
+        "reglas_no_incluidas": REGLAS_NO_INCLUIDAS,
+        "mensaje_sin_credencial": MENSAJES[EventoIngreso.Resultado.SIN_CREDENCIAL],
+        "alumnos": list(por_alumno.values()),
+    }
+    # La versión es el hash del contenido y no `max(modificado)`: cambia
+    # exactamente cuando cambia lo que el lector tiene que guardar, ni antes ni
+    # después (dar de baja un alumno o que se atrase con la cuota cambia su
+    # `habilitado` sin tocar ninguna credencial).
+    serializado = json.dumps(cuerpo, sort_keys=True, ensure_ascii=False)
+    cuerpo["version"] = hashlib.sha256(
+        serializado.encode()
+    ).hexdigest()[:LARGO_VERSION_PADRON]
+    return cuerpo

@@ -8,10 +8,12 @@ escriben: el registro vive en `ingreso/services.py`.
 import json
 from datetime import timedelta
 
-from django.http import JsonResponse
+from django.http import HttpResponseNotModified, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.cache import add_never_cache_headers
 from django.utils.decorators import method_decorator
+from django.utils.http import quote_etag
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
@@ -214,6 +216,35 @@ def _parsear(cuerpo):
     return entradas
 
 
+def _lector_del_request(request):
+    """`(dispositivo, None)` si el token es bueno, o `(None, respuesta)` con el
+    401/403 listo. Compartido por las dos vistas de la API para que no puedan
+    divergir en qué es un token válido.
+
+    Todo request autenticado es además el latido del lector (no hay endpoint
+    aparte): `update()` para no tocar `modificado`.
+    """
+    try:
+        dispositivo = auth.dispositivo_autenticado(request)
+    except auth.LectorDesactivado:
+        return None, JsonResponse({"error": "lector desactivado"}, status=403)
+    except auth.ErrorDeAutenticacion:
+        return None, JsonResponse({"error": "token invalido"}, status=401)
+    Dispositivo.objects.filter(pk=dispositivo.pk).update(
+        ultimo_contacto=timezone.now()
+    )
+    return dispositivo, None
+
+
+def _etag_sin_envoltorio(etag):
+    """`W/"abc"`, `"abc"` y `abc` son la misma versión. Cloudflare debilita
+    (`W/`) el ETag de una respuesta que comprime, y un puente simple puede
+    guardar la `version` del cuerpo y mandarla pelada."""
+    if etag.startswith("W/"):
+        etag = etag[2:]
+    return etag.strip('"')
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class EventosApiView(View):
     """Lo que el molinete llama en cada lectura, y lo que le sube el lote
@@ -229,17 +260,9 @@ class EventosApiView(View):
     http_method_names = ["post"]
 
     def post(self, request):
-        try:
-            dispositivo = auth.dispositivo_autenticado(request)
-        except auth.LectorDesactivado:
-            return JsonResponse({"error": "lector desactivado"}, status=403)
-        except auth.ErrorDeAutenticacion:
-            return JsonResponse({"error": "token invalido"}, status=401)
-
-        # Heartbeat: `update()` para no tocar `modificado`.
-        Dispositivo.objects.filter(pk=dispositivo.pk).update(
-            ultimo_contacto=timezone.now()
-        )
+        dispositivo, rechazo = _lector_del_request(request)
+        if rechazo is not None:
+            return rechazo
 
         try:
             entradas = _parsear(request.body)
@@ -261,3 +284,43 @@ class EventosApiView(View):
             next(decididas) if isinstance(e, Lectura) else e for e in entradas
         ]
         return JsonResponse({"resultados": resultados})
+
+
+class PadronApiView(View):
+    """El padrón que el lector guarda para abrir sin internet, y que el
+    puente usa para dar de alta y de baja usuarios en un equipo facial.
+
+    Sin `csrf_exempt`: es un GET, CSRF no lo mira. Igual que eventos, ignora
+    `request.user` y no toca la sesión, así que el middleware de plataforma no
+    le corta el paso ni le cuelga una cookie a un gimnasio con la cuenta
+    suspendida: la puerta sigue abriendo aunque el gimnasio no pague la app.
+
+    **`no-store` en el 200 y en el 304.** El sitio va proxeado por Cloudflare
+    y esto son las llaves de la puerta: un 200 cacheado en el edge (una regla
+    de caché de la zona alcanza) se lo serviría a cualquiera que pida la URL,
+    con o sin token. No impide el `ETag`/304: el que guarda la copia es el
+    lector, no un intermediario.
+    """
+
+    http_method_names = ["get"]
+
+    def get(self, request):
+        dispositivo, rechazo = _lector_del_request(request)
+        if rechazo is not None:
+            return rechazo
+
+        padron = services.padron_de(dispositivo.gimnasio)
+        etag = quote_etag(padron["version"])
+        # A mano y no con `django.utils.http.parse_etags`, que descarta sin
+        # avisar una versión mandada sin comillas.
+        pedidos = {
+            _etag_sin_envoltorio(e.strip())
+            for e in request.META.get("HTTP_IF_NONE_MATCH", "").split(",")
+        }
+        if "*" in pedidos or padron["version"] in pedidos:
+            respuesta = HttpResponseNotModified()
+        else:
+            respuesta = JsonResponse(padron)
+        respuesta["ETag"] = etag
+        add_never_cache_headers(respuesta)
+        return respuesta
