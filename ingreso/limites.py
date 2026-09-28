@@ -52,7 +52,7 @@ from solicitudes.antispam import ip_de
 __all__ = [
     "ip_de", "demasiados_intentos_fallidos", "anotar_fallo",
     "hashes_activos", "puede_ser_un_lector", "cupo_diario_excedido",
-    "sumar_al_cupo", "segundos_hasta_medianoche",
+    "sumar_al_cupo", "segundos_hasta_medianoche", "olvidar_lectores_activos",
 ]
 
 MAX_FALLOS_POR_MINUTO = 30
@@ -122,6 +122,19 @@ def hashes_activos():
         )
         cache.set(CLAVE_SET_ACTIVOS, hashes, timeout=SEGUNDOS_SET_ACTIVOS)
     return hashes
+
+
+def olvidar_lectores_activos():
+    """Tira el set cacheado para que la próxima consulta lo recalcule. Lo
+    llama toda escritura que cambia un `token_hash` o un `activo` (alta,
+    rotación, desactivar, reactivar): sin esto, durante un minuto el token
+    rotado seguiría pasando el freno por IP y el lector nuevo o reactivado
+    recibiría 429 si la IP del gimnasio está frenada.
+
+    Es por proceso (`LocMemCache`, ver el docstring del módulo): con un solo
+    worker de gunicorn alcanza; con más, los otros se enteran al vencer su
+    copia, dentro de `SEGUNDOS_SET_ACTIVOS`."""
+    cache.delete(CLAVE_SET_ACTIVOS)
 
 
 def puede_ser_un_lector(token_hash):

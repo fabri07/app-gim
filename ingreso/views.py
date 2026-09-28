@@ -6,20 +6,43 @@ escriben: el registro vive en `ingreso/services.py`.
 """
 
 import json
-from datetime import timedelta
+from datetime import date, datetime, time, timedelta
 
+from django.contrib import messages
+from django.db import IntegrityError, transaction
 from django.http import HttpResponseNotModified, JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse_lazy
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 from django.utils.cache import add_never_cache_headers
+from django.utils.dateparse import parse_datetime
 from django.utils.decorators import method_decorator
 from django.utils.http import quote_etag
 from django.views import View
+from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
+from django.views.generic import CreateView, FormView, ListView, UpdateView
+from django.views.generic.detail import SingleObjectMixin
 
+from alumnos.models import Alumno
+from core.mixins import TenantScopedMixin
 from ingreso import auth, limites, services
 from ingreso.decision import Lectura
-from ingreso.models import Credencial, Dispositivo, EventoIngreso
+from ingreso.forms import (
+    ERROR_NOMBRE_REPETIDO,
+    ConfiguracionIngresoForm,
+    CredencialFacialForm,
+    DispositivoForm,
+    error_valor_repetido,
+)
+from ingreso.models import (
+    ConfiguracionIngreso,
+    Credencial,
+    Dispositivo,
+    EventoIngreso,
+    obtener_configuracion,
+)
+from tenants.mixins import StaffRequiredMixin
 
 LARGO_ID_EVENTO_EQUIPO = EventoIngreso._meta.get_field("id_evento_equipo").max_length
 
@@ -359,3 +382,321 @@ class PadronApiView(View):
         respuesta["ETag"] = etag
         add_never_cache_headers(respuesta)
         return respuesta
+
+
+# ---------------------------------------------------------------------------
+# Pantallas de staff
+#
+# A diferencia de la API, éstas SÍ pasan por `PlataformaMiddleware`: `ingreso`
+# no está en `APPS_SIN_BLOQUEO`, así que con la cuenta congelada el dueño ve el
+# cartel igual que en el resto del panel mientras la puerta sigue abriendo
+# (`tests_vistas.py::PantallasConLaCuentaSuspendidaTests`). No se agrega
+# ningún ítem al nav: se entra desde «Mi gimnasio» y desde el dashboard.
+# ---------------------------------------------------------------------------
+
+
+def _fecha_o_nada(texto):
+    """Una fecha `AAAA-MM-DD` o `None`: un filtro mal tipeado se ignora en vez
+    de dar 500 (mismo criterio que `pagos/views.py`)."""
+    try:
+        return date.fromisoformat(texto) if texto else None
+    except ValueError:
+        return None
+
+
+def _inicio_del_dia(dia):
+    """Medianoche LOCAL de `dia`, con zona. Filtrar por `momento__date` o
+    comparar contra medianoche UTC corre el corte tres horas: un ingreso a las
+    22:30 de Buenos Aires ya es el día siguiente en UTC."""
+    return timezone.make_aware(datetime.combine(dia, time.min))
+
+
+class EventoIngresoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
+    """Quién pasó por la puerta, y quién intentó y no pudo.
+
+    **Costo fijo**: `select_related` del alumno y del lector (sin eso, cada
+    fila son dos queries) más una para el desplegable de alumnos y las dos de
+    la paginación. `ListView` pagina con `COUNT` + `LIMIT`, así que la tabla
+    puede crecer sin techo sin que la pantalla lo pague.
+    """
+
+    model = EventoIngreso
+    template_name = "ingreso/evento_list.html"
+    context_object_name = "eventos"
+    paginate_by = 50
+
+    FILTRO_RECHAZADOS = "rechazados"
+
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related("alumno", "dispositivo")
+        self.desde = self.request.GET.get("desde", "")
+        self.hasta = self.request.GET.get("hasta", "")
+        self.resultado = self.request.GET.get("resultado", "")
+        self.alumno_id = self.request.GET.get("alumno", "")
+
+        if (desde := _fecha_o_nada(self.desde)) is not None:
+            queryset = queryset.filter(momento__gte=_inicio_del_dia(desde))
+        if (hasta := _fecha_o_nada(self.hasta)) is not None:
+            queryset = queryset.filter(
+                momento__lt=_inicio_del_dia(hasta + timedelta(days=1))
+            )
+        if self.resultado == self.FILTRO_RECHAZADOS:
+            queryset = queryset.exclude(resultado=EventoIngreso.Resultado.PERMITIDO)
+        elif self.resultado in EventoIngreso.Resultado.values:
+            queryset = queryset.filter(resultado=self.resultado)
+        if self.alumno_id.isdigit():
+            # Sobre el queryset YA acotado al gimnasio: el pk de un alumno
+            # ajeno filtra a cero filas, no muestra las suyas.
+            queryset = queryset.filter(alumno_id=int(self.alumno_id))
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            desde_actual=self.desde,
+            hasta_actual=self.hasta,
+            resultado_actual=self.resultado,
+            alumno_actual=self.alumno_id,
+            resultados=EventoIngreso.Resultado.choices,
+            filtro_rechazados=self.FILTRO_RECHAZADOS,
+            # Una query, sin traer más que lo que muestra el desplegable.
+            alumnos=Alumno.objects.for_gimnasio(self.gimnasio)
+            .order_by("apellido", "nombre")
+            .only("pk", "nombre", "apellido"),
+            hay_filtros=any(
+                (self.desde, self.hasta, self.resultado, self.alumno_id)
+            ),
+        )
+        return context
+
+
+class DispositivoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
+    """Los lectores del gimnasio, activos e inactivos: los inactivos se listan
+    para poder reactivarlos. Sin `DeleteView`: se desactiva destildando
+    `activo`, y el `PROTECT` de los eventos lo respalda."""
+
+    model = Dispositivo
+    template_name = "ingreso/dispositivo_list.html"
+    context_object_name = "dispositivos"
+
+
+def _render_token(request, dispositivo, token, modo):
+    """La pantalla de «esto se ve una sola vez», compartida por el alta y la
+    rotación. Mismo patrón que `alumnos/views.py::_render_credenciales`: un
+    200 que NO redirige (el token no puede viajar por `messages`, que se
+    serializa en la sesión, que vive en la base). `never_cache` ya está sobre
+    el `dispatch` de las dos vistas; se repite acá para que ninguna salida que
+    muestre un token pueda olvidarlo."""
+    respuesta = render(
+        request,
+        "ingreso/dispositivo_token.html",
+        {"dispositivo": dispositivo, "token": token, "modo": modo},
+    )
+    add_never_cache_headers(respuesta)
+    return respuesta
+
+
+@method_decorator(never_cache, name="dispatch")
+class DispositivoCreateView(StaffRequiredMixin, TenantScopedMixin, CreateView):
+    """El POST exitoso responde el token en un 200: es la única vez que se
+    puede leer. El F5 sobre ese POST crea... nada: el nombre ya está tomado y
+    el formulario lo dice."""
+
+    model = Dispositivo
+    form_class = DispositivoForm
+    template_name = "ingreso/dispositivo_form.html"
+
+    def form_valid(self, form):
+        try:
+            dispositivo, token = services.crear_dispositivo(
+                self.gimnasio,
+                nombre=form.cleaned_data["nombre"],
+                tipo=form.cleaned_data["tipo"],
+            )
+        except IntegrityError:
+            # La carrera del doble submit (el form va boosteado por htmx): el
+            # `clean_nombre` no la ve y la base sí.
+            form.add_error("nombre", ERROR_NOMBRE_REPETIDO)
+            return self.form_invalid(form)
+        return _render_token(self.request, dispositivo, token, "alta")
+
+
+@method_decorator(never_cache, name="dispatch")
+class DispositivoUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
+    """Nombre, tipo y `activo`. El token NO se muestra acá nunca: la base solo
+    tiene el hash. Para uno nuevo está «Generar un token nuevo»
+    (`DispositivoRotarTokenView`)."""
+
+    model = Dispositivo
+    form_class = DispositivoForm
+    template_name = "ingreso/dispositivo_form.html"
+    success_url = reverse_lazy("ingreso:dispositivos")
+
+    def form_valid(self, form):
+        try:
+            with transaction.atomic():
+                self.object = form.save()
+        except IntegrityError:
+            form.add_error("nombre", ERROR_NOMBRE_REPETIDO)
+            return self.form_invalid(form)
+        # Desactivar o reactivar cambia quién está en el set del freno por IP.
+        limites.olvidar_lectores_activos()
+        messages.success(self.request, f"Lector «{self.object.nombre}» actualizado.")
+        return redirect(self.get_success_url())
+
+
+@method_decorator(never_cache, name="dispatch")
+class DispositivoRotarTokenView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):
+    """POST-only: muta la llave del lector, nunca con un GET (un link o un
+    prefetch del navegador la rotarían sin querer)."""
+
+    model = Dispositivo
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        dispositivo = self.get_object()
+        token = services.rotar_token(dispositivo)
+        return _render_token(request, dispositivo, token, "rotacion")
+
+
+class ConfiguracionIngresoView(StaffRequiredMixin, UpdateView):
+    """La fila única de la puerta del gimnasio. Molde de
+    `turnos/views.py::ConfiguracionTurnosView`: sin pk en la URL y sin
+    `TenantScopedMixin`, porque `get_object` solo puede resolver la del propio
+    gimnasio."""
+
+    model = ConfiguracionIngreso
+    form_class = ConfiguracionIngresoForm
+    template_name = "ingreso/configuracion_form.html"
+    success_url = reverse_lazy("ingreso:configuracion")
+
+    @property
+    def gimnasio(self):
+        return self.request.user.perfil.gimnasio
+
+    def get_object(self, queryset=None):
+        return obtener_configuracion(self.gimnasio)
+
+    def form_valid(self, form):
+        respuesta = super().form_valid(form)
+        messages.success(self.request, "Configuración de la puerta guardada.")
+        return respuesta
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        gimnasio = self.gimnasio
+        # `pagos/acceso.py::_umbral` hace fail-open si falta cualquiera de las
+        # dos: prender el bloqueo sin tolerancia es un interruptor muerto, sin
+        # ningún síntoma. Se mira lo GUARDADO, no lo tildado en el POST.
+        context["bloqueo_sin_efecto"] = self.object.bloquea_por_deuda and (
+            gimnasio.dias_tolerancia_pago is None
+            or gimnasio.fecha_activacion_bloqueo is None
+        )
+        return context
+
+
+class _AlumnoDelGimnasioMixin(StaffRequiredMixin, TenantScopedMixin):
+    """Resuelve el alumno de la URL acotado al gimnasio: el de otro da 404."""
+
+    def get_alumno(self):
+        return get_object_or_404(
+            Alumno.objects.for_gimnasio(self.gimnasio), pk=self.kwargs["alumno_pk"]
+        )
+
+    def _a_la_ficha(self, alumno):
+        return redirect("alumnos:detalle", pk=alumno.pk)
+
+
+class CredencialQrView(_AlumnoDelGimnasioMixin, View):
+    """«Generar código» y «Regenerar» desde la ficha. POST-only. El valor no
+    viaja por `messages`: la ficha lo dibuja como QR."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        alumno = self.get_alumno()
+        regenerar = request.POST.get("regenerar") == "1"
+        services.generar_credencial_qr(alumno, regenerar=regenerar)
+        if regenerar:
+            messages.success(
+                request,
+                "Código nuevo generado. El anterior ya no abre la puerta: si "
+                "estaba impreso, hay que imprimir la tarjeta de nuevo.",
+            )
+        else:
+            messages.success(request, "Código de ingreso listo.")
+        return self._a_la_ficha(alumno)
+
+
+class CredencialesEnBloqueView(StaffRequiredMixin, TenantScopedMixin, View):
+    """«Generar códigos para los alumnos activos». Un solo `bulk_create`
+    (`services.generar_credenciales_en_bloque`) y saltea a los que ya tienen:
+    apretarlo dos veces no cambia ningún código."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        creadas = services.generar_credenciales_en_bloque(self.gimnasio)
+        if creadas:
+            messages.success(
+                request, f"Se generaron {creadas} códigos de ingreso nuevos."
+            )
+        else:
+            messages.info(request, "Todos los alumnos activos ya tenían su código.")
+        return redirect("alumnos:listado")
+
+
+class CredencialFacialView(_AlumnoDelGimnasioMixin, FormView):
+    """El número de usuario que el alumno tiene EN el lector facial. La app no
+    ve ni guarda la cara: eso vive en el equipo."""
+
+    form_class = CredencialFacialForm
+    template_name = "ingreso/credencial_facial_form.html"
+
+    def get_form_kwargs(self):
+        # Form plano, no `TenantScopedModelForm`: el aislamiento lo da el
+        # alumno ya resuelto contra el gimnasio (y de él sale el gimnasio que
+        # usa `clean_valor`), no un `gimnasio` suelto.
+        kwargs = super().get_form_kwargs()
+        kwargs.pop("gimnasio", None)
+        kwargs["alumno"] = self.alumno
+        return kwargs
+
+    def get(self, request, *args, **kwargs):
+        self.alumno = self.get_alumno()
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        self.alumno = self.get_alumno()
+        return super().post(request, *args, **kwargs)
+
+    def get_initial(self):
+        actual = self.alumno.credenciales.filter(tipo=Credencial.Tipo.FACIAL).first()
+        return {"valor": actual.valor} if actual else {}
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["alumno"] = self.alumno
+        return context
+
+    def form_valid(self, form):
+        try:
+            services.guardar_credencial_facial(self.alumno, form.cleaned_data["valor"])
+        except IntegrityError:
+            form.add_error("valor", error_valor_repetido())
+            return self.form_invalid(form)
+        messages.success(self.request, "Número del lector facial guardado.")
+        return self._a_la_ficha(self.alumno)
+
+
+class CredencialBajaView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, View):
+    """Da de baja una credencial (QR o facial) sin borrarla. POST-only."""
+
+    model = Credencial
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        credencial = self.get_object()
+        services.dar_de_baja_credencial(credencial)
+        messages.success(request, "Credencial dada de baja: ya no abre la puerta.")
+        return redirect("alumnos:detalle", pk=credencial.alumno_id)

@@ -4,10 +4,11 @@ import hashlib
 import json
 
 from django.db import transaction
+from django.utils import timezone
 
 from alumnos.models import Alumno
 from ingreso import limites, tokens
-from ingreso.models import Credencial, EventoIngreso, obtener_configuracion
+from ingreso.models import Credencial, Dispositivo, EventoIngreso, obtener_configuracion
 
 LARGO_DETALLE = EventoIngreso._meta.get_field("detalle").max_length
 
@@ -45,6 +46,75 @@ la que evita que el dato envenenado se guarde.
 Riesgo aceptado: los eventos de un lector que estuvo más de siete días
 desconectado salen como inválidos (uno por uno, el resto del lote se registra)
 y no quedan en el historial."""
+
+
+def crear_dispositivo(gimnasio, *, nombre, tipo):
+    """Da de alta un lector. Devuelve `(dispositivo, token)`: el token en
+    claro existe SOLO en esta respuesta -- en la base queda su `sha256` -- y
+    la vista lo muestra una única vez (nunca por `messages`, que se serializa
+    en la sesión, que vive en la base)."""
+    token = tokens.generar()
+    # `atomic` para que un choque de nombre (la carrera del doble submit, que
+    # la vista traduce a un error de campo) no deje la transacción de afuera
+    # marcada para rollback: `messages` y la sesión viven en la base.
+    with transaction.atomic():
+        dispositivo = Dispositivo.objects.create(
+            gimnasio=gimnasio, nombre=nombre, tipo=tipo,
+            token_hash=tokens.hash_de(token),
+        )
+    limites.olvidar_lectores_activos()
+    return dispositivo, token
+
+
+def rotar_token(dispositivo):
+    """Le da al lector un token nuevo; el viejo deja de abrir en el acto.
+
+    **`eventos_hoy=0` va en el MISMO `UPDATE` que el hash.** Rotar es lo que
+    hace el dueño cuando le robaron el token, y quien lo robó pudo haber
+    agotado el tope diario (`limites.MAX_EVENTOS_POR_DIA`): sin el reinicio,
+    el lector legítimo seguiría recibiendo 429 hasta la medianoche con el
+    token nuevo ya cargado. En un solo `UPDATE` no hay ventana en la que el
+    token nuevo valga con el contador del robado.
+
+    `update()` y no `save()` para escribir las dos cosas juntas sin leer
+    antes; `modificado` va explícito porque sí es una edición del staff.
+    """
+    token = tokens.generar()
+    Dispositivo.objects.filter(pk=dispositivo.pk).update(
+        token_hash=tokens.hash_de(token),
+        eventos_hoy=0,
+        modificado=timezone.now(),
+    )
+    limites.olvidar_lectores_activos()
+    return token
+
+
+def guardar_credencial_facial(alumno, valor):
+    """Crea o reemplaza el id facial del alumno, y la deja activa: volver a
+    cargarla es cómo se reactiva. Levanta `IntegrityError` si otro alumno del
+    gimnasio ya tiene ese id (la vista lo traduce a un error de campo)."""
+    with transaction.atomic():
+        credencial = Credencial.objects.filter(
+            gimnasio=alumno.gimnasio, alumno=alumno, tipo=Credencial.Tipo.FACIAL
+        ).first()
+        if credencial is None:
+            return Credencial.objects.create(
+                gimnasio=alumno.gimnasio, alumno=alumno,
+                tipo=Credencial.Tipo.FACIAL, valor=valor,
+            )
+        credencial.valor = valor
+        credencial.activa = True
+        credencial.save(update_fields=["valor", "activa", "modificado"])
+        return credencial
+
+
+def dar_de_baja_credencial(credencial):
+    """La credencial deja de abrir (`CREDENCIAL_INACTIVA` en la puerta) pero
+    no se borra: los eventos que ya la usaron la siguen nombrando, y el
+    rechazo le explica al dueño que alguien intentó entrar con una revocada."""
+    Credencial.objects.filter(pk=credencial.pk).update(
+        activa=False, modificado=timezone.now()
+    )
 
 
 def generar_credencial_qr(alumno, *, regenerar=False):
