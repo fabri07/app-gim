@@ -1321,6 +1321,25 @@ class RevocarDesdeElAdminTests(_BaseVistas):
 
         self.assertNotIn(self.puerta.token_hash, limites.hashes_activos())
 
+    def test_el_admin_no_permite_dar_de_alta_un_lector(self):
+        """Desde el admin el lector nacía sin hash (no abre nada) y el segundo
+        daba 500 contra la unicidad de `token_hash`. El alta es
+        `services.crear_dispositivo`, desde el panel del gimnasio."""
+        self.client.login(username="jefe", password=CLAVE)
+
+        alta = self.client.get(reverse("admin:ingreso_dispositivo_add"))
+        post = self.client.post(
+            reverse("admin:ingreso_dispositivo_add"),
+            {"gimnasio": self.gimnasio.pk, "nombre": "Nuevo", "tipo": "qr",
+             "activo": "on"},
+        )
+        listado = self.client.get(reverse("admin:ingreso_dispositivo_changelist"))
+
+        self.assertEqual(alta.status_code, 403)
+        self.assertEqual(post.status_code, 403)
+        self.assertFalse(Dispositivo.objects.filter(nombre="Nuevo").exists())
+        self.assertNotContains(listado, reverse("admin:ingreso_dispositivo_add"))
+
     def test_el_admin_no_muestra_el_hash_del_token(self):
         self.client.login(username="jefe", password=CLAVE)
 

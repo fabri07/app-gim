@@ -30,6 +30,15 @@ class DispositivoAdmin(admin.ModelAdmin):
     list_select_related = ["gimnasio"]
     readonly_fields = ["ultimo_contacto", "eventos_hoy", "eventos_hoy_fecha"]
 
+    def has_add_permission(self, request):
+        """Un lector NO se da de alta desde acá. El alta es
+        `services.crear_dispositivo`, que genera la clave y guarda su hash;
+        desde el admin el lector nacía con `token_hash` vacío (es
+        `editable=False`), que no abre nada, y el segundo daba 500 contra la
+        unicidad del hash. El alta vive en «Lectores de la puerta» del panel
+        del gimnasio."""
+        return False
+
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
         # Desactivar/reactivar cambia quién está en el set del freno por IP:
