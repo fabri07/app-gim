@@ -282,9 +282,11 @@ puente dé de alta, bloquee y borre usuarios en un equipo facial.
   id facial quedarían para siempre en la memoria de un equipo de terceros.
   Consecuencia: **si después lo reactivan, hay que volver a enrolarle la cara**
   (paso 9).
-- **Los textos de la pantalla viajan una sola vez**, en `mensajes`, y son los
-  mismos que usa la respuesta online. `mensajes.permitido` es una plantilla: el
-  puente reemplaza `{nombre}` por el `nombre` de la fila. A un deudor se le
+- **Los textos de la pantalla viajan una sola vez**, en `mensajes`, y salen de
+  las mismas plantillas que la respuesta online. `mensajes.permitido` es una
+  plantilla: el puente reemplaza `{nombre}` por el `nombre` de la fila. Ojo que
+  el saludo **no queda idéntico**: online va el nombre de pila («¡Hola, Juan!
+  Pasá.») y offline el nombre corto del padrón («¡Hola, Juan P.! Pasá.»). A un deudor se le
   muestra `mensajes.deuda` (el genérico, sin los días de atraso, que
   envejecerían adentro del equipo). A lo que no está en el padrón,
   `mensajes.sin_credencial`.
