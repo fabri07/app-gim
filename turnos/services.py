@@ -22,7 +22,7 @@ from datetime import date, datetime, time, timedelta
 from urllib.parse import urlencode
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from .models import ConfiguracionTurnos, CupoExcepcion, HorarioAtencion, Reserva, obtener_configuracion
@@ -48,6 +48,61 @@ def _ahora_local() -> datetime:
     (los campos `DateField`/`TimeField` no llevan tzinfo propio).
     """
     return timezone.localtime().replace(tzinfo=None)
+
+
+TOLERANCIA_INGRESO = timedelta(minutes=15)
+"""Cuánto antes del turno se le deja entrar al alumno. Sin esto, el que llega
+diez minutos antes queda en la puerta mirando el molinete."""
+
+
+def _ventana_de_reservas(ahora, duracion_minutos):
+    """Las `Q` que matchean una reserva EN CURSO en `ahora` (naive, local).
+
+    Son dos y no una porque la ventana cruza la medianoche: una clase que
+    arranca 23:30 sigue en curso a las 00:05 del día siguiente, y con un solo
+    `fecha=` desaparecería justo cuando el alumno sale. Mismo problema y misma
+    forma que `notificaciones/management/commands/enviar_recordatorios.py`.
+    """
+    desde = ahora - timedelta(minutes=duracion_minutos)
+    hasta = ahora + TOLERANCIA_INGRESO
+    if desde.date() == hasta.date():
+        return Q(fecha=hasta.date(), hora_inicio__gt=desde.time(),
+                 hora_inicio__lte=hasta.time())
+    return (
+        Q(fecha=desde.date(), hora_inicio__gt=desde.time())
+        | Q(fecha=hasta.date(), hora_inicio__lte=hasta.time())
+    )
+
+
+def reservas_vigentes(gimnasio, alumnos, ahora=None) -> dict:
+    """`{alumno_id: Reserva}` de los que tienen un turno en curso AHORA.
+
+    En bloque y en UNA query (más la de la configuración): la usa la puerta,
+    que puede recibir un lote de cien lecturas y no puede pagar una query por
+    alumno.
+
+    `ahora` puede venir con zona (el `momento` de una lectura de la puerta):
+    se pasa a hora local ANTES de comparar, porque `fecha`/`hora_inicio` se
+    guardan en hora de Argentina. Comparado en UTC, un ingreso de las 22:30
+    caería en el día siguiente y el alumno quedaría sin turno.
+    """
+    if ahora is None:
+        ahora = _ahora_local()
+    elif timezone.is_aware(ahora):
+        ahora = timezone.localtime(ahora).replace(tzinfo=None)
+    config = obtener_configuracion(gimnasio)
+    ids = [a.pk for a in alumnos]
+    reservas = Reserva.objects.filter(
+        _ventana_de_reservas(ahora, config.duracion_minutos),
+        gimnasio=gimnasio,
+        alumno_id__in=ids,
+    )
+    return {r.alumno_id: r for r in reservas}
+
+
+def reserva_vigente(gimnasio, alumno, ahora=None):
+    """El turno en curso de `alumno`, o `None`."""
+    return reservas_vigentes(gimnasio, [alumno], ahora=ahora).get(alumno.pk)
 
 
 @dataclass(frozen=True)

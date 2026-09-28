@@ -16,6 +16,7 @@ concurrencia real acá; en Postgres (producción) sí aplica el lock.
 """
 
 from datetime import date, datetime, time, timedelta
+from datetime import timezone as dt_timezone
 from unittest.mock import patch
 from urllib.parse import parse_qs
 
@@ -58,6 +59,119 @@ from turnos.services import (
     url_google_calendar,
     vacantes_de_franja,
 )
+from turnos import services
+
+
+class ReservaVigenteTests(TestCase):
+    """El reloj se congela porque un test de bordes que compare contra la hora
+    real pasa o falla según la hora del día en que se corra."""
+
+    # 2026-09-27 22:30 UTC == 19:30 en Buenos Aires.
+    MOMENTO = datetime(2026, 9, 27, 22, 30, tzinfo=dt_timezone.utc)
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="P"
+        )
+        obtener_configuracion(self.gimnasio)  # duracion_minutos = 60
+
+    def _reserva(self, hora):
+        return Reserva.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            fecha=date(2026, 9, 27), hora_inicio=hora,
+        )
+
+    def test_una_reserva_en_curso_es_vigente(self):
+        reserva = self._reserva(time(19))  # 19:00 a 20:00, y son las 19:30
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            self.assertEqual(
+                services.reserva_vigente(self.gimnasio, self.alumno), reserva
+            )
+
+    def test_el_que_llega_unos_minutos_antes_entra(self):
+        """`TOLERANCIA_INGRESO` de 15 minutos: el alumno que llega 19:30 para
+        una clase de 19:45 no puede quedar en la calle."""
+        self._reserva(time(19, 45))
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            self.assertIsNotNone(
+                services.reserva_vigente(self.gimnasio, self.alumno)
+            )
+
+    def test_una_reserva_terminada_no_es_vigente(self):
+        self._reserva(time(17))  # 17:00 a 18:00
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            self.assertIsNone(
+                services.reserva_vigente(self.gimnasio, self.alumno)
+            )
+
+    def test_una_reserva_de_mas_tarde_todavia_no_es_vigente(self):
+        self._reserva(time(21))
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            self.assertIsNone(
+                services.reserva_vigente(self.gimnasio, self.alumno)
+            )
+
+    def test_una_clase_que_cruza_la_medianoche(self):
+        """La ventana se arma sobre dos fechas: con un solo `fecha=` la clase
+        de 23:30 desaparece a las 00:05, que es justo cuando el alumno sale."""
+        Reserva.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            fecha=date(2026, 9, 27), hora_inicio=time(23, 30),
+        )
+        medianoche = datetime(2026, 9, 28, 3, 5, tzinfo=dt_timezone.utc)  # 00:05 local
+
+        with patch("django.utils.timezone.now", return_value=medianoche):
+            self.assertIsNotNone(
+                services.reserva_vigente(self.gimnasio, self.alumno)
+            )
+
+    def test_un_ahora_con_zona_se_compara_en_hora_local(self):
+        """La puerta pasa el `momento` de la lectura, que viene con zona. Sin
+        pasarlo a hora local, 22:30 UTC (19:30 acá) se leería como las 22:30
+        y el turno de las 19 no aparecería."""
+        reserva = self._reserva(time(19))
+
+        self.assertEqual(
+            services.reserva_vigente(
+                self.gimnasio, self.alumno, ahora=self.MOMENTO
+            ),
+            reserva,
+        )
+
+    def test_reservas_vigentes_en_bloque_no_crece_en_queries(self):
+        alumnos = [self.alumno]
+        for i in range(9):
+            alumnos.append(
+                Alumno.objects.create(
+                    gimnasio=self.gimnasio, nombre=f"A{i}", apellido="X"
+                )
+            )
+        for alumno in alumnos:
+            Reserva.objects.create(
+                gimnasio=self.gimnasio, alumno=alumno,
+                fecha=date(2026, 9, 27), hora_inicio=time(19),
+            )
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            with CaptureQueriesContext(connection) as pocos:
+                vigentes_pocos = services.reservas_vigentes(
+                    self.gimnasio, alumnos[:2]
+                )
+            with CaptureQueriesContext(connection) as muchos:
+                vigentes_muchos = services.reservas_vigentes(
+                    self.gimnasio, alumnos
+                )
+
+        # Que devuelva lo que tiene que devolver: un test de costo que pasa
+        # con un resultado vacío no está midiendo nada.
+        self.assertEqual(len(vigentes_pocos), 2)
+        self.assertEqual(len(vigentes_muchos), 10)
+        self.assertEqual(len(pocos), len(muchos))
 
 
 class ConfiguracionTurnosModelTests(TestCase):
