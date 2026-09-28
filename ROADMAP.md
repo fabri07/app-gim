@@ -80,8 +80,8 @@ todo por WhatsApp, saber quién pagó, dar imagen profesional.
 nutrición, métricas deportivas, IA de rutinas, subdominios por gimnasio.
 
 > **Actualizado.** Esta lista incluía «QR de ingreso, control de asistencia». Salió el
-> 2026-09-28: lo pidieron varios gimnasios que ya pagan, que es la condición que pone la
-> Fase 9. El detalle vive en `CLAUDE.md` § "Control de ingreso".
+> 2026-09-28: varios establecimientos se lo pidieron al dueño del producto, que decidió
+> construirlo. El detalle vive en `CLAUDE.md` § "Control de ingreso".
 
 ---
 
@@ -342,8 +342,8 @@ gimnasio**.
 rutinas, WhatsApp API, nutrición, medidas corporales, gamificación.
 
 > **Actualizado.** «QR de ingreso, control de asistencia» estaba en prioridad baja y se
-> construyó el 2026-09-28 (control de ingreso por molinete, con QR o lector facial), a
-> pedido de gimnasios que ya pagan. Sin hardware todavía: lo construido es el contrato
+> construyó el 2026-09-28 (control de ingreso por molinete, con QR o lector facial), porque
+> varios establecimientos se lo pidieron al dueño del producto. Sin hardware todavía: lo construido es el contrato
 > HTTP con los lectores y las pantallas; el modo kiosco quedó afuera. Ver `CLAUDE.md`
 > § "Control de ingreso".
 

@@ -6,10 +6,10 @@ Varios establecimientos de entrenamiento le pidieron al dueño del producto que 
 alumno pueda entrar al gimnasio con **Face ID** o con un **QR** por un molinete.
 El valor es doble:
 
-1. **Comercial**: es un pedido repetido de clientes que ya pagan, o sea retención.
-   `ROADMAP.md:79` y `:338` lo listan en Fase 9 ("QR de ingreso, control de
-   asistencia") como *prioridad baja, solo con clientes pagos*; ese portón ya está
-   abierto y el pedido viene de esos clientes.
+1. **Comercial**: es un pedido repetido de varios establecimientos al dueño del
+   producto. `ROADMAP.md:79` y `:338` lo listaban en Fase 9 ("QR de ingreso,
+   control de asistencia") como *prioridad baja, solo con clientes pagos*; el
+   dueño del producto decidió abrir ese portón a partir de esos pedidos.
 2. **De producto**: hoy los tres indicadores de asistencia del panel
    (`tenants/analitica.py:49`, `:406`, `:437`) cuentan `Reserva`, que es la
    **intención** de venir y se *borra* al cancelar. Con esto el dueño ve por
@@ -42,7 +42,7 @@ Decisiones tomadas con el usuario:
   **sirve impreso**: una tarjeta o un llavero para el alumno que no tiene
   smartphone. Si se filtra, el staff lo regenera y el viejo muere.
 - **Si el gimnasio no le paga la app al dueño del producto, la puerta SIGUE
-  ABRIENDO.** Se le corta el panel; el torniquete no. Dejar ochenta personas
+  ABRIENDO.** Se le corta el panel; el torniquete no. Dejar a los alumnos
   afuera de un edificio no es una palanca de cobro.
 - **La sección se llama «Control de ingreso»**, la app `ingreso`, y **ningún modelo
   nuevo lleva "Acceso" en el nombre**: esa palabra ya significa dos cosas en el
@@ -196,6 +196,7 @@ es plata.
 
 #### Crecimiento, y una consecuencia que no es teórica
 
+*Estimación, no medición* (las ~20 visitas por alumno al mes son un supuesto):
 300 alumnos × ~20 visitas/mes ≈ 72.000 filas/año, más rechazos y dobles lecturas:
 mismo orden que `plataforma.ActividadDiaria` (~110.000/año). Los dos índices
 cubren las dos consultas y la ventana del listado es corta, así que el panel no
@@ -323,9 +324,9 @@ contiene ninguna llave usable.
 hace `solicitudes.SolicitudAccesoToken`) deja la llave de la puerta legible en la
 base y en cualquier backup, y ese precedente es un token de un solo uso con
 vencimiento, no una llave de larga vida. Con `make_password`/`check_password`
-(PBKDF2) se pagarían ~100 ms de CPU **bloqueante** por request en un gunicorn de
-un solo worker, y entre los scans y el poll del padrón son miles de requests por
-día. Con un token de 256 bits de entropía un `sha256` pelado no es atacable por
+(PBKDF2) se pagarían del orden de 100 ms de CPU **bloqueante** por request en un
+gunicorn de un solo worker (estimado, no medido en la rama), y entre los scans y
+el poll del padrón se esperan miles de requests por día (estimación). Con un token de 256 bits de entropía un `sha256` pelado no es atacable por
 diccionario, así que la derivación lenta no compra nada. `EncryptedTextField` no
 sirve: Fernet no es determinístico, no se puede filtrar por él.
 **Sin "pimienta" con `SECRET_KEY`** —aunque `solicitudes/antispam.py:75-79` la use
@@ -437,7 +438,7 @@ query para todo el padrón), **nunca** llamando a `bloqueo_de` por fila.
 **El riesgo técnico más grande de la feature, y el único que no se puede medir sin
 hardware**: Neon suspende el compute por inactividad (scale-to-zero). El primer
 scan después de un rato de calma paga ese cold start, y un molinete tiene un
-timeout de un par de segundos. El padrón offline está en `v1` por esto, no por
+timeout de un par de segundos (estimado: sin hardware no se midió). El padrón offline está en `v1` por esto, no por
 completitud: es la mitigación, no un extra.
 
 **Riesgo aceptado junto a ese: un 304 cuesta lo mismo que un 200.** La versión es
@@ -699,7 +700,7 @@ dependencia nueva.
 
 1. **`sha256` en vez de un hasher lento** para el token del dispositivo. El
    argumento es sólido (256 bits de `secrets`, el key-stretching no compra nada y
-   cuesta ~100 ms del único worker por request), pero es la decisión que más merece
+   cuesta del orden de 100 ms del único worker por request, estimado), pero es la decisión que más merece
    una segunda mirada. Si alguna vez se revierte a PBKDF2, el camino de "token no
    encontrado" **necesita un hash dummy** o la diferencia de tiempo delata qué
    dispositivos existen.
@@ -777,7 +778,8 @@ dependencia nueva.
     compartido entre el panel y la API de los lectores. Mientras arma un PDF
     de tarjetas, un padrón grande o el ZIP del exportador, cada lectura online
     de cualquier gimnasio de la plataforma queda en cola, y un molinete espera
-    su veredicto un par de segundos antes de rendirse. Es la misma familia que
+    su veredicto un par de segundos antes de rendirse (estimado, sin
+    hardware no se midió). Es la misma familia que
     el costo del 304 (§5) y que el camino autenticado sin freno (punto 13),
     pero más grande: no depende de un lector, lo dispara cualquier staff desde
     su panel. Medido en una Mac: una tarjeta cuesta ~33 ms (100 ≈ 3,4 s,

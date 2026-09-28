@@ -950,8 +950,8 @@ en cada request para que `override_settings` sirva en un test.
 ## Control de ingreso (`ingreso/`, 2026-09-28)
 
 Que un alumno entre por un molinete con un QR o con un lector facial, y que el
-gimnasio vea quién entró de verdad. Lo pidieron varios gimnasios que ya pagan,
-y por eso salió de «Qué NO construir todavía». **No hay hardware todavía**: lo
+gimnasio vea quién entró de verdad. Varios establecimientos se lo pidieron al
+dueño del producto, y por eso salió de «Qué NO construir todavía». **No hay hardware todavía**: lo
 construido es un contrato HTTP que cualquier equipo comercial (Hikvision,
 ZKTeco, Dahua, Suprema) o un puente en la PC del gimnasio puede consumir, más
 las pantallas de staff y del alumno. **No se construye modo kiosco** (tablet o
@@ -1070,7 +1070,8 @@ es su «código», y en el modelo es `Credencial.valor`. **Ningún modelo lleva
 - **El token se guarda como `sha256`, sin pimienta.** Una query indexada, y un
   volcado de la base no contiene ninguna llave usable. Ni en claro (como
   `solicitudes.SolicitudAccesoToken`, que es de un solo uso) ni con
-  `make_password` (~100 ms de CPU bloqueante por request en el único worker;
+  `make_password` (del orden de 100 ms de CPU bloqueante por request en el
+  único worker, estimado, no medido en la rama;
   con 256 bits de `secrets` el key-stretching no compra nada). **Sin pimienta
   con `SECRET_KEY`**: rotarla dejaría sin puerta, en silencio y de golpe, a
   todos los gimnasios. Si algún día se pasa a un hasher lento, el camino de
@@ -1205,7 +1206,8 @@ gunicorn corre con UN worker síncrono (`render.yaml`, sin `--workers`),
 compartido entre el panel y la API de los lectores. **Cualquier request largo
 del panel —una tanda de tarjetas, un padrón grande, el ZIP del exportador—
 deja en cola la puerta online de TODOS los gimnasios** mientras dura, y un
-molinete se rinde a los dos o tres segundos. Un 304 del padrón cuesta lo mismo
+molinete se rinde, se estima, a los dos o tres segundos (sin hardware no se
+midió). Un 304 del padrón cuesta lo mismo
 que un 200 (la versión es un hash del contenido). La mitigación de hoy son las
 tandas chicas y que el puente trate un timeout de la API como un 429: decide
 con el padrón local y sube el evento en diferido con el mismo id. La de fondo
@@ -1220,7 +1222,8 @@ cualquier freno ahí le puede cerrar la puerta a un lector legítimo.
 `EventoIngreso` del gimnasio anteriores a N meses de calendario (default
 `MESES_POR_DEFECTO` = 24, mínimo `MESES_MINIMOS` = 3), cortando en la
 medianoche local, por tandas de pk. Existe por el techo del exportador: un
-gimnasio de 300 alumnos genera del orden de 72.000 eventos por año contra
+gimnasio de 300 alumnos generaría del orden de 72.000 eventos por año
+(estimación con un supuesto de ~20 visitas por alumno al mes, no medido) contra
 `MAX_FILAS_WEB` = 60.000. Es **retención periódica** (primero con
 `--dry-run`) para que el botón «Exportar mis datos» no choque contra el techo
 en la operación normal. **Nunca se corre antes de exportar los datos de un
@@ -3051,5 +3054,5 @@ métricas deportivas, IA de rutinas, subdominios por gimnasio. Ver ROADMAP.md
 con clientes pagos).
 
 El QR de ingreso y el control de asistencia salieron de esta lista el
-2026-09-28, cuando los pidieron gimnasios que ya pagan (ver "Control de
-ingreso"). El modo kiosco de esa feature sigue sin construirse.
+2026-09-28, cuando varios establecimientos se los pidieron al dueño del
+producto (ver "Control de ingreso"). El modo kiosco de esa feature sigue sin construirse.

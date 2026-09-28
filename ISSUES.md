@@ -181,7 +181,8 @@ panel y la API de los lectores (`/ingreso/v1/`, rama
 `worktree-control-de-ingreso`). Mientras el panel arma algo largo —una tanda de
 tarjetas imprimibles, un padrón grande (ver la entrada siguiente), el ZIP del
 exportador—, cada lectura online de CUALQUIER gimnasio de la plataforma espera
-en cola, y un molinete se rinde a los dos o tres segundos. Medido en una Mac
+en cola, y un molinete se rinde, se estima, a los dos o tres segundos (sin
+hardware no se midió). Medido en una Mac
 (2026-09-28): ~33 ms por tarjeta, 100 tarjetas ≈ 3,4 s, 30 ≈ 0,9 s; en Render
 con Neon, sin medir (probablemente el doble o más).
 
@@ -207,8 +208,8 @@ adversarial midió ~350 ms en otro escenario; en Render con Neon, sin medir — 
 sitio) esperan. Se suma al cold start de Neon, que ya es el riesgo técnico más
 grande de la feature (spec §5).
 
-**Resolución / próximo paso:** no se optimiza todavía: ningún cliente tiene
-lector y el número es local. **Medirlo en Render antes del primer cliente
+**Resolución / próximo paso:** no se optimiza todavía: la feature se construyó
+sin hardware (no hay ningún lector conectado a la rama) y el número es local. **Medirlo en Render antes del primer cliente
 grande.** Si pesa, las dos salidas son una huella barata con una query agregada
 (conteo y `max(modificado)` de credenciales y alumnos del gimnasio, más la fecha
 local, que es lo que mueve el corte de deuda) para contestar el 304 sin armar
