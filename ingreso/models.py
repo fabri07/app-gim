@@ -237,6 +237,24 @@ class EventoIngreso(TenantOwnedModel):
         return f"{self.get_resultado_display()} - {self.momento:%d/%m %H:%M}"
 
 
+NO_SON_RECHAZO = frozenset({
+    EventoIngreso.Resultado.PERMITIDO,
+    EventoIngreso.Resultado.DUPLICADO,
+})
+RESULTADOS_RECHAZO = tuple(
+    r for r in EventoIngreso.Resultado if r not in NO_SON_RECHAZO
+)
+"""Qué cuenta como «rechazo» en las pantallas: la tarjeta del panel y el filtro
+`rechazados` del listado. **Una sola definición**, para que el número del
+panel y el listado al que lleva su link no puedan divergir.
+
+`DUPLICADO` NO es un rechazo: es la doble lectura de alguien que YA entró (el
+antipassback), y la ficha y el listado lo muestran neutro. Contado como
+rechazo, una doble lectura pintaba «1 rechazo» en ámbar sin que nadie haya
+intentado entrar sin permiso. Un resultado nuevo cuenta como rechazo salvo
+que se lo agregue a `NO_SON_RECHAZO`."""
+
+
 def obtener_configuracion(gimnasio):
     """Única vía de acceso a la config de un gimnasio: garantiza que la fila
     exista. Ojo que `turnos.models` tiene una función con este mismo nombre:

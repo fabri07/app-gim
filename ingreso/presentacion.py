@@ -34,6 +34,7 @@ from ingreso.models import (
     Credencial,
     Dispositivo,
     EventoIngreso,
+    RESULTADOS_RECHAZO,
 )
 
 #: Cuánto puede estar callado un lector activo antes de que el panel lo marque.
@@ -155,7 +156,8 @@ def resumen_para_el_panel(gimnasio):
 
     - «Hoy» es el día LOCAL, cortado en la medianoche de Buenos Aires.
     - Un ingreso es un PERMITIDO de ENTRADA: la salida no es alguien que vino.
-      Los rechazos son todos los no permitidos, igual que el filtro
+      Los rechazos son `models.RESULTADOS_RECHAZO` (todo lo no permitido
+      MENOS la doble lectura, `DUPLICADO`), la misma definición que el filtro
       `rechazados` de `ingreso:listado`, al que lleva el link.
     - `usa_la_puerta` es falso sin ningún lector activo ni movimiento hoy: ahí
       la tarjeta no muestra «0 ingresos» sino que invita a configurar la
@@ -192,7 +194,7 @@ def resumen_para_el_panel(gimnasio):
                 ),
             ),
             rechazos=Count(
-                "pk", filter=~Q(resultado=EventoIngreso.Resultado.PERMITIDO)
+                "pk", filter=Q(resultado__in=RESULTADOS_RECHAZO)
             ),
         )
     )

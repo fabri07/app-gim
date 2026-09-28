@@ -171,6 +171,25 @@ class ListadoDeIngresosTests(_GuardiasMixin, _BaseVistas):
         self.assertEqual(list(rechazados.context["eventos"]), [deuda])
         self.assertNotIn(pasado, list(rechazados.context["eventos"]))
 
+    def test_la_doble_lectura_no_sale_en_solo_rechazos(self):
+        """`DUPLICADO` no es un rechazo (`models.RESULTADOS_RECHAZO`): se ve
+        en el listado completo y filtrando por su resultado, no en
+        «Solo rechazos»."""
+        duplicado = self._evento(
+            alumno=self.alumno, resultado=EventoIngreso.Resultado.DUPLICADO
+        )
+        self._login()
+
+        rechazados = self.client.get(
+            reverse("ingreso:listado"), {"resultado": "rechazados"}
+        )
+        solo_duplicados = self.client.get(
+            reverse("ingreso:listado"), {"resultado": "duplicado"}
+        )
+
+        self.assertEqual(list(rechazados.context["eventos"]), [])
+        self.assertEqual(list(solo_duplicados.context["eventos"]), [duplicado])
+
     def test_filtra_por_fecha_local_y_no_por_utc(self):
         """Un ingreso a las 22:30 de Buenos Aires ya es el día siguiente en
         UTC. Filtrar «hasta hoy» tiene que incluirlo, y la hora mostrada tiene

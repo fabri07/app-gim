@@ -541,6 +541,10 @@ librería JS por CDN no sirve para el PDF.
   un `aggregate` con `Count` condicional sobre los eventos de hoy y otro sobre
   los lectores activos (cuántos hay y cuántos no dan señales hace más de una
   hora). El "hoy" va con `timezone.localdate()`.
+  *Actualizado al código:* un «rechazo» es `models.RESULTADOS_RECHAZO`, la
+  misma definición para la tarjeta y para el filtro `rechazados` del listado
+  al que lleva su link. **`DUPLICADO` no cuenta**: es la doble lectura de
+  alguien que ya entró, y la ficha y el listado lo muestran neutro.
   **Decisión pendiente, no resuelta en la rama:** la tarjeta dice «N ingresos
   hoy» (ingresos reales) y el panel ya mostraba «Asistentes hoy», que cuenta
   `Reserva`. Pueden leerse como el mismo número; queda para decidir con el

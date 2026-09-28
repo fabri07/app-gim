@@ -46,6 +46,7 @@ from ingreso.models import (
     Credencial,
     Dispositivo,
     EventoIngreso,
+    RESULTADOS_RECHAZO,
     obtener_configuracion,
 )
 from pagos import acceso
@@ -466,7 +467,9 @@ class EventoIngresoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
             if limite is not None:
                 queryset = queryset.filter(momento__lt=limite)
         if self.resultado == self.FILTRO_RECHAZADOS:
-            queryset = queryset.exclude(resultado=EventoIngreso.Resultado.PERMITIDO)
+            # La misma definición que la tarjeta del panel: la doble lectura
+            # (`DUPLICADO`) no es un rechazo.
+            queryset = queryset.filter(resultado__in=RESULTADOS_RECHAZO)
         elif self.resultado in EventoIngreso.Resultado.values:
             queryset = queryset.filter(resultado=self.resultado)
         if self.alumno_id.isdigit():

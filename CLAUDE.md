@@ -1004,7 +1004,9 @@ es su «código», y en el modelo es `Credencial.valor`. **Ningún modelo lleva
 - **`presentacion.py`** — lo que comparten las pantallas: `codigo_de` (el
   único lugar que decide si un QR se dibuja: solo si abre la puerta),
   `tarjeta_del_portal`, `resumen_para_el_panel` (la tarjeta del dashboard, dos
-  queries fijas), `inicio_del_dia` (la medianoche LOCAL, compartida por el
+  queries fijas; qué es un «rechazo» lo define `models.RESULTADOS_RECHAZO`, la
+  misma tupla que usa el filtro `rechazados` del listado, y la doble lectura
+  `DUPLICADO` no lo es), `inicio_del_dia` (la medianoche LOCAL, compartida por el
   listado, el panel y la purga) y `fuera_del_boost`.
 - **`views.py`** — la API (`EventosApiView` y `PadronApiView`, en
   `/ingreso/v1/eventos/` y `/ingreso/v1/padron/`: la versión va en la ruta

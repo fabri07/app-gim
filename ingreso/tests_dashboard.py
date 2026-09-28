@@ -97,6 +97,38 @@ class TarjetaControlDeIngresoTests(_BaseDashboard):
         )
         self.assertContains(respuesta, "1 rechazo<")
 
+    def test_la_doble_lectura_no_cuenta_como_rechazo(self):
+        """`DUPLICADO` es el antipassback frenando la segunda lectura de
+        alguien que YA entró: la ficha y el listado lo muestran neutro, y el
+        panel no puede pintarlo como «1 rechazo» en ámbar."""
+        self._evento(alumno=self.alumno)
+        self._evento(
+            alumno=self.alumno, resultado=EventoIngreso.Resultado.DUPLICADO
+        )
+
+        respuesta = self._panel()
+
+        self.assertEqual(respuesta.context["control_ingreso"]["rechazos_hoy"], 0)
+        self.assertContains(respuesta, "sin rechazos")
+
+    def test_el_numero_del_panel_es_el_del_listado_al_que_lleva(self):
+        """Una sola definición de rechazo (`models.RESULTADOS_RECHAZO`) para
+        la tarjeta y para el filtro `rechazados`: un evento de cada resultado,
+        y los dos números tienen que coincidir."""
+        for resultado in EventoIngreso.Resultado.values:
+            self._evento(alumno=self.alumno, resultado=resultado)
+        hoy = timezone.localdate().isoformat()
+
+        panel = self._panel()
+        listado = self.client.get(
+            reverse("ingreso:listado"),
+            {"resultado": "rechazados", "desde": hoy, "hasta": hoy},
+        )
+
+        rechazos = panel.context["control_ingreso"]["rechazos_hoy"]
+        self.assertEqual(rechazos, len(EventoIngreso.Resultado.values) - 2)
+        self.assertEqual(rechazos, listado.context["paginator"].count)
+
     def test_los_lectores_del_otro_gimnasio_no_cuentan(self):
         self._lector(gimnasio=self.otro)
         self._lector(gimnasio=self.otro, ultimo_contacto=None)
