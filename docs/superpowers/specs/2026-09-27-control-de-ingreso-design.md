@@ -303,8 +303,13 @@ necesita: 401 = revisá el token, 403 = el gimnasio apagó este lector.
   solo evento, pero eso es consecuencia, no la regla.
 - En diferido se registra igual qué habría opinado la app (`en_diferido=True`),
   así el reporte no miente: "entró, y tenía deuda".
-- `momento` ausente es ahora; presente es lo que dice el equipo, y es lo que se
-  usa para el antipassback y para la reserva vigente.
+- **En online manda el reloj del servidor**: el equipo está esperando el
+  veredicto para abrir, así que el ingreso es ahora, diga lo que diga su
+  `momento` (si difiere en más de un minuto, el desfase queda en `detalle`
+  para el instalador). **En diferido** el `momento` es obligatorio, es lo que
+  se registra y lo que se usa para el antipassback y la reserva vigente, y
+  tiene que caer entre 7 días atrás y 1 hora adelante; `id_evento_equipo`
+  también es obligatorio.
 - **Idempotencia**: con `id_evento_equipo` se busca primero por `(dispositivo,
   id_evento_equipo)` y si existe se devuelve el veredicto guardado sin decidir de
   nuevo. La carrera del reintento simultáneo la cubre un `try/except
@@ -318,8 +323,12 @@ necesita: 401 = revisá el token, 403 = el gimnasio apagó este lector.
   devueltos y no dice cuáles insertó de verdad. No molesta, porque el veredicto que
   se responde sale de `decidir()` en Python y no de las filas guardadas — pero
   significa que la respuesta no puede derivarse de lo que devolvió `bulk_create`.
-- Body inválido → 400, con el `except (KeyError, ValueError, TypeError,
-  json.JSONDecodeError)` de `notificaciones/views.py:142`.
+- Body con forma inválida (no es JSON, no es un objeto con `eventos`, más de
+  `MAX_EVENTOS_POR_LOTE`, JSON demasiado anidado) → 400. **Un evento
+  individualmente inválido no tumba el lote**: no se registra y ocupa su
+  posición con `{"permitido": false, "resultado": "invalido", "error": "…",
+  "id_evento_equipo": <el recibido o null>}`; el resto se procesa y el status
+  es 200.
 
 #### `GET /ingreso/v1/padron/`
 
@@ -598,6 +607,19 @@ dependencia nueva.
     y el que dejó de pagar en el medio, como que entró debiendo. Medirlo por
     evento exigiría una consulta de deuda por fecha distinta del lote, y el
     veredicto de un evento diferido es informativo (la puerta ya abrió).
+11. **Un reintento ONLINE sin `id_evento_equipo` no abre.** Si el lector no
+    recibió la respuesta (timeout) y reintenta sin id, la app lo ve como una
+    segunda lectura y el antipassback la da por `DUPLICADO`: el alumno ya
+    figura adentro pero la puerta no abre, y vuelve a pasar la tarjeta pasado
+    el antipassback. El contrato pide reusar el mismo id al reintentar (con id,
+    el reintento devuelve el veredicto guardado); en online el id sigue siendo
+    opcional para no exigirle a un equipo simple algo que su firmware no manda.
+    En diferido es obligatorio: ahí sin id cada reintento del backlog
+    duplicaría el ingreso. Lo fija `test_el_reintento_online_sin_id_da_duplicado`.
+12. **Un backlog de más de 7 días se pierde.** En diferido, un `momento` más
+    viejo que `DIAS_DE_ANTIGUEDAD_TOLERADOS` sale como evento inválido: no hay
+    forma de distinguir un lector que estuvo una semana sin internet de uno con
+    el reloj reseteado, y aceptar el segundo envenena los reportes históricos.
 
 ## Fuera de alcance
 

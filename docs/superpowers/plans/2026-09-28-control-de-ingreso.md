@@ -2717,6 +2717,25 @@ Mismo criterio que `config/tests.py::BlueprintDeclaraLoQueSettingsLeeTests`, sin
 dependencia nueva. Un segundo test parsea los `import` del puente y afirma que no
 importa nada fuera de la stdlib.
 
+**Notas que dejó la Tarea 7 para el documento** (el contrato real se apartó del
+de este plan; el código manda):
+
+- `id_evento_equipo` numérico (`8821`) vuelve como **string** (`"8821"`) en la
+  respuesta de un evento válido: se guarda como texto. El de un evento
+  inválido vuelve tal como vino. El puente tiene que comparar como string.
+- Un evento inválido no tumba el lote: vuelve en su posición con
+  `resultado: "invalido"` y un `error` legible; solo la forma del request
+  entero da 400.
+- En online manda el reloj del servidor (el `momento` del lector solo deja un
+  diagnóstico en `detalle`). En diferido `momento` e `id_evento_equipo` son
+  obligatorios y el `momento` tiene que caer entre 7 días atrás y 1 hora
+  adelante.
+- `abierto_por_el_equipo` es `true`/`false` JSON, no un string.
+- Al reintentar un request que no tuvo respuesta, **reusar el mismo
+  `id_evento_equipo`**; sin id, el reintento online da `DUPLICADO` (riesgo
+  aceptado 11 de la spec).
+- El esquema `Bearer` no distingue mayúsculas.
+
 ---
 
 ### Task 18: Documentación del proyecto

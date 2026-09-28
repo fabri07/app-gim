@@ -53,12 +53,54 @@ class Lectura:
     momento: object
     id_equipo: str = ""
     en_diferido: bool = False
+    #: Diagnóstico para `EventoIngreso.detalle` (p. ej. el desfase del reloj
+    #: del lector en modo online). No interviene en la decisión.
+    nota: str = ""
 
     @property
     def valor_normalizado(self):
         """El lector puede agregar espacios o un `\\r\\n`. Sin esto, la tarjeta
         buena "no anda" y nadie entiende por qué."""
         return self.valor.strip()
+
+
+MENSAJES = {
+    EventoIngreso.Resultado.SIN_CREDENCIAL:
+        "Credencial no reconocida. Pasá por el mostrador.",
+    EventoIngreso.Resultado.CREDENCIAL_INACTIVA:
+        "Esa credencial está dada de baja.",
+    EventoIngreso.Resultado.ALUMNO_INACTIVO:
+        "Tu cuenta está dada de baja. Hablá con el gimnasio.",
+    EventoIngreso.Resultado.DEUDA:
+        "Tenés una cuota sin pagar. Pasá por el mostrador.",
+    EventoIngreso.Resultado.SIN_RESERVA:
+        "No tenés turno reservado para este horario.",
+    EventoIngreso.Resultado.DUPLICADO:
+        "Ya registramos tu ingreso hace un momento.",
+}
+"""El texto que ve el alumno en la pantalla del molinete, por resultado. Un
+solo lugar para que `decidir` y la respuesta de un reintento
+(`mensaje_de`) no puedan divergir."""
+
+
+def _saludo(alumno):
+    return f"¡Hola, {alumno.nombre}! Pasá."
+
+
+def _mensaje_de_deuda(dias):
+    return (
+        f"Tenés una cuota sin pagar hace {dias} "
+        f"{'día' if dias == 1 else 'días'}. Pasá por el mostrador."
+    )
+
+
+def mensaje_de(resultado, alumno=None):
+    """El mensaje de un veredicto YA GUARDADO (el reintento de un lote). El de
+    DEUDA sale sin los días de atraso: no se guardan, y recalcularlos hoy daría
+    un número distinto del que vio el alumno."""
+    if resultado == EventoIngreso.Resultado.PERMITIDO:
+        return _saludo(alumno) if alumno is not None else "Pasá."
+    return MENSAJES.get(resultado, "")
 
 
 @dataclass(frozen=True)
@@ -203,12 +245,12 @@ def decidir(lectura, contexto):
     if credencial is None:
         return Decision(
             False, EventoIngreso.Resultado.SIN_CREDENCIAL,
-            "Credencial no reconocida. Pasá por el mostrador.",
+            MENSAJES[EventoIngreso.Resultado.SIN_CREDENCIAL],
         )
     if not credencial.activa:
         return Decision(
             False, EventoIngreso.Resultado.CREDENCIAL_INACTIVA,
-            "Esa credencial está dada de baja.",
+            MENSAJES[EventoIngreso.Resultado.CREDENCIAL_INACTIVA],
             credencial.alumno, credencial,
         )
 
@@ -216,15 +258,13 @@ def decidir(lectura, contexto):
     if alumno.estado != Alumno.Estado.ACTIVO:
         return Decision(
             False, EventoIngreso.Resultado.ALUMNO_INACTIVO,
-            "Tu cuenta está dada de baja. Hablá con el gimnasio.",
+            MENSAJES[EventoIngreso.Resultado.ALUMNO_INACTIVO],
             alumno, credencial,
         )
     if alumno.pk in contexto.bloqueados:
-        dias = contexto.bloqueados[alumno.pk]
         return Decision(
             False, EventoIngreso.Resultado.DEUDA,
-            f"Tenés una cuota sin pagar hace {dias} "
-            f"{'día' if dias == 1 else 'días'}. Pasá por el mostrador.",
+            _mensaje_de_deuda(contexto.bloqueados[alumno.pk]),
             alumno, credencial,
         )
     if contexto.config.exige_reserva and (
@@ -233,7 +273,7 @@ def decidir(lectura, contexto):
     ):
         return Decision(
             False, EventoIngreso.Resultado.SIN_RESERVA,
-            "No tenés turno reservado para este horario.",
+            MENSAJES[EventoIngreso.Resultado.SIN_RESERVA],
             alumno, credencial,
         )
 
@@ -250,12 +290,12 @@ def decidir(lectura, contexto):
         ):
             return Decision(
                 False, EventoIngreso.Resultado.DUPLICADO,
-                "Ya registramos tu ingreso hace un momento.",
+                MENSAJES[EventoIngreso.Resultado.DUPLICADO],
                 alumno, credencial,
             )
         contexto.concedidos.setdefault(clave, []).append(lectura.momento)
 
     return Decision(
         True, EventoIngreso.Resultado.PERMITIDO,
-        f"¡Hola, {alumno.nombre}! Pasá.", alumno, credencial,
+        _saludo(alumno), alumno, credencial,
     )

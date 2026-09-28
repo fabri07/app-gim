@@ -9,7 +9,9 @@ vistas de la API.
 from ingreso import tokens
 from ingreso.models import Dispositivo
 
-PREFIJO = "Bearer "
+ESQUEMA = "bearer"
+"""Se compara sin distinguir mayúsculas: el esquema de `Authorization` es
+case-insensitive (RFC 9110 §11.1) y hay firmwares que mandan `bearer`."""
 
 
 class ErrorDeAutenticacion(Exception):
@@ -28,10 +30,12 @@ class LectorDesactivado(ErrorDeAutenticacion):
 
 
 def dispositivo_autenticado(request):
-    cabecera = request.META.get("HTTP_AUTHORIZATION", "")
-    if not cabecera.startswith(PREFIJO):
+    esquema, _, presentado = (
+        request.META.get("HTTP_AUTHORIZATION", "").strip().partition(" ")
+    )
+    if esquema.lower() != ESQUEMA:
         raise SinToken()
-    presentado = cabecera.removeprefix(PREFIJO).strip()
+    presentado = presentado.strip()
     if not presentado:
         raise SinToken()
     try:

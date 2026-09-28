@@ -6,19 +6,32 @@ from alumnos.models import Alumno
 from ingreso import tokens
 from ingreso.models import Credencial, EventoIngreso
 
+LARGO_DETALLE = EventoIngreso._meta.get_field("detalle").max_length
+
 MAX_EVENTOS_POR_LOTE = 100
 """Tope del lote. Con `contexto_de` el costo son unas pocas queries fijas más
 un `bulk_create`, así que el tope es por el tamaño del body y por los 30 s de
 gunicorn, no por el costo por evento."""
 
 HORAS_DE_ADELANTO_TOLERADAS = 1
-"""Un lector con el reloj adelantado fecha eventos en el futuro, y eso ensucia
-el antipassback y los reportes para siempre. Una hora cubre un desfasaje de
-zona horaria mal configurada sin aceptar un evento de la semana que viene."""
+"""Solo para los eventos EN DIFERIDO (en online manda el reloj del servidor).
+Un lector con el reloj adelantado fecha eventos en el futuro, y eso ensucia el
+antipassback y los reportes para siempre. Una hora cubre un desfasaje de zona
+horaria mal configurada sin aceptar un evento de la semana que viene."""
+
+SEGUNDOS_DE_DESFASE_A_ANOTAR = 60
+"""En modo online manda el reloj del servidor (ver `registrar_lote`); si el
+`momento` que mandó el lector difiere en más que esto, el desfase se anota en
+`detalle` para que el instalador vea que hay un reloj mal."""
+
+RESULTADO_INVALIDO = "invalido"
+"""El `resultado` de un evento que no se pudo leer. No es un
+`EventoIngreso.Resultado`: ese evento no se registra."""
 
 DIAS_DE_ANTIGUEDAD_TOLERADOS = 7
-"""El piso simétrico: un lector con el reloj reseteado (una pila agotada lo
-devuelve al 2000-01-01) fecha sus eventos en el pasado remoto. Aceptado, ese
+"""Solo para los eventos EN DIFERIDO (en online manda el reloj del servidor).
+El piso simétrico del tope al futuro: un lector con el reloj reseteado (una
+pila agotada lo devuelve al 2000-01-01) fecha sus eventos en el pasado remoto. Aceptado, ese
 ingreso queda para siempre en los reportes históricos de un día en que nadie
 entró. Siete días es cuánto se espera que un lector pueda quedar sin internet
 acumulando su lote en diferido: pasado eso, lo que llega es un reloj roto y no
@@ -26,9 +39,9 @@ un backlog. `contexto_de` ya no trae el historial entero ante una lectura
 vieja (acota por lectura, ver `decision.py`); este piso es la segunda capa,
 la que evita que el dato envenenado se guarde.
 
-Riesgo aceptado: un lector que estuvo más de siete días desconectado recibe un
-400 por ese backlog, y el puente tiene que descartar los eventos viejos (el
-mensaje dice cuál) para poder subir el resto."""
+Riesgo aceptado: los eventos de un lector que estuvo más de siete días
+desconectado salen como inválidos (uno por uno, el resto del lote se registra)
+y no quedan en el historial."""
 
 
 def generar_credencial_qr(alumno, *, regenerar=False):
@@ -77,14 +90,53 @@ def generar_credenciales_en_bloque(gimnasio):
     return len(nuevas)
 
 
+def nombre_corto(alumno):
+    """«Juan P.»: lo que muestra la pantalla del molinete y lo que viaja en el
+    padrón. El apellido completo no le agrega nada a quien pasa por la puerta
+    y sí lo deja escrito en la memoria de un equipo de terceros."""
+    if alumno is None:
+        return None
+    nombre = (alumno.nombre or "").strip()
+    apellido = (alumno.apellido or "").strip()
+    if not apellido:
+        return nombre
+    return f"{nombre} {apellido[0].upper()}."
+
+
+def respuesta_invalida(error, id_equipo=None):
+    """La respuesta de un evento que no se pudo leer. Ocupa su posición en el
+    lote y no se registra; el resto del lote sigue."""
+    return {
+        "id_evento_equipo": id_equipo,
+        "permitido": False,
+        "resultado": RESULTADO_INVALIDO,
+        "mensaje": "No pudimos leer el ingreso. Pasá por el mostrador.",
+        "alumno": None,
+        "error": error,
+    }
+
+
 def _respuesta(*, id_equipo, permitido, resultado, mensaje, alumno):
     return {
         "id_evento_equipo": id_equipo or None,
         "permitido": permitido,
         "resultado": resultado,
         "mensaje": mensaje,
-        "alumno": str(alumno) if alumno is not None else None,
+        "alumno": nombre_corto(alumno),
     }
+
+
+def _detalle(lectura, veredicto):
+    """El valor leído no se guarda (es la llave de la puerta): de una
+    credencial desconocida, solo la cola, para diagnosticar. Si además hay una
+    nota (el desfase del reloj) y no entran las dos, gana la credencial y la
+    nota se recorta."""
+    partes = []
+    if veredicto.credencial is None:
+        partes.append(f"…{lectura.valor_normalizado[-6:]}")
+    if lectura.nota:
+        partes.append(lectura.nota)
+    return " · ".join(partes)[:LARGO_DETALLE]
 
 
 @transaction.atomic
@@ -100,12 +152,12 @@ def registrar_lote(dispositivo, lecturas):
     y el veredicto no puede depender de eso.
 
     Los `id_evento_equipo` que ya existen NO se vuelven a decidir: se devuelve
-    el veredicto guardado. Es la idempotencia que necesita un lector que
-    reintenta el upload (decidido de nuevo, el antipassback lo daría por
-    duplicado). Un id repetido DENTRO del lote se registra una vez y las dos
-    posiciones reciben la misma respuesta.
+    el veredicto guardado, con el mensaje reconstruido desde su resultado. Es la
+    idempotencia que necesita un lector que reintenta el upload (decidido de
+    nuevo, el antipassback lo daría por duplicado). Un id repetido DENTRO del
+    lote se registra una vez y las dos posiciones reciben la misma respuesta.
     """
-    from ingreso.decision import contexto_de, decidir
+    from ingreso.decision import contexto_de, decidir, mensaje_de
 
     gimnasio = dispositivo.gimnasio
     ids = {lectura.id_equipo for lectura in lecturas if lectura.id_equipo}
@@ -135,7 +187,7 @@ def registrar_lote(dispositivo, lecturas):
                 id_equipo=previo.id_evento_equipo,
                 permitido=previo.resultado == EventoIngreso.Resultado.PERMITIDO,
                 resultado=previo.resultado,
-                mensaje="",
+                mensaje=mensaje_de(previo.resultado, previo.alumno),
                 alumno=previo.alumno,
             )
             continue
@@ -151,12 +203,7 @@ def registrar_lote(dispositivo, lecturas):
             sentido=lectura.sentido,
             en_diferido=lectura.en_diferido,
             id_evento_equipo=lectura.id_equipo,
-            # El valor leído no se guarda (es la llave de la puerta): de una
-            # credencial desconocida, solo la cola, para diagnosticar.
-            detalle=(
-                f"…{lectura.valor_normalizado[-6:]}"
-                if veredicto.credencial is None else ""
-            ),
+            detalle=_detalle(lectura, veredicto),
         ))
         respuestas[i] = _respuesta(
             id_equipo=lectura.id_equipo,
