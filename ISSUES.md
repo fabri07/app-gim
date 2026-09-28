@@ -20,6 +20,31 @@ del log.
 
 ---
 
+## [2026-09-28] Verificar en producción la IP que ve el freno de la puerta
+**Estado:** abierto (pendiente previo al lanzamiento del control de ingreso)
+
+**Impacto:** el freno por IP de la API de la puerta (`ingreso/limites.py`,
+rama `worktree-control-de-ingreso`) cuenta las fallas con
+`solicitudes.antispam.ip_de`, que confía en `CF-Connecting-IP`. Si en
+producción ese header no trae la IP real del cliente (por cómo queda la zona de
+Cloudflare delante del CDN propio de Render), o si el origen `*.onrender.com`
+acepta un `CF-Connecting-IP` falsificado por el cliente, el freno cuenta mal:
+o todos los clientes comparten una IP (el proxy) o un atacante la rota a
+voluntad. Desde el arreglo de la revisión de la Tarea 10 el impacto es «freno
+evadible» y no «puerta cerrada»: un lector activo pasa el freno igual (set de
+tokens activos), así que un error acá no le cierra la puerta a nadie. Lo mismo
+vale para el rate-limit del formulario público de `solicitudes`, que usa la
+misma función.
+
+**Resolución / próximo paso:** en producción, (1) pegarle a una vista de
+diagnóstico o mirar el log con dos clientes de IPs distintas y confirmar que
+`ip_de` devuelve cada una; (2) mandarle directo al origen de Render un
+request con `CF-Connecting-IP: 1.2.3.4` y confirmar que no se toma (o que el
+origen no es alcanzable sin pasar por Cloudflare). No se puede verificar desde
+el entorno local.
+
+---
+
 ## [2026-09-28] El 304 del padrón de la puerta cuesta lo mismo que un 200
 **Estado:** aceptado (riesgo asumido a propósito)
 

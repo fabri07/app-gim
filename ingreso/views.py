@@ -228,19 +228,19 @@ def _lector_del_request(request):
     puedan divergir en qué es un token válido ni en el freno por IP.
 
     **El freno por IP (`ingreso/limites.py`) es del camino de FALLO**: con la
-    IP frenada, un token que no se conoce recibe 429 sin tocar la base; uno
-    que ya autenticó bien pasa siempre, porque una lectura online frenada es
-    una puerta cerrada. El 403 no suma fallas: solo lo alcanza un token
-    válido. Y **no se mira `estado_cuenta`** (invariante de la Tarea 9).
+    IP frenada, un token que no es de ningún lector activo recibe 429 sin
+    tocar la base (el set vive en el cache); uno de un lector activo pasa
+    siempre, porque una lectura online frenada es una puerta cerrada. El 403
+    no suma fallas: solo lo alcanza un token válido. Y **no se mira `estado_cuenta`** (invariante de la Tarea 9).
 
     Todo request autenticado es además el latido del lector (no hay endpoint
     aparte): `update()` para no tocar `modificado`.
     """
     ip = limites.ip_de(request)
     token_hash = auth.hash_presentado(request)
-    if limites.demasiados_intentos_fallidos(ip) and not limites.lector_conocido(
-        token_hash
-    ):
+    if limites.demasiados_intentos_fallidos(
+        ip
+    ) and not limites.puede_ser_un_lector(token_hash):
         return None, _demasiado(
             "intentos_fallidos",
             "demasiados intentos con un token inválido desde esta IP: revisá "
@@ -254,7 +254,6 @@ def _lector_del_request(request):
     except auth.ErrorDeAutenticacion:
         limites.anotar_fallo(ip)
         return None, JsonResponse({"error": "token invalido"}, status=401)
-    limites.recordar_lector(token_hash)
     Dispositivo.objects.filter(pk=dispositivo.pk).update(
         ultimo_contacto=timezone.now()
     )

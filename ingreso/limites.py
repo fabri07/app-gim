@@ -15,15 +15,21 @@ atacante sin llave no nos cueste ni la query del token.
 
 **Un lector legítimo no recibe nunca este 429**, aunque su IP esté frenada: la
 IP de un gimnasio es compartida (NAT) con cualquier cosa mal configurada del
-mismo edificio -- un puente viejo con el token rotado alcanza. Para no pagar la
-query del token con la IP frenada y aun así dejar pasar al bueno, se recuerda
-en el mismo cache el hash de cada token que autenticó bien (`recordar_lector`).
-Riesgo aceptado: un lector legítimo que todavía NO está en ese recuerdo (el
-recién instalado; tras un reinicio el contador también vuelve a cero, así que
-ése no cuenta) y comparte IP con algo que falla más de `MAX_FALLOS_POR_MINUTO`
-veces por minuto espera a que termine la ventana, y puede no llegar a entrar
-si lo que falla no afloja. El 429 lleva `Retry-After`; la salida es apagar lo
-que falla (el cartel del 429 lo dice).
+mismo edificio -- un puente viejo con el token rotado alcanza. Con la IP
+frenada, el hash presentado se busca en `hashes_activos()`: el set de los
+`token_hash` de TODOS los lectores activos de la plataforma, cacheado
+`SEGUNDOS_SET_ACTIVOS`. Si está, sigue a la autenticación normal; si no, 429
+sin más queries.
+
+**Costo:** como mucho UNA query por minuto en toda la plataforma, y solo
+mientras haya alguna IP frenada. El atacante sin llave no cuesta una query por
+request: el set ya está en el cache. Y a diferencia de un recuerdo por token
+(la primera versión, `recordar_lector`, que se sacó), no depende de que el
+lector haya pasado antes por ESTE proceso: el cache arranca vacío en cada
+deploy y el `LocMemCache` desaloja entradas cuando pasa de 300, y en los dos
+casos el set se recalcula con una query en vez de dejar afuera al lector
+bueno. Un token rotado o un lector desactivado sale del set dentro del minuto
+(mientras tanto va a la base y da 401/403, nunca 200).
 
 **2. Tope diario de eventos NUEVOS por lector**, contado en la base
 (`Dispositivo.eventos_hoy`/`eventos_hoy_fecha`): el respaldo durable, que
@@ -45,7 +51,7 @@ from solicitudes.antispam import ip_de
 
 __all__ = [
     "ip_de", "demasiados_intentos_fallidos", "anotar_fallo",
-    "lector_conocido", "recordar_lector", "cupo_diario_excedido",
+    "hashes_activos", "puede_ser_un_lector", "cupo_diario_excedido",
     "sumar_al_cupo", "segundos_hasta_medianoche",
 ]
 
@@ -57,9 +63,12 @@ pretende: el freno es de costo, no de adivinanza."""
 
 SEGUNDOS_VENTANA_FALLOS = 60
 
-SEGUNDOS_RECUERDO_LECTOR = 24 * 60 * 60
-"""Se renueva en cada request autenticado; un lector sano pollea el padrón
-cada pocos minutos, así que no se le vence nunca."""
+SEGUNDOS_SET_ACTIVOS = 60
+"""Cuánto vive en el cache el set de lectores activos: acota a una query por
+minuto el costo del respaldo, y a un minuto lo que tarda un token rotado en
+dejar de pasar el freno (y aun así va a la base y da 401)."""
+
+CLAVE_SET_ACTIVOS = "ingreso:lectores-activos"
 
 MAX_EVENTOS_POR_DIA = 20_000
 """Por lector y por día local. Un gimnasio de 600 alumnos que entran y salen
@@ -73,10 +82,6 @@ def _clave_ip(ip):
     # aceptarlo en todos los backends. Es la misma función que usa el
     # formulario público para no guardar la IP en claro.
     return f"ingreso:fallos:{_hash_con_pimienta(ip)}"
-
-
-def _clave_lector(token_hash):
-    return f"ingreso:lector:{token_hash}"
 
 
 def demasiados_intentos_fallidos(ip):
@@ -104,12 +109,24 @@ def anotar_fallo(ip):
         cache.set(clave, 1, timeout=SEGUNDOS_VENTANA_FALLOS)
 
 
-def lector_conocido(token_hash):
-    return bool(token_hash) and cache.get(_clave_lector(token_hash)) is not None
+def hashes_activos():
+    """Los `token_hash` de los lectores activos de toda la plataforma. Una
+    query como mucho cada `SEGUNDOS_SET_ACTIVOS`; se recalcula sola si el
+    cache se vació (deploy) o desalojó la entrada."""
+    hashes = cache.get(CLAVE_SET_ACTIVOS)
+    if hashes is None:
+        hashes = frozenset(
+            Dispositivo.objects.filter(activo=True).values_list(
+                "token_hash", flat=True
+            )
+        )
+        cache.set(CLAVE_SET_ACTIVOS, hashes, timeout=SEGUNDOS_SET_ACTIVOS)
+    return hashes
 
 
-def recordar_lector(token_hash):
-    cache.set(_clave_lector(token_hash), 1, timeout=SEGUNDOS_RECUERDO_LECTOR)
+def puede_ser_un_lector(token_hash):
+    """Con la IP frenada: ¿vale la pena ir a la base por este token?"""
+    return bool(token_hash) and token_hash in hashes_activos()
 
 
 def cupo_diario_excedido(dispositivo):

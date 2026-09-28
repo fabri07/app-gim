@@ -661,6 +661,16 @@ dependencia nueva.
     viejo que `DIAS_DE_ANTIGUEDAD_TOLERADOS` sale como evento inválido: no hay
     forma de distinguir un lector que estuvo una semana sin internet de uno con
     el reloj reseteado, y aceptar el segundo envenena los reportes históricos.
+13. **El camino AUTENTICADO no tiene freno de requests.** El freno por IP es
+    solo del camino de fallo y el tope diario cuenta eventos escritos, no
+    requests: un token robado (o un puente con un bug) puede martillar el
+    padrón o mandar lotes de reintentos que no escriben nada, y cada request
+    ocupa el único worker de gunicorn. Es el mismo riesgo que el costo del 304
+    (ver §5), multiplicado por la frecuencia. No se frena porque cualquier
+    freno ahí puede cerrarle la puerta a un lector legítimo. La mitigación
+    posible, si hiciera falta: un freno por token de ~60 requests por minuto,
+    **solo en el padrón** (el camino online de eventos no se frena nunca). La
+    otra salida sigue siendo rotar el token.
 
 ## Fuera de alcance
 

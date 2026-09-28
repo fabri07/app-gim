@@ -2630,6 +2630,17 @@ Los tres templates extienden `base.html` y reusan `.tarjeta`, `.boton`,
 
 **No se agrega ningún ítem al nav** (`templates/base.html:243-254` se queda en 8).
 
+> **Nota que dejó la Tarea 10:** la vista que ROTA el token de un lector
+> (regenerarlo desde `dispositivo_editar`) tiene que poner `eventos_hoy=0` en el
+> MISMO `update()` que cambia `token_hash`, e invalidar el set cacheado de
+> lectores activos (`cache.delete(limites.CLAVE_SET_ACTIVOS)`); lo mismo al
+> desactivar o reactivar un lector. Sin lo primero, un atacante que agotó el
+> tope diario con el token robado deja al lector con 429 todo el día aunque el
+> dueño rote el token. Sin lo segundo, el token viejo sigue pasando el freno
+> por IP hasta un minuto (igual da 401, pero cuesta la query) y el nuevo puede
+> recibir 429 ese minuto si la IP del gimnasio está frenada. Un test por cada
+> cosa.
+
 - [ ] Steps: test de guardia → correr y ver fallar → vista+template → correr → commit, una pantalla por vez.
 
 ---
@@ -2747,6 +2758,21 @@ de este plan; el código manda):
   `id_evento_equipo`**; sin id, el reintento online da `DUPLICADO` (riesgo
   aceptado 11 de la spec).
 - El esquema `Bearer` no distingue mayúsculas.
+
+**Notas que dejó la Tarea 10** (frenos):
+
+- La API puede responder **429** con `motivo` (`intentos_fallidos` o
+  `tope_diario`) y `Retry-After` en segundos. **Ante cualquier 429, sea cual sea
+  el `motivo`, el puente decide con el padrón local** (como si no hubiera
+  internet) y sube ese evento después EN DIFERIDO, respetando `Retry-After`.
+  Nunca reintentar en bucle: los reintentos también cuentan como fallas si el
+  token es malo.
+- El padrón nunca recibe 429 por el tope diario (solo por el freno de fallas,
+  que a un token válido no lo alcanza).
+- El tope es de 20.000 eventos NUEVOS por lector y por día local, y el backlog
+  en diferido cuenta en el día en que se SUBE, no en el de su `momento`: 20.000
+  por día cubre unos 10 días offline de un gimnasio grande (unos 2.000 por
+  día). Los reintentos con el mismo `id_evento_equipo` no suman.
 
 **Notas que dejó la Tarea 8** (padrón):
 

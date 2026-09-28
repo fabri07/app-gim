@@ -1589,13 +1589,19 @@ class FrenoPorIpTests(_BasePadron):
 
     def test_con_la_ip_frenada_un_token_invalido_no_llega_a_la_base(self):
         """Es el punto del freno: el atacante sin llave no cuesta ni la query
-        del token."""
+        del token. El primer request frenado arma el set de lectores activos
+        (una query); mientras el set está en el cache, los que siguen cuestan
+        cero."""
         self._fallar(limites.MAX_FALLOS_POR_MINUTO)
+        with self.assertNumQueries(1):
+            self.assertEqual(
+                self._post({"eventos": []}, token="invalido").status_code, 429
+            )
 
-        with self.assertNumQueries(0):
-            respuesta = self._post({"eventos": []}, token="invalido")
-
-        self.assertEqual(respuesta.status_code, 429)
+        for _ in range(5):
+            with self.assertNumQueries(0):
+                respuesta = self._post({"eventos": []}, token="invalido")
+            self.assertEqual(respuesta.status_code, 429)
 
     def test_pasada_la_ventana_vuelve_a_responder_401(self):
         ahora = 2_000_000_000.0
@@ -1667,8 +1673,9 @@ class FrenoPorIpTests(_BasePadron):
     def test_un_lector_desactivado_no_suma_fallos(self):
         """El 403 solo se alcanza con un token VÁLIDO: no es alguien probando
         llaves, es un lector apagado que sigue polleando. Si contara, frenaría
-        la IP del gimnasio justo cuando instalan el lector nuevo, que todavía
-        no es conocido y se comería el 429."""
+        la IP del gimnasio justo cuando instalan el lector nuevo, que puede no
+        estar todavía en el set cacheado de lectores activos y se comería el
+        429 hasta que el set se recalcule."""
         Dispositivo.objects.filter(pk=self.dispositivo.pk).update(activo=False)
         for _ in range(limites.MAX_FALLOS_POR_MINUTO + 5):
             self.assertEqual(self._get(token=self.token).status_code, 403)
@@ -1680,6 +1687,97 @@ class FrenoPorIpTests(_BasePadron):
         )
 
         self.assertEqual(self._get(token=token_nuevo).status_code, 200)
+
+
+class FrenoPorIpConElCacheVacioTests(_BasePadron):
+    """El recuerdo del proceso NO puede ser lo que deja pasar al lector bueno:
+    el `LocMemCache` arranca vacío en cada deploy y desaloja entradas cuando
+    pasa de 300. Con la IP frenada, lo que decide es el set de lectores
+    activos, que se recalcula con una query cuando falta."""
+
+    def _frenar_ip(self):
+        for _ in range(limites.MAX_FALLOS_POR_MINUTO):
+            self._post({"eventos": []}, token="invalido")
+        self.assertEqual(
+            self._post({"eventos": []}, token="invalido").status_code, 429
+        )
+
+    def _vaciar_todo_menos_el_contador_de_la_ip(self):
+        """Un deploy vacía TODO el cache, contador incluido, y entonces la IP
+        tampoco está frenada: el caso difícil es el cache vaciado de lo demás
+        con la IP todavía frenada (un desalojo parcial, o el deploy seguido
+        de 30 fallas antes de que el lector vuelva a pollear)."""
+        clave = limites._clave_ip("127.0.0.1")  # `REMOTE_ADDR` del Client
+        fallas = cache.get(clave)
+        cache.clear()
+        cache.set(clave, fallas, timeout=limites.SEGUNDOS_VENTANA_FALLOS)
+
+    def test_con_el_cache_vaciado_un_token_valido_pasa_en_eventos(self):
+        self.assertEqual(self._get(token=self.token).status_code, 200)
+        cache.clear()
+        self._frenar_ip()
+        self._vaciar_todo_menos_el_contador_de_la_ip()
+
+        respuesta = self._post_eventos({"tipo": "qr", "valor": self.qr.valor})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.json()["resultados"][0]["permitido"])
+
+    def test_con_el_cache_vaciado_un_token_valido_pasa_en_el_padron(self):
+        self.assertEqual(self._get(token=self.token).status_code, 200)
+        cache.clear()
+        self._frenar_ip()
+        self._vaciar_todo_menos_el_contador_de_la_ip()
+
+        self.assertEqual(self._get(token=self.token).status_code, 200)
+
+    def test_un_lector_nunca_visto_pasa_con_la_ip_frenada(self):
+        """Ni siquiera hace falta un request previo: el lector recién
+        instalado, con la IP del gimnasio ya frenada, abre."""
+        self._frenar_ip()
+
+        self.assertEqual(self._get(token=self.token).status_code, 200)
+
+    def test_un_token_rotado_con_la_ip_frenada_nunca_da_200(self):
+        self.assertEqual(self._get(token=self.token).status_code, 200)
+        self._frenar_ip()
+        viejo = self.token
+        Dispositivo.objects.filter(pk=self.dispositivo.pk).update(
+            token_hash=tokens.hash_de(tokens.generar())
+        )
+
+        # Con el set todavía cacheado, el viejo va a la base y da 401; cuando
+        # el set se recalcula, 429 sin tocarla. Nunca 200.
+        self.assertIn(self._get(token=viejo).status_code, (401, 429))
+        cache.delete(limites.CLAVE_SET_ACTIVOS)
+        self.assertEqual(self._get(token=viejo).status_code, 429)
+
+    def test_un_lector_desactivado_con_la_ip_frenada_nunca_da_200(self):
+        self._frenar_ip()
+        Dispositivo.objects.filter(pk=self.dispositivo.pk).update(activo=False)
+
+        self.assertIn(self._get(token=self.token).status_code, (403, 429))
+        cache.delete(limites.CLAVE_SET_ACTIVOS)
+        self.assertEqual(self._get(token=self.token).status_code, 429)
+
+    def test_el_desalojo_del_cache_no_traba_al_lector_legitimo(self):
+        """`LocMemCache` guarda 300 entradas y desaloja al pasarse: fallas
+        desde muchas IPs distintas lo llenan. El lector legítimo, con su IP
+        frenada, sigue abriendo."""
+        self._frenar_ip()
+        for i in range(320):
+            self._post(
+                {"eventos": []}, token="invalido",
+                HTTP_CF_CONNECTING_IP=f"10.0.{i // 250}.{i % 250}",
+            )
+        # Lo que sea que haya sobrevivido al desalojo: con la IP frenada o no,
+        # el lector bueno pasa.
+        self._frenar_ip()
+
+        respuesta = self._post_eventos({"tipo": "qr", "valor": self.qr.valor})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertEqual(self._get(token=self.token).status_code, 200)
 
 
 class TopeDiarioTests(_BasePadron):
@@ -1817,6 +1915,19 @@ class TopeDiarioTests(_BasePadron):
         self.assertEqual(respuesta.status_code, 429)
         # Retry-After apunta a la medianoche LOCAL: faltan 30 minutos.
         self.assertEqual(int(respuesta["Retry-After"]), 30 * 60)
+
+    def test_el_contador_se_escribe_con_el_dia_local(self):
+        """El lado que ESCRIBE: a las 23:30 de Buenos Aires la fecha UTC ya es
+        la de mañana. Anotado con `now().date()`, el contador quedaría fechado
+        mañana y el chequeo de hoy no lo vería."""
+        congelado = datetime(2031, 3, 10, 2, 30, tzinfo=dt_timezone.utc)
+        with patch("django.utils.timezone.now", return_value=congelado):
+            respuesta = self._post_eventos({"tipo": "qr", "valor": self.qr.valor})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.dispositivo.refresh_from_db()
+        self.assertEqual(self.dispositivo.eventos_hoy_fecha, date(2031, 3, 9))
+        self.assertEqual(self.dispositivo.eventos_hoy, 1)
 
     def test_contar_no_toca_modificado(self):
         """`version_media` no deriva de acá, pero el criterio del proyecto es
