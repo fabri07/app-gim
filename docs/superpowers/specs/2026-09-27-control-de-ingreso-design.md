@@ -797,6 +797,24 @@ dependencia nueva.
     sumar a `v1` como campo opcional sin romper a los lectores que no lo
     manden.
 
+17. **El antipassback traba a quien no llegó a pasar.** La app registra un
+    PERMITIDO cuando habilita el molinete, no cuando la persona lo empuja: el
+    contrato no tiene forma de decir «habilitó pero nadie pasó». Si el alumno
+    no empuja (se distrajo, el molinete se trabó, se dio vuelta a buscar algo)
+    y vuelve a escanear dentro de `minutos_antipassback` (2 por defecto),
+    recibe `DUPLICADO` y la puerta no abre, aunque todavía esté afuera. Queda
+    esperando que pase la ventana o que lo abra alguien del mostrador. Es la
+    misma familia que el riesgo 11 (el reintento online sin id). No se cambia
+    el comportamiento: el antipassback existe justamente para que la segunda
+    lectura del mismo QR, pasado por otra persona, no abra. Las salidas, si
+    molesta en un gimnasio real: **bajar `minutos_antipassback`** (1 minuto
+    sigue cortando la doble lectura del mismo scan), **ponerlo en 0** (lo
+    apaga, y con él la protección contra el QR prestado), o **que el equipo
+    informe si hubo paso** (el sensor de giro del molinete): un campo nuevo y
+    opcional del contrato, sumable a `v1`, con el que la app solo contaría
+    para el antipassback los ingresos efectivamente pasados. Decisión
+    pendiente del dueño del producto, `ISSUES.md` [2026-09-28].
+
 ## Fuera de alcance
 
 - **Modo kiosco** (tablet o celular con cámara en la puerta). Es el siguiente paso

@@ -93,6 +93,28 @@ hermética. Mientras tanto: correr la suite con el `.env` presente, o copiar el
 
 ---
 
+## [2026-09-28] El antipassback de la puerta traba a quien no llegó a pasar
+**Estado:** aceptado (riesgo asumido a propósito) + decisión de producto pendiente
+**Impacto:** la puerta registra el ingreso cuando habilita el molinete, no
+cuando la persona lo empuja: el contrato no sabe decir «habilitó pero nadie
+pasó». Si el alumno no empuja y vuelve a escanear dentro de
+`ConfiguracionIngreso.minutos_antipassback` (2 por defecto), recibe
+`DUPLICADO` («Ya registramos tu ingreso hace un momento») y la puerta no abre,
+aunque siga afuera. Tiene que esperar a que pase la ventana o pedir que le
+abran desde el mostrador. Spec, riesgo aceptado 17 (misma familia que el 11,
+el reintento online sin id).
+**Resolución / próximo paso:** no se cambió el comportamiento: el antipassback
+es lo que evita que un QR prestado abra dos veces seguidas. **Para decidir con
+el dueño del producto**, cuando haya un gimnasio con molinete real: (a) bajar
+el default de `minutos_antipassback` (o que cada gimnasio lo baje desde
+«Configurar la puerta»: 1 minuto sigue cortando la doble lectura); (b) ponerlo
+en 0, que lo apaga junto con la protección contra el QR prestado; o (c) que el
+equipo informe si hubo paso (el sensor de giro del molinete), con un campo
+opcional nuevo en `v1`, y que el antipassback cuente solo los ingresos
+efectivamente pasados.
+
+---
+
 ## [2026-09-28] «Asistentes hoy» e «ingresos hoy» en el mismo panel
 **Estado:** abierto (decisión de producto pendiente)
 **Impacto:** el dashboard del staff muestra la métrica «Asistentes hoy»
