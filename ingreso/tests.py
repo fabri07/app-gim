@@ -1,15 +1,27 @@
+import ast
+import importlib
+import importlib.util
+import inspect
 import io
+import json
 import re
+import socket
+import sys
+import tempfile
+import urllib.error
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
+from pathlib import Path
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.management import CommandError, call_command
 from django.db import IntegrityError, connection
 from django.db.models import ProtectedError
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
+from django.urls import resolve
 from django.utils import timezone
 from PIL import Image
 import segno
@@ -582,3 +594,505 @@ class RestarMesesTests(SimpleTestCase):
     def test_un_dia_que_no_existe_cae_en_el_ultimo_del_mes(self):
         self.assertEqual(restar_meses(date(2026, 3, 31), 1), date(2026, 2, 28))
         self.assertEqual(restar_meses(date(2028, 2, 29), 12), date(2027, 2, 28))
+
+
+# ---------------------------------------------------------------------------
+# Documento de integración y puente de ejemplo (Tarea 17)
+# ---------------------------------------------------------------------------
+
+RAIZ_DEL_REPO = Path(settings.BASE_DIR)
+DOCUMENTO_DE_INTEGRACION = RAIZ_DEL_REPO / "docs" / "integracion-control-de-ingreso.md"
+PUENTE_DE_EJEMPLO = RAIZ_DEL_REPO / "scripts" / "puente_ingreso_ejemplo.py"
+SCRIPT_DE_PRUEBA_LOCAL = RAIZ_DEL_REPO / "scripts" / "probar_ingreso_local.sh"
+
+
+def _cargar_puente():
+    """El puente es un script suelto (tiene que correr en la PC del gimnasio
+    sin el repo), no un módulo del proyecto: se carga por ruta. Va a
+    `sys.modules` antes de ejecutarlo porque `dataclasses` busca ahí el módulo
+    de la clase."""
+    nombre = "puente_ingreso_ejemplo"
+    spec = importlib.util.spec_from_file_location(nombre, PUENTE_DE_EJEMPLO)
+    modulo = importlib.util.module_from_spec(spec)
+    sys.modules[nombre] = modulo
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+puente_mod = _cargar_puente()
+
+PADRON_DE_PRUEBA = {
+    "version": "v1",
+    "reglas_no_incluidas": ["reserva", "antipassback"],
+    "mensajes": {
+        "permitido": "¡Hola, {nombre}! Pasá.",
+        "deuda": "Tenés una cuota sin pagar. Pasá por el mostrador.",
+        "sin_credencial": "Credencial no reconocida. Pasá por el mostrador.",
+    },
+    "alumnos": [
+        {"id": 1, "nombre": "Juan P.", "habilitado": True, "motivo": None,
+         "qr": "qr-juan", "id_facial": "42"},
+        {"id": 2, "nombre": "Ana G.", "habilitado": False, "motivo": "deuda",
+         "qr": "qr-ana", "id_facial": None},
+    ],
+}
+
+
+class _TransporteFalso:
+    """Reemplaza la red: cada llamada consume la próxima respuesta de la lista
+    (una tupla `(status, encabezados, cuerpo)` o una excepción a levantar), y
+    anota lo que se pidió."""
+
+    def __init__(self, *respuestas):
+        self.respuestas = list(respuestas)
+        self.llamadas = []
+
+    def __call__(self, metodo, url, *, cuerpo=None, encabezados=None, timeout):
+        self.llamadas.append({
+            "metodo": metodo, "url": url, "encabezados": encabezados or {},
+            "cuerpo": json.loads(cuerpo) if cuerpo else None, "timeout": timeout,
+        })
+        respuesta = self.respuestas.pop(0)
+        if isinstance(respuesta, Exception):
+            raise respuesta
+        return respuesta
+
+
+def _ok(resultados):
+    return 200, {}, json.dumps({"resultados": resultados}).encode()
+
+
+class _Reloj:
+    def __init__(self):
+        self.ahora = 1000.0
+
+    def __call__(self):
+        return self.ahora
+
+
+class PuenteDeEjemploTests(SimpleTestCase):
+    """El puente de ejemplo implementa el contrato del documento. Lo que se
+    fija es la LÓGICA (decidir con el padrón, el fallback, la cola, los
+    frenos); la red se reemplaza por `_TransporteFalso`."""
+
+    def _puente(self, *respuestas, padron=PADRON_DE_PRUEBA):
+        self.transporte = _TransporteFalso(*respuestas)
+        self.reloj = _Reloj()
+        self.logs = []
+        puente = puente_mod.Puente(
+            "http://gimnasio.test/", "clave", transporte=self.transporte,
+            reloj=self.reloj, log=self.logs.append,
+        )
+        puente._padron.valor = {"etag": '"v1"', "padron": padron}
+        return puente
+
+    # -- decidir con el padrón (puro) --------------------------------------
+
+    def test_decide_con_el_padron_local(self):
+        decidir = puente_mod.decidir_con_padron
+
+        juan = decidir(PADRON_DE_PRUEBA, "qr", "qr-juan\r\n")
+        self.assertTrue(juan.permitido)
+        self.assertEqual(juan.mensaje, "¡Hola, Juan P.! Pasá.")
+        self.assertTrue(juan.offline)
+
+        ana = decidir(PADRON_DE_PRUEBA, "qr", "qr-ana")
+        self.assertFalse(ana.permitido)
+        self.assertEqual(ana.resultado, "deuda")
+        self.assertEqual(ana.mensaje, PADRON_DE_PRUEBA["mensajes"]["deuda"])
+
+        desconocido = decidir(PADRON_DE_PRUEBA, "qr", "otra-cosa")
+        self.assertFalse(desconocido.permitido)
+        self.assertEqual(desconocido.resultado, "sin_credencial")
+
+    def test_el_qr_y_el_id_facial_no_se_mezclan(self):
+        """En la app la unicidad es `(tipo, valor)`: un QR «42» no es el
+        usuario facial 42."""
+        self.assertTrue(puente_mod.decidir_con_padron(PADRON_DE_PRUEBA, "facial", "42").permitido)
+        self.assertFalse(puente_mod.decidir_con_padron(PADRON_DE_PRUEBA, "qr", "42").permitido)
+
+    def test_sin_padron_no_abre(self):
+        self.assertFalse(puente_mod.decidir_con_padron(None, "qr", "qr-juan").permitido)
+
+    def test_cambios_para_el_equipo_bloquea_al_deudor_y_borra_al_que_desaparece(self):
+        nuevo = {**PADRON_DE_PRUEBA, "alumnos": [
+            {**PADRON_DE_PRUEBA["alumnos"][0], "habilitado": False, "motivo": "deuda"},
+            {"id": 3, "nombre": "Leo M.", "habilitado": True, "motivo": None,
+             "qr": "qr-leo", "id_facial": None},
+        ]}
+
+        cambios = puente_mod.cambios_para_el_equipo(PADRON_DE_PRUEBA, nuevo)
+
+        self.assertEqual([f["id"] for f in cambios["bloqueos"]], [1])
+        self.assertEqual([f["id"] for f in cambios["bajas"]], [2])
+        self.assertEqual([f["id"] for f in cambios["altas"]], [3])
+
+    # -- lectura online y fallback ------------------------------------------
+
+    def test_con_respuesta_online_manda_el_veredicto_de_la_app(self):
+        puente = self._puente(_ok([{
+            "id_evento_equipo": "x", "permitido": False, "resultado": "duplicado",
+            "mensaje": "Ya registramos tu ingreso hace un momento.", "alumno": "Juan P.",
+        }]))
+
+        veredicto = puente.leer("qr", "qr-juan")
+
+        self.assertFalse(veredicto.permitido)
+        self.assertFalse(veredicto.offline)
+        self.assertEqual(puente.cola, [])
+        enviado = self.transporte.llamadas[0]
+        self.assertEqual(enviado["encabezados"]["Authorization"], "Bearer clave")
+        self.assertNotIn("abierto_por_el_equipo", enviado["cuerpo"]["eventos"][0])
+        self.assertEqual(enviado["timeout"], puente_mod.TIMEOUT_ONLINE)
+
+    def test_un_timeout_online_decide_con_el_padron_y_encola_en_diferido_con_el_mismo_id(self):
+        """El corazón del contrato (riesgos 11 y 15): si la app no contesta a
+        tiempo, el equipo decide con el padrón y el evento se sube después EN
+        DIFERIDO con el MISMO id -- si la app llegó a registrar el intento
+        online, el reintento devuelve ese veredicto en vez de un duplicado."""
+        puente = self._puente(puente_mod.ErrorDeRed("timed out"))
+
+        veredicto = puente.leer("qr", "qr-juan")
+
+        self.assertTrue(veredicto.permitido)
+        self.assertTrue(veredicto.offline)
+        id_online = self.transporte.llamadas[0]["cuerpo"]["eventos"][0]["id_evento_equipo"]
+        self.assertEqual(len(puente.cola), 1)
+        encolado = puente.cola[0]
+        self.assertEqual(encolado["id_evento_equipo"], id_online)
+        self.assertIs(encolado["abierto_por_el_equipo"], True)
+        self.assertIn("T", encolado["momento"])  # con hora, como exige el diferido
+
+        self.transporte.respuestas.append(_ok([{
+            "id_evento_equipo": id_online, "permitido": True, "resultado": "permitido",
+            "mensaje": "¡Hola, Juan! Pasá.", "alumno": "Juan P.",
+        }]))
+        self.assertEqual(puente.subir_diferidos(), 1)
+        subido = self.transporte.llamadas[1]["cuerpo"]["eventos"][0]
+        self.assertEqual(subido["id_evento_equipo"], id_online)
+        self.assertIs(subido["abierto_por_el_equipo"], True)
+        self.assertEqual(puente.cola, [])
+
+    def test_un_429_online_decide_con_el_padron_y_respeta_retry_after(self):
+        puente = self._puente(
+            (429, {"Retry-After": "30"}, b'{"error": "x", "motivo": "tope_diario"}')
+        )
+
+        self.assertTrue(puente.leer("qr", "qr-juan").offline)
+        self.assertEqual(len(puente.cola), 1)
+
+        # Dentro de la espera: ni se sube la cola ni se pregunta online.
+        self.assertEqual(puente.subir_diferidos(), 0)
+        self.assertTrue(puente.leer("facial", "42").offline)
+        self.assertEqual(len(self.transporte.llamadas), 1)
+        self.assertEqual(len(puente.cola), 2)
+
+        self.reloj.ahora += 31
+        self.transporte.respuestas.append(_ok([
+            {"id_evento_equipo": e["id_evento_equipo"], "permitido": True,
+             "resultado": "permitido", "mensaje": "", "alumno": None}
+            for e in puente.cola
+        ]))
+        self.assertEqual(puente.subir_diferidos(), 2)
+
+    def test_con_401_o_403_no_abre_con_el_padron(self):
+        """La app dijo que este lector no tiene permiso: abrir con el padrón
+        sería saltearse justo esa decisión."""
+        for status in (401, 403):
+            with self.subTest(status=status):
+                puente = self._puente((status, {}, b'{"error": "x"}'))
+
+                veredicto = puente.leer("qr", "qr-juan")
+
+                self.assertFalse(veredicto.permitido)
+                self.assertEqual(puente.cola, [])
+
+    def test_un_rechazo_offline_no_se_sube(self):
+        """`abierto_por_el_equipo` solo sabe decir «abrió»: con `false` la app
+        lo tomaría como una lectura online de ahora."""
+        puente = self._puente(puente_mod.ErrorDeRed("sin red"))
+
+        veredicto = puente.leer("qr", "qr-ana")
+
+        self.assertFalse(veredicto.permitido)
+        self.assertEqual(puente.cola, [])
+
+    # -- la cola ----------------------------------------------------------------
+
+    def _cola(self, puente, cantidad):
+        for i in range(cantidad):
+            puente.cola.append({
+                "tipo": "qr", "valor": "qr-juan", "sentido": "entrada",
+                "momento": "2026-09-28T10:00:00-03:00",
+                "id_evento_equipo": f"e{i}", "abierto_por_el_equipo": True,
+            })
+
+    def test_sube_en_lotes_de_a_lo_sumo_100(self):
+        puente = self._puente()
+        self._cola(puente, 150)
+        for tamano in (100, 50):
+            self.transporte.respuestas.append(_ok([
+                {"resultado": "permitido"} for _ in range(tamano)
+            ]))
+
+        self.assertEqual(puente.subir_diferidos(), 150)
+
+        self.assertEqual(
+            [len(l["cuerpo"]["eventos"]) for l in self.transporte.llamadas], [100, 50]
+        )
+
+    def test_un_evento_invalido_se_descarta_y_no_se_reintenta(self):
+        puente = self._puente(_ok([{
+            "id_evento_equipo": "e0", "permitido": False, "resultado": "invalido",
+            "mensaje": "", "alumno": None, "error": "momento demasiado viejo",
+        }]))
+        self._cola(puente, 1)
+
+        puente.subir_diferidos()
+
+        self.assertEqual(puente.cola, [])
+        self.assertEqual(len(self.transporte.llamadas), 1)
+        self.assertTrue(any("momento demasiado viejo" in l for l in self.logs))
+
+    def test_sin_red_la_cola_queda_y_no_hay_bucle_de_reintentos(self):
+        puente = self._puente(puente_mod.ErrorDeRed("sin red"))
+        self._cola(puente, 3)
+
+        self.assertEqual(puente.subir_diferidos(), 0)
+        self.assertEqual(puente.subir_diferidos(), 0)  # todavía en la espera
+
+        self.assertEqual(len(self.transporte.llamadas), 1)
+        self.assertEqual(len(puente.cola), 3)
+
+    # -- padrón ---------------------------------------------------------------
+
+    def test_el_padron_manda_if_none_match_y_un_304_conserva_la_copia(self):
+        puente = self._puente((304, {}, b""))
+
+        self.assertEqual(puente.sincronizar_padron(), 304)
+
+        self.assertEqual(
+            self.transporte.llamadas[0]["encabezados"]["If-None-Match"], '"v1"'
+        )
+        self.assertEqual(puente.padron, PADRON_DE_PRUEBA)
+
+    def test_un_padron_nuevo_reemplaza_la_copia_y_se_aplica_al_equipo(self):
+        nuevo = {**PADRON_DE_PRUEBA, "version": "v2", "alumnos": []}
+        puente = self._puente((200, {"ETag": '"v2"'}, json.dumps(nuevo).encode()))
+
+        puente.sincronizar_padron()
+
+        self.assertEqual(puente.padron["version"], "v2")
+        self.assertEqual(puente._padron.valor["etag"], '"v2"')
+        self.assertEqual(sum("BORRAR" in l for l in self.logs), 2)
+
+    def test_la_cola_y_el_padron_sobreviven_a_un_reinicio(self):
+        with tempfile.TemporaryDirectory() as carpeta:
+            primero = puente_mod.Puente(
+                "http://x", "clave", estado_dir=carpeta,
+                transporte=_TransporteFalso(puente_mod.ErrorDeRed("sin red")),
+                log=lambda *_: None,
+            )
+            primero._padron.valor = {"etag": '"v1"', "padron": PADRON_DE_PRUEBA}
+            primero._padron.guardar()
+            primero.leer("qr", "qr-juan")
+
+            segundo = puente_mod.Puente(
+                "http://x", "clave", estado_dir=carpeta, log=lambda *_: None
+            )
+
+            self.assertEqual(len(segundo.cola), 1)
+            self.assertEqual(segundo.padron, PADRON_DE_PRUEBA)
+
+    # -- transporte real y dependencias ---------------------------------------
+
+    def test_el_transporte_real_traduce_el_timeout_a_error_de_red(self):
+        with patch.object(
+            puente_mod.urllib.request, "urlopen", side_effect=socket.timeout("timed out")
+        ):
+            with self.assertRaises(puente_mod.ErrorDeRed):
+                puente_mod.transporte_urllib("GET", "http://x", timeout=1)
+
+    def test_el_transporte_real_devuelve_un_4xx_como_respuesta(self):
+        error = urllib.error.HTTPError(
+            "http://x", 429, "Too Many", {"Retry-After": "5"}, io.BytesIO(b"{}")
+        )
+        with patch.object(puente_mod.urllib.request, "urlopen", side_effect=error):
+            status, encabezados, _ = puente_mod.transporte_urllib("GET", "http://x", timeout=1)
+
+        self.assertEqual(status, 429)
+        self.assertEqual(encabezados["Retry-After"], "5")
+
+    def test_solo_importa_la_biblioteca_estandar(self):
+        """Tiene que correr en la PC de un gimnasio sin `pip install`."""
+        arbol = ast.parse(PUENTE_DE_EJEMPLO.read_text(encoding="utf-8"))
+        modulos = set()
+        for nodo in ast.walk(arbol):
+            if isinstance(nodo, ast.Import):
+                modulos.update(a.name.split(".")[0] for a in nodo.names)
+            elif isinstance(nodo, ast.ImportFrom) and nodo.module:
+                modulos.add(nodo.module.split(".")[0])
+
+        self.assertTrue(modulos)
+        self.assertEqual(modulos - set(sys.stdlib_module_names), set())
+
+    def test_no_hay_claves_escritas_en_los_scripts(self):
+        """La clave entra por argumento o por variable de entorno del script."""
+        for ruta in (PUENTE_DE_EJEMPLO, SCRIPT_DE_PRUEBA_LOCAL):
+            with self.subTest(ruta=ruta.name):
+                texto = ruta.read_text(encoding="utf-8")
+                self.assertIn("PUENTE_INGRESO_TOKEN", texto)
+                self.assertNotRegex(texto, r"Bearer [A-Za-z0-9_-]{20,}")
+
+
+def _claves_de(valor):
+    """Todas las claves de diccionario de un JSON, a cualquier profundidad."""
+    if isinstance(valor, dict):
+        claves = set(valor)
+        for hijo in valor.values():
+            claves |= _claves_de(hijo)
+        return claves
+    if isinstance(valor, list):
+        return set().union(*(_claves_de(v) for v in valor)) if valor else set()
+    return set()
+
+
+def _objetos_de(valor):
+    if isinstance(valor, dict):
+        yield valor
+        for hijo in valor.values():
+            yield from _objetos_de(hijo)
+    elif isinstance(valor, list):
+        for hijo in valor:
+            yield from _objetos_de(hijo)
+
+
+class DocumentoDeIntegracionTests(TestCase):
+    """Alambre trampa: el documento no puede quedar desfasado del código en
+    silencio. Mismo criterio que `config.tests.BlueprintDeclaraLoQueSettingsLeeTests`.
+
+    Compara contra lo que la API DEVUELVE de verdad (no contra una lista
+    escrita a mano, que sería comparar el documento consigo mismo)."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.texto = DOCUMENTO_DE_INTEGRACION.read_text(encoding="utf-8")
+        cls.bloques_json = [
+            json.loads(bloque)
+            for bloque in re.findall(r"```json\n(.*?)```", cls.texto, flags=re.S)
+        ]
+
+    def test_hay_ejemplos_json(self):
+        self.assertGreaterEqual(len(self.bloques_json), 6)
+
+    def test_las_rutas_del_documento_y_de_los_scripts_existen(self):
+        nombres = set()
+        for ruta in (DOCUMENTO_DE_INTEGRACION, PUENTE_DE_EJEMPLO, SCRIPT_DE_PRUEBA_LOCAL):
+            rutas = set(re.findall(r"/ingreso/v1/[\w/.-]*", ruta.read_text(encoding="utf-8")))
+            self.assertTrue(rutas, ruta.name)
+            for url in rutas:
+                with self.subTest(archivo=ruta.name, url=url):
+                    coincidencia = resolve(url)
+                    self.assertEqual(coincidencia.namespace, "ingreso")
+                    nombres.add(coincidencia.url_name)
+
+        # Los dos endpoints de la API, documentados y ejercitados.
+        self.assertEqual(nombres, {"api_eventos", "api_padron"})
+
+    def test_la_tabla_de_numeros_coincide_con_el_codigo(self):
+        filas = re.findall(
+            r"^\| `(ingreso\.[\w.]+)` \| ([\d.]+) \|", self.texto, flags=re.M
+        )
+        self.assertGreaterEqual(len(filas), 8)
+        for nombre, valor in filas:
+            with self.subTest(constante=nombre):
+                modulo, _, atributo = nombre.rpartition(".")
+                real = getattr(importlib.import_module(modulo), atributo)
+                self.assertEqual(int(valor.replace(".", "")), real)
+
+    def _respuestas_reales(self):
+        """Los JSON que la API devuelve de verdad, en todos sus caminos."""
+        from django.core.cache import cache
+
+        from ingreso import views as vistas
+
+        cache.clear()
+        self.addCleanup(cache.clear)
+        gimnasio = Gimnasio.objects.create(nombre="Doc", slug="doc")
+        _, token = services.crear_dispositivo(gimnasio, nombre="Puerta", tipo="qr")
+        apagado, token_apagado = services.crear_dispositivo(
+            gimnasio, nombre="Vieja", tipo="qr"
+        )
+        Dispositivo.objects.filter(pk=apagado.pk).update(activo=False)
+        alumno = Alumno.objects.create(gimnasio=gimnasio, nombre="Juan", apellido="Perez")
+        qr_juan = services.generar_credencial_qr(alumno)
+        services.guardar_credencial_facial(alumno, "42")
+
+        def post(cuerpo, clave=token):
+            return self.client.post(
+                "/ingreso/v1/eventos/", data=json.dumps(cuerpo),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {clave}",
+            )
+
+        respuestas = [
+            post({"eventos": [
+                {"tipo": "qr", "valor": qr_juan.valor, "id_evento_equipo": 8821},
+                {"tipo": "rfid", "valor": "x", "id_evento_equipo": 8823},
+            ]}),
+            post({"lecturas": []}),
+            post({"eventos": []}, clave="no-es-una-clave"),
+            post({"eventos": []}, clave=token_apagado),
+            self.client.get("/ingreso/v1/padron/", HTTP_AUTHORIZATION=f"Bearer {token}"),
+            vistas._demasiado("tope_diario", "x", 1),
+        ]
+        self.assertEqual(
+            [r.status_code for r in respuestas], [200, 400, 401, 403, 200, 429]
+        )
+        return [json.loads(r.content) for r in respuestas]
+
+    def test_los_campos_de_los_ejemplos_son_los_del_codigo_y_estan_todos(self):
+        from ingreso import views as vistas
+
+        reales = set().union(*(_claves_de(r) for r in self._respuestas_reales()))
+        fuente = inspect.getsource(vistas)
+        del_request = set(re.findall(r'evento\.get\("(\w+)"', fuente)) | set(
+            re.findall(r'datos\["(\w+)"\]', fuente)
+        )
+        self.assertIn("abierto_por_el_equipo", del_request)
+        del_documento = set().union(*(_claves_de(b) for b in self.bloques_json))
+
+        self.assertEqual(del_documento - (reales | del_request), set(),
+                         "el documento muestra campos que la API no tiene")
+        self.assertEqual((reales | del_request) - del_documento, set(),
+                         "la API tiene campos que ningún ejemplo del documento muestra")
+
+    def test_los_resultados_y_motivos_existen(self):
+        from ingreso import views as vistas
+
+        resultados = set(EventoIngreso.Resultado.values) | {services.RESULTADO_INVALIDO}
+        for valor in resultados:
+            with self.subTest(resultado=valor):
+                self.assertIn(f"`{valor}`", self.texto)
+        motivos = set(
+            re.findall(r'_demasiado\(\s*"(\w+)"', inspect.getsource(vistas))
+        ) | {str(EventoIngreso.Resultado.DEUDA)}
+        self.assertEqual(motivos, {"intentos_fallidos", "tope_diario", "deuda"})
+
+        for objeto in (o for b in self.bloques_json for o in _objetos_de(b)):
+            if "resultado" in objeto:
+                self.assertIn(objeto["resultado"], resultados)
+            if objeto.get("motivo") is not None:
+                self.assertIn(objeto["motivo"], motivos)
+
+    def test_los_mensajes_del_padron_de_ejemplo_son_los_de_la_puerta(self):
+        from ingreso.decision import MENSAJES, SALUDO
+
+        ejemplos = [b["mensajes"] for b in self.bloques_json if "mensajes" in b]
+        self.assertEqual(len(ejemplos), 1)
+        self.assertEqual(ejemplos[0], {
+            "permitido": SALUDO,
+            "deuda": MENSAJES[EventoIngreso.Resultado.DEUDA],
+            "sin_credencial": MENSAJES[EventoIngreso.Resultado.SIN_CREDENCIAL],
+        })
