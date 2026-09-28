@@ -6,9 +6,13 @@
 Existe por el techo del exportador, no "por si alguna vez molesta":
 `tenants/exportacion.py::MAX_FILAS_WEB` es 60.000 y un gimnasio de 300 alumnos
 genera del orden de 72.000 eventos por año, así que sin purga la exportación
-deja de generarse justo cuando el cliente se quiere ir. Si un gimnasio grande
-pide sus datos, esto se corre ANTES del botón «Exportar mis datos» (o se usa
-`manage.py exportar_gimnasio`, que no tiene techo).
+deja de generarse justo cuando el cliente se quiere ir. Es **retención
+periódica**: mantiene al botón «Exportar mis datos» por debajo del techo en la
+operación normal.
+
+**Nunca se corre como paso previo a exportar los datos de un gimnasio que los
+pide**: le borraría justo el historial de asistencia que se quiere llevar. Ese
+caso se resuelve con `manage.py exportar_gimnasio`, que no tiene techo.
 
 **El corte son meses de CALENDARIO, no bloques de 30 días**: se toma el «hoy»
 del dominio con `timezone.localdate()`, se le restan `--meses` meses (si ese día

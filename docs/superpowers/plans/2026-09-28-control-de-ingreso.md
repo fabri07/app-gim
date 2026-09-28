@@ -2729,6 +2729,12 @@ Existe por el techo del exportador: `tenants/exportacion.py::MAX_FILAS_WEB` es
 así que sin purga la exportación deja de generarse justo cuando el cliente se
 quiere ir.
 
+> **Corregido al revisar la Tarea 16:** la purga es retención periódica, para
+> que el botón no choque contra el techo en la operación normal. NO es un paso
+> previo a exportar los datos de un gimnasio que se va: eso le borraría el
+> historial que se quiere llevar. Ese caso va por `manage.py exportar_gimnasio`,
+> que no tiene techo.
+
 Tests: `CommandError` con un slug inexistente; `--dry-run` no borra y reporta el
 número; no toca los eventos de otro gimnasio; y corre varias tandas (con el
 tamaño de tanda parcheado a 2 sobre 5 filas).
@@ -2840,9 +2846,12 @@ de este plan; el código manda):
   que deshacer (sin biometría; `decidir` no toca la base; `estado_cuenta` no
   cierra la puerta; los cuatro lugares de cobertura), y **sacar "QR de ingreso,
   control de asistencia" de "Qué NO construir todavía"**.
-  Mencionar la operación de `manage.py purgar_ingresos`: correrla (primero con
-  `--dry-run`) antes de que un gimnasio grande exporte sus datos, porque los
-  eventos de ingreso son lo que empuja la exportación contra `MAX_FILAS_WEB`.
+  Mencionar la operación de `manage.py purgar_ingresos` como **retención
+  periódica** (primero con `--dry-run`), para que el botón «Exportar mis datos»
+  no choque contra `MAX_FILAS_WEB` en la operación normal. **Nunca como paso
+  previo a la exportación de un gimnasio que pide sus datos**: purgar ahí le
+  borra justo el historial que se quiere llevar. Ese caso se resuelve con
+  `manage.py exportar_gimnasio`, que no tiene techo.
 - `ROADMAP.md`: sacarlo de la lista de Fase 9.
 - `ISSUES.md`: entrada del día con lo que quedó **sin verificar hasta que exista
   hardware** (que un lector real hable este dialecto, que el enrolamiento facial
