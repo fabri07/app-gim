@@ -1,8 +1,11 @@
 import io
 import re
-from datetime import timedelta
+from datetime import date, datetime, timedelta
+from datetime import timezone as dt_timezone
+from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.core.management import CommandError, call_command
 from django.db import IntegrityError, connection
 from django.db.models import ProtectedError
 from django.test import SimpleTestCase, TestCase
@@ -13,6 +16,10 @@ import segno
 
 from alumnos.models import Alumno
 from ingreso import qr, services, tokens
+from ingreso.management.commands.purgar_ingresos import (
+    MESES_MINIMOS,
+    restar_meses,
+)
 from ingreso.models import (
     ConfiguracionIngreso,
     Credencial,
@@ -405,3 +412,173 @@ class QrTests(SimpleTestCase):
             _sin_borde(matriz, qr.BORDE), _matriz_esperada(self.VALOR)
         )
         self.assertFalse(any(any(fila) for fila in matriz[: qr.BORDE]))
+
+
+class PurgarIngresosTests(TestCase):
+    """`manage.py purgar_ingresos`: existe por el techo del exportador
+    (`tenants/exportacion.py::MAX_FILAS_WEB`), no "por si alguna vez molesta".
+
+    El reloj se congela a las 22:30 de Buenos Aires, cuando la fecha UTC ya es
+    la de mañana: un corte calculado con `timezone.now().date()` caería un día
+    más tarde y se llevaría el evento del borde. Y la fecha es LEJANA a hoy,
+    para que el test no pase por coincidir con la fecha real.
+    """
+
+    # 15/05/2030 22:30 en Buenos Aires = 16/05/2030 01:30 UTC.
+    AHORA = datetime(2030, 5, 16, 1, 30, tzinfo=dt_timezone.utc)
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.otro = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+        self.dispositivo = Dispositivo.objects.create(
+            gimnasio=self.gimnasio, nombre="Puerta",
+            tipo=Dispositivo.Tipo.QR, token_hash=tokens.hash_de("a"),
+        )
+        self.dispositivo_otro = Dispositivo.objects.create(
+            gimnasio=self.otro, nombre="Puerta",
+            tipo=Dispositivo.Tipo.QR, token_hash=tokens.hash_de("b"),
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Perez"
+        )
+        reloj = patch("django.utils.timezone.now", return_value=self.AHORA)
+        reloj.start()
+        self.addCleanup(reloj.stop)
+        # Con --meses 24 el corte es la medianoche LOCAL del 15/05/2028.
+        self.corte = timezone.make_aware(datetime(2028, 5, 15))
+
+    def _evento(self, momento, *, dispositivo=None, alumno=None):
+        dispositivo = dispositivo or self.dispositivo
+        return EventoIngreso.objects.create(
+            gimnasio=dispositivo.gimnasio, dispositivo=dispositivo, alumno=alumno,
+            resultado=EventoIngreso.Resultado.PERMITIDO, momento=momento,
+        )
+
+    def _purgar(self, *args):
+        salida = io.StringIO()
+        call_command("purgar_ingresos", "--gimnasio", "gimnasio-a", *args, stdout=salida)
+        return salida.getvalue()
+
+    def test_slug_inexistente_es_un_error(self):
+        with self.assertRaises(CommandError):
+            call_command("purgar_ingresos", "--gimnasio", "no-existe", stdout=io.StringIO())
+
+    def test_meses_por_debajo_del_minimo_es_un_error(self):
+        """Un `--meses 0` o un `1` tipeado de apuro se llevaría los ingresos
+        recientes, que son los que explican un reclamo de cuota o de acceso."""
+        vieja = self._evento(self.corte - timedelta(days=1))
+        for meses in ("0", "-3", str(MESES_MINIMOS - 1)):
+            with self.subTest(meses=meses), self.assertRaises(CommandError):
+                self._purgar("--meses", meses)
+        self.assertTrue(EventoIngreso.objects.filter(pk=vieja.pk).exists())
+
+    def test_el_minimo_se_acepta(self):
+        self._purgar("--meses", str(MESES_MINIMOS))
+
+    def test_borde_exacto_del_corte(self):
+        """El evento justo en el corte se conserva; el inmediatamente anterior
+        se borra. Y el corte es la medianoche LOCAL, no la de UTC."""
+        en_el_corte = self._evento(self.corte)
+        justo_antes = self._evento(self.corte - timedelta(microseconds=1))
+        # Borrado por un corte UTC (un día después): tiene que sobrevivir.
+        tarde_del_dia = self._evento(self.corte + timedelta(hours=22))
+
+        self._purgar()
+
+        self.assertTrue(EventoIngreso.objects.filter(pk=en_el_corte.pk).exists())
+        self.assertTrue(EventoIngreso.objects.filter(pk=tarde_del_dia.pk).exists())
+        self.assertFalse(EventoIngreso.objects.filter(pk=justo_antes.pk).exists())
+
+    def test_meses_de_calendario(self):
+        self._evento(self.corte + timedelta(days=1))
+        viejo = self._evento(timezone.make_aware(datetime(2030, 2, 14, 23, 59)))
+        nuevo = self._evento(timezone.make_aware(datetime(2030, 2, 15)))
+
+        self._purgar("--meses", "3")
+
+        self.assertFalse(EventoIngreso.objects.filter(pk=viejo.pk).exists())
+        self.assertTrue(EventoIngreso.objects.filter(pk=nuevo.pk).exists())
+
+    def test_no_toca_los_eventos_de_otro_gimnasio(self):
+        """Incluidos los que no tienen alumno (credencial desconocida)."""
+        viejo = self.corte - timedelta(days=30)
+        ajenos = [
+            self._evento(viejo, dispositivo=self.dispositivo_otro),
+            self._evento(viejo, dispositivo=self.dispositivo_otro, alumno=None),
+        ]
+        propio = self._evento(viejo, alumno=self.alumno)
+        propio_sin_alumno = self._evento(viejo)
+
+        self._purgar()
+
+        self.assertEqual(
+            set(EventoIngreso.objects.values_list("pk", flat=True)),
+            {e.pk for e in ajenos},
+        )
+        self.assertFalse(
+            EventoIngreso.objects.filter(pk__in=[propio.pk, propio_sin_alumno.pk]).exists()
+        )
+
+    def test_dry_run_no_borra_y_reporta_el_numero_exacto(self):
+        viejo = self.corte - timedelta(days=30)
+        for _ in range(3):
+            self._evento(viejo)
+        self._evento(self.corte)
+        self._evento(viejo, dispositivo=self.dispositivo_otro)
+
+        salida = self._purgar("--dry-run")
+
+        self.assertEqual(EventoIngreso.objects.count(), 5)
+        self.assertIn(" 3 ", salida)
+        self.assertIn("gimnasio-a", salida)
+        self.assertIn("15/05/2028", salida)
+
+    def test_corre_varias_tandas_y_borra_todo_lo_que_corresponde(self):
+        viejo = self.corte - timedelta(days=30)
+        for _ in range(5):
+            self._evento(viejo)
+        conservado = self._evento(self.corte)
+
+        with patch("ingreso.management.commands.purgar_ingresos.TAMANIO_TANDA", 2), \
+                CaptureQueriesContext(connection) as queries:
+            salida = self._purgar()
+
+        borrados = [q for q in queries.captured_queries if q["sql"].startswith("DELETE")]
+        self.assertEqual(len(borrados), 3)  # 2 + 2 + 1
+        self.assertEqual(
+            list(EventoIngreso.objects.values_list("pk", flat=True)), [conservado.pk]
+        )
+        self.assertIn(" 5 ", salida)
+
+    def test_solo_toca_eventos_de_ingreso(self):
+        """Ni lectores (ni sus contadores), ni credenciales, ni alumnos."""
+        credencial = services.generar_credencial_qr(self.alumno)
+        Dispositivo.objects.filter(pk=self.dispositivo.pk).update(
+            eventos_hoy=7, eventos_hoy_fecha=date(2030, 5, 15),
+            ultimo_contacto=self.AHORA,
+        )
+        EventoIngreso.objects.create(
+            gimnasio=self.gimnasio, dispositivo=self.dispositivo, alumno=self.alumno,
+            credencial=credencial, resultado=EventoIngreso.Resultado.PERMITIDO,
+            momento=self.corte - timedelta(days=1),
+        )
+
+        self._purgar()
+
+        self.assertEqual(EventoIngreso.objects.count(), 0)
+        self.assertTrue(Credencial.objects.filter(pk=credencial.pk).exists())
+        self.assertTrue(Alumno.objects.filter(pk=self.alumno.pk).exists())
+        dispositivo = Dispositivo.objects.get(pk=self.dispositivo.pk)
+        self.assertEqual(dispositivo.eventos_hoy, 7)
+        self.assertEqual(dispositivo.eventos_hoy_fecha, date(2030, 5, 15))
+        self.assertEqual(dispositivo.ultimo_contacto, self.AHORA)
+
+
+class RestarMesesTests(SimpleTestCase):
+    def test_mismo_dia_del_mes(self):
+        self.assertEqual(restar_meses(date(2030, 5, 15), 24), date(2028, 5, 15))
+        self.assertEqual(restar_meses(date(2030, 1, 10), 1), date(2029, 12, 10))
+
+    def test_un_dia_que_no_existe_cae_en_el_ultimo_del_mes(self):
+        self.assertEqual(restar_meses(date(2026, 3, 31), 1), date(2026, 2, 28))
+        self.assertEqual(restar_meses(date(2028, 2, 29), 12), date(2027, 2, 28))

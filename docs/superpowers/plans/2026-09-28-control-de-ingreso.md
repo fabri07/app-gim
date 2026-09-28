@@ -2733,6 +2733,12 @@ Tests: `CommandError` con un slug inexistente; `--dry-run` no borra y reporta el
 número; no toca los eventos de otro gimnasio; y corre varias tandas (con el
 tamaño de tanda parcheado a 2 sobre 5 filas).
 
+Implementado con dos precisiones: el corte son **meses de calendario** desde
+`timezone.localdate()`, a la medianoche local (se borra `momento < corte`; el
+evento justo en el corte se conserva), y `--meses` tiene un **mínimo de 3**
+(`MESES_MINIMOS`) para que un `--meses 1` tipeado de apuro no se lleve los
+ingresos que explican un reclamo reciente.
+
 ---
 
 ### Task 17: Documento de integración y puente de ejemplo
@@ -2834,6 +2840,9 @@ de este plan; el código manda):
   que deshacer (sin biometría; `decidir` no toca la base; `estado_cuenta` no
   cierra la puerta; los cuatro lugares de cobertura), y **sacar "QR de ingreso,
   control de asistencia" de "Qué NO construir todavía"**.
+  Mencionar la operación de `manage.py purgar_ingresos`: correrla (primero con
+  `--dry-run`) antes de que un gimnasio grande exporte sus datos, porque los
+  eventos de ingreso son lo que empuja la exportación contra `MAX_FILAS_WEB`.
 - `ROADMAP.md`: sacarlo de la lista de Fase 9.
 - `ISSUES.md`: entrada del día con lo que quedó **sin verificar hasta que exista
   hardware** (que un lector real hable este dialecto, que el enrolamiento facial
