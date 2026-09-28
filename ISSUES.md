@@ -61,6 +61,27 @@ el entorno local.
 
 ---
 
+## [2026-09-28] Un request largo del panel deja en cola la puerta de todos los gimnasios
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** gunicorn corre con un único worker síncrono, compartido entre el
+panel y la API de los lectores (`/ingreso/v1/`, rama
+`worktree-control-de-ingreso`). Mientras el panel arma algo largo —una tanda de
+tarjetas imprimibles, un padrón grande (ver la entrada siguiente), el ZIP del
+exportador—, cada lectura online de CUALQUIER gimnasio de la plataforma espera
+en cola, y un molinete se rinde a los dos o tres segundos. Medido en una Mac
+(2026-09-28): ~33 ms por tarjeta, 100 tarjetas ≈ 3,4 s, 30 ≈ 0,9 s; en Render
+con Neon, sin medir (probablemente el doble o más).
+
+**Resolución / próximo paso:** las tarjetas se imprimen en tandas de 30
+(`ingreso/views.py::TARJETAS_POR_TANDA`, ~1 s local), y el puente de ejemplo
+(Tarea 17 del plan) tiene que tratar un timeout de la API como un 429: decide con el padrón local y subir el
+evento en diferido. **Medir en Render una tanda de tarjetas y el padrón; si una
+lectura online espera más de ~1 s detrás de ellos, pasar a más de un worker**
+(o sacar esos trabajos a una cola). Spec, riesgo aceptado 15.
+
+---
+
 ## [2026-09-28] El 304 del padrón de la puerta cuesta lo mismo que un 200
 **Estado:** aceptado (riesgo asumido a propósito)
 

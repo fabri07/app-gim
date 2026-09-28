@@ -2789,6 +2789,13 @@ de este plan; el código manda):
   token es malo.
 - El padrón nunca recibe 429 por el tope diario (solo por el freno de fallas,
   que a un token válido no lo alcanza).
+- **Un TIMEOUT de la API online se trata igual que un 429** (nota que dejó la
+  Tarea 15): el puente decide con el padrón local y sube ese evento después en
+  diferido, reusando el mismo `id_evento_equipo`. El único worker de gunicorn
+  atiende el panel y la puerta a la vez, así que cualquier request largo del
+  panel (una tanda de tarjetas, un padrón grande, el exportador) deja las
+  lecturas online en cola. Sin esta regla, eso deja gente parada en la puerta
+  (spec, riesgo aceptado 15).
 - El tope es de 20.000 eventos NUEVOS por lector y por día local, y el backlog
   en diferido cuenta en el día en que se SUBE, no en el de su `momento`: 20.000
   por día cubre unos 10 días offline de un gimnasio grande (unos 2.000 por

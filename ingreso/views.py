@@ -51,14 +51,20 @@ from ingreso.models import (
 from pagos import acceso
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 
-#: Cuántas tarjetas entran en un PDF. Medido en una Mac (Python 3.14): unos
-#: 33 ms por tarjeta, casi todo en `segno` eligiendo la máscara del QR y
-#: escribiendo el PNG -- 300 tarjetas son ~10 s. gunicorn corre con UN worker
-#: síncrono y 30 s de timeout, y Render es más lento que la Mac: el gimnasio
-#: entero de un saque se come ese margen y deja a todos sin app mientras tanto.
-#: Por eso se imprime por tandas (100 = 10 hojas A4, ~3 s en la Mac), y cada
-#: tanda es un request corto. Ver `TarjetasView`.
-TARJETAS_POR_TANDA = 100
+#: Cuántas tarjetas entran en un PDF (30 = 3 hojas A4).
+#:
+#: Chica a propósito, y el motivo no es el timeout de 30 s sino la PUERTA:
+#: gunicorn corre con UN solo worker síncrono, compartido con la API de los
+#: lectores (`/ingreso/v1/`). Mientras se arma un PDF, cada lectura online de
+#: CUALQUIER gimnasio de la plataforma queda en cola, y un molinete espera su
+#: veredicto un par de segundos antes de rendirse. Medido en una Mac
+#: (Python 3.14, 2026-09-28): ~33 ms por tarjeta, casi todo en `segno`
+#: eligiendo la máscara del QR y escribiendo el PNG; 300 tarjetas ≈ 10 s,
+#: 100 ≈ 3,4 s, 30 ≈ 0,9 s. En Render es probablemente el doble o más (sin
+#: medir, ver `ISSUES.md` [2026-09-28]). Es la misma familia de riesgo que el
+#: costo del 304 del padrón (spec, riesgos aceptados); la salida de fondo es
+#: más de un worker o una cola, no achicar esto más.
+TARJETAS_POR_TANDA = 30
 
 LARGO_ID_EVENTO_EQUIPO = EventoIngreso._meta.get_field("id_evento_equipo").max_length
 

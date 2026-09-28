@@ -386,6 +386,31 @@ class TarjetasDelGimnasioTests(_BaseTarjetas):
         self.assertEqual(len(set(valores)), sum(por_tanda))
         self.assertIn("-3.pdf", respuestas[2]["Content-Disposition"])
 
+    def test_la_tanda_es_chica_para_no_trabar_la_puerta(self):
+        """El worker único de gunicorn es el mismo que contesta a los
+        molinetes: una tanda larga los deja esperando (ver el docstring de
+        `TARJETAS_POR_TANDA`). 30 tarjetas son ~1 s en la Mac."""
+        from ingreso import views
+
+        self.assertLessEqual(views.TARJETAS_POR_TANDA, 30)
+        self.assertGreaterEqual(views.TARJETAS_POR_TANDA, tarjetas.TARJETAS_POR_HOJA)
+
+    def test_la_tanda_por_defecto_corta_donde_dice_la_constante(self):
+        from ingreso import views
+
+        tanda = views.TARJETAS_POR_TANDA
+        for i in range(tanda):  # con Juan, una más que la tanda
+            self._alumno_con_codigo(f"N{i}", f"A{i}")
+        self._login()
+        forms = _forms_hacia(
+            self.client.get(self._url_pagina()).content.decode(), self._url_pdf()
+        )
+        with patch("ingreso.tarjetas.qr.png_de", wraps=qr.png_de) as espia:
+            self.client.post(self._url_pdf(), {"tanda": "2"})
+
+        self.assertEqual(len(forms), 2)
+        self.assertEqual(espia.call_count, 1)
+
     def test_la_pagina_ofrece_cada_tanda_fuera_del_boost(self):
         self._login()
         forms = _forms_hacia(

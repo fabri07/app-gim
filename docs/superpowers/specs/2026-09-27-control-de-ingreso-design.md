@@ -688,6 +688,21 @@ dependencia nueva.
     `activo` en la base y no en el set cacheado; el `save_model` del admin
     invalida además ese set. Procedimiento en `ISSUES.md` [2026-09-28].
 
+15. **Cualquier request largo del panel bloquea la puerta online de TODOS los
+    gimnasios mientras dure.** gunicorn corre con un único worker síncrono,
+    compartido entre el panel y la API de los lectores. Mientras arma un PDF
+    de tarjetas, un padrón grande o el ZIP del exportador, cada lectura online
+    de cualquier gimnasio de la plataforma queda en cola, y un molinete espera
+    su veredicto un par de segundos antes de rendirse. Es la misma familia que
+    el costo del 304 (§5) y que el camino autenticado sin freno (punto 13),
+    pero más grande: no depende de un lector, lo dispara cualquier staff desde
+    su panel. Medido en una Mac: una tarjeta cuesta ~33 ms (100 ≈ 3,4 s,
+    30 ≈ 0,9 s); en Render es probablemente el doble o más. **La mitigación de
+    hoy son tandas chicas** (`TARJETAS_POR_TANDA = 30`) y que el puente trate
+    un timeout de la API como un 429 (decide con el padrón local y sube el
+    evento en diferido). **La de fondo es más de un worker o una cola.**
+    Pendiente medirlo en Render, anotado en `ISSUES.md` [2026-09-28].
+
 ## Fuera de alcance
 
 - **Modo kiosco** (tablet o celular con cámara en la puerta). Es el siguiente paso
