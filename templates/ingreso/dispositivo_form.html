@@ -4,7 +4,7 @@
 {% block content %}
 <div class="tarjeta">
   <h1>{% if object %}Editar lector{% else %}Nuevo lector{% endif %}</h1>
-  <form method="post" novalidate>
+  <form method="post" novalidate hx-boost="false">
     {% csrf_token %}
     {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
     {% include 'partials/campo_form.html' with campo=form.nombre %}

@@ -55,7 +55,7 @@
       {% else %}
         <p class="texto-suave">Todavía no inició sesión.</p>
       {% endif %}
-      <form method="post" action="{% url 'alumnos:acceso_regenerar' alumno.pk %}">
+      <form method="post" action="{% url 'alumnos:acceso_regenerar' alumno.pk %}" hx-boost="false">
         {% csrf_token %}
         <button type="submit" class="boton-secundario">Generar contraseña nueva</button>
       </form>

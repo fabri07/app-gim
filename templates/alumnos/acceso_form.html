@@ -11,7 +11,7 @@
       comunicásela en persona o por WhatsApp, no se envía automáticamente.
     </p>
 
-    <form method="post" novalidate>
+    <form method="post" novalidate hx-boost="false">
       {% csrf_token %}
       {{ form.as_p }}
       <div class="acciones-lista">

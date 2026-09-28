@@ -10,6 +10,7 @@ la cuenta congelada (la API no: `tests_api.py`).
 """
 
 from datetime import datetime, timedelta
+from html.parser import HTMLParser
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
@@ -1106,6 +1107,79 @@ class SecretosFueraDelHistorialDeHtmxTests(_BaseVistas):
                 self.assertTrue(secreto)
                 self.assertContains(respuesta, secreto)
                 self.assertContains(respuesta, self.ATRIBUTO)
+
+
+class _FormsDeLaPagina(HTMLParser):
+    """Junta los atributos de cada `<form>` de una página."""
+
+    def __init__(self):
+        super().__init__()
+        self.forms = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "form":
+            self.forms.append(dict(attrs))
+
+
+class FormsDeSecretoFueraDelBoostTests(_BaseVistas):
+    """Todo form cuyo POST devuelve un secreto en la respuesta sale del boost.
+
+    `hx-history="false"` + `no-store` cubren el `localStorage` de htmx y el
+    cache HTTP, pero no el bfcache: un POST boosteado mete el 200 con la
+    clave ADENTRO del documento anterior, que no lleva `no-store`, y después de
+    «Salir» ese documento vuelve con «atrás». Con `hx-boost="false"` el POST es
+    una navegación completa y la respuesta es un documento propio, con su
+    `no-store`. Mismo criterio que los links a la ficha con QR
+    (`tests_ficha_y_portal.QrComoDocumentoPropioTests`).
+    """
+
+    def _forms_que_postean_a(self, respuesta, url, pagina):
+        parser = _FormsDeLaPagina()
+        parser.feed(respuesta.content.decode())
+        return [
+            form for form in parser.forms
+            if (form.get("method") or "").lower() == "post"
+            and (form.get("action") or pagina) == url
+        ]
+
+    def _con_acceso(self):
+        perfil = Perfil.objects.get(usuario__username="alumno-a")
+        Alumno.objects.filter(pk=self.alumno.pk).update(perfil=perfil)
+
+    def test_cada_form_que_devuelve_un_secreto_sale_del_boost(self):
+        alta_lector = reverse("ingreso:dispositivo_crear")
+        rotar = reverse("ingreso:dispositivo_rotar", args=[self.puerta.pk])
+        alta_acceso = reverse("alumnos:acceso_crear", args=[self.alumno.pk])
+        regenerar = reverse("alumnos:acceso_regenerar", args=[self.alumno.pk])
+        ficha = reverse("alumnos:detalle", args=[self.alumno.pk])
+        accesos = reverse("alumnos:accesos")
+        alta_gimnasio = reverse("plataforma:gimnasio_crear")
+        # (página que tiene el form, adónde postea, quién la abre, preparar)
+        casos = {
+            "alta de lector": (alta_lector, alta_lector, "staff-a", None),
+            "rotar la clave del lector": (rotar, rotar, "staff-a", None),
+            "alta de acceso del alumno": (alta_acceso, alta_acceso, "staff-a", None),
+            "contraseña nueva desde la ficha": (
+                ficha, regenerar, "staff-a", self._con_acceso
+            ),
+            "contraseña nueva desde el panel de accesos": (
+                accesos, regenerar, "staff-a", self._con_acceso
+            ),
+            "alta de gimnasio": (alta_gimnasio, alta_gimnasio, "jefe", None),
+        }
+        User.objects.create_superuser("jefe", "jefe@ejemplo.com", CLAVE)
+        for nombre, (pagina, destino, usuario, preparar) in casos.items():
+            with self.subTest(nombre):
+                if preparar is not None:
+                    preparar()
+                self.client.logout()
+                self._login(usuario)
+                respuesta = self.client.get(pagina)
+                self.assertEqual(respuesta.status_code, 200)
+                forms = self._forms_que_postean_a(respuesta, destino, pagina)
+                self.assertTrue(forms, f"no encontré el form que postea a {destino}")
+                for form in forms:
+                    self.assertEqual(form.get("hx-boost"), "false")
 
 
 # ---------------------------------------------------------------------------

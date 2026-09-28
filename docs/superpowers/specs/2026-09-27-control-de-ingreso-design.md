@@ -529,6 +529,19 @@ librería JS por CDN no sirve para el PDF.
   muestra **una sola vez**, en un 200 que no redirige, con `never_cache` sobre el
   `dispatch` entero (precedente `plataforma/views.py:429`; `messages` no sirve
   porque se serializa en la sesión, que vive en la base).
+  *Actualizado al código:* **una pantalla con un secreto (la clave del lector,
+  el QR, una contraseña) lleva dos capas, y ninguna alcanza sola.** La
+  primera, `hx-history="false"` más `no-store`, saca la pantalla del
+  `localStorage` donde htmx guarda el `<body>` antes de navegar y del caché
+  HTTP. La segunda es **salir del boost**, porque la primera no cubre el
+  bfcache: una navegación boosteada mete la respuesta adentro del documento
+  anterior, que no lleva `no-store`, y después de «Salir» ese documento vuelve
+  con «atrás», secreto incluido. Por eso todo form cuyo POST devuelve un
+  secreto va con `hx-boost="false"` (alta y rotación de la clave del lector,
+  alta de acceso y contraseña nueva del alumno, alta de gimnasio en
+  `plataforma`), y los GET que dibujan el QR también: links con
+  `hx-boost="false"` y, como red, `presentacion.fuera_del_boost`, que ante un
+  GET boosteado responde `HX-Redirect` a la misma URL.
 - `ingreso:configuracion` — `UpdateView` sobre la fila única, molde
   `ConfiguracionTurnosView` (`turnos/views.py:112-148`). Dos avisos **en
   pantalla**: si `bloquea_por_deuda` está prendido con `dias_tolerancia_pago`

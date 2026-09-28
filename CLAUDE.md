@@ -1127,23 +1127,36 @@ es su «código», y en el modelo es `Credencial.valor`. **Ningún modelo lleva
   token y agotó el tope deja al lector en 429 hasta la medianoche aunque el
   dueño rote; sin lo segundo, el token viejo pasa el freno un minuto más.
   Rotar pide confirmación (GET muestra qué deja de andar, solo el POST rota).
-- **Las pantallas que muestran un secreto llevan `hx-history="false"` y
-  `never_cache`.** htmx 2 guarda el `<body>` en `localStorage` antes de cada
-  navegación boosteada y el «atrás» lo restaura sin ir al servidor.
-  `ingreso/dispositivo_token.html` (la clave, que se muestra UNA vez en un 200
-  sin redirect ni `messages`), `ingreso/mi_codigo.html` y el QR de
-  `partials/credencial_alumno.html`; de paso se tapó el mismo agujero en
-  `alumnos/acceso_credenciales.html` y `plataforma/gimnasio_creado.html`. Lo
-  fija `tests_vistas.SecretosFueraDelHistorialDeHtmxTests`.
-- **«Mi código» y la ficha con QR salen del boost.** Una navegación boosteada
-  mete la respuesta dentro del documento anterior, que no lleva `no-store`, y
-  ese documento queda en el bfcache con el QR en el DOM. Los links llevan
-  `hx-boost="false"` (el de «Mostrar mi código» y todos los que van a la ficha
-  del alumno), y la red para lo que no pasa por un link es
-  `presentacion.fuera_del_boost`: ante un GET boosteado, `MiCodigoView` y la
-  ficha con un QR vigente responden `HX-Redirect` a su propia URL. Por lo
-  mismo, **el inicio del alumno no dibuja el QR**: muestra el estado y el
-  botón, y la llave vive en una sola pantalla del portal.
+- **Un secreto en pantalla necesita DOS capas, y ninguna alcanza sola.**
+  Son dos cachés distintos del navegador, y cada capa tapa uno:
+  1. **`hx-history="false"` + `no-store` (`never_cache`)** en la pantalla del
+     secreto. htmx 2 guarda el `<body>` en `localStorage` antes de cada
+     navegación boosteada y el «atrás» lo restaura sin ir al servidor; el
+     atributo lo apaga, y el `no-store` saca la respuesta del caché HTTP.
+     `ingreso/dispositivo_token.html` (la clave, que se muestra UNA vez en un
+     200 sin redirect ni `messages`), `ingreso/mi_codigo.html`, el QR de
+     `partials/credencial_alumno.html`, `alumnos/acceso_credenciales.html` y
+     `plataforma/gimnasio_creado.html`. Lo fija
+     `tests_vistas.SecretosFueraDelHistorialDeHtmxTests`.
+  2. **Salir del boost**, porque la primera capa NO cubre el bfcache. Una
+     navegación boosteada (un GET o el POST de un form) mete la respuesta
+     ADENTRO del documento anterior, que no lleva `no-store`: al salir con una
+     navegación completa («Salir»), ese documento queda en el bfcache con el
+     secreto en el DOM y el «atrás» del próximo que agarre la computadora del
+     mostrador lo muestra. Por eso **todo form cuyo POST devuelve un secreto
+     lleva `hx-boost="false"`**: el alta y la rotación de la clave del lector
+     (`dispositivo_form.html`, `dispositivo_rotar_confirmar.html`), el alta de
+     acceso y la contraseña nueva del alumno (`acceso_form.html`, y el botón
+     de la ficha y del panel de accesos) y el alta de gimnasio de
+     `plataforma` (`FormsDeSecretoFueraDelBoostTests`). Los GET que dibujan un
+     QR salen igual: los links llevan `hx-boost="false"` (el de «Mostrar mi
+     código» y todos los que van a la ficha del alumno), y la red para lo que
+     no pasa por un link es `presentacion.fuera_del_boost`: ante un GET
+     boosteado, `MiCodigoView` y la ficha con un QR vigente responden
+     `HX-Redirect` a su propia URL. Por lo mismo, **el inicio del alumno no
+     dibuja el QR**: muestra el estado y el botón, y la llave vive en una sola
+     pantalla del portal. **Si agregás un form o una pantalla que muestre un
+     secreto, van las dos capas.**
 - **Las tarjetas se imprimen en tandas de `TARJETAS_POR_TANDA` (30).**
   Medido en una Mac: ~33 ms por tarjeta (casi todo segno), 100 ≈ 3,4 s. Con el
   worker único, una tanda de 100 dejaba la puerta online de toda la plataforma
