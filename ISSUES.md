@@ -20,6 +20,28 @@ del log.
 
 ---
 
+## [2026-09-28] El 304 del padrón de la puerta cuesta lo mismo que un 200
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** `GET /ingreso/v1/padron/` (control de ingreso, rama
+`worktree-control-de-ingreso`) versiona con el hash del contenido, así que para
+responder un 304 igual arma el padrón entero: las credenciales activas con su
+alumno y los deudores. El 304 solo ahorra los bytes. Con el único worker de
+gunicorn, cada poll de un lector ocupa el proceso — medido en local (SQLite, 2026-09-28):
+~630-840 ms por `padron_de` con 2000 alumnos con QR y cara; la revisión
+adversarial midió ~350 ms en otro escenario; en Render con Neon, sin medir — mientras los molinetes de ese mismo gimnasio (y todo el resto del
+sitio) esperan. Se suma al cold start de Neon, que ya es el riesgo técnico más
+grande de la feature (spec §5).
+
+**Resolución / próximo paso:** no se optimiza todavía: ningún cliente tiene
+lector y el número es local. **Medirlo en Render antes del primer cliente
+grande.** Si pesa, las dos salidas son una huella barata con una query agregada
+(conteo y `max(modificado)` de credenciales y alumnos del gimnasio, más la fecha
+local, que es lo que mueve el corte de deuda) para contestar el 304 sin armar
+nada, o un caché del cuerpo invalidado por esa misma huella.
+
+---
+
 ## [2026-09-22] `Gimnasio.activo` no bloqueaba nada
 **Estado:** resuelto
 

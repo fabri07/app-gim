@@ -333,17 +333,32 @@ necesita: 401 = revisá el token, 403 = el gimnasio apagó este lector.
 #### `GET /ingreso/v1/padron/`
 
     {"version": "…", "reglas_no_incluidas": ["reserva", "antipassback"],
-     "mensaje_sin_credencial": "Credencial no reconocida. Pasá por el mostrador.",
+     "mensajes": {"permitido": "¡Hola, {nombre}! Pasá.",
+                  "deuda": "Tenés una cuota sin pagar. Pasá por el mostrador.",
+                  "sin_credencial": "Credencial no reconocida. Pasá por el mostrador."},
      "alumnos": [{"id": 12, "nombre": "Juan P.", "habilitado": true,
-                  "motivo": null, "mensaje": "¡Hola, Juan! Pasá.",
-                  "qr": "…", "id_facial": "42"}]}
+                  "motivo": null, "qr": "…", "id_facial": "42"}]}
 
 Con `ETag` igual a `version` (entre comillas) y `304` ante `If-None-Match`, que
-acepta también la versión debilitada por un proxy (`W/"…"`) o pelada. `motivo`
-es el `resultado` que daría online (`alumno_inactivo` o `deuda`, `null` si
-pasa) y `mensaje` el texto de la pantalla, de `decision.MENSAJES` (el de deuda,
-sin los días de atraso). Una credencial dada de baja no viaja: offline es una
-desconocida. Responde con `Cache-Control: no-store, private` (el 200 y el 304):
+acepta también la versión debilitada por un proxy (`W/"…"`) o pelada.
+
+**Viajan solo los alumnos ACTIVOS, con sus credenciales activas.** Un dado de
+baja no viaja: offline es una credencial desconocida (la puerta niega igual que
+online) y el puente lo borra del equipo, cara incluida. Si viajara, su QR —una
+llave al portador— y su id facial quedarían para siempre en la memoria de un
+equipo de terceros, y el padrón crecería con la rotación de alumnos.
+**Consecuencia: reactivar a un alumno obliga a volver a enrolar su cara en el
+equipo** (y su QR vuelve a abrir offline recién en el próximo poll). El deudor
+SÍ viaja, con `habilitado: false` y `motivo: "deuda"`: vuelve apenas paga, así
+que el puente lo bloquea en vez de borrarlo. `motivo: "deuda"` deja en el
+equipo quién debe (no cuánto): es a sabiendas, online la pantalla ya lo muestra.
+
+Los textos de la pantalla viajan **una vez**, en `mensajes`, por `motivo`
+(`permitido` para el que pasa, `sin_credencial` para lo que no está en el
+padrón), y son los de `decision.MENSAJES`/`SALUDO`. El saludo es una plantilla:
+el puente reemplaza `{nombre}` por el `nombre` de la fila (offline dice «Juan P.»
+donde online dice «Juan»). El de deuda es el genérico, sin los días de atraso,
+que envejecerían dentro del lector y cambiarían la versión todos los días. Responde con `Cache-Control: no-store, private` (el 200 y el 304):
 son las llaves de la puerta y el sitio va proxeado por Cloudflare. Es lo que hace
 funcionar al lector **offline** y lo que el puente usa para dar de alta y de baja
 usuarios en el equipo facial. `habilitado` es la decisión de la puerta **menos**
@@ -364,6 +379,16 @@ hardware**: Neon suspende el compute por inactividad (scale-to-zero). El primer
 scan después de un rato de calma paga ese cold start, y un molinete tiene un
 timeout de un par de segundos. El padrón offline está en `v1` por esto, no por
 completitud: es la mitigación, no un extra.
+
+**Riesgo aceptado junto a ese: un 304 cuesta lo mismo que un 200.** La versión es
+el hash del contenido, así que para saber si el lector ya la tiene hay que armar
+el padrón entero; el 304 solo ahorra los bytes. Con el único worker de gunicorn,
+cada poll ocupa el proceso (medido en local, SQLite: ~630-840 ms por `padron_de` con 2000 alumnos con QR y cara, la revisión midió ~350 ms en otro escenario; en Render con Neon no se midió) mientras los
+molinetes esperan su veredicto online. **Pendiente medirlo en Render antes del
+primer cliente grande**; las salidas son una huella barata con una query
+agregada (conteo y `max(modificado)` de credenciales y alumnos, más la fecha, que
+mueve el corte de deuda) o un caché del cuerpo. Anotado en `ISSUES.md`
+[2026-09-28].
 
 Este endpoint entrega llaves: el token del dispositivo es tan sensible como el
 llavero del gimnasio, y el documento de integración lo dice.
@@ -592,8 +617,16 @@ dependencia nueva.
 3. **No exportar el `valor` del QR**: un gimnasio que migra tiene que reemitir las
    tarjetas. La alternativa es que un CSV en la carpeta de Descargas sea el llavero
    del gimnasio. Revisable.
-4. **Offline no puede exigir reserva ni antipassback**, y el padrón cacheado deja
-   entrar a quien se atrasó después del último poll.
+4. **Offline no puede exigir reserva ni antipassback, y el padrón cacheado es
+   una foto del último poll.** Lo desfasado corre en las dos direcciones:
+   - *Permisivo*: deja entrar a quien se atrasó después del último poll —
+     incluido el cruce del umbral de deuda a medianoche, que el padrón recién
+     ve en el primer poll del día— y **un QR regenerado porque se filtró sigue
+     abriendo offline** hasta que el lector vuelva a bajar el padrón.
+   - *Restrictivo*: el que pagó en el mostrador, un alumno reactivado y una
+     credencial recién emitida quedan **rechazados** offline hasta el próximo
+     poll. Un alumno reactivado, además, necesita que le vuelvan a enrolar la
+     cara (el dado de baja no viaja y el puente lo borró del equipo).
 5. **Desactivar un dispositivo antes de que suba su backlog offline pierde ese
    backlog** (el 403 rechaza el lote entero). Es raro y el dato perdido es
    histórico, no operativo.
@@ -638,5 +671,11 @@ dependencia nueva.
 - **Reconocimiento facial del lado de la app**: descartado, ver Context.
 - **"Quién está adentro ahora"**: `sentido` viaja en el contrato desde el día 1 para
   no romperlo después, pero la feature no se construye.
+- **Padrón por tipo de lector (mínimo privilegio).** Hoy todo lector recibe QR
+  e id facial. Uno solo FACIAL no necesitaría los QR (llaves al portador), y uno
+  solo QR no necesitaría los ids faciales. No se hace porque la puerta online
+  tampoco filtra por `Dispositivo.tipo`: filtrar solo offline haría que un
+  lector mal clasificado abra online y niegue offline, que es peor de
+  diagnosticar. El día que se haga, se hace en los dos lados a la vez.
 - **Integración con un fabricante puntual** (ISAPI de Hikvision, SDK de ZKTeco):
   eso vive en el puente, afuera de este repo, y sin hardware no se puede verificar.

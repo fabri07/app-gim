@@ -83,8 +83,14 @@ solo lugar para que `decidir` y la respuesta de un reintento
 (`mensaje_de`) no puedan divergir."""
 
 
+SALUDO = "¡Hola, {nombre}! Pasá."
+"""El texto de un ingreso permitido. Plantilla y no texto hecho porque el
+padrón la manda una sola vez y el puente la completa con el `nombre` de cada
+fila («Juan P.»); online se completa con el nombre de pila."""
+
+
 def _saludo(alumno):
-    return f"¡Hola, {alumno.nombre}! Pasá."
+    return SALUDO.format(nombre=alumno.nombre)
 
 
 def _mensaje_de_deuda(dias):

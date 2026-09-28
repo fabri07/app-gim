@@ -239,33 +239,45 @@ LARGO_VERSION_PADRON = 32
 def padron_de(gimnasio):
     """Quién puede entrar, para que el lector funcione sin internet.
 
+    **Viajan solo los alumnos ACTIVOS con sus credenciales activas.** Un
+    alumno dado de baja no viaja: offline es una credencial desconocida (la
+    puerta niega igual que online) y el puente lo borra del equipo porque «ya
+    no figura». Si viajara, su QR -- una llave al portador -- y su id facial
+    quedarían para siempre en la memoria de un equipo de terceros (la spec
+    trata el dato facial con la Ley 25.326 en mente) y el padrón crecería con
+    la rotación de alumnos. Consecuencia: reactivarlo obliga a volver a enrolar
+    su cara. Una credencial dada de baja tampoco viaja, por lo mismo.
+
     **`habilitado` es el árbol de `decision.decidir` menos reserva y
-    antipassback**, y se arma con las mismas piezas para que online y offline
-    no puedan divergir: la baja del alumno antes que la deuda, la deuda por
-    `acceso.bloqueados_entre` (la misma regla que el portal y que la puerta
-    online, que dice que es el único lugar donde vive) y solo si el gimnasio
-    prendió `bloquea_por_deuda`. Una credencial dada de baja **no viaja**: una
-    llave revocada no se reparte, y offline es lo mismo que una desconocida.
-    El texto de la pantalla sale de `decision.MENSAJES`; el de DEUDA es el
-    genérico (sin «hace N días»), porque el padrón vive en el lector hasta el
-    próximo poll y los días envejecen ahí adentro -- y cambiarían la versión
-    todos los días.
+    antipassback** (momentáneas, ver `REGLAS_NO_INCLUIDAS`). Entre los activos,
+    la única rama que queda es la deuda: `acceso.bloqueados_entre`, la misma
+    regla que el portal y que la puerta online, solo si el gimnasio prendió
+    `bloquea_por_deuda`, y contra `timezone.localdate()` (entre las 21:00 y
+    las 23:59 la fecha UTC ya es la de mañana y adelantaría un día el corte).
+    El deudor SÍ viaja, con `habilitado: false`: vuelve apenas paga, así que el
+    puente lo bloquea en el equipo en vez de borrarlo.
 
     **Queries fijas, no una por alumno**: la configuración, las credenciales
     con su alumno, y los deudores con `bloqueados_entre` (una sola, con el
     mismo `Exists(OuterRef)` de `contar_bloqueados`). Llamar a `bloqueo_de` por
     fila acá es el N+1 que este proyecto ya pagó con un 502, y es peor que en
-    una pantalla: el lector pollea esto cada pocos minutos.
+    una pantalla: el lector pollea esto cada pocos minutos. Ojo: un 304 cuesta
+    lo mismo que un 200 (hay que armar el padrón para calcular la versión);
+    riesgo aceptado en la spec.
 
     **Solo lleva lo necesario**: el padrón queda escrito en la memoria de un
     equipo de terceros. Nombre corto («Juan P.», el mismo `nombre_corto` que la
     respuesta online), si puede pasar y las llaves; nunca email, teléfono,
-    datos de salud ni de pago. El `.only()` lo cumple ya desde la query: esos
-    campos ni se traen a memoria.
+    datos de salud ni montos. El `.only()` lo cumple ya desde la query: esos
+    campos ni se traen a memoria. **`motivo: "deuda"` sí deja en el equipo
+    quién debe**, y es a sabiendas: online la pantalla del molinete ya se lo
+    dice a quien pasa, y sin eso el lector offline no puede mostrar lo mismo.
     """
+    from django.utils import timezone
+
     from pagos import acceso
 
-    from ingreso.decision import MENSAJES, mensaje_de
+    from ingreso.decision import MENSAJES, SALUDO
 
     config = obtener_configuracion(gimnasio)
     # `order_by` por pk y no por apellido: la versión es el hash del
@@ -273,42 +285,29 @@ def padron_de(gimnasio):
     # empatarían) y no puede depender de un campo que no viaja.
     credenciales = list(
         Credencial.objects.for_gimnasio(gimnasio)
-        .filter(activa=True)
+        .filter(activa=True, alumno__estado=Alumno.Estado.ACTIVO)
         .select_related("alumno")
-        .only(
-            "tipo", "valor", "alumno",
-            "alumno__nombre", "alumno__apellido", "alumno__estado",
-        )
+        .only("tipo", "valor", "alumno", "alumno__nombre", "alumno__apellido")
         .order_by("alumno_id", "tipo")
     )
     alumnos = list({c.alumno_id: c.alumno for c in credenciales}.values())
     bloqueados = (
-        acceso.bloqueados_entre(gimnasio, alumnos)
+        acceso.bloqueados_entre(gimnasio, alumnos, hoy=timezone.localdate())
         if config.bloquea_por_deuda else {}
     )
 
+    deuda = str(EventoIngreso.Resultado.DEUDA)
     por_alumno = {}
     for credencial in credenciales:
         alumno = credencial.alumno
         fila = por_alumno.get(alumno.pk)
         if fila is None:
-            # Mismo orden que `decidir`: la baja gana sobre la deuda.
-            if alumno.estado != Alumno.Estado.ACTIVO:
-                motivo = EventoIngreso.Resultado.ALUMNO_INACTIVO
-            elif alumno.pk in bloqueados:
-                motivo = EventoIngreso.Resultado.DEUDA
-            else:
-                motivo = None
+            debe = alumno.pk in bloqueados
             fila = por_alumno[alumno.pk] = {
                 "id": alumno.pk,
                 "nombre": nombre_corto(alumno),
-                "habilitado": motivo is None,
-                "motivo": motivo and str(motivo),
-                # `mensaje_de` es el texto de un veredicto ya decidido: el
-                # saludo si pasa, el genérico de `MENSAJES` si no.
-                "mensaje": mensaje_de(
-                    motivo or EventoIngreso.Resultado.PERMITIDO, alumno
-                ),
+                "habilitado": not debe,
+                "motivo": deuda if debe else None,
                 "qr": None,
                 "id_facial": None,
             }
@@ -317,13 +316,25 @@ def padron_de(gimnasio):
 
     cuerpo = {
         "reglas_no_incluidas": REGLAS_NO_INCLUIDAS,
-        "mensaje_sin_credencial": MENSAJES[EventoIngreso.Resultado.SIN_CREDENCIAL],
+        # Los textos van UNA vez y no por fila: con dos mil alumnos, repetir
+        # el mismo saludo es la mitad del cuerpo. Salen de
+        # `decision.MENSAJES`/`SALUDO`, los mismos que usa la puerta online.
+        # El de deuda es el genérico (sin «hace N días»): el padrón vive en el
+        # lector hasta el próximo poll y los días envejecen ahí adentro -- y
+        # cambiarían la versión todos los días. El puente arma el saludo
+        # reemplazando `{nombre}` por el `nombre` de la fila.
+        "mensajes": {
+            str(EventoIngreso.Resultado.PERMITIDO): SALUDO,
+            deuda: MENSAJES[EventoIngreso.Resultado.DEUDA],
+            str(EventoIngreso.Resultado.SIN_CREDENCIAL):
+                MENSAJES[EventoIngreso.Resultado.SIN_CREDENCIAL],
+        },
         "alumnos": list(por_alumno.values()),
     }
     # La versión es el hash del contenido y no `max(modificado)`: cambia
     # exactamente cuando cambia lo que el lector tiene que guardar, ni antes ni
-    # después (dar de baja un alumno o que se atrase con la cuota cambia su
-    # `habilitado` sin tocar ninguna credencial).
+    # después (dar de baja un alumno o que se atrase con la cuota cambia el
+    # padrón sin tocar ninguna credencial).
     serializado = json.dumps(cuerpo, sort_keys=True, ensure_ascii=False)
     cuerpo["version"] = hashlib.sha256(
         serializado.encode()

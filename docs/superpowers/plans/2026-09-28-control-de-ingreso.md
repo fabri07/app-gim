@@ -2364,6 +2364,11 @@ class PuertaConLaCuentaSuspendidaTests(TestCase):
 > test que no puede correr hasta ocho tareas después deja la suite roja o
 > tentando a comentarlo.
 
+> **Nota que dejó la Tarea 8:** la mitad del padrón ya está escrita en
+> `ingreso/tests_api.py::PadronConLaCuentaSuspendidaTests` (200 con la cuenta
+> SUSPENDIDA y sin ninguna cookie). Reusarla en vez de duplicar
+> `test_el_padron_tambien_sigue_respondiendo`.
+
 - [ ] **Step 2: Run** — Expected: los dos PASS, sin tocar código de producción.
 
 - [ ] **Step 3: Commit**
@@ -2381,6 +2386,13 @@ class PuertaConLaCuentaSuspendidaTests(TestCase):
 
 Los dos endpoints están en internet y los llama una máquina. El camino de fallo
 (sin token o con token inválido) no puede ser gratis.
+
+> **Nota que dejó la Tarea 8:** la autenticación de las dos vistas ya vive en un
+> solo lugar, `ingreso/views.py::_lector_del_request`. **El freno por IP de los
+> fallos va ahí**, así cubre eventos y padrón sin repetirlo. **El tope diario por
+> dispositivo NO se aplica al padrón**: cortarle el poll a un lector rompe la
+> invariante de que la puerta sigue abriendo (Tarea 9) — el padrón deja de
+> refrescarse y mañana la puerta niega a los que hoy pasan.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2738,14 +2750,24 @@ de este plan; el código manda):
 
 **Notas que dejó la Tarea 8** (padrón):
 
-- Cada fila trae además `motivo` (`null`, `"alumno_inactivo"` o `"deuda"`) y
-  `mensaje` (el texto de la pantalla), y el cuerpo trae
-  `mensaje_sin_credencial`: con eso el lector offline muestra lo mismo que
-  online. El de deuda es el genérico, sin los días.
-- Una credencial dada de baja no viaja; un alumno sin ninguna credencial
-  activa no figura. El puente debe dar de baja del equipo facial a quien ya no
-  figura, y bloquear (no borrar) a quien viene con `habilitado: false`.
-- El `ETag` va entre comillas; el 304 acepta `W/"…"` y la versión pelada.
+- Viajan solo alumnos ACTIVOS con credenciales activas. **Los que desaparecen
+  del padrón se borran del equipo, cara incluida** (dados de baja, credenciales
+  revocadas); **los `habilitado: false` son deudores: bloquear, no borrar**
+  (vuelven apenas pagan). Reactivar a un alumno obliga a volver a enrolar su
+  cara.
+- Cada fila trae `motivo` (`null` o `"deuda"`). Los textos van una vez, en
+  `mensajes` (`permitido`, `deuda`, `sin_credencial`), iguales a los de la
+  puerta online. `mensajes.permitido` es una plantilla: el puente reemplaza
+  `{nombre}` por el `nombre` de la fila. Lo que no está en el padrón muestra
+  `mensajes.sin_credencial`.
+- El padrón es una foto del último poll, en las dos direcciones: offline deja
+  entrar a quien se atrasó después (incluido el cruce del umbral de deuda a
+  medianoche) y a un QR regenerado porque se filtró; y rechaza al que pagó en
+  el mostrador, al reactivado y a una credencial recién emitida. Pollear
+  seguido y siempre con `If-None-Match`.
+- El `ETag` va entre comillas; el 304 acepta `W/"…"` y la versión pelada. Un
+  304 igual cuesta lo mismo que un 200 del lado del servidor (riesgo aceptado,
+  `ISSUES.md` [2026-09-28]).
 - `Cache-Control: no-store`: el puente guarda su copia y manda
   `If-None-Match`; ningún intermediario la guarda.
 
