@@ -2664,6 +2664,18 @@ Tests: el alumno ve su QR y **no** el de otro alumno; el bloqueado por deuda lo
 ve igual; el que no tiene credencial ve el estado vacío; el POST de regenerar
 cambia el valor y solo lo puede hacer el staff del propio gimnasio.
 
+> **Nota que dejó la Tarea 11:** `qr.svg_de(valor)` devuelve un `<svg>` SIN
+> `width`/`height` (solo `viewBox`): el template tiene que darle un ancho
+> (p. ej. `max-w-[16rem] w-full`) o se estira a todo el contenedor. Va inline
+> con `|safe`, que es seguro porque el SVG lo arma segno a partir de un token
+> de `secrets` y no hay texto del usuario adentro. El QR es una llave al
+> portador: la ficha y el portal ya son vistas autenticadas y acotadas por
+> gimnasio, pero **la respuesta que lo contiene tiene que llevar
+> `Cache-Control: no-store, private`** (mismo criterio que el padrón), y un
+> test que lo fije por cada pantalla; si alguna vez se sirve como archivo
+> aparte, nada de URL pública ni adivinable, y 404 para otro alumno u otro
+> gimnasio.
+
 ---
 
 ### Task 14: Tarjeta en el dashboard
@@ -2693,6 +2705,14 @@ el nombre del gimnasio, el del alumno y el QR en PNG.
 
 Tests: devuelve bytes que arrancan con `%PDF`; la vista es solo para staff y solo
 de su gimnasio; un alumno sin credencial no rompe la generación.
+
+> **Nota que dejó la Tarea 11:** `qr.png_de(valor)` ya da el PNG con zona
+> silenciosa de 4 módulos, fondo blanco pintado y 10 px por módulo (410 px
+> para un token de 43 caracteres, versión 4-Q). Se inserta con
+> `pdf.image(io.BytesIO(qr.png_de(valor)), x=..., y=..., w=...)` — verificado
+> contra fpdf2 2.8.8. No achicar el QR impreso por debajo de ~2,5 cm de lado.
+> La respuesta del PDF lleva `Cache-Control: no-store, private`: es un lote de
+> llaves de puerta.
 
 ---
 

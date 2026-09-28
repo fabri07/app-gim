@@ -1,3 +1,5 @@
+import io
+import re
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
@@ -6,9 +8,11 @@ from django.db.models import ProtectedError
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+from PIL import Image
+import segno
 
 from alumnos.models import Alumno
-from ingreso import services, tokens
+from ingreso import qr, services, tokens
 from ingreso.models import (
     ConfiguracionIngreso,
     Credencial,
@@ -286,3 +290,118 @@ class EventoIngresoTests(TestCase):
 
         with self.assertRaises(ProtectedError):
             self.dispositivo.delete()
+
+
+def _matriz_esperada(valor):
+    """Lo que tiene que codificar el QR: EXACTAMENTE `valor`, con el nivel de
+    corrección del módulo. Si `qr.py` le agregara algo al contenido (una URL,
+    un prefijo, el nombre del alumno), la matriz sería otra."""
+    codigo = segno.make_qr(valor, error=qr.NIVEL_ERROR)
+    return [[bool(modulo) for modulo in fila] for fila in codigo.matrix]
+
+
+def _matriz_del_svg(svg):
+    """Reconstruye la matriz de módulos desde el `path` que dibuja segno.
+
+    No hay decodificador de QR en las dependencias y no se agrega uno para un
+    test: el path son trazos horizontales (`M x y`, `m dx dy`, `h n`) sobre
+    filas a media altura, así que se puede leer tal cual.
+    """
+    lado = int(re.search(r'viewBox="0 0 (\d+) (\d+)"', svg).group(1))
+    trazo = re.search(r'<path class="qrline"[^>]* d="([^"]+)"', svg).group(1)
+    oscuro = [[False] * lado for _ in range(lado)]
+    x = y = 0.0
+    for comando, numeros in re.findall(r"([MmHh])([-\d. ]+)", trazo):
+        valores = [float(n) for n in numeros.split()]
+        if comando == "M":
+            x, y = valores
+        elif comando == "m":
+            x, y = x + valores[0], y + valores[1]
+        else:
+            largo = valores[0] if comando == "h" else valores[0] - x
+            for columna in range(int(x), int(x + largo)):
+                oscuro[int(y)][columna] = True
+            x += largo
+    return oscuro
+
+
+def _sin_borde(matriz, borde):
+    return [fila[borde:len(fila) - borde] for fila in matriz[borde:len(matriz) - borde]]
+
+
+class QrTests(SimpleTestCase):
+    """El QR es una llave al portador que tiene que servir IMPRESO en una
+    tarjeta (el alumno sin smartphone) y en la pantalla del celular."""
+
+    VALOR = tokens.generar()
+
+    def test_devuelve_un_svg_inline(self):
+        svg = qr.svg_de("abc123")
+
+        self.assertTrue(svg.startswith("<svg"))
+        self.assertIn("</svg>", svg)
+        # Inline en el HTML: sin declaración XML ni tamaño fijo, escala con
+        # el contenedor sin pixelarse.
+        self.assertNotIn("<?xml", svg)
+        self.assertNotIn('width="', svg.split(">", 1)[0])
+
+    def test_el_mismo_valor_da_el_mismo_svg(self):
+        self.assertEqual(qr.svg_de("abc"), qr.svg_de("abc"))
+
+    def test_valores_distintos_dan_svg_distintos(self):
+        self.assertNotEqual(qr.svg_de("abc"), qr.svg_de("abd"))
+
+    def test_el_svg_codifica_exactamente_el_valor(self):
+        matriz = _matriz_del_svg(qr.svg_de(self.VALOR))
+
+        self.assertEqual(
+            _sin_borde(matriz, qr.BORDE), _matriz_esperada(self.VALOR)
+        )
+
+    def test_el_svg_tiene_zona_silenciosa_y_fondo_blanco(self):
+        """Sin los 4 módulos claros alrededor, un lector no encuentra el
+        código. Y el fondo va pintado: sobre el color del paisaje del
+        gimnasio, un fondo transparente le baja el contraste."""
+        svg = qr.svg_de(self.VALOR)
+        matriz = _matriz_del_svg(svg)
+        borde = qr.BORDE
+
+        self.assertGreaterEqual(borde, 4)
+        self.assertFalse(any(any(fila) for fila in matriz[:borde]))
+        self.assertFalse(any(any(fila) for fila in matriz[-borde:]))
+        self.assertFalse(any(any(fila[:borde]) or any(fila[-borde:]) for fila in matriz))
+        self.assertIn('fill="#fff"', svg)
+
+    def test_es_un_qr_comun_y_no_un_micro_qr(self):
+        """`segno.make` elige Micro QR para valores cortos, y la cámara del
+        celular no lo lee. Tiene que ser `make_qr` siempre."""
+        matriz = _sin_borde(_matriz_del_svg(qr.svg_de("abc123")), qr.BORDE)
+
+        self.assertGreaterEqual(len(matriz), 21)
+
+    def test_corrige_errores_al_menos_nivel_q(self):
+        """Una tarjeta impresa se raya, se dobla y se gasta en el llavero. Con
+        un token de 43 caracteres Q entra en la misma versión que M."""
+        self.assertIn(qr.NIVEL_ERROR.upper(), ("Q", "H"))
+
+    def test_tambien_puede_dar_png_para_el_pdf(self):
+        png = qr.png_de("abc123")
+
+        self.assertTrue(png.startswith(b"\x89PNG"))
+
+    def test_el_png_codifica_exactamente_el_valor_con_su_borde(self):
+        imagen = Image.open(io.BytesIO(qr.png_de(self.VALOR))).convert("L")
+        escala = qr.ESCALA_PNG
+        lado = imagen.width // escala
+        matriz = [
+            [
+                imagen.getpixel((col * escala + escala // 2, fila * escala + escala // 2)) < 128
+                for col in range(lado)
+            ]
+            for fila in range(lado)
+        ]
+
+        self.assertEqual(
+            _sin_borde(matriz, qr.BORDE), _matriz_esperada(self.VALOR)
+        )
+        self.assertFalse(any(any(fila) for fila in matriz[: qr.BORDE]))
