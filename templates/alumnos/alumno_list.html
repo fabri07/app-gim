@@ -17,6 +17,7 @@
         {% csrf_token %}
         <button type="submit" class="boton-secundario" title="Crea el código QR de la puerta a cada alumno activo que todavía no tiene. No cambia los que ya existen.">Generar códigos de ingreso</button>
       </form>
+      <a class="boton-secundario" href="{% url 'ingreso:tarjetas' %}">Imprimir tarjetas de ingreso</a>
     </div>
   </div>
 

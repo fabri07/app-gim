@@ -56,3 +56,10 @@ def png_de(valor):
         dark="#000", light="#fff",
     )
     return salida.getvalue()
+
+
+def modulos_de(valor):
+    """Cuántos módulos mide de lado el QR de `valor`, SIN la zona silenciosa.
+    Lo usa `tarjetas.py` para saber cuánto mide impreso el código en sí."""
+    ancho, _alto = _codigo(valor).symbol_size(border=0)
+    return ancho

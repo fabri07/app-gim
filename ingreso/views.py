@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 from django.contrib import messages
 from django.db import IntegrityError, transaction
-from django.http import HttpResponseNotModified, JsonResponse
+from django.http import HttpResponse, HttpResponseNotModified, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.utils import timezone
@@ -32,7 +32,7 @@ from django.views.generic.detail import SingleObjectMixin
 
 from alumnos.models import Alumno
 from core.mixins import TenantScopedMixin
-from ingreso import auth, limites, presentacion, services
+from ingreso import auth, limites, presentacion, services, tarjetas
 from ingreso.decision import Lectura
 from ingreso.forms import (
     ERROR_NOMBRE_REPETIDO,
@@ -50,6 +50,15 @@ from ingreso.models import (
 )
 from pagos import acceso
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
+
+#: Cuántas tarjetas entran en un PDF. Medido en una Mac (Python 3.14): unos
+#: 33 ms por tarjeta, casi todo en `segno` eligiendo la máscara del QR y
+#: escribiendo el PNG -- 300 tarjetas son ~10 s. gunicorn corre con UN worker
+#: síncrono y 30 s de timeout, y Render es más lento que la Mac: el gimnasio
+#: entero de un saque se come ese margen y deja a todos sin app mientras tanto.
+#: Por eso se imprime por tandas (100 = 10 hojas A4, ~3 s en la Mac), y cada
+#: tanda es un request corto. Ver `TarjetasView`.
+TARJETAS_POR_TANDA = 100
 
 LARGO_ID_EVENTO_EQUIPO = EventoIngreso._meta.get_field("id_evento_equipo").max_length
 
@@ -826,3 +835,141 @@ class MiCodigoView(AlumnoRequiredMixin, TemplateView):
             estados=presentacion.Estado,
         )
         return context
+
+
+# ---------------------------------------------------------------------------
+# Tarjetas imprimibles
+# ---------------------------------------------------------------------------
+
+
+def _credenciales_para_imprimir(gimnasio):
+    """Las credenciales QR que abren la puerta: activas, de alumnos ACTIVOS,
+    de ESTE gimnasio. Mismo criterio que `presentacion.codigo_de` (el QR se
+    dibuja solo si abre): una tarjeta impresa de un código dado de baja o de un
+    alumno inactivo se lee como «esto funciona» y la puerta la rechaza.
+
+    Una query: el alumno viene en el mismo JOIN (`nombre_corto` lo lee) y el
+    orden es estable, porque las tandas se cortan sobre él."""
+    return (
+        Credencial.objects.for_gimnasio(gimnasio)
+        .filter(
+            tipo=Credencial.Tipo.QR,
+            activa=True,
+            alumno__estado=Alumno.Estado.ACTIVO,
+        )
+        .select_related("alumno")
+        .order_by("alumno__apellido", "alumno__nombre", "pk")
+    )
+
+
+def _respuesta_pdf(gimnasio, credenciales, nombre_archivo):
+    """El PDF como descarga privada. La vista lleva `never_cache` sobre el
+    `dispatch` entero (`no-store, private`): es un lote de llaves de la
+    puerta y no puede quedar en ningún caché, ni del navegador ni de
+    Cloudflare. El nombre del archivo no lleva datos del alumno: queda en la
+    carpeta de Descargas de la computadora del mostrador."""
+    pdf = tarjetas.generar_pdf_credenciales(
+        gimnasio.nombre,
+        [
+            tarjetas.Tarjeta(
+                nombre=services.nombre_corto(credencial.alumno),
+                valor=credencial.valor,
+            )
+            for credencial in credenciales
+        ],
+    )
+    respuesta = HttpResponse(pdf, content_type="application/pdf")
+    respuesta["Content-Disposition"] = f'attachment; filename="{nombre_archivo}"'
+    return respuesta
+
+
+@method_decorator(never_cache, name="dispatch")
+class TarjetaAlumnoPdfView(_AlumnoDelGimnasioMixin, View):
+    """La tarjeta de UN alumno, desde su ficha.
+
+    Solo POST, desde un form con `hx-boost="false"` (htmx se traga la
+    descarga, mismo criterio que `ExportarDatosView`): un GET se prefetchea,
+    queda en el historial y se comparte como link. Un alumno sin un código
+    que abra la puerta no da un PDF vacío: vuelve a la ficha con el motivo.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        alumno = self.get_alumno()
+        credencial = presentacion.qr_de(alumno)
+        if not presentacion.codigo_de(alumno, credencial).vigente:
+            messages.warning(
+                request,
+                f"{alumno.nombre} no tiene un código que abra la puerta: "
+                "generale uno antes de imprimir la tarjeta.",
+            )
+            return self._a_la_ficha(alumno)
+        return _respuesta_pdf(
+            self.gimnasio,
+            [credencial],
+            f"tarjeta-ingreso-{self.gimnasio.slug}.pdf",
+        )
+
+
+class TarjetasView(StaffRequiredMixin, TenantScopedMixin, TemplateView):
+    """«Imprimir tarjetas de ingreso»: un botón por tanda de
+    `TARJETAS_POR_TANDA`. No muestra ningún código, solo cuántos hay."""
+
+    template_name = "ingreso/tarjetas.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        total = _credenciales_para_imprimir(self.gimnasio).count()
+        tandas = [
+            {
+                "numero": numero,
+                "desde": inicio + 1,
+                "hasta": min(inicio + TARJETAS_POR_TANDA, total),
+            }
+            for numero, inicio in enumerate(
+                range(0, total, TARJETAS_POR_TANDA), start=1
+            )
+        ]
+        context.update(total=total, tandas=tandas, por_hoja=tarjetas.TARJETAS_POR_HOJA)
+        return context
+
+
+@method_decorator(never_cache, name="dispatch")
+class TarjetasPdfView(StaffRequiredMixin, TenantScopedMixin, View):
+    """El PDF de UNA tanda. POST-only por lo mismo que la tarjeta suelta.
+
+    El número de tanda viaja en el POST; uno que no existe (o que dejó de
+    existir porque alguien dio de baja códigos entre la pantalla y el click)
+    vuelve a la pantalla de tandas en vez de dar un PDF vacío."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        try:
+            tanda = int(request.POST.get("tanda", ""))
+        except ValueError:
+            tanda = 0
+        inicio = (tanda - 1) * TARJETAS_POR_TANDA
+        credenciales = (
+            list(
+                _credenciales_para_imprimir(self.gimnasio)[
+                    inicio : inicio + TARJETAS_POR_TANDA
+                ]
+            )
+            if tanda >= 1
+            else []
+        )
+        if not credenciales:
+            messages.warning(
+                request,
+                "No hay tarjetas para imprimir en esa tanda. Revisá la lista "
+                "y volvé a intentar.",
+            )
+            return redirect("ingreso:tarjetas")
+        return _respuesta_pdf(
+            self.gimnasio,
+            credenciales,
+            f"tarjetas-ingreso-{self.gimnasio.slug}-"
+            f"{timezone.localdate().isoformat()}-{tanda}.pdf",
+        )
