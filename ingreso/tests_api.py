@@ -31,7 +31,12 @@ from ingreso.models import (
 )
 from pagos.models import Cuota
 from pagos.testing import crear_cuota
-from tenants.models import Gimnasio, Perfil
+from tenants.models import (
+    ESTADOS_SIN_ACCESO_ALUMNO,
+    ESTADOS_SIN_ACCESO_STAFF,
+    Gimnasio,
+    Perfil,
+)
 from turnos.models import Reserva
 
 
@@ -1366,26 +1371,107 @@ class PadronCacheTests(_BasePadron):
                 self.assertIn("private", respuesta["Cache-Control"])
 
 
-class PadronConLaCuentaSuspendidaTests(_BasePadron):
-    """La mitad offline de "la puerta sigue abriendo aunque el gimnasio no
-    pague la app": si el padrón dejara de refrescarse, la puerta abriría hoy
-    y dejaría de abrir mañana. El cliente no se loguea: el lector no tiene
-    cookie."""
+class PuertaConLaCuentaCongeladaTests(_BasePadron):
+    """Que un gimnasio le deba la app al dueño del producto NO le cierra la
+    puerta a sus alumnos: dejar ochenta personas afuera de un edificio no es
+    una palanca de cobro. Lo que se corta es el panel, no el molinete.
 
-    def test_el_padron_responde_con_la_cuenta_suspendida(self):
+    No agrega código: fija una invariante para que nadie "ordene"
+    `plataforma/middleware.py` (o le sume un chequeo de `estado_cuenta` a la
+    API) y le corte la puerta a un gimnasio congelado. Cubre los DOS endpoints
+    —eventos es la puerta online; el padrón, la offline: si dejara de
+    refrescarse, la puerta abriría hoy y dejaría de abrir mañana— y los DOS
+    estados congelados, porque son dos reglas distintas del middleware
+    (`ESTADOS_SIN_ACCESO_ALUMNO` y `ESTADOS_SIN_ACCESO_STAFF`).
+
+    **El cliente NO se loguea, y eso es parte del test.** El corte del
+    middleware es `if usuario is None or not usuario.is_authenticated: return
+    None`: con una sesión el usuario estaría autenticado, el middleware
+    seguiría hasta `sin_acceso(perfil)` y el test fallaría por el motivo
+    equivocado. El lector real no tiene cookie; el test tampoco, y lo verifica.
+    """
+
+    ESTADOS_CONGELADOS = (
+        Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS,
+        Gimnasio.EstadoCuenta.SUSPENDIDA,
+    )
+
+    def _congelar(self, estado):
         Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
-            estado_cuenta=Gimnasio.EstadoCuenta.SUSPENDIDA
+            estado_cuenta=estado, estado_cuenta_desde=timezone.now()
         )
 
-        respuesta = self._get(token=self.token)
-
-        self.assertEqual(respuesta.status_code, 200)
-        self.assertTrue(respuesta.json()["alumnos"][0]["habilitado"])
-
-    def test_no_setea_ninguna_cookie(self):
-        respuesta = self._get(token=self.token)
-
+    def _assert_la_puerta_responde_como_siempre(self, respuesta):
+        self.assertTemplateNotUsed(respuesta, "plataforma/cuenta_bloqueada.html")
+        # Ni la sesión ni el registro del día: el middleware no tocó al
+        # lector. Una cookie en la respuesta es la señal de que empezó a
+        # mirarlo.
         self.assertEqual(dict(respuesta.cookies), {})
+        self.assertFalse(respuesta.wsgi_request.user.is_authenticated)
+
+    def test_los_estados_congelados_son_los_que_corta_el_middleware(self):
+        """Si alguien suma un tercer estado congelado, esta clase tiene que
+        cubrirlo: la lista de arriba no puede quedar vieja en silencio."""
+        self.assertEqual(
+            set(self.ESTADOS_CONGELADOS),
+            set(ESTADOS_SIN_ACCESO_ALUMNO | ESTADOS_SIN_ACCESO_STAFF),
+        )
+
+    def test_el_estado_de_verdad_le_corta_la_app_al_alumno(self):
+        """Control positivo: sin esto, los tests de la puerta pasarían igual
+        si el estado no congelara nada (un fixture que no congela). El mismo
+        gimnasio, con un alumno logueado desde el navegador, ve el cartel."""
+        usuario = User.objects.create_user("alumno-a", password="clave-123456")
+        Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        navegador = Client()
+        navegador.force_login(usuario)
+        for estado in self.ESTADOS_CONGELADOS:
+            with self.subTest(estado=estado):
+                self._congelar(estado)
+
+                respuesta = navegador.get(reverse("home"))
+
+                self.assertTemplateUsed(
+                    respuesta, "plataforma/cuenta_bloqueada.html"
+                )
+
+    def test_la_puerta_online_sigue_abriendo(self):
+        for n, estado in enumerate(self.ESTADOS_CONGELADOS):
+            with self.subTest(estado=estado):
+                self._congelar(estado)
+                # Un alumno por estado: con el mismo, el antipassback (2 min
+                # por defecto) negaría el segundo ingreso por otro motivo.
+                alumno = Alumno.objects.create(
+                    gimnasio=self.gimnasio, nombre=f"Ana{n}", apellido="Gomez"
+                )
+                qr = services.generar_credencial_qr(alumno)
+
+                respuesta = self._post_eventos({"tipo": "qr", "valor": qr.valor})
+
+                # Primero lo que diría QUÉ se rompió: el cartel (HTML) haría
+                # explotar el `.json()` de abajo con un mensaje que no lo dice.
+                self._assert_la_puerta_responde_como_siempre(respuesta)
+                self.assertEqual(respuesta.status_code, 200)
+                resultado = respuesta.json()["resultados"][0]
+                self.assertTrue(resultado["permitido"])
+                self.assertEqual(resultado["resultado"], "permitido")
+                self.assertEqual(
+                    EventoIngreso.objects.get(alumno=alumno).resultado,
+                    EventoIngreso.Resultado.PERMITIDO,
+                )
+
+    def test_el_padron_sigue_respondiendo(self):
+        for estado in self.ESTADOS_CONGELADOS:
+            with self.subTest(estado=estado):
+                self._congelar(estado)
+
+                respuesta = self._get(token=self.token)
+
+                self._assert_la_puerta_responde_como_siempre(respuesta)
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertTrue(self._fila(self.alumno, respuesta.json())["habilitado"])
 
 
 class PadronCostoTests(_BasePadron):
