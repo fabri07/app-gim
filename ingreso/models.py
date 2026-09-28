@@ -52,6 +52,39 @@ class ConfiguracionIngreso(TenantOwnedModel):
         return f"Control de ingreso de {self.gimnasio}"
 
 
+class Dispositivo(TenantOwnedModel):
+    """Un lector o molinete de la puerta.
+
+    Sin `DeleteView`: se desactiva destildando `activo`, y el `PROTECT` de
+    `EventoIngreso.dispositivo` lo respalda -- borrarlo se llevaría el
+    historial de asistencia. Mismo criterio que `Ejercicio`.
+    """
+
+    class Tipo(models.TextChoices):
+        QR = "qr", "Lector de QR"
+        FACIAL = "facial", "Lector facial"
+        MIXTO = "mixto", "Lee QR y cara"
+
+    nombre = models.CharField(max_length=80)
+    tipo = models.CharField(max_length=10, choices=Tipo.choices, default=Tipo.QR)
+    token_hash = models.CharField(max_length=64, unique=True, editable=False)
+    activo = models.BooleanField(default=True)
+    ultimo_contacto = models.DateTimeField(null=True, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "lector de la puerta"
+        verbose_name_plural = "lectores de la puerta"
+        ordering = ["nombre"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["gimnasio", "nombre"], name="dispositivo_nombre_unico_por_gim"
+            )
+        ]
+
+    def __str__(self):
+        return self.nombre
+
+
 def obtener_configuracion(gimnasio):
     """Única vía de acceso a la config de un gimnasio: garantiza que la fila
     exista. Ojo que `turnos.models` tiene una función con este mismo nombre:

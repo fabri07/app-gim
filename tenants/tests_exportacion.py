@@ -29,6 +29,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from calendario.models import GoogleCalendarCredential
+from ingreso.models import Dispositivo
 from novedades.models import Novedad, NovedadLeida
 from pagos.models import Cuota
 from rutinas.models import (
@@ -170,6 +171,8 @@ class ContenidoDelZipTests(ExportacionBase):
         self.assertTrue(
             GoogleCalendarCredential.objects.filter(alumno=alumno).exists()
         )
+        hash_del_lector = Dispositivo.objects.get(gimnasio=self.gimnasio).token_hash
+        self.assertTrue(hash_del_lector)
 
         zf, _ = _exportar(self.gimnasio)
         todo = "\n".join(_textos(zf).values())
@@ -178,6 +181,7 @@ class ContenidoDelZipTests(ExportacionBase):
         self.assertNotIn("push.example.com", todo)
         self.assertNotIn(hash_password, todo)
         self.assertNotIn(PASSWORD_ALUMNO, todo)
+        self.assertNotIn(hash_del_lector, todo)
         # ...pero el identificador de acceso sí: es un dato del gimnasio.
         self.assertIn("alumno-X", todo)
 

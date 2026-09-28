@@ -622,7 +622,7 @@ def vaciar_gimnasio(*, gimnasio):
     from calendario.models import GoogleCalendarCredential
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.models import Importacion
-    from ingreso.models import ConfiguracionIngreso
+    from ingreso.models import ConfiguracionIngreso, Dispositivo
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import Cuota, MedioCobro
@@ -701,6 +701,9 @@ def vaciar_gimnasio(*, gimnasio):
         # y reservas que ya no existen.
         SuscripcionPush.objects.for_gimnasio(gimnasio).delete()
         RecordatorioEnviado.objects.for_gimnasio(gimnasio).delete()
+
+        # Después de los eventos: `EventoIngreso.dispositivo` es PROTECT.
+        Dispositivo.objects.for_gimnasio(gimnasio).delete()
 
 
 def restaurar_demo(*, gimnasio, cantidad_alumnos=24, meses=6):

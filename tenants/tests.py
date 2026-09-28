@@ -3995,7 +3995,8 @@ def _ensuciar(gimnasio, staff, marca="X"):
     from alumnos.models import Alumno
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.models import Importacion
-    from ingreso.models import ConfiguracionIngreso
+    from ingreso import tokens as ingreso_tokens
+    from ingreso.models import ConfiguracionIngreso, Dispositivo
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import Cuota, MedioCobro
@@ -4064,6 +4065,11 @@ def _ensuciar(gimnasio, staff, marca="X"):
         fecha=timezone.localdate(), hora_inicio=time(9),
     )
     ConfiguracionIngreso.objects.create(gimnasio=gimnasio)
+    dispositivo = Dispositivo.objects.create(
+        gimnasio=gimnasio, nombre=f"Puerta {marca}",
+        tipo=Dispositivo.Tipo.QR,
+        token_hash=ingreso_tokens.hash_de(f"token-{marca}"),
+    )
     return alumno
 
 

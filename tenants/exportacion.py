@@ -264,6 +264,16 @@ HOJAS = (
             ("minutos_antipassback", "minutos_antipassback"),
         ),
     ),
+    Hoja(
+        "lectores-de-puerta", "ingreso.Dispositivo", "gimnasio",
+        "Lectores de la puerta. El token con el que cada uno se autentica no se "
+        "exporta: es la llave de la puerta (las contraseñas tampoco se exportan).",
+        (
+            ("id", "id"), ("nombre", "nombre"), ("tipo", "tipo"),
+            ("activo", "activo"), ("ultimo_contacto", "ultimo_contacto"),
+            ("creado", "creado"),
+        ),
+    ),
 )
 
 #: Modelos que NO se exportan, con el motivo que se le cuenta al gimnasio en el
