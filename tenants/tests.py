@@ -572,6 +572,19 @@ class PortadaViewTests(TestCase):
         self.assertNotIn("importar tus alumnos", contenido)
         self.assertNotIn("o los importás", contenido)
 
+    def test_presenta_el_control_de_ingreso(self):
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, 'id="ingreso"')
+        self.assertContains(response, "reconocimiento facial")
+        self.assertContains(response, "¿Funciona con el molinete de mi gimnasio?")
+
+    def test_control_de_ingreso_no_promete_marcas_de_equipos(self):
+        """Todavía no hay un modelo de equipo probado contra la API: nombrar
+        un fabricante sería prometer una compatibilidad que nadie verificó."""
+        contenido = self.client.get(reverse("home")).content.decode().lower()
+        for marca in ("hikvision", "zkteco", "dahua", "suprema"):
+            self.assertNotIn(marca, contenido)
+
     def test_cotizacion_se_pide_una_sola_vez_por_request(self):
         with patch(
             "plataforma.cambio.cotizacion_dolar", return_value=None

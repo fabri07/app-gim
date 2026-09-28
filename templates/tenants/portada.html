@@ -117,6 +117,7 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
           <li>Las rutinas se pierden entre mil mensajes</li>
           <li>La planilla solo la entendés vos, y se rompe</li>
           <li>Los cupos de los turnos, anotados en papel</li>
+          <li>Entra cualquiera, esté al día o no</li>
           <li>Todo con el aspecto de una app ajena</li>
         </ul>
       </div>
@@ -127,6 +128,7 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
           <li>Cada alumno ve su rutina con video, por día y semana</li>
           <li>La ficha de cada alumno, siempre a mano</li>
           <li>Reservas de turnos con cupo automático</li>
+          <li>La puerta abre con QR o con la cara, y sabés quién vino</li>
           <li>Tu logo, tus colores y tu nombre en toda la app</li>
         </ul>
       </div>
@@ -210,6 +212,39 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
     </div>
   </section>
 
+  {# ================= Control de ingreso ================= #}
+  {% comment %}
+    Sección propia y no un bloque más de «Funciones»: es lo que más distingue
+    al producto. El copy no nombra marcas de equipos ni promete compatibilidad
+    con un modelo: todavía no hay uno probado (ver
+    `docs/integracion-control-de-ingreso.md`, paso 12).
+  {% endcomment %}
+  <section class="portada__seccion portada__inner" id="ingreso">
+    <h2 class="portada__h2 portada__h2--centro">La puerta de tu gimnasio<span class="pt">,</span> conectada</h2>
+    <p class="portada__ejemplo portada__ejemplo--centro">Control de ingreso con molinete, código QR o reconocimiento facial.</p>
+
+    <div class="funcion">
+      <div class="funcion__texto">
+        <h3 class="funcion__titulo">Entra el que está al día</h3>
+        <p>Conectás el molinete o el lector de la entrada con TuGimApp. Cada alumno pasa con el QR de su celular, con una tarjeta impresa o con su cara, y la puerta le abre, o le avisa en la pantalla que tiene la cuota pendiente, si así lo configurás. Vos ves quién vino de verdad cada día y quién intentó entrar y no pudo.</p>
+      </div>
+      <div class="funcion__demo" data-demo aria-hidden="true">
+        <div class="mini">
+          <div class="mini__fila"><span class="mini__bloque">QR</span><span class="mini__nombre">Lucas Pereyra</span><span class="badge badge--ok">Pasó</span><span class="mini__dato">19:02</span></div>
+          <div class="mini__fila"><span class="mini__bloque">Cara</span><span class="mini__nombre">Martina Gómez</span><span class="badge badge--riesgo">Cuota impaga</span><span class="mini__dato">19:04</span></div>
+          <div class="mini__fila"><span class="mini__bloque">QR</span><span class="mini__nombre">Tomás Ruiz</span><span class="badge badge--ok">Pasó</span><span class="mini__dato">19:05</span></div>
+          <div class="mini__fila"><span class="mini__bloque">Cara</span><span class="mini__nombre">Carla Sosa</span><span class="badge badge--ok">Pasó</span><span class="mini__dato">19:07</span></div>
+        </div>
+      </div>
+    </div>
+
+    <ul class="portada__ingreso-puntos">
+      <li><strong>QR, cara o los dos.</strong> Generás el código de todos tus alumnos con un botón e imprimís las tarjetas desde la app.</li>
+      <li><strong>Sigue abriendo sin internet.</strong> El equipo guarda la lista de quién puede pasar y sube los ingresos cuando vuelve la conexión.</li>
+      <li><strong>La cara no sale del equipo.</strong> TuGimApp nunca guarda fotos ni datos biométricos de tus alumnos.</li>
+    </ul>
+  </section>
+
   {# ================= Cómo empezás ================= #}
   <section class="portada__seccion portada__inner">
     <h2 class="portada__h2 portada__h2--centro">Cómo empezás</h2>
@@ -273,6 +308,8 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
         <p>Sí, tus planes de entrenamiento y tu biblioteca de ejercicios: subís la planilla y la app los arma sin que los cargues uno por uno. A los alumnos los das de alta desde el panel.</p></details>
       <details><summary>¿La app tiene mi marca?</summary>
         <p>Sí. Tu logo, tus colores y el nombre de tu gimnasio en toda la app: para tus alumnos es «tu» app, no una plataforma genérica.</p></details>
+      <details><summary>¿Funciona con el molinete de mi gimnasio?</summary>
+        <p>Funciona con molinetes y lectores de QR o de reconocimiento facial que se conectan a internet. Tu instalador los conecta con TuGimApp siguiendo nuestra guía, y el control de ingreso viene incluido en cualquier plan. El equipo no lo vendemos nosotros: si todavía no lo compraste, consultanos antes y vemos juntos cuál te sirve.</p></details>
       <details><summary>¿Sirve para entrenadores sin local?</summary>
         <p>Sí. Funciona igual para un entrenador que arma rutinas personalizadas, aunque no tenga un gimnasio físico.</p></details>
       <details><summary>¿Cómo me dan de alta?</summary>

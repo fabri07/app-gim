@@ -49,6 +49,12 @@ urlpatterns = [
         views.TarjetaAlumnoPdfView.as_view(),
         name="tarjeta_alumno",
     ),
+    path("como-conectar/", views.InstructivoView.as_view(), name="instructivo"),
+    path(
+        "como-conectar/<slug:nombre>/",
+        views.ArchivoParaInstaladorView.as_view(),
+        name="archivo_instalador",
+    ),
     path("tarjetas/", views.TarjetasView.as_view(), name="tarjetas"),
     path("tarjetas/pdf/", views.TarjetasPdfView.as_view(), name="tarjetas_pdf"),
     # Portal del alumno: sin pk, el alumno es el de la sesión.

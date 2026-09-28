@@ -8,11 +8,12 @@ escriben: el registro vive en `ingreso/services.py`.
 import json
 from datetime import date, timedelta
 
+from django.conf import settings
 from django.contrib import messages
 from django.db import IntegrityError, transaction
-from django.http import HttpResponse, HttpResponseNotModified, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseNotModified, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.cache import add_never_cache_headers
 from django.utils.dateparse import parse_datetime
@@ -632,6 +633,57 @@ class ConfiguracionIngresoView(StaffRequiredMixin, UpdateView):
             or gimnasio.fecha_activacion_bloqueo is None
         )
         return context
+
+
+class InstructivoView(StaffRequiredMixin, TemplateView):
+    """«Cómo conectar tu puerta»: el paso a paso para el DUEÑO según tenga
+    molinete con QR, lector facial o los dos. El contrato HTTP para el
+    instalador no se copia acá: se descarga tal cual está en el repo
+    (`ArchivoParaInstaladorView`), así no hay dos versiones que diverjan."""
+
+    template_name = "ingreso/instructivo.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        gimnasio = self.request.user.perfil.gimnasio
+        context.update(
+            url_app=self.request.build_absolute_uri("/").rstrip("/"),
+            url_eventos=self.request.build_absolute_uri(reverse("ingreso:api_eventos")),
+            url_padron=self.request.build_absolute_uri(reverse("ingreso:api_padron")),
+            tiene_lectores=Dispositivo.objects.for_gimnasio(gimnasio).exists(),
+        )
+        return context
+
+
+#: Lo que el instructivo le da para bajar al instalador: nombre en la URL →
+#: (archivo del repo, nombre de la descarga, tipo). Lista cerrada: la URL nunca
+#: arma una ruta de disco.
+ARCHIVOS_PARA_INSTALADOR = {
+    "guia": (
+        "docs/integracion-control-de-ingreso.md",
+        "guia-tecnica-control-de-ingreso.md",
+        "text/markdown; charset=utf-8",
+    ),
+    "puente": (
+        "scripts/puente_ingreso_ejemplo.py",
+        "puente_ingreso_ejemplo.py",
+        "text/x-python; charset=utf-8",
+    ),
+}
+
+
+class ArchivoParaInstaladorView(StaffRequiredMixin, View):
+    """Descarga la guía técnica o el puente de ejemplo. Solo staff: no tienen
+    ningún secreto, pero describen la puerta del gimnasio."""
+
+    def get(self, request, nombre):
+        if nombre not in ARCHIVOS_PARA_INSTALADOR:
+            raise Http404
+        ruta, descarga, tipo = ARCHIVOS_PARA_INSTALADOR[nombre]
+        contenido = (settings.BASE_DIR / ruta).read_bytes()
+        respuesta = HttpResponse(contenido, content_type=tipo)
+        respuesta["Content-Disposition"] = f'attachment; filename="{descarga}"'
+        return respuesta
 
 
 class _AlumnoDelGimnasioMixin(StaffRequiredMixin, TenantScopedMixin):

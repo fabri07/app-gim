@@ -1352,3 +1352,89 @@ class RevocarDesdeElAdminTests(_BaseVistas):
         self.assertEqual(listado.status_code, 200)
         self.assertNotContains(ficha, self.puerta.token_hash[:12])
         self.assertNotContains(listado, self.puerta.token_hash[:12])
+
+
+# ---------------------------------------------------------------------------
+# ingreso:instructivo y las descargas para el instalador
+# ---------------------------------------------------------------------------
+
+
+class InstructivoTests(_GuardiasMixin, _BaseVistas):
+    def _url_guardia(self):
+        return reverse("ingreso:instructivo")
+
+    def test_cubre_los_tres_casos_con_sus_anclas(self):
+        self._login()
+        respuesta = self.client.get(self._url_guardia())
+        self.assertEqual(respuesta.status_code, 200)
+        for ancla in ('id="qr"', 'id="facial"', 'id="ambos"'):
+            self.assertContains(respuesta, ancla)
+        self.assertContains(respuesta, "Molinete con QR")
+        self.assertContains(respuesta, "Lector facial")
+
+    def test_muestra_las_direcciones_absolutas_de_la_api(self):
+        """El instalador las carga en el equipo: tienen que ser completas, no
+        rutas relativas."""
+        self._login()
+        respuesta = self.client.get(self._url_guardia())
+        self.assertContains(respuesta, "http://testserver/ingreso/v1/eventos/")
+        self.assertContains(respuesta, "http://testserver/ingreso/v1/padron/")
+
+    def test_no_muestra_ninguna_clave_de_lector(self):
+        self._login()
+        respuesta = self.client.get(self._url_guardia())
+        self.assertNotContains(respuesta, self.puerta.token_hash[:12])
+
+    def test_las_descargas_van_fuera_del_boost(self):
+        """htmx se traga una respuesta con `Content-Disposition: attachment`."""
+        self._login()
+        contenido = self.client.get(self._url_guardia()).content.decode()
+        for nombre in ("guia", "puente"):
+            url = reverse("ingreso:archivo_instalador", args=[nombre])
+            self.assertIn(f'hx-boost="false" href="{url}"', contenido)
+
+    def test_se_llega_desde_las_pantallas_de_la_puerta(self):
+        self._login()
+        url = self._url_guardia()
+        for pantalla in ("ingreso:listado", "ingreso:dispositivos", "ingreso:configuracion"):
+            self.assertContains(self.client.get(reverse(pantalla)), f'href="{url}"')
+        self.assertContains(self.client.get(reverse("gimnasio_editar")), f'href="{url}"')
+
+    def test_la_pantalla_de_la_clave_linkea_al_instructivo(self):
+        self._login()
+        respuesta = self.client.post(
+            reverse("ingreso:dispositivo_crear"),
+            {"nombre": "Puerta nueva", "tipo": Dispositivo.Tipo.QR},
+        )
+        self.assertContains(respuesta, f'href="{self._url_guardia()}"')
+
+
+class ArchivoParaInstaladorTests(_BaseVistas):
+    def test_descarga_la_guia_tal_cual_esta_en_el_repo(self):
+        from django.conf import settings
+
+        self._login()
+        respuesta = self.client.get(reverse("ingreso:archivo_instalador", args=["guia"]))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn("attachment", respuesta["Content-Disposition"])
+        esperado = (settings.BASE_DIR / "docs/integracion-control-de-ingreso.md").read_bytes()
+        self.assertEqual(respuesta.content, esperado)
+
+    def test_descarga_el_puente_de_ejemplo(self):
+        self._login()
+        respuesta = self.client.get(reverse("ingreso:archivo_instalador", args=["puente"]))
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn('filename="puente_ingreso_ejemplo.py"', respuesta["Content-Disposition"])
+
+    def test_un_nombre_fuera_de_la_lista_da_404(self):
+        """La URL elige de una lista cerrada, nunca arma una ruta de disco."""
+        self._login()
+        for nombre in ("settings", "env", "manage"):
+            respuesta = self.client.get(reverse("ingreso:archivo_instalador", args=[nombre]))
+            self.assertEqual(respuesta.status_code, 404)
+
+    def test_alumno_recibe_403_y_anonimo_va_al_login(self):
+        url = reverse("ingreso:archivo_instalador", args=["guia"])
+        self.assertEqual(self.client.get(url).status_code, 302)
+        self._login("alumno-a")
+        self.assertEqual(self.client.get(url).status_code, 403)

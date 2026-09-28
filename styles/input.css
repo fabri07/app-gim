@@ -1922,6 +1922,18 @@
     @apply hidden sm:inline-flex rounded-full px-2.5 py-1 text-xs font-bold text-white whitespace-nowrap;
     background-color: var(--color-primario);
   }
+  /* Control de ingreso: tres puntos bajo el bloque, mismo trazo que los hechos. */
+  .portada__ingreso-puntos {
+    @apply grid grid-cols-1 md:grid-cols-3 gap-6 text-base text-gray-700;
+  }
+  .portada__ingreso-puntos li {
+    @apply pt-4 border-t-2;
+    border-color: color-mix(in oklab, var(--color-primario) 30%, var(--color-fondo));
+    text-wrap: pretty;
+  }
+  .portada__ingreso-puntos strong {
+    @apply block mb-1 text-lg font-bold text-gray-900;
+  }
   .mini--turnos {
     @apply grid grid-cols-2 sm:grid-cols-3 gap-2;
   }

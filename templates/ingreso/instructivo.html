@@ -1,0 +1,204 @@
+{% extends 'base.html' %}
+{% block title %}Cómo conectar tu puerta · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+{% comment %}
+  El instructivo para el DUEÑO, en su idioma. El contrato técnico no se repite
+  acá: se descarga tal cual está en `docs/integracion-control-de-ingreso.md`
+  (`ingreso:archivo_instalador`), así no hay dos versiones que diverjan. Los
+  links de descarga van con `hx-boost="false"`: htmx se traga las descargas.
+{% endcomment %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Cómo conectar tu puerta</h1>
+    <a class="boton-secundario" href="{% url 'ingreso:dispositivos' %}">Lectores de la puerta</a>
+    <a class="boton-secundario" href="{% url 'ingreso:listado' %}">Volver a Ingresos</a>
+  </div>
+
+  <p class="texto-suave">
+    Con un molinete o un lector en la entrada, la puerta le abre a quien puede
+    pasar y frena a quien no (por ejemplo, si debe la cuota y vos lo
+    configuraste así). Vos ves en la app quién vino cada día.
+    Elegí tu caso:
+  </p>
+
+  <nav class="flex flex-wrap gap-2 my-4" aria-label="Elegí tu caso">
+    <a class="boton-secundario" href="#qr" hx-boost="false">Molinete con QR</a>
+    <a class="boton-secundario" href="#facial" hx-boost="false">Lector facial</a>
+    <a class="boton-secundario" href="#ambos" hx-boost="false">Los dos</a>
+  </nav>
+
+  {# ============ Antes de empezar ============ #}
+  <section class="tarjeta">
+    <h2>Antes de empezar: qué equipo sirve</h2>
+    <p>
+      TuGimApp no vende el equipo de la puerta: lo comprás e instalás con quien
+      vos elijas. Para que funcione con la app, el equipo tiene que:
+    </p>
+    <ul class="list-disc pl-5 space-y-2 mt-2">
+      <li><strong>Conectarse a internet</strong> (por cable o wifi).</li>
+      <li>
+        <strong>Poder mandar cada lectura a otro sistema.</strong> Los
+        fabricantes lo suelen llamar «integración por HTTP», «API» o «servidor
+        de eventos». Si el equipo no lo trae, tu instalador puede usar un
+        programa en la PC del gimnasio que haga de puente (te damos uno de
+        ejemplo más abajo).
+      </li>
+      <li>
+        <strong>Guardar una lista de quién puede entrar</strong>, para seguir
+        abriendo si se corta internet.
+      </li>
+    </ul>
+    <p class="texto-suave mt-4">
+      Todavía no tenemos un modelo de equipo probado con la app. Si no
+      compraste el equipo, consultanos antes de comprarlo{% if SOPORTE_CONTACTO %} ({{ SOPORTE_CONTACTO }}){% endif %}
+      y vemos juntos si sirve.
+    </p>
+  </section>
+
+  {# ============ Paso común ============ #}
+  <section class="tarjeta">
+    <h2>Lo mismo en todos los casos: dar de alta el lector</h2>
+    <ol class="list-decimal pl-5 space-y-2 mt-2">
+      <li>
+        Andá a <a href="{% url 'ingreso:dispositivo_crear' %}">Nuevo lector</a>,
+        ponele un nombre («Puerta principal») y elegí qué lee: <strong>QR</strong>,
+        <strong>cara</strong> o <strong>las dos</strong>. Si tenés dos equipos, das de alta dos lectores.
+      </li>
+      <li>
+        Al guardar, la app te muestra <strong>la clave del lector una sola
+        vez</strong>. Copiala y pasásela a tu instalador <strong>en persona o
+        cargala vos en el equipo</strong>: no la mandes por WhatsApp ni por mail.
+        Es la llave de la puerta. Si se pierde, generás una nueva desde el lector.
+      </li>
+      <li>
+        Pasale también a tu instalador estos datos y la guía técnica:
+        <table class="tabla-detalle mt-2">
+          <tr><th>Dirección de la app</th><td><code class="break-all">{{ url_app }}</code></td></tr>
+          <tr><th>Lecturas</th><td><code class="break-all">POST {{ url_eventos }}</code></td></tr>
+          <tr><th>Lista de quién puede entrar</th><td><code class="break-all">GET {{ url_padron }}</code></td></tr>
+        </table>
+        <div class="acciones-lista mt-2">
+          <a class="boton" hx-boost="false" href="{% url 'ingreso:archivo_instalador' 'guia' %}">Descargar la guía técnica</a>
+          <a class="boton-secundario" hx-boost="false" href="{% url 'ingreso:archivo_instalador' 'puente' %}">Descargar el programa puente de ejemplo</a>
+        </div>
+      </li>
+      <li>
+        Elegí las reglas de la puerta en <a href="{% url 'ingreso:configuracion' %}">Configuración</a>:
+        si frena a quien debe la cuota, si exige turno reservado y cuántos
+        minutos tienen que pasar para que la misma persona vuelva a entrar.
+      </li>
+    </ol>
+  </section>
+
+  {# ============ QR ============ #}
+  <section class="tarjeta" id="qr">
+    <h2>Molinete con QR</h2>
+    <p class="texto-suave">Cada alumno entra mostrando su código QR en el lector.</p>
+    <ol class="list-decimal pl-5 space-y-2 mt-2">
+      <li>Dá de alta el lector eligiendo <strong>«Lector de QR»</strong> (ver arriba).</li>
+      <li>
+        Generá los códigos: en <a href="{% url 'alumnos:listado' %}">Alumnos</a>,
+        tocá <strong>«Generar códigos de ingreso»</strong>. Le crea un código a
+        cada alumno activo que todavía no tiene. También podés hacerlo de a uno
+        desde la ficha del alumno, en «Credencial de ingreso».
+      </li>
+      <li>
+        Cada alumno elige cómo lo lleva:
+        <ul class="list-disc pl-5 space-y-2 mt-2">
+          <li><strong>En el celular:</strong> entra a su app y toca «Mostrar mi código».</li>
+          <li>
+            <strong>En una tarjeta impresa:</strong> en Alumnos, «Imprimir
+            tarjetas de ingreso» (o desde la ficha, «Imprimir tarjeta»).
+            Imprimí el PDF <strong>al 100%, sin «ajustar a la página»</strong>,
+            para que el lector lo lea bien.
+          </li>
+        </ul>
+      </li>
+      <li>
+        Si alguien pierde la tarjeta o cree que le copiaron el código, en su
+        ficha tocá <strong>«Regenerar código»</strong>: el anterior deja de
+        abrir y hay que imprimirle una tarjeta nueva.
+      </li>
+    </ol>
+  </section>
+
+  {# ============ Facial ============ #}
+  <section class="tarjeta" id="facial">
+    <h2>Lector facial</h2>
+    <p class="texto-suave">
+      La cara de cada alumno se registra <strong>en el equipo</strong>, nunca en
+      la app. El equipo guarda la cara y le avisa a la app «entró el usuario 42»;
+      la app solo guarda ese número.
+    </p>
+    <ol class="list-decimal pl-5 space-y-2 mt-2">
+      <li>Dá de alta el lector eligiendo <strong>«Lector facial»</strong> (ver arriba).</li>
+      <li>
+        En el equipo (o en su programa), registrá la cara del alumno con su
+        nombre. El equipo le asigna un <strong>número de usuario</strong>: anotalo.
+      </li>
+      <li>
+        En la app, abrí la ficha del alumno → «Credencial de ingreso» →
+        <strong>«Cargar número del lector facial»</strong> y cargá ese número.
+      </li>
+      <li>
+        Si un alumno se da de baja, el equipo borra su cara sola. Si después
+        vuelve, hay que <strong>registrarle la cara de nuevo</strong> en el equipo
+        y actualizar el número en su ficha si cambió.
+      </li>
+    </ol>
+  </section>
+
+  {# ============ Ambos ============ #}
+  <section class="tarjeta" id="ambos">
+    <h2>QR y cara</h2>
+    <ol class="list-decimal pl-5 space-y-2 mt-2">
+      <li>
+        Si es <strong>un solo equipo que lee las dos cosas</strong>, dalo de alta
+        eligiendo «Lee QR y cara». Si son <strong>dos equipos</strong>, das de
+        alta dos lectores, cada uno con su clave.
+      </li>
+      <li>
+        Hacé los pasos de <a href="#qr" hx-boost="false">QR</a> y los de
+        <a href="#facial" hx-boost="false">cara</a>. Un alumno puede tener las
+        dos credenciales a la vez: entra con la que tenga a mano.
+      </li>
+    </ol>
+  </section>
+
+  {# ============ Probar ============ #}
+  <section class="tarjeta">
+    <h2>Probar que anda</h2>
+    <ol class="list-decimal pl-5 space-y-2 mt-2">
+      <li>
+        En <a href="{% url 'ingreso:dispositivos' %}">Lectores de la puerta</a>,
+        el lector tiene que mostrar un «Último contacto» reciente. Si dice «Nunca
+        se conectó», la clave o la dirección no están bien cargadas.
+      </li>
+      <li>Pasá con un alumno de prueba: tiene que aparecer en <a href="{% url 'ingreso:listado' %}">Ingresos</a> al instante.</li>
+      <li>
+        Probá también un rechazo (por ejemplo, un código dado de baja): la
+        pantalla del molinete tiene que mostrar el motivo y la puerta no abrir.
+      </li>
+    </ol>
+  </section>
+
+  {# ============ Sin internet ============ #}
+  <section class="tarjeta">
+    <h2>Si se corta internet</h2>
+    <p>
+      La puerta sigue funcionando: el equipo decide con la última lista que
+      bajó de la app y, cuando vuelve la conexión, sube los ingresos que
+      registró mientras tanto. Sin internet no puede exigir turno reservado ni
+      frenar la doble lectura, y los cambios de los últimos minutos (alguien
+      que acaba de pagar, un código regenerado) se aplican recién cuando
+      reconecta.
+    </p>
+    <p class="texto-suave mt-2">
+      Si tu cuenta de TuGimApp queda suspendida, la puerta <strong>sigue
+      abriendo</strong>: nunca dejamos a tus alumnos afuera del gimnasio.
+    </p>
+  </section>
+</div>
+{% endblock %}

@@ -7,6 +7,7 @@
   <div class="acciones-lista">
     <h1>Lectores de la puerta</h1>
     <a class="boton" href="{% url 'ingreso:dispositivo_crear' %}">Nuevo lector</a>
+    <a class="boton-secundario" href="{% url 'ingreso:instructivo' %}">Cómo conectar tu puerta</a>
     <a class="boton-secundario" href="{% url 'ingreso:listado' %}">Volver a Ingresos</a>
   </div>
 
@@ -40,7 +41,7 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="4" class="texto-suave">No cargaste ningún lector todavía.</td>
+            <td colspan="4" class="texto-suave">No cargaste ningún lector todavía. <a href="{% url 'ingreso:instructivo' %}">Mirá cómo conectar tu puerta</a>: molinete con QR, lector facial o los dos.</td>
           </tr>
         {% endfor %}
       </tbody>
