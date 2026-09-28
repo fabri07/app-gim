@@ -20,6 +20,96 @@ del log.
 
 ---
 
+## [2026-09-28] Control de ingreso: pendientes manuales antes del merge
+**Estado:** abierto (pendiente previo al merge de `worktree-control-de-ingreso`)
+**Impacto:** la suite y `/code-review` no ven nada de esto, y cada punto puede
+tumbar una decisión de diseño. Si el QR sale ilegible impreso, se cae el «QR
+fijo para el que no tiene smartphone», que es lo que justificó no hacerlo
+rotativo. Si una tanda de tarjetas o el padrón tardan en Render lo que se
+proyecta desde la Mac, la puerta online de todos los gimnasios espera detrás
+del panel (entrada «Un request largo del panel…», más abajo).
+**Resolución / próximo paso:** antes de mergear:
+1. **Navegador**: las pantallas de staff (`ingreso:listado`, lectores con el
+   alta, la clave mostrada una vez y la rotación, configuración, tarjetas), la
+   tarjeta «Control de ingreso» del dashboard (con y sin lectores, y el ámbar
+   de un lector sin contacto), la ficha del alumno y «Mostrar mi código» en el
+   portal, incluido el «atrás» después de «Salir» (el QR no puede volver desde
+   el bfcache ni desde el historial de htmx).
+2. **Tarjeta impresa escaneada con la cámara del celular**, confirmando que el
+   string leído es idéntico a `Credencial.valor`. Es la única parte física
+   verificable sin hardware.
+3. **Medir en Render** una tanda de 30 tarjetas (`TARJETAS_POR_TANDA`) y un
+   `GET /ingreso/v1/padron/` de un gimnasio grande. Si una lectura online
+   espera más de ~1 s detrás de cualquiera de los dos, pasar a más de un
+   worker antes del primer cliente con lector.
+4. `scripts/probar_ingreso_local.sh` contra `runserver` (401, online, diferido,
+   idempotencia, padrón con y sin `If-None-Match`).
+
+---
+
+## [2026-09-28] Control de ingreso: lo que no se puede verificar sin hardware
+**Estado:** abierto (hasta el primer cliente con un lector instalado)
+**Impacto:** lo construido es el contrato HTTP de la puerta
+(`docs/integracion-control-de-ingreso.md`), ejercitado con tests y con `curl`.
+Nada de esto se probó contra un equipo real:
+- que un lector comercial (Hikvision, ZKTeco, Dahua, Suprema) hable este
+  dialecto, o que un puente lo traduzca sin sorpresas;
+- que el enrolamiento facial coincida con la UI de un fabricante concreto
+  (dar de alta la cara en el equipo y copiar el id a la ficha, paso 9 del
+  documento);
+- la latencia de un molinete de verdad y cuánto espera el veredicto antes de
+  rendirse;
+- si el cold start de Neon (scale-to-zero) entra en ese timeout. Es el riesgo
+  técnico más grande de la feature: el padrón offline está en `v1` justamente
+  como mitigación.
+Además, un rechazo decidido offline con el padrón **no se sube**: el contrato
+solo sabe decir «el equipo abrió» (`abierto_por_el_equipo: true`), y queda en
+el log del equipo. Riesgo aceptado 16 de la spec.
+**Resolución / próximo paso:** con el primer equipo real, recorrer
+`scripts/probar_ingreso_local.sh` y el puente de ejemplo
+(`scripts/puente_ingreso_ejemplo.py`) contra él, y medir un scan después de un
+rato de calma. Relacionadas, del mismo día: el costo del 304 del padrón, el
+request largo del panel que deja en cola la puerta, la IP real detrás de
+Cloudflare y la revocación de un lector con la cuenta suspendida (entradas de
+abajo).
+
+---
+
+## [2026-09-28] La suite no corre en verde en un clon sin secretos reales
+**Estado:** abierto (deuda técnica)
+**Impacto:** cinco tests necesitan secretos reales en el entorno:
+`VAPID_PRIVATE_KEY` (tests de `notificaciones.tests.PushConLaCuentaCongeladaTests`,
+que llegan hasta `Vapid01.from_pem`) y `GOOGLE_TOKEN_ENCRYPTION_KEY`
+(`tenants.tests.VaciarGimnasioTests.test_no_le_pide_nada_a_google_calendar`,
+que cifra un `EncryptedTextField`). Un worktree o un clon fresco sin el `.env`
+local da esos cinco en rojo, y se leen como una regresión de lo que se esté
+tocando. Apareció al montar el worktree del control de ingreso; no lo causó
+esa rama.
+**Resolución / próximo paso:** que esos tests generen una clave descartable
+en el `setUp` (un par VAPID y una clave Fernet nuevas, con
+`override_settings`) en vez de leer la del entorno, así la suite queda
+hermética. Mientras tanto: correr la suite con el `.env` presente, o copiar el
+`.env` al worktree.
+
+---
+
+## [2026-09-28] «Asistentes hoy» e «ingresos hoy» en el mismo panel
+**Estado:** abierto (decisión de producto pendiente)
+**Impacto:** el dashboard del staff muestra la métrica «Asistentes hoy»
+(`tenants/analitica.py`, cuenta `Reserva`: la intención de venir, que además
+se borra al cancelar) y, con el control de ingreso, la tarjeta «N ingresos
+hoy» (`ingreso/presentacion.py::resumen_para_el_panel`, ingresos permitidos de
+entrada por la puerta). Son dos números distintos con nombres parecidos, y un
+dueño puede leerlos como el mismo dato mal calculado. Los otros indicadores de
+asistencia del panel también siguen contando `Reserva`: no se tocaron porque
+un gimnasio sin lector se quedaría sin esos números.
+**Resolución / próximo paso:** decidirlo con el dueño del producto (renombrar
+«Asistentes hoy» a algo como «Reservas de hoy», pasar a los ingresos reales
+cuando el gimnasio tiene un lector activo, o dejarlo). No se resolvió en la
+rama.
+
+---
+
 ## [2026-09-28] Revocar un lector de la puerta con la cuenta del gimnasio suspendida
 **Estado:** aceptado (riesgo asumido a propósito, con procedimiento)
 **Impacto:** con `estado_cuenta = SUSPENDIDA`, `PlataformaMiddleware` le corta

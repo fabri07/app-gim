@@ -49,6 +49,20 @@ Decisiones tomadas con el usuario:
   producto (`alumnos:accesos` es usuario+contraseña; `pagos/acceso.py` es el
   bloqueo del portal por deuda) y un tercer significado la vuelve inservible.
 
+### Glosario
+
+La UI le habla al dueño del gimnasio y el código y el contrato le hablan al
+instalador, así que la misma cosa tiene dos nombres. Esta spec usa los dos:
+
+| En la UI | En el código y el contrato | Qué es |
+|---|---|---|
+| Lector | `Dispositivo` | Un lector o molinete de la puerta. |
+| Clave del lector | token (`Authorization: Bearer`, `Dispositivo.token_hash`) | La llave con la que el lector se autentica. Se muestra una sola vez; la base guarda su `sha256`. |
+| Código (QR) | `Credencial` de tipo `QR`, su `valor` | Lo que el alumno muestra en el celular o en la tarjeta impresa. |
+| Número del lector facial | `Credencial` de tipo `FACIAL`, su `valor` | El id que el alumno tiene EN el equipo (nunca biometría). |
+| Ingreso / rechazo | `EventoIngreso` y su `resultado` | Cada intento de pasar. |
+| Puente | — | El programa que habla con el equipo y con la app. |
+
 ## Diseño
 
 ### 1. App nueva `ingreso`
@@ -252,6 +266,14 @@ con el **`Exists(OuterRef)` de `contar_bloqueados`** (`pagos/acceso.py:129-141`)
 en vez de `bloqueo_de` por fila, las reservas vigentes del rango en una query, y
 los últimos eventos por alumno para el antipassback en otra.
 
+*Actualizado al código.* Los deudores salen de `pagos.acceso.bloqueados_entre`
+(la versión en bloque de `bloqueo_de`, una query, que devuelve `{alumno_id:
+periodo_inicio}` para calcular los días de atraso del mensaje), y las reservas
+y los ingresos previos se acotan a una ventana **alrededor de cada lectura**
+(`turnos.services.reservas_vigentes_en_momentos`), no a un rango `[min, max]`
+del lote: una lectura del año 2000 de un lector con el reloj reseteado traía el
+historial entero.
+
 #### `turnos/services.py::reserva_vigente` (nueva, en app existente)
 
 `reserva_vigente(gimnasio, alumno, ahora=None)` vive ahí porque es donde vive el
@@ -301,13 +323,22 @@ necesita: 401 = revisá el token, 403 = el gimnasio apagó este lector.
                   "id_evento_equipo": "8821", "abierto_por_el_equipo": true}]}
 
     200 {"resultados": [{"id_evento_equipo": "8821", "permitido": true,
-         "resultado": "permitido", "mensaje": "Hola, Juan. Pasá.",
+         "resultado": "permitido", "mensaje": "¡Hola, Juan! Pasá.",
          "alumno": "Juan P."}]}
 
-- **El modo lo define `abierto_por_el_equipo`, no el largo de la lista**: ausente
-  es online (el equipo espera el veredicto para abrir), presente es diferido (el
-  equipo ya abrió con su padrón cacheado). Un request online naturalmente trae un
-  solo evento, pero eso es consecuencia, no la regla.
+El saludo sale de `decision.SALUDO = "¡Hola, {nombre}! Pasá."`, con el nombre
+de pila online y con el `nombre` corto de la fila en el padrón.
+
+- **El modo lo define `abierto_por_el_equipo`, no el largo de la lista**, y es
+  un booleano JSON: ausente, `null` o `false` es online (el equipo espera el
+  veredicto para abrir); solo `true` es diferido (el equipo ya abrió con su
+  padrón cacheado). Un string (`"true"`, `"false"`) hace inválido ese evento:
+  pasado por `bool()`, `"false"` mandaría a diferido un evento online. Un
+  request online naturalmente trae un solo evento, pero eso es consecuencia,
+  no la regla.
+- **Un `id_evento_equipo` numérico vuelve como string** en la respuesta de un
+  evento válido (`8821` → `"8821"`): se guarda como texto, y el puente tiene
+  que comparar como string. El de un evento inválido vuelve tal como vino.
 - En diferido se registra igual qué habría opinado la app (`en_diferido=True`),
   así el reporte no miente: "entró, y tenía deuda".
 - **En online manda el reloj del servidor**: el equipo está esperando el
@@ -378,8 +409,8 @@ entrar a alguien que se atrasó con la cuota *después* del último poll. El JSO
 declara (`reglas_no_incluidas`), el documento de integración lo explica, y el
 texto va **al lado de los dos checkboxes**, no en una nota al pie.
 
-**Requisito de performance**: `habilitado` se anota con el `Exists(OuterRef)` de
-`contar_bloqueados`, **nunca** llamando a `bloqueo_de` por fila.
+**Requisito de performance**: `habilitado` sale de `bloqueados_entre` (una
+query para todo el padrón), **nunca** llamando a `bloqueo_de` por fila.
 
 **El riesgo técnico más grande de la feature, y el único que no se puede medir sin
 hardware**: Neon suspende el compute por inactividad (scale-to-zero). El primer
@@ -450,9 +481,17 @@ arranque gunicorn con `--workers 2`. La defensa real es Cloudflare adelante
 el respaldo durable es un tope **diario por dispositivo contado en la base**, que
 sobrevive a los reinicios y a los workers.
 
-En el camino autenticado no se pone 429: un gimnasio a las 19:00 es legítimamente
-a ráfagas. El tope es el de eventos por lote, y contra un token robado la
-mitigación es rotarlo.
+*Actualizado al código.* Los dos frenos responden 429 con `motivo` y
+`Retry-After`: `intentos_fallidos` (el freno por IP del camino de fallo, que a
+un token válido de un lector activo no lo alcanza nunca) y `tope_diario` (los
+eventos NUEVOS de un lector en el día local, contados en
+`Dispositivo.eventos_hoy`). **El tope diario solo se aplica a
+`POST /eventos/`, nunca al padrón**: el padrón no escribe, y cortarle el poll
+hace que la puerta abra hoy y deje de abrir mañana. **El padrón puede recibir
+un 429, pero solo por `intentos_fallidos`.** Fuera de esos dos, el camino
+autenticado no tiene freno de requests: un gimnasio a las 19:00 es
+legítimamente a ráfagas, y contra un token robado la mitigación es rotarlo
+(riesgo aceptado 13).
 
 ### 8. QR: `segno` (dependencia nueva) y tarjetas imprimibles
 
@@ -463,8 +502,9 @@ librería JS por CDN no sirve para el PDF.
 - `ingreso/qr.py::svg_de(valor)` → string SVG. Django-free, `SimpleTestCase`. En
   el portal va inline: escala perfecto, sin request extra, sin R2 y sin problema
   de caché.
-- `ingreso/tarjetas.py::generar_pdf_credenciales(gimnasio, alumnos)` → bytes, con
-  fpdf2, siguiendo el reparto de `rutinas/pdf.py` ↔ `RutinaAsignadaPdfView`
+- `ingreso/tarjetas.py::generar_pdf_credenciales(nombre_gimnasio, tarjetas)` →
+  bytes (una `Tarjeta(nombre, valor)` por alumno: el módulo no recibe el
+  alumno, así que no puede imprimir un email ni un teléfono), con fpdf2, siguiendo el reparto de `rutinas/pdf.py` ↔ `RutinaAsignadaPdfView`
   (Django-free; la vista es la única capa que conoce `HttpResponse`). El proyecto
   **no tiene ningún estilo de impresión**, así que la tarjeta imprimible es un PDF
   y no CSS de print.
@@ -476,8 +516,13 @@ librería JS por CDN no sirve para el PDF.
   2 rechazos", con link al listado; sin ningún dispositivo cargado invita a
   configurarlo. Es el único lugar donde el dueño descubre la feature (mismo
   criterio que la tarjeta de plan por vencer). Suma **dos** queries y ni una más:
-  un `aggregate` con `Count` condicional sobre los eventos de hoy y un `count()`
-  de dispositivos activos. El "hoy" va con `timezone.localdate()`.
+  un `aggregate` con `Count` condicional sobre los eventos de hoy y otro sobre
+  los lectores activos (cuántos hay y cuántos no dan señales hace más de una
+  hora). El "hoy" va con `timezone.localdate()`.
+  **Decisión pendiente, no resuelta en la rama:** la tarjeta dice «N ingresos
+  hoy» (ingresos reales) y el panel ya mostraba «Asistentes hoy», que cuenta
+  `Reserva`. Pueden leerse como el mismo número; queda para decidir con el
+  dueño del producto (`ISSUES.md` [2026-09-28]).
 - `ingreso:listado` — ingresos con filtros (fecha, alumno, resultado),
   `select_related("alumno", "dispositivo")`: es justo donde vive un N+1.
 - `ingreso:dispositivos` / `dispositivo_crear` / `dispositivo_editar` — el token se
@@ -702,6 +747,20 @@ dependencia nueva.
     un timeout de la API como un 429 (decide con el padrón local y sube el
     evento en diferido). **La de fondo es más de un worker o una cola.**
     Pendiente medirlo en Render, anotado en `ISSUES.md` [2026-09-28].
+
+16. **Un RECHAZO decidido offline no se sube.** El contrato solo sabe decir
+    «el equipo abrió» (`abierto_por_el_equipo: true`): no hay forma de
+    reportar «el equipo decidió con el padrón y NO abrió». Mandarlo con
+    `false` tampoco sirve, porque la app lo tomaría como una lectura online de
+    ahora y podría registrar un ingreso que no pasó. Se decide no subirlo: el
+    rechazo offline queda en el log del equipo (el puente de ejemplo lo anota
+    ahí) y el historial de la app no lo ve, así que «alguien insistió en la
+    puerta con una tarjeta revocada mientras no había internet» no aparece en
+    el listado de ingresos. La salida, si hiciera falta, es **un campo nuevo
+    en el contrato** (p. ej. el veredicto que tomó el equipo) que la app
+    registre sin volver a decidir; como la versión va en la ruta, se puede
+    sumar a `v1` como campo opcional sin romper a los lectores que no lo
+    manden.
 
 ## Fuera de alcance
 

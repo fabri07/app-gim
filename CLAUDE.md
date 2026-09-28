@@ -30,7 +30,9 @@ un importador de planes/ejercicios desde Excel (ver "Importador de Excel
 acceso al alumno que no paga (ver "Bloqueo de acceso por falta de pago" más
 abajo), y un panel de plataforma para el dueño del producto —superadmin—
 que monitorea, factura y congela gimnasios (ver "Panel de plataforma" más
-abajo) — el ROADMAP.md no las documenta todavía como
+abajo), y el control de ingreso por molinete con QR o lector facial (ver
+"Control de ingreso" más abajo; sin hardware todavía, lo construido es el
+contrato HTTP y las pantallas) — el ROADMAP.md no las documenta todavía como
 fases propias, viven en `ISSUES.md` y en los mensajes de commit ("Fase 6,
 Task N", "Parte A/B/C", "Proyecto 2, Task N").
 
@@ -329,6 +331,9 @@ turnos. `pagos/acceso.py` es el ÚNICO lugar donde vive esa regla —
   integración opcional con Google Calendar; ver sección propia abajo.
 - **`importaciones`** — importador de planes de entrenamiento y biblioteca de
   ejercicios desde Excel; ver "Importador de Excel (Proyecto 2)" abajo.
+- **`ingreso`** — la puerta del gimnasio: lectores, credenciales (QR o id
+  facial) y el registro de cada intento de pasar; ver "Control de ingreso"
+  abajo.
 
 ## Editar la rutina asignada y el panel «Cómo viene el alumno»
 
@@ -941,6 +946,272 @@ pantalla del admin.
 que `SOPORTE_CONTACTO`): sin ella el SDK ni se inicializa y la app funciona
 igual. `SENTRY_PANEL_URL` es puramente cosmética (el link del panel) y se lee
 en cada request para que `override_settings` sirva en un test.
+
+## Control de ingreso (`ingreso/`, 2026-09-28)
+
+Que un alumno entre por un molinete con un QR o con un lector facial, y que el
+gimnasio vea quién entró de verdad. Lo pidieron varios gimnasios que ya pagan,
+y por eso salió de «Qué NO construir todavía». **No hay hardware todavía**: lo
+construido es un contrato HTTP que cualquier equipo comercial (Hikvision,
+ZKTeco, Dahua, Suprema) o un puente en la PC del gimnasio puede consumir, más
+las pantallas de staff y del alumno. **No se construye modo kiosco** (tablet o
+celular con cámara en la puerta), por decisión del dueño del producto: sin
+hardware, la puerta se ejercita con `curl` (`scripts/probar_ingreso_local.sh`).
+
+Spec en `docs/superpowers/specs/2026-09-27-control-de-ingreso-design.md` (con
+los riesgos aceptados numerados y un glosario), plan en
+`docs/superpowers/plans/2026-09-28-control-de-ingreso.md`, y el contrato para
+el instalador en `docs/integracion-control-de-ingreso.md`. **Vocabulario:** en
+la UI la llave del lector es la «clave», y en el código y el contrato es el
+`token` (`Authorization: Bearer`, `Dispositivo.token_hash`); el QR del alumno
+es su «código», y en el modelo es `Credencial.valor`. **Ningún modelo lleva
+«Acceso» en el nombre**: la palabra ya significa usuario+contraseña
+(`alumnos:accesos`) y el bloqueo por deuda (`pagos/acceso.py`).
+
+### Dónde vive cada pieza
+
+- **`models.py`** — cuatro `TenantOwnedModel`: `ConfiguracionIngreso` (fila
+  única, siempre vía `obtener_configuracion`, que hace `get_or_create`; **ojo:
+  `turnos.models` tiene una función con el mismo nombre**, importalas
+  calificadas), `Dispositivo` (el lector: `token_hash`, `activo`,
+  `ultimo_contacto` y el contador `eventos_hoy`/`eventos_hoy_fecha`),
+  `Credencial` (QR o id facial, una por alumno y tipo, así que regenerar es un
+  `UPDATE` en la misma fila) y `EventoIngreso` (cada intento, permitido o no:
+  `dispositivo` PROTECT, `alumno` CASCADE nullable, `credencial` SET_NULL, y el
+  primer `UniqueConstraint` parcial del proyecto, sobre `(dispositivo,
+  id_evento_equipo)`). El valor leído NO se guarda en el evento: de una
+  credencial desconocida quedan los últimos caracteres en `detalle`.
+- **`tokens.py`** — `generar()` y `hash_de()`, Django-free.
+- **`decision.py`** — `Lectura`, `Contexto`, `contexto_de()` (lo único que
+  consulta la base), `decidir()` y los textos de la pantalla (`MENSAJES`,
+  `SALUDO`, `mensaje_de`), compartidos por la puerta online y el padrón.
+- **`services.py`** — todas las escrituras: `crear_dispositivo`, `rotar_token`,
+  las credenciales (`generar_credencial_qr`, `generar_credenciales_en_bloque`
+  con un solo `bulk_create`, `guardar_credencial_facial`,
+  `dar_de_baja_credencial`), `registrar_lote` y `padron_de`.
+- **`auth.py`** — `dispositivo_autenticado()`: 401 sin token o con uno que no
+  matchea (sin distinguir cuál), 403 solo con un token válido de un lector
+  desactivado.
+- **`limites.py`** — el freno por IP y el tope diario (ver abajo).
+- **`qr.py`** (`svg_de`, `png_de`, `modulos_de`) y **`tarjetas.py`**
+  (`generar_pdf_credenciales(nombre_gimnasio, tarjetas)`), los dos
+  Django-free. Dependencia nueva: `segno` (Python puro). `qr.py` usa
+  `segno.make_qr` y **no `segno.make`**, que para valores cortos elige Micro
+  QR y la cámara del celular no lo lee.
+- **`presentacion.py`** — lo que comparten las pantallas: `codigo_de` (el
+  único lugar que decide si un QR se dibuja: solo si abre la puerta),
+  `tarjeta_del_portal`, `resumen_para_el_panel` (la tarjeta del dashboard, dos
+  queries fijas), `inicio_del_dia` (la medianoche LOCAL, compartida por el
+  listado, el panel y la purga) y `fuera_del_boost`.
+- **`views.py`** — la API (`EventosApiView` y `PadronApiView`, en
+  `/ingreso/v1/eventos/` y `/ingreso/v1/padron/`: la versión va en la ruta
+  porque el instalador la deja cableada en un equipo que no podemos
+  actualizar), las pantallas de staff (`ingreso:listado`, `dispositivos`,
+  `configuracion`, las de credenciales y `tarjetas`) y `ingreso:mi_codigo` del
+  portal. Se entra desde la tarjeta «Control de ingreso» del dashboard y desde
+  «Configurar la puerta» en «Mi gimnasio»: **el nav se queda en 8 ítems**.
+- **`management/commands/purgar_ingresos.py`**, el puente de ejemplo
+  `scripts/puente_ingreso_ejemplo.py` (**solo stdlib**: tiene que correr en la
+  PC de un gimnasio sin `pip install`) y `scripts/probar_ingreso_local.sh`.
+  `ingreso.tests.DocumentoDeIntegracionTests` compara el documento de
+  integración contra lo que la API devuelve (rutas, campos de los JSON,
+  resultados, motivos, la tabla de constantes), y `PuenteDeEjemploTests` exige
+  que el puente no importe nada fuera de la stdlib: **un cambio de contrato
+  arrastra el documento en el mismo commit**.
+
+### Decisiones que no hay que deshacer
+
+- **La app nunca guarda ni procesa biometría.** La cara se enrola EN el equipo,
+  que guarda la plantilla y reporta «entró el usuario 42»; la app guarda solo
+  ese número (`Credencial.valor` de tipo FACIAL). La plantilla facial es dato
+  sensible (Ley 25.326), y correr un modelo de reconocimiento en el único
+  worker de gunicorn no es viable. Ningún campo del contrato lleva una foto ni
+  un vector.
+- **`decidir` no toca la base.** `contexto_de` resuelve el lote entero con un
+  número FIJO de queries (credenciales, configuración, deudores con
+  `pagos.acceso.bloqueados_entre`, reservas con
+  `turnos.services.reservas_vigentes_en_momentos`, ingresos previos para el
+  antipassback), traiga una lectura o cien, y `contexto` no tiene default: un
+  `contexto=None` «que se lo arma solo» es la puerta por la que volvería la
+  query por evento. Las ventanas de reservas e ingresos se arman alrededor de
+  CADA lectura, nunca como un rango `[min, max]` del lote: una lectura del año
+  2000 de un lector con el reloj reseteado traía el historial entero.
+- **Orden de las ramas**: sin credencial, credencial inactiva, alumno
+  inactivo, deuda, sin reserva, antipassback. El antipassback va último («podés
+  entrar pero ya entraste»: el deudor que insiste tiene que leer «cuota sin
+  pagar», no «ya pasaste») y solo compara eventos del mismo `sentido`. Las
+  credenciales se indexan por `(tipo, valor)`: un QR y un id facial pueden
+  compartir el texto.
+- **`estado_cuenta` no cierra la puerta, pero sí las pantallas.** Si el
+  gimnasio no le paga la app al dueño del producto, se le corta el panel y el
+  torniquete sigue abriendo: dejar gente afuera de un edificio no es una
+  palanca de cobro. `decision.py` no conoce `estado_cuenta`, y la API queda
+  afuera de `PlataformaMiddleware` porque no tiene sesión (el middleware corta
+  en anónimo) — **`ingreso` NO está en `APPS_SIN_BLOQUEO`**, así que las
+  pantallas de staff muestran el cartel como el resto del panel. Lo fijan dos
+  tests que solo sirven juntos: `tests_api.PuertaConLaCuentaCongeladaTests`
+  (la puerta sigue abriendo; el cliente del test **no se loguea**, porque un
+  lector real nunca tiene cookie y logueado el test fallaría por el motivo
+  equivocado) y `tests_vistas.PantallasConLaCuentaSuspendidaTests` (el
+  cartel). Ninguno de los dos frenos de `limites.py` mira `estado_cuenta`.
+- **Con la cuenta SUSPENDIDA, un lector se revoca desde `/admin/`**
+  destildando `activo` del `Dispositivo` (el dueño del gimnasio no puede: sus
+  pantallas muestran el cartel). No se abre una excepción en la allowlist. La
+  API responde 403 desde el request siguiente porque `auth.py` mira `activo`
+  en la base, y `DispositivoAdmin.save_model` invalida el set cacheado del
+  freno. `ISSUES.md [2026-09-28]`, `tests_vistas.RevocarDesdeElAdminTests`.
+- **El token se guarda como `sha256`, sin pimienta.** Una query indexada, y un
+  volcado de la base no contiene ninguna llave usable. Ni en claro (como
+  `solicitudes.SolicitudAccesoToken`, que es de un solo uso) ni con
+  `make_password` (~100 ms de CPU bloqueante por request en el único worker;
+  con 256 bits de `secrets` el key-stretching no compra nada). **Sin pimienta
+  con `SECRET_KEY`**: rotarla dejaría sin puerta, en silencio y de golpe, a
+  todos los gimnasios. Si algún día se pasa a un hasher lento, el camino de
+  «token no encontrado» necesita un hash dummy o el tiempo delata qué
+  lectores existen.
+- **Online manda el reloj del servidor; en diferido `momento` e
+  `id_evento_equipo` son obligatorios.** El modo lo define
+  `abierto_por_el_equipo` (booleano JSON: ausente, `null` o `false` es online;
+  `true` es diferido; un string es un ítem inválido), nunca el largo de la
+  lista. Online el ingreso ES ahora, y el `momento` del lector solo deja un
+  diagnóstico en `detalle` si difiere más de `SEGUNDOS_DE_DESFASE_A_ANOTAR`.
+  En diferido el `momento` es lo que se registra, tiene que caer entre
+  `DIAS_DE_ANTIGUEDAD_TOLERADOS` atrás y `HORAS_DE_ADELANTO_TOLERADAS`
+  adelante, y sin id el reintento del backlog duplicaría el ingreso. Un id
+  numérico vuelve como string en un evento válido (se guarda como texto).
+- **Errores por ítem.** Un evento inválido no tumba el lote: no se registra y
+  ocupa su posición con `resultado: "invalido"` y un `error` legible. Solo la
+  forma del request entero da 400 (no es JSON, no trae `eventos`, más de
+  `MAX_EVENTOS_POR_LOTE`, JSON demasiado anidado). Nunca un 500 por un `tipo`
+  desconocido.
+- **Se decide en orden cronológico y se responde en el orden del request.**
+  `registrar_lote` recorre el lote con un `sorted` estable por `momento` (con
+  10:10/10:00/10:20 y 15 minutos de antipassback, desordenado daba un ingreso
+  y ordenado dos), y cada respuesta vuelve en la posición de su evento, que es
+  como el lector las correlaciona. Todo se escribe con UN
+  `bulk_create(ignore_conflicts=True)`; la respuesta sale de `decidir()` y no
+  de las filas guardadas. Un `id_evento_equipo` ya registrado devuelve el
+  veredicto guardado sin decidir de nuevo.
+- **El padrón no lleva a los dados de baja.** `padron_de` filtra
+  `alumno__estado=ACTIVO` y credenciales activas: offline un inactivo es una
+  credencial desconocida, y el puente lo borra del equipo, cara incluida (su
+  QR, una llave al portador, no se queda en la memoria de un equipo de
+  terceros). Consecuencia: **reactivar a un alumno obliga a volver a enrolar
+  su cara.** El deudor sí viaja, con `habilitado: false` y `motivo: "deuda"`:
+  el puente lo bloquea en vez de borrarlo. El padrón no puede aplicar reserva
+  ni antipassback (`REGLAS_NO_INCLUIDAS`), y lo que no se aplica offline está
+  escrito al lado de los checkboxes de `ingreso:configuracion`, no en una nota
+  al pie. Responde `no-store, private` en el 200 y en el 304: son las llaves
+  de la puerta y el sitio va proxeado por Cloudflare.
+- **El freno por IP es del camino de FALLO, y un lector legítimo no lo recibe
+  nunca.** Pasadas `MAX_FALLOS_POR_MINUTO` fallas desde una IP, 429 con
+  `motivo: "intentos_fallidos"`, salvo que el hash presentado esté en
+  `limites.hashes_activos()`: el set de `token_hash` de todos los lectores
+  activos de la plataforma, cacheado `SEGUNDOS_SET_ACTIVOS`. Se recalcula con
+  una query cuando el cache está vacío, así que sobrevive a un deploy (el
+  `LocMemCache` arranca vacío) y al desalojo del cache; la primera versión
+  recordaba cada lector en el proceso y dejaba afuera al legítimo después de
+  cada deploy. La IP sale de `solicitudes.antispam.ip_de`
+  (`CF-Connecting-IP`); falta verificar en producción que sea la real
+  (`ISSUES.md [2026-09-28]`).
+- **El tope diario (`MAX_EVENTOS_POR_DIA`) nunca se aplica al padrón.** Es un
+  contador en `Dispositivo` (no un `COUNT`, que un lote diferido fechado días
+  atrás esquivaba), leído del dispositivo ya autenticado y sumado con un
+  `UPDATE` atómico solo si el lote creó filas; los reintentos con el mismo id
+  no suman. Va solo en `EventosApiView`: el padrón no escribe, y cortarle el
+  poll hace que la puerta abra hoy y deje de abrir mañana. El padrón puede
+  recibir un 429, pero solo por `intentos_fallidos`.
+- **Rotar la clave pone `eventos_hoy` en 0 en el MISMO `update()` que el hash**
+  (`services.rotar_token`) e invalida el set (`limites.olvidar_lectores_activos`,
+  igual que el alta y el desactivar/reactivar). Sin lo primero, quien robó el
+  token y agotó el tope deja al lector en 429 hasta la medianoche aunque el
+  dueño rote; sin lo segundo, el token viejo pasa el freno un minuto más.
+  Rotar pide confirmación (GET muestra qué deja de andar, solo el POST rota).
+- **Las pantallas que muestran un secreto llevan `hx-history="false"` y
+  `never_cache`.** htmx 2 guarda el `<body>` en `localStorage` antes de cada
+  navegación boosteada y el «atrás» lo restaura sin ir al servidor.
+  `ingreso/dispositivo_token.html` (la clave, que se muestra UNA vez en un 200
+  sin redirect ni `messages`), `ingreso/mi_codigo.html` y el QR de
+  `partials/credencial_alumno.html`; de paso se tapó el mismo agujero en
+  `alumnos/acceso_credenciales.html` y `plataforma/gimnasio_creado.html`. Lo
+  fija `tests_vistas.SecretosFueraDelHistorialDeHtmxTests`.
+- **«Mi código» y la ficha con QR salen del boost.** Una navegación boosteada
+  mete la respuesta dentro del documento anterior, que no lleva `no-store`, y
+  ese documento queda en el bfcache con el QR en el DOM. Los links llevan
+  `hx-boost="false"` (el de «Mostrar mi código» y todos los que van a la ficha
+  del alumno), y la red para lo que no pasa por un link es
+  `presentacion.fuera_del_boost`: ante un GET boosteado, `MiCodigoView` y la
+  ficha con un QR vigente responden `HX-Redirect` a su propia URL. Por lo
+  mismo, **el inicio del alumno no dibuja el QR**: muestra el estado y el
+  botón, y la llave vive en una sola pantalla del portal.
+- **Las tarjetas se imprimen en tandas de `TARJETAS_POR_TANDA` (30).**
+  Medido en una Mac: ~33 ms por tarjeta (casi todo segno), 100 ≈ 3,4 s. Con el
+  worker único, una tanda de 100 dejaba la puerta online de toda la plataforma
+  en cola más tiempo del que espera un molinete (ver abajo). Las descargas son
+  POST desde forms con `hx-boost="false"`, `never_cache` y un nombre de archivo
+  sin datos del alumno. El QR impreso nunca baja de 25 mm
+  (`tarjetas.MINIMO_CODIGO_MM`).
+- **El QR es fijo por alumno y regenerable**: lo decisivo es que sirve
+  impreso para el que no tiene smartphone. **Un QR dado de baja no se
+  reactiva con el mismo valor** (la baja pudo ser por una tarjeta robada):
+  «Generar código» lo avisa y ofrece regenerar. Un id facial sí se reactiva
+  volviéndolo a cargar, porque lo que abre es la cara. No hay backfill: una
+  migración que le cree un QR a cada alumno le generaría llaves de puerta a
+  gimnasios que no pidieron la feature.
+
+### Cobertura: los mismos lugares que cualquier `TenantOwnedModel`
+
+Los cuatro modelos son datos DEL gimnasio y van a los lugares que ya describen
+"Exportador de datos" y "Cuenta de demostración compartida":
+`tenants/demo.py::vaciar_gimnasio`, el fixture `_ensuciar` de
+`tenants/tests.py` (del que sale `_ensuciar_para_exportar`) y `HOJAS` de
+`tenants/exportacion.py`. Los vigilan cuatro tests por introspección que se
+rompen en cuanto el modelo existe: `test_ensuciar_cubre_todos_los_modelos_tenant_owned`,
+`test_deja_en_cero_todos_los_modelos_tenant_owned`,
+`test_todo_modelo_tenant_owned_esta_exportado_o_excluido_a_proposito` y
+`test_cada_csv_de_cada_carpeta_tiene_datos` — por eso cada modelo entró en el
+mismo commit que lo creó. Dos detalles propios: en `vaciar_gimnasio`,
+`EventoIngreso` se borra explícito y antes que `Credencial` (los eventos con
+`alumno=None` no cascadean desde los alumnos y seguirían protegiendo al
+`Dispositivo`), y `Dispositivo` va después de los eventos; en el exportador,
+las hojas de lectores y credenciales salen **sin** `token_hash` y **sin**
+`valor` (son llaves de la puerta, igual que las contraseñas). Los
+`verbose_name` de los cuatro son load-bearing: `core/borrado.py` arma con ellos
+el aviso de borrar un alumno.
+
+### El riesgo del worker único
+
+gunicorn corre con UN worker síncrono (`render.yaml`, sin `--workers`),
+compartido entre el panel y la API de los lectores. **Cualquier request largo
+del panel —una tanda de tarjetas, un padrón grande, el ZIP del exportador—
+deja en cola la puerta online de TODOS los gimnasios** mientras dura, y un
+molinete se rinde a los dos o tres segundos. Un 304 del padrón cuesta lo mismo
+que un 200 (la versión es un hash del contenido). La mitigación de hoy son las
+tandas chicas y que el puente trate un timeout de la API como un 429: decide
+con el padrón local y sube el evento en diferido con el mismo id. La de fondo
+es más de un worker o una cola. Spec, riesgos aceptados 13 y 15;
+`ISSUES.md [2026-09-28]` (medir en Render antes del primer cliente grande).
+Mismo motivo por el que el camino autenticado no tiene freno de requests:
+cualquier freno ahí le puede cerrar la puerta a un lector legítimo.
+
+### Purga: retención, nunca un paso previo a exportar
+
+`manage.py purgar_ingresos --gimnasio <slug> --meses N [--dry-run]` borra los
+`EventoIngreso` del gimnasio anteriores a N meses de calendario (default
+`MESES_POR_DEFECTO` = 24, mínimo `MESES_MINIMOS` = 3), cortando en la
+medianoche local, por tandas de pk. Existe por el techo del exportador: un
+gimnasio de 300 alumnos genera del orden de 72.000 eventos por año contra
+`MAX_FILAS_WEB` = 60.000. Es **retención periódica** (primero con
+`--dry-run`) para que el botón «Exportar mis datos» no choque contra el techo
+en la operación normal. **Nunca se corre antes de exportar los datos de un
+gimnasio que se va**: le borraría justo el historial de asistencia que se
+quiere llevar. Ese caso va por `manage.py exportar_gimnasio`, que no tiene
+techo.
+
+**Pendiente de producto:** el panel muestra «Asistentes hoy» (cuenta `Reserva`,
+`tenants/analitica.py`) al lado de «N ingresos hoy» (ingresos reales por la
+puerta), y pueden leerse como el mismo número. Queda para decidir con el dueño
+del producto (`ISSUES.md [2026-09-28]`).
 
 ## Borrar: `core/borrado.py` + `BorrarConExplicacionView`
 
@@ -2719,6 +2990,9 @@ python manage.py crear_gimnasio --nombre "Gimnasio Central" --email dueno@gmail.
 python manage.py generar_pagos       # autogenera pendientes del mes + vence atrasados
 python manage.py exportar_gimnasio --gimnasio <slug> --salida datos.zip
                                      # mismo ZIP que el botón de "Mi gimnasio", sin timeout
+python manage.py purgar_ingresos --gimnasio <slug> --meses 24 --dry-run
+                                     # retención de ingresos; NUNCA antes de exportar
+                                     # a un gimnasio que se va (ver "Control de ingreso")
 python manage.py collectstatic       # solo hace falta simulando producción (DEBUG=False)
 
 npm install                          # una vez, para compilar Tailwind
@@ -2751,7 +3025,11 @@ npm run watch:css                    # lo mismo, en watch mode durante desarroll
 
 ## Qué NO construir todavía
 
-QR de ingreso, control de asistencia, app nativa, Mercado Pago/débitos
-automáticos, chat interno, nutrición, métricas deportivas, IA de rutinas,
-subdominios por gimnasio. Ver ROADMAP.md § "Fase 9" para la lista completa y
-cuándo sí tiene sentido evaluarlas (solo con clientes pagos).
+App nativa, Mercado Pago/débitos automáticos, chat interno, nutrición,
+métricas deportivas, IA de rutinas, subdominios por gimnasio. Ver ROADMAP.md
+§ "Fase 9" para la lista completa y cuándo sí tiene sentido evaluarlas (solo
+con clientes pagos).
+
+El QR de ingreso y el control de asistencia salieron de esta lista el
+2026-09-28, cuando los pidieron gimnasios que ya pagan (ver "Control de
+ingreso"). El modo kiosco de esa feature sigue sin construirse.
