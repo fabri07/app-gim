@@ -116,6 +116,46 @@ class DecisionTests(TestCase):
 
         self.assertTrue(self._decidir("42", tipo="facial").permitido)
 
+    def test_con_el_mismo_id_facial_activo_e_inactivo_decide_el_activo(self):
+        """La unicidad es parcial sobre las activas: el 42 de un ex-alumno
+        (dado de baja) convive con el 42 que el equipo le reasignó a otro.
+        `contexto_de` indexa por `(tipo, valor)` y tiene que quedarse con la
+        ACTIVA, sin depender del orden en que la base devuelve las filas.
+
+        El caso está armado para que la inactiva tenga el pk MÁS ALTO: Ana ya
+        tenía su credencial facial (con otro número) y recién después le
+        pasaron el 42 que liberó la baja de Juan. Recorriendo por pk, la
+        última fila es la inactiva."""
+        ana = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gomez"
+        )
+        services.guardar_credencial_facial(ana, "7")
+        de_juan = services.guardar_credencial_facial(self.alumno, "42")
+        services.dar_de_baja_credencial(de_juan)
+        de_ana = services.guardar_credencial_facial(ana, "42")
+        self.assertLess(de_ana.pk, de_juan.pk)
+
+        resultado = self._decidir("42", tipo="facial")
+
+        self.assertTrue(resultado.permitido)
+        self.assertEqual(resultado.alumno, ana)
+        self.assertEqual(resultado.credencial.pk, de_ana.pk)
+
+    def test_con_el_mismo_id_facial_activo_e_inactivo_decide_el_activo_por_pk(self):
+        """El mismo caso con el orden de pk al revés: la activa es la más
+        nueva. Los dos órdenes tienen que dar lo mismo."""
+        de_juan = services.guardar_credencial_facial(self.alumno, "42")
+        services.dar_de_baja_credencial(de_juan)
+        ana = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gomez"
+        )
+        de_ana = services.guardar_credencial_facial(ana, "42")
+
+        resultado = self._decidir("42", tipo="facial")
+
+        self.assertTrue(resultado.permitido)
+        self.assertEqual(resultado.credencial.pk, de_ana.pk)
+
     def test_el_lector_que_agrega_espacios_o_salto_de_linea_igual_reconoce(self):
         """Review Focus 4: un lector que manda "abc\\r\\n" no puede hacer que
         la tarjeta buena "no ande"."""

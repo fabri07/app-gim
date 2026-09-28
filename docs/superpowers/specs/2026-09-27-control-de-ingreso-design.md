@@ -126,6 +126,28 @@ máximo, así que **regenerar es un `UPDATE` del `valor` en la misma fila**.
 `clean()` con `validar_gimnasio_de(gimnasio, alumno=alumno)`, igual que
 `Reserva.clean`.
 
+*Actualizado al código:* **la unicidad de `(gimnasio, tipo, valor)` es PARCIAL
+sobre `activa=True`** (`credencial_valor_activo_unico_por_gim`, migración
+`ingreso/0007`). Con la unicidad sobre todas las filas, el id facial 42 de un
+ex-alumno no se liberaba nunca: el equipo reusa los números de los usuarios que
+borra, y el staff no podía cargarle ese número al alumno nuevo porque lo seguía
+ocupando una credencial dada de baja. Consecuencias, cada una con su test:
+
+- Puede haber varias filas con el mismo `(tipo, valor)`, **a lo sumo una
+  activa**. `decision.contexto_de` indexa por `(tipo, valor)` y **se queda con
+  la activa** (`order_by("activa", "modificado", "pk")`, el dict conserva la
+  última); sin ese orden el veredicto dependía del orden en que la base
+  devuelve las filas y podía rechazar al alumno nuevo con
+  `CREDENCIAL_INACTIVA` por la baja del viejo. `padron_de` ya filtraba las
+  activas, así que no cambia.
+- `CredencialFacialForm.otro_alumno_con` mira solo las activas, igual que la
+  base. Volver a cargarle a un alumno el número que tuvo, cuando ahora lo
+  tiene otro alumno activo, es un **error de campo** (el `clean` lo ve, y si
+  se escapa en una carrera la vista traduce el `IntegrityError`), nunca un
+  500; su fila sigue dada de baja.
+- El QR no cambia: no se reactiva nunca y regenerar le pone un valor nuevo de
+  256 bits a la misma fila.
+
 *Consecuencia asumida de regenerar in-place*: no queda rastro de que el código
 anterior existió. Alcanza para este producto (el evento igual guarda **cuál**
 credencial se usó), y la alternativa —una fila nueva marcada inactiva— rompe la

@@ -976,7 +976,10 @@ es su «código», y en el modelo es `Credencial.valor`. **Ningún modelo lleva
   calificadas), `Dispositivo` (el lector: `token_hash`, `activo`,
   `ultimo_contacto` y el contador `eventos_hoy`/`eventos_hoy_fecha`),
   `Credencial` (QR o id facial, una por alumno y tipo, así que regenerar es un
-  `UPDATE` en la misma fila) y `EventoIngreso` (cada intento, permitido o no:
+  `UPDATE` en la misma fila; el `valor` es único por gimnasio y tipo **solo
+  entre las activas**, para que el id facial de un ex-alumno se pueda
+  reasignar, y por eso `contexto_de` prefiere la activa cuando hay dos filas
+  con el mismo valor) y `EventoIngreso` (cada intento, permitido o no:
   `dispositivo` PROTECT, `alumno` CASCADE nullable, `credencial` SET_NULL, y el
   primer `UniqueConstraint` parcial del proyecto, sobre `(dispositivo,
   id_evento_equipo)`). El valor leído NO se guarda en el evento: de una

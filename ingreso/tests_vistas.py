@@ -917,6 +917,68 @@ class CredencialFacialTests(_BaseVistas):
         self.assertContains(respuesta, 'class="config-error"')
         self.assertFalse(Credencial.objects.filter(alumno=self.alumno).exists())
 
+    def test_el_id_de_un_ex_alumno_dado_de_baja_se_puede_reasignar(self):
+        """El equipo reusa el número de un usuario borrado: dar de baja la
+        credencial lo libera."""
+        otro = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Maria", apellido="G")
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=otro, tipo="facial", valor="42",
+            activa=False,
+        )
+        self._login()
+
+        respuesta = self.client.post(self._url(), {"valor": "42"})
+
+        self.assertRedirects(
+            respuesta, reverse("alumnos:detalle", args=[self.alumno.pk]),
+            fetch_redirect_response=False,
+        )
+        credencial = Credencial.objects.get(alumno=self.alumno, tipo="facial")
+        self.assertEqual((credencial.valor, credencial.activa), ("42", True))
+
+    def test_recargar_el_id_que_tuvo_cuando_ahora_es_de_otro_es_error_de_campo(self):
+        """Juan tuvo el 42, se le dio de baja y el equipo se lo pasó a Maria.
+        Volver a cargarle el 42 a Juan (lo que reactivaría su fila) choca con
+        la de Maria: error de campo, y la de Juan sigue dada de baja."""
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno, tipo="facial",
+            valor="42", activa=False,
+        )
+        otro = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Maria", apellido="G")
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=otro, tipo="facial", valor="42"
+        )
+        self._login()
+
+        respuesta = self.client.post(self._url(), {"valor": "42"})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn("Maria", respuesta.context["form"].errors["valor"][0])
+        credencial = Credencial.objects.get(alumno=self.alumno, tipo="facial")
+        self.assertFalse(credencial.activa)
+
+    def test_reactivar_contra_otro_activo_que_se_escapa_del_form_no_da_500(self):
+        """La carrera del caso anterior: el `clean` no la vio y la base
+        rechaza la reactivación (la unicidad parcial). Error de campo."""
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno, tipo="facial",
+            valor="42", activa=False,
+        )
+        otro = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Maria", apellido="G")
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=otro, tipo="facial", valor="42"
+        )
+        self._login()
+
+        with patch.object(CredencialFacialForm, "clean_valor", lambda f: "42"):
+            respuesta = self.client.post(self._url(), {"valor": "42"})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertIn("Maria", respuesta.context["form"].errors["valor"][0])
+        self.assertFalse(
+            Credencial.objects.get(alumno=self.alumno, tipo="facial").activa
+        )
+
     def test_choque_que_se_escapa_del_form_tampoco_da_500(self):
         """La carrera: el `clean` no lo vio y la base lo rechaza. Se traduce
         al mismo error de campo."""

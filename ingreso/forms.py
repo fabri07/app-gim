@@ -1,7 +1,7 @@
 """Formularios de las pantallas de staff del control de ingreso.
 
 Las dos unicidades que chocan desde un formulario (`Dispositivo(gimnasio,
-nombre)` y `Credencial(gimnasio, tipo, valor)`) llevan `gimnasio`, que NO es un
+nombre)` y `Credencial(gimnasio, tipo, valor)` de las activas) llevan `gimnasio`, que NO es un
 campo del form: el `validate_constraints` de Django se saltea toda restricción
 que nombre un campo excluido, así que sin estos `clean_*` el choque llega a la
 base como un `IntegrityError` y la pantalla da un 500. La vista además atrapa
@@ -88,10 +88,16 @@ class CredencialFacialForm(forms.Form):
     def otro_alumno_con(self, valor):
         """El alumno del mismo gimnasio que ya tiene este id en el lector, o
         `None`. La usa `clean_valor` y la vista, que la vuelve a correr ante un
-        `IntegrityError` para distinguir un choque real de un doble submit."""
+        `IntegrityError` para distinguir un choque real de un doble submit.
+
+        **Solo cuentan las ACTIVAS**, igual que la unicidad de la base
+        (`credencial_valor_activo_unico_por_gim`): dar de baja la credencial de
+        un ex-alumno libera su número para que el equipo se lo reasigne a
+        otro. Y al revés: volver a cargarle a un alumno el número que tuvo
+        cuando ahora lo tiene otro alumno activo es un error de campo."""
         otra = (
             Credencial.objects.for_gimnasio(self.alumno.gimnasio)
-            .filter(tipo=Credencial.Tipo.FACIAL, valor=valor)
+            .filter(tipo=Credencial.Tipo.FACIAL, valor=valor, activa=True)
             .exclude(alumno=self.alumno)
             .select_related("alumno")
             .first()

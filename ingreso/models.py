@@ -131,9 +131,17 @@ class Credencial(TenantOwnedModel):
         verbose_name = "credencial de ingreso"
         verbose_name_plural = "credenciales de ingreso"
         constraints = [
+            # PARCIAL sobre las activas: el número 42 que un ex-alumno tenía en
+            # el lector facial se libera cuando se le da de baja la credencial,
+            # y el equipo se lo reasigna a otro. Con la unicidad sobre todas
+            # las filas, ese número quedaba tomado para siempre por una fila
+            # que ya no abre nada. Consecuencia: puede haber varias filas con
+            # el mismo `(tipo, valor)`, a lo sumo UNA activa, y quien indexe
+            # por valor tiene que preferir la activa (`decision.contexto_de`).
             models.UniqueConstraint(
                 fields=["gimnasio", "tipo", "valor"],
-                name="credencial_valor_unico_por_gim",
+                condition=models.Q(activa=True),
+                name="credencial_valor_activo_unico_por_gim",
             ),
             models.UniqueConstraint(
                 fields=["gimnasio", "alumno", "tipo"],

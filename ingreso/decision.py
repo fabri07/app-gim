@@ -154,12 +154,21 @@ def contexto_de(dispositivo, lecturas):
     # da SIN_CREDENCIAL. Y la clave lleva el `tipo` porque la unicidad de
     # `Credencial` es `(gimnasio, tipo, valor)`: un id facial y un QR pueden
     # compartir el texto.
+    #
+    # **Puede haber más de una fila por `(tipo, valor)`**: la unicidad es
+    # parcial sobre las activas, así que el id facial 42 de un ex-alumno (dado
+    # de baja) convive con el 42 que el equipo le reasignó a otro. Gana SIEMPRE
+    # la activa: el `order_by` las deja últimas y el dict se queda con la
+    # última. Entre inactivas, la más reciente (da CREDENCIAL_INACTIVA igual).
+    # Sin el orden explícito el veredicto dependería del orden en que la base
+    # devuelve las filas, y podía rechazar al alumno nuevo por la baja del viejo.
     valores = {l.valor_normalizado for l in lecturas}
     credenciales = {
         (c.tipo, c.valor): c
         for c in Credencial.objects.for_gimnasio(gimnasio)
         .filter(valor__in=valores)
         .select_related("alumno")
+        .order_by("activa", "modificado", "pk")
     }
     alumnos = list({c.alumno_id: c.alumno for c in credenciales.values()}.values())
     if not alumnos:

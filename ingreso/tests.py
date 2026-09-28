@@ -187,6 +187,60 @@ class CredencialTests(TestCase):
 
         self.assertEqual(Credencial.objects.filter(valor="42").count(), 2)
 
+    def test_dar_de_baja_libera_el_valor_para_otro_alumno(self):
+        """El equipo le reasigna el número 42 de un ex-alumno a uno nuevo: la
+        unicidad `(gimnasio, tipo, valor)` es solo sobre las ACTIVAS."""
+        viejo = Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            tipo=Credencial.Tipo.FACIAL, valor="42",
+        )
+        services.dar_de_baja_credencial(viejo)
+        nuevo = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gomez"
+        )
+
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=nuevo,
+            tipo=Credencial.Tipo.FACIAL, valor="42",
+        )
+
+        self.assertEqual(Credencial.objects.filter(valor="42").count(), 2)
+
+    def test_dos_activas_con_el_mismo_valor_siguen_chocando(self):
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            tipo=Credencial.Tipo.FACIAL, valor="42",
+        )
+        nuevo = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gomez"
+        )
+
+        with self.assertRaises(IntegrityError):
+            Credencial.objects.create(
+                gimnasio=self.gimnasio, alumno=nuevo,
+                tipo=Credencial.Tipo.FACIAL, valor="42",
+            )
+
+    def test_el_padron_lleva_solo_al_dueño_activo_de_un_valor_repetido(self):
+        viejo = Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            tipo=Credencial.Tipo.FACIAL, valor="42",
+        )
+        services.dar_de_baja_credencial(viejo)
+        nuevo = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gomez"
+        )
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=nuevo,
+            tipo=Credencial.Tipo.FACIAL, valor="42",
+        )
+
+        filas = services.padron_de(self.gimnasio)["alumnos"]
+
+        self.assertEqual(
+            [(f["id"], f["id_facial"]) for f in filas], [(nuevo.pk, "42")]
+        )
+
     def test_no_se_puede_colgar_una_credencial_de_un_alumno_de_otro_gimnasio(self):
         ajeno = Alumno.objects.create(
             gimnasio=self.otro, nombre="Ana", apellido="Gomez"
