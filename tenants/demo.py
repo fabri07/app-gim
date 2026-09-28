@@ -622,7 +622,12 @@ def vaciar_gimnasio(*, gimnasio):
     from calendario.models import GoogleCalendarCredential
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.models import Importacion
-    from ingreso.models import ConfiguracionIngreso, Credencial, Dispositivo
+    from ingreso.models import (
+        ConfiguracionIngreso,
+        Credencial,
+        Dispositivo,
+        EventoIngreso,
+    )
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import Cuota, MedioCobro
@@ -675,6 +680,12 @@ def vaciar_gimnasio(*, gimnasio):
         # `ReservaCalendarEvent` y `Novedad` sus `NovedadLeida`.
         Reserva.objects.for_gimnasio(gimnasio).delete()
         Novedad.objects.for_gimnasio(gimnasio).delete()
+        # Antes que `Credencial` porque `EventoIngreso.credencial` es SET_NULL:
+        # al revés se dispara un UPDATE masivo sobre filas que borramos igual.
+        # Y explícito porque los eventos con `alumno=None` (las lecturas de
+        # credenciales desconocidas) NO cascadean desde `alumnos.delete()`:
+        # sobrevivirían protegiendo al `Dispositivo`.
+        EventoIngreso.objects.for_gimnasio(gimnasio).delete()
         # `Credencial` cascadea desde `Alumno`, pero se borra explícita por el
         # mismo motivo que `Reserva`: no depender de por dónde entra la cascada.
         Credencial.objects.for_gimnasio(gimnasio).delete()

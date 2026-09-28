@@ -1,7 +1,11 @@
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection
+from django.db.models import ProtectedError
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from alumnos.models import Alumno
 from ingreso import services, tokens
@@ -9,6 +13,7 @@ from ingreso.models import (
     ConfiguracionIngreso,
     Credencial,
     Dispositivo,
+    EventoIngreso,
     obtener_configuracion,
 )
 from tenants.models import Gimnasio
@@ -211,3 +216,62 @@ class CredencialTests(TestCase):
         services.generar_credenciales_en_bloque(self.gimnasio)
 
         self.assertEqual(Credencial.objects.count(), 1)
+
+
+class EventoIngresoTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.dispositivo = Dispositivo.objects.create(
+            gimnasio=self.gimnasio, nombre="Puerta",
+            tipo=Dispositivo.Tipo.QR, token_hash=tokens.hash_de("t"),
+        )
+
+    def test_el_momento_no_es_auto_now_add(self):
+        """Un lote en diferido trae el momento del equipo: si el campo fuera
+        `auto_now_add`, todos los eventos que subió un lector que estuvo sin
+        internet quedarían fechados en el instante en que volvió."""
+        ayer = timezone.now() - timedelta(days=1)
+
+        evento = EventoIngreso.objects.create(
+            gimnasio=self.gimnasio, dispositivo=self.dispositivo,
+            resultado=EventoIngreso.Resultado.PERMITIDO, momento=ayer,
+        )
+
+        self.assertEqual(evento.momento, ayer)
+
+    def test_el_mismo_id_de_evento_del_equipo_no_entra_dos_veces(self):
+        """Es la idempotencia del lote: el lector reintenta y no puede duplicar
+        el ingreso."""
+        EventoIngreso.objects.create(
+            gimnasio=self.gimnasio, dispositivo=self.dispositivo,
+            resultado=EventoIngreso.Resultado.PERMITIDO,
+            momento=timezone.now(), id_evento_equipo="8821",
+        )
+
+        with self.assertRaises(IntegrityError):
+            EventoIngreso.objects.create(
+                gimnasio=self.gimnasio, dispositivo=self.dispositivo,
+                resultado=EventoIngreso.Resultado.PERMITIDO,
+                momento=timezone.now(), id_evento_equipo="8821",
+            )
+
+    def test_los_eventos_sin_id_del_equipo_no_chocan_entre_si(self):
+        """La unicidad es PARCIAL: si no lo fuera, el segundo evento de un
+        lector que no manda id reventaría contra el primero."""
+        for _ in range(3):
+            EventoIngreso.objects.create(
+                gimnasio=self.gimnasio, dispositivo=self.dispositivo,
+                resultado=EventoIngreso.Resultado.PERMITIDO,
+                momento=timezone.now(), id_evento_equipo="",
+            )
+
+        self.assertEqual(EventoIngreso.objects.count(), 3)
+
+    def test_borrar_el_lector_no_puede_borrar_el_historial(self):
+        EventoIngreso.objects.create(
+            gimnasio=self.gimnasio, dispositivo=self.dispositivo,
+            resultado=EventoIngreso.Resultado.PERMITIDO, momento=timezone.now(),
+        )
+
+        with self.assertRaises(ProtectedError):
+            self.dispositivo.delete()

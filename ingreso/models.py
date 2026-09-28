@@ -130,6 +130,76 @@ class Credencial(TenantOwnedModel):
         validar_gimnasio_de(self.gimnasio, alumno=self.alumno)
 
 
+class EventoIngreso(TenantOwnedModel):
+    """Cada intento de pasar por la puerta, permitido o rechazado.
+
+    El rechazado se guarda igual: es lo que le dice al dueño que alguien está
+    intentando entrar con una tarjeta revocada, y lo que explica un reclamo.
+
+    **El valor leído NO se guarda.** De una credencial desconocida quedan los
+    últimos 6 caracteres en `detalle`: alcanza para diagnosticar "esta tarjeta
+    no anda" sin duplicar miles de veces la llave de la puerta en una tabla que
+    además se exporta.
+    """
+
+    class Resultado(models.TextChoices):
+        PERMITIDO = "permitido", "Pasó"
+        SIN_CREDENCIAL = "sin_credencial", "Credencial no reconocida"
+        CREDENCIAL_INACTIVA = "credencial_inactiva", "Credencial dada de baja"
+        ALUMNO_INACTIVO = "alumno_inactivo", "Alumno dado de baja"
+        DEUDA = "deuda", "Cuota impaga"
+        SIN_RESERVA = "sin_reserva", "Sin turno reservado"
+        DUPLICADO = "duplicado", "Ya había entrado"
+
+    class Sentido(models.TextChoices):
+        ENTRADA = "entrada", "Entrada"
+        SALIDA = "salida", "Salida"
+
+    dispositivo = models.ForeignKey(
+        Dispositivo, on_delete=models.PROTECT, related_name="eventos"
+    )
+    alumno = models.ForeignKey(
+        "alumnos.Alumno", on_delete=models.CASCADE,
+        related_name="eventos_ingreso", null=True, blank=True,
+    )
+    credencial = models.ForeignKey(
+        Credencial, on_delete=models.SET_NULL,
+        related_name="eventos", null=True, blank=True,
+    )
+    resultado = models.CharField(max_length=24, choices=Resultado.choices)
+    momento = models.DateTimeField()
+    sentido = models.CharField(
+        max_length=10, choices=Sentido.choices, default=Sentido.ENTRADA
+    )
+    en_diferido = models.BooleanField(default=False)
+    id_evento_equipo = models.CharField(max_length=64, blank=True)
+    detalle = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        verbose_name = "ingreso"
+        verbose_name_plural = "ingresos"
+        ordering = ["-momento", "-id"]
+        indexes = [
+            models.Index(
+                fields=["gimnasio", "-momento", "-id"], name="ingreso_listado_idx"
+            ),
+            models.Index(
+                fields=["gimnasio", "alumno", "-momento"],
+                name="ingreso_antipassback_idx",
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["dispositivo", "id_evento_equipo"],
+                condition=~models.Q(id_evento_equipo=""),
+                name="ingreso_id_del_equipo_unico",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.get_resultado_display()} - {self.momento:%d/%m %H:%M}"
+
+
 def obtener_configuracion(gimnasio):
     """Única vía de acceso a la config de un gimnasio: garantiza que la fila
     exista. Ojo que `turnos.models` tiene una función con este mismo nombre:

@@ -3996,7 +3996,12 @@ def _ensuciar(gimnasio, staff, marca="X"):
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.models import Importacion
     from ingreso import tokens as ingreso_tokens
-    from ingreso.models import ConfiguracionIngreso, Credencial, Dispositivo
+    from ingreso.models import (
+        ConfiguracionIngreso,
+        Credencial,
+        Dispositivo,
+        EventoIngreso,
+    )
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import Cuota, MedioCobro
@@ -4073,6 +4078,15 @@ def _ensuciar(gimnasio, staff, marca="X"):
     Credencial.objects.create(
         gimnasio=gimnasio, alumno=alumno,
         tipo=Credencial.Tipo.QR, valor=f"qr-{marca}",
+    )
+    EventoIngreso.objects.create(
+        gimnasio=gimnasio, dispositivo=dispositivo, alumno=alumno,
+        resultado=EventoIngreso.Resultado.PERMITIDO, momento=timezone.now(),
+    )
+    EventoIngreso.objects.create(
+        gimnasio=gimnasio, dispositivo=dispositivo,
+        resultado=EventoIngreso.Resultado.SIN_CREDENCIAL,
+        momento=timezone.now(), detalle="…abc123",
     )
     return alumno
 
