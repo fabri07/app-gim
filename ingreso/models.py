@@ -8,7 +8,7 @@ persona tiene EN el equipo (`Credencial` de tipo FACIAL). Ver
 
 from django.db import models
 
-from core.models import TenantOwnedModel
+from core.models import TenantOwnedModel, validar_gimnasio_de
 
 
 class ConfiguracionIngreso(TenantOwnedModel):
@@ -83,6 +83,51 @@ class Dispositivo(TenantOwnedModel):
 
     def __str__(self):
         return self.nombre
+
+
+class Credencial(TenantOwnedModel):
+    """Lo que identifica al alumno en la puerta.
+
+    `alumno` es CASCADE y no PROTECT: una credencial no significa nada sin su
+    alumno, y con PROTECT no se podría borrar nunca a un alumno cargado por
+    error que ya pasó una vez por la puerta. `core/borrado.py` la lista sola en
+    el aviso, porque lee `_meta.related_objects`.
+
+    Para las FACIAL, `valor` es el id que el alumno tiene EN el equipo -- la
+    cara se enrola en el lector y el staff copia ese id acá. Nunca una
+    plantilla biométrica.
+    """
+
+    class Tipo(models.TextChoices):
+        QR = "qr", "Código QR"
+        FACIAL = "facial", "Cara registrada en el lector"
+
+    alumno = models.ForeignKey(
+        "alumnos.Alumno", on_delete=models.CASCADE, related_name="credenciales"
+    )
+    tipo = models.CharField(max_length=10, choices=Tipo.choices)
+    valor = models.CharField(max_length=64)
+    activa = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "credencial de ingreso"
+        verbose_name_plural = "credenciales de ingreso"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["gimnasio", "tipo", "valor"],
+                name="credencial_valor_unico_por_gim",
+            ),
+            models.UniqueConstraint(
+                fields=["gimnasio", "alumno", "tipo"],
+                name="credencial_una_por_alumno_y_tipo",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_tipo_display()} de {self.alumno}"
+
+    def clean(self):
+        validar_gimnasio_de(self.gimnasio, alumno=self.alumno)
 
 
 def obtener_configuracion(gimnasio):

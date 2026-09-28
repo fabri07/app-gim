@@ -274,6 +274,17 @@ HOJAS = (
             ("creado", "creado"),
         ),
     ),
+    Hoja(
+        "credenciales-de-ingreso", "ingreso.Credencial", "gimnasio",
+        "Con qué entra cada alumno a la puerta. Ni el código QR ni el id del "
+        "lector se exportan: son llaves de la puerta, igual que las "
+        "contraseñas.",
+        (
+            ("id", "id"), ("alumno_id", "alumno_id"),
+            ("alumno", "alumno__apellido"), ("tipo", "tipo"),
+            ("activa", "activa"),
+        ),
+    ),
 )
 
 #: Modelos que NO se exportan, con el motivo que se le cuenta al gimnasio en el

@@ -1,8 +1,15 @@
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import SimpleTestCase, TestCase
 
-from ingreso import tokens
-from ingreso.models import ConfiguracionIngreso, Dispositivo, obtener_configuracion
+from alumnos.models import Alumno
+from ingreso import services, tokens
+from ingreso.models import (
+    ConfiguracionIngreso,
+    Credencial,
+    Dispositivo,
+    obtener_configuracion,
+)
 from tenants.models import Gimnasio
 
 
@@ -91,3 +98,87 @@ class DispositivoTests(TestCase):
                 gimnasio=self.gimnasio, nombre="Puerta B",
                 tipo=Dispositivo.Tipo.QR, token_hash=tokens.hash_de(token),
             )
+
+
+class CredencialTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gimnasio A", slug="gimnasio-a")
+        self.otro = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="Perez"
+        )
+
+    def test_generar_credencial_qr_es_idempotente_y_regenera_el_valor(self):
+        """Regenerar es un UPDATE en la misma fila: hay una unicidad
+        (gimnasio, alumno, tipo), así que un alumno no puede tener dos QR."""
+        primera = services.generar_credencial_qr(self.alumno)
+        valor_viejo = primera.valor
+
+        segunda = services.generar_credencial_qr(self.alumno, regenerar=True)
+
+        self.assertEqual(primera.pk, segunda.pk)
+        self.assertNotEqual(segunda.valor, valor_viejo)
+        self.assertEqual(Credencial.objects.count(), 1)
+
+    def test_un_alumno_no_puede_tener_dos_credenciales_del_mismo_tipo(self):
+        services.generar_credencial_qr(self.alumno)
+
+        with self.assertRaises(IntegrityError):
+            Credencial.objects.create(
+                gimnasio=self.gimnasio, alumno=self.alumno,
+                tipo=Credencial.Tipo.QR, valor="otro-valor",
+            )
+
+    def test_el_mismo_id_facial_puede_repetirse_entre_gimnasios(self):
+        """Los lectores numeran sus usuarios desde 1, así que el id "42" va a
+        existir en los dos gimnasios. La unicidad es por gimnasio, no global."""
+        ajeno = Alumno.objects.create(
+            gimnasio=self.otro, nombre="Ana", apellido="Gomez"
+        )
+        Credencial.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            tipo=Credencial.Tipo.FACIAL, valor="42",
+        )
+
+        Credencial.objects.create(
+            gimnasio=self.otro, alumno=ajeno,
+            tipo=Credencial.Tipo.FACIAL, valor="42",
+        )
+
+        self.assertEqual(Credencial.objects.filter(valor="42").count(), 2)
+
+    def test_no_se_puede_colgar_una_credencial_de_un_alumno_de_otro_gimnasio(self):
+        ajeno = Alumno.objects.create(
+            gimnasio=self.otro, nombre="Ana", apellido="Gomez"
+        )
+        credencial = Credencial(
+            gimnasio=self.gimnasio, alumno=ajeno,
+            tipo=Credencial.Tipo.QR, valor="x",
+        )
+
+        with self.assertRaises(ValidationError):
+            credencial.clean()
+
+    def test_el_alta_en_bloque_saltea_a_los_que_ya_tienen_y_no_crece_en_queries(self):
+        """Un gimnasio con 200 alumnos no puede clickear 200 veces, y el alta
+        no puede ser una query por alumno."""
+        services.generar_credencial_qr(self.alumno)
+        for i in range(4):
+            Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=f"A{i}", apellido="X"
+            )
+
+        creadas = services.generar_credenciales_en_bloque(self.gimnasio)
+
+        self.assertEqual(creadas, 4)
+        self.assertEqual(Credencial.objects.count(), 5)
+
+    def test_el_alta_en_bloque_no_toca_a_los_alumnos_inactivos(self):
+        Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Baja", apellido="X",
+            estado=Alumno.Estado.INACTIVO,
+        )
+
+        services.generar_credenciales_en_bloque(self.gimnasio)
+
+        self.assertEqual(Credencial.objects.count(), 1)
