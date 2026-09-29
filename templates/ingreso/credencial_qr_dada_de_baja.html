@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Código de {{ alumno }} dado de baja · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>El código de {{ alumno.nombre }} está dado de baja</h1>
+  <p>
+    Ese código ya no abre la puerta, y no se puede volver a activar: si lo
+    diste de baja porque se perdió o se lo llevó otra persona, reactivarlo le
+    devolvería la entrada a quien lo tenga.
+  </p>
+  <p class="texto-suave">
+    Para que {{ alumno.nombre }} vuelva a entrar con código, generá uno nuevo.
+    Es un código distinto: si tenía la tarjeta impresa, hay que imprimirle una
+    nueva.
+  </p>
+  <form method="post" action="{% url 'ingreso:credencial_qr' alumno.pk %}" class="acciones-lista">
+    {% csrf_token %}
+    <input type="hidden" name="regenerar" value="1">
+    <button type="submit" class="boton">Generar un código nuevo</button>
+    <a class="boton-secundario" hx-boost="false" href="{% url 'alumnos:detalle' alumno.pk %}">Volver a la ficha</a>
+  </form>
+</div>
+{% endblock %}

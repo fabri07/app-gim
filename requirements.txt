@@ -34,3 +34,8 @@ pywebpush==2.4.0
 
 # Monitoreo de errores (opcional: SENTRY_DSN)
 sentry-sdk[django]==2.70.0
+
+# QR de la credencial de ingreso (ingreso/qr.py). Python puro y sin
+# dependencias: SVG inline para el portal y PNG en bytes para las tarjetas en
+# PDF (fpdf2), sin pasar por Pillow ni por una librería JS de CDN.
+segno==1.6.6

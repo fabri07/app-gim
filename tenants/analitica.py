@@ -70,18 +70,31 @@ def asistencia_por_dia_y_hora(gimnasio):
         .annotate(total=Count("id"))
     )
     conteos = {(fila["dia_semana"], fila["hora"]): fila["total"] for fila in filas}
-    if not conteos:
-        return {"horas": [], "dias": [], "maximo": 0}
+    return grilla_de_calor(conteos)
 
-    horas = sorted({hora for (_dia, hora) in conteos})
-    maximo = max(conteos.values())
+
+def grilla_de_calor(conteos, *, horas=None, maximo=None):
+    """Arma la grilla lunes..domingo × hora a partir de
+    `{(dia_semana_django, hora): total}`.
+
+    `horas` y `maximo` se pueden forzar para dibujar DOS grillas comparables
+    lado a lado (mismas columnas, misma escala de color): con escalas propias,
+    una celda oscura en cada una significaría números distintos. Sin datos
+    (y sin `horas` forzadas) devuelve la grilla vacía que el template lee como
+    estado vacío."""
+    if horas is None:
+        horas = sorted({hora for (_dia, hora) in conteos})
+    if not horas:
+        return {"horas": [], "dias": [], "maximo": 0}
+    if maximo is None:
+        maximo = max(conteos.values(), default=0)
 
     dias = []
     for numero in _ORDEN_DIAS:
         celdas = []
         for hora in horas:
             valor = conteos.get((numero, hora), 0)
-            if valor == 0:
+            if valor == 0 or maximo == 0:
                 nivel = 0
             else:
                 nivel = max(1, min(_NIVELES_CALOR, -(-valor * _NIVELES_CALOR // maximo)))

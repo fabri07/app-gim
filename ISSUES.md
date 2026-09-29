@@ -20,6 +20,217 @@ del log.
 
 ---
 
+## [2026-09-28] Control de ingreso: pendientes manuales antes del merge
+**Estado:** abierto (pendiente previo al merge de `worktree-control-de-ingreso`)
+**Impacto:** la suite y `/code-review` no ven nada de esto, y cada punto puede
+tumbar una decisión de diseño. Si el QR sale ilegible impreso, se cae el «QR
+fijo para el que no tiene smartphone», que es lo que justificó no hacerlo
+rotativo. Si una tanda de tarjetas o el padrón tardan en Render lo que se
+proyecta desde la Mac, la puerta online de todos los gimnasios espera detrás
+del panel (entrada «Un request largo del panel…», más abajo).
+**Resolución / próximo paso:** antes de mergear:
+1. **Navegador**: las pantallas de staff (`ingreso:listado`, lectores con el
+   alta, la clave mostrada una vez y la rotación, configuración, tarjetas), la
+   tarjeta «Control de ingreso» del dashboard (con y sin lectores, y el ámbar
+   de un lector sin contacto), la ficha del alumno y «Mostrar mi código» en el
+   portal, incluido el «atrás» después de «Salir» (el QR no puede volver desde
+   el bfcache ni desde el historial de htmx).
+2. **Tarjeta impresa escaneada con la cámara del celular**, confirmando que el
+   string leído es idéntico a `Credencial.valor`. Es la única parte física
+   verificable sin hardware.
+3. **Medir en Render** una tanda de 30 tarjetas (`TARJETAS_POR_TANDA`) y un
+   `GET /ingreso/v1/padron/` de un gimnasio grande. Si una lectura online
+   espera más de ~1 s detrás de cualquiera de los dos, pasar a más de un
+   worker antes del primer cliente con lector.
+4. `scripts/probar_ingreso_local.sh` contra `runserver` (401, online, diferido,
+   idempotencia, padrón con y sin `If-None-Match`).
+
+---
+
+## [2026-09-28] Control de ingreso: lo que no se puede verificar sin hardware
+**Estado:** abierto (hasta el primer cliente con un lector instalado)
+**Impacto:** lo construido es el contrato HTTP de la puerta
+(`docs/integracion-control-de-ingreso.md`), ejercitado con tests y con `curl`.
+Nada de esto se probó contra un equipo real:
+- que un lector comercial (Hikvision, ZKTeco, Dahua, Suprema) hable este
+  dialecto, o que un puente lo traduzca sin sorpresas;
+- que el enrolamiento facial coincida con la UI de un fabricante concreto
+  (dar de alta la cara en el equipo y copiar el id a la ficha, paso 9 del
+  documento);
+- la latencia de un molinete de verdad y cuánto espera el veredicto antes de
+  rendirse;
+- si el cold start de Neon (scale-to-zero) entra en ese timeout. Es el riesgo
+  técnico más grande de la feature: el padrón offline está en `v1` justamente
+  como mitigación.
+Además, un rechazo decidido offline con el padrón **no se sube**: el contrato
+solo sabe decir «el equipo abrió» (`abierto_por_el_equipo: true`), y queda en
+el log del equipo. Riesgo aceptado 16 de la spec.
+**Resolución / próximo paso:** con el primer equipo real, recorrer
+`scripts/probar_ingreso_local.sh` y el puente de ejemplo
+(`scripts/puente_ingreso_ejemplo.py`) contra él, y medir un scan después de un
+rato de calma. Relacionadas, del mismo día: el costo del 304 del padrón, el
+request largo del panel que deja en cola la puerta, la IP real detrás de
+Cloudflare y la revocación de un lector con la cuenta suspendida (entradas de
+abajo).
+
+---
+
+## [2026-09-28] La suite no corre en verde en un clon sin secretos reales
+**Estado:** abierto (deuda técnica)
+**Impacto:** cinco tests necesitan secretos reales en el entorno:
+`VAPID_PRIVATE_KEY` (tests de `notificaciones.tests.PushConLaCuentaCongeladaTests`,
+que llegan hasta `Vapid01.from_pem`) y `GOOGLE_TOKEN_ENCRYPTION_KEY`
+(`tenants.tests.VaciarGimnasioTests.test_no_le_pide_nada_a_google_calendar`,
+que cifra un `EncryptedTextField`). Un worktree o un clon fresco sin el `.env`
+local da esos cinco en rojo, y se leen como una regresión de lo que se esté
+tocando. Apareció al montar el worktree del control de ingreso; no lo causó
+esa rama.
+**Resolución / próximo paso:** que esos tests generen una clave descartable
+en el `setUp` (un par VAPID y una clave Fernet nuevas, con
+`override_settings`) en vez de leer la del entorno, así la suite queda
+hermética. Mientras tanto: correr la suite con el `.env` presente, o copiar el
+`.env` al worktree.
+
+---
+
+## [2026-09-28] El antipassback de la puerta traba a quien no llegó a pasar
+**Estado:** aceptado (riesgo asumido a propósito) + decisión de producto pendiente
+**Impacto:** la puerta registra el ingreso cuando habilita el molinete, no
+cuando la persona lo empuja: el contrato no sabe decir «habilitó pero nadie
+pasó». Si el alumno no empuja y vuelve a escanear dentro de
+`ConfiguracionIngreso.minutos_antipassback` (2 por defecto), recibe
+`DUPLICADO` («Ya registramos tu ingreso hace un momento») y la puerta no abre,
+aunque siga afuera. Tiene que esperar a que pase la ventana o pedir que le
+abran desde el mostrador. Spec, riesgo aceptado 17 (misma familia que el 11,
+el reintento online sin id).
+**Resolución / próximo paso:** no se cambió el comportamiento: el antipassback
+es lo que evita que un QR prestado abra dos veces seguidas. **Para decidir con
+el dueño del producto**, cuando haya un gimnasio con molinete real: (a) bajar
+el default de `minutos_antipassback` (o que cada gimnasio lo baje desde
+«Configurar la puerta»: 1 minuto sigue cortando la doble lectura); (b) ponerlo
+en 0, que lo apaga junto con la protección contra el QR prestado; o (c) que el
+equipo informe si hubo paso (el sensor de giro del molinete), con un campo
+opcional nuevo en `v1`, y que el antipassback cuente solo los ingresos
+efectivamente pasados.
+
+---
+
+## [2026-09-28] «Asistentes hoy» e «ingresos hoy» en el mismo panel
+**Estado:** abierto (decisión de producto pendiente)
+**Impacto:** el dashboard del staff muestra la métrica «Asistentes hoy»
+(`tenants/analitica.py`, cuenta `Reserva`: la intención de venir, que además
+se borra al cancelar) y, con el control de ingreso, la tarjeta «N ingresos
+hoy» (`ingreso/presentacion.py::resumen_para_el_panel`, ingresos permitidos de
+entrada por la puerta). Son dos números distintos con nombres parecidos, y un
+dueño puede leerlos como el mismo dato mal calculado. Los otros indicadores de
+asistencia del panel también siguen contando `Reserva`: no se tocaron porque
+un gimnasio sin lector se quedaría sin esos números.
+**Resolución / próximo paso:** decidirlo con el dueño del producto (renombrar
+«Asistentes hoy» a algo como «Reservas de hoy», pasar a los ingresos reales
+cuando el gimnasio tiene un lector activo, o dejarlo). No se resolvió en la
+rama.
+
+---
+
+## [2026-09-28] Revocar un lector de la puerta con la cuenta del gimnasio suspendida
+**Estado:** aceptado (riesgo asumido a propósito, con procedimiento)
+**Impacto:** con `estado_cuenta = SUSPENDIDA`, `PlataformaMiddleware` le corta
+al staff todo el panel, incluidas las pantallas de `ingreso`: si en ese
+momento le roban el token a un lector, el dueño del gimnasio no puede rotarlo
+ni desactivarlo. La puerta, en cambio, sigue abriendo (invariante de la
+Tarea 9), así que el token robado también.
+**Resolución / próximo paso:** procedimiento: **con la cuenta suspendida, un
+token robado se revoca desde /admin/ destildando `activo`** del `Dispositivo`
+(Ingreso → Lectores de la puerta). El superadmin nunca queda bloqueado y
+`/admin/` está en `APPS_SIN_BLOQUEO`. La API responde 403 desde el request
+siguiente (`ingreso/auth.py` mira `activo` en la base) y
+`DispositivoAdmin.save_model` invalida el set cacheado del freno por IP. No se
+agregó `ingreso` a la allowlist: abriría el panel entero de un gimnasio
+congelado. Lo fija `ingreso.tests_vistas.RevocarDesdeElAdminTests`.
+
+## [2026-09-28] Verificar en producción la IP que ve el freno de la puerta
+**Estado:** abierto (pendiente previo al lanzamiento del control de ingreso)
+
+**Impacto:** el freno por IP de la API de la puerta (`ingreso/limites.py`,
+rama `worktree-control-de-ingreso`) cuenta las fallas con
+`solicitudes.antispam.ip_de`, que confía en `CF-Connecting-IP`. Si en
+producción ese header no trae la IP real del cliente (por cómo queda la zona de
+Cloudflare delante del CDN propio de Render), o si el origen `*.onrender.com`
+acepta un `CF-Connecting-IP` falsificado por el cliente, el freno cuenta mal:
+o todos los clientes comparten una IP (el proxy) o un atacante la rota a
+voluntad. Desde el arreglo de la revisión de la Tarea 10 el impacto es «freno
+evadible» y no «puerta cerrada»: un lector activo pasa el freno igual (set de
+tokens activos), así que un error acá no le cierra la puerta a nadie. Lo mismo
+vale para el rate-limit del formulario público de `solicitudes`, que usa la
+misma función.
+
+**Resolución / próximo paso:** en producción, (1) pegarle a una vista de
+diagnóstico o mirar el log con dos clientes de IPs distintas y confirmar que
+`ip_de` devuelve cada una; (2) mandarle directo al origen de Render un
+request con `CF-Connecting-IP: 1.2.3.4` y confirmar que no se toma (o que el
+origen no es alcanzable sin pasar por Cloudflare). No se puede verificar desde
+el entorno local.
+
+---
+
+## [2026-09-28] Un request largo del panel deja en cola la puerta de todos los gimnasios
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** gunicorn corre con un único worker síncrono, compartido entre el
+panel y la API de los lectores (`/ingreso/v1/`, rama
+`worktree-control-de-ingreso`). Mientras el panel arma algo largo —una tanda de
+tarjetas imprimibles, un padrón grande (ver la entrada siguiente), el ZIP del
+exportador—, cada lectura online de CUALQUIER gimnasio de la plataforma espera
+en cola, y un molinete se rinde, se estima, a los dos o tres segundos (sin
+hardware no se midió). Medido en una Mac
+(2026-09-28): ~33 ms por tarjeta, 100 tarjetas ≈ 3,4 s, 30 ≈ 0,9 s; en Render
+con Neon, sin medir (probablemente el doble o más).
+
+**Resolución / próximo paso:** las tarjetas se imprimen en tandas de 30
+(`ingreso/views.py::TARJETAS_POR_TANDA`, ~1 s local), y el puente de ejemplo
+(Tarea 17 del plan) tiene que tratar un timeout de la API como un 429: decide con el padrón local y subir el
+evento en diferido. **Medir en Render una tanda de tarjetas y el padrón; si una
+lectura online espera más de ~1 s detrás de ellos, pasar a más de un worker**
+(o sacar esos trabajos a una cola). Spec, riesgo aceptado 15.
+
+**Pendiente: confirmar que de verdad es UN worker.** Todo lo de arriba sale de
+`render.yaml:46` (`startCommand: gunicorn config.wsgi:application`, sin
+`--workers`), pero el servicio vivo es **`app-gim-virginia`, que NO lo maneja el
+Blueprint** (se creó a mano, ver `CLAUDE.md` § Deploy): su start command es el
+que quedó cargado en el dashboard de Render, no el del archivo. Y gunicorn toma
+la cantidad de workers de la variable `WEB_CONCURRENCY` si existe, sin que
+aparezca en el comando. Mirar en el dashboard de `app-gim-virginia` → Settings
+el **Start Command** real y en Environment si hay `WEB_CONCURRENCY`. De eso
+dependen dos cosas de `ingreso`: el freno por IP de `ingreso/limites.py`, que
+vive en `LocMemCache` (por proceso: con dos workers cada uno cuenta sus propias
+fallas y el freno se afloja en silencio), y el tamaño de las tandas
+(`TARJETAS_POR_TANDA`), que se eligió pensando en que un request largo bloquea
+la puerta entera.
+
+---
+
+## [2026-09-28] El 304 del padrón de la puerta cuesta lo mismo que un 200
+**Estado:** aceptado (riesgo asumido a propósito)
+
+**Impacto:** `GET /ingreso/v1/padron/` (control de ingreso, rama
+`worktree-control-de-ingreso`) versiona con el hash del contenido, así que para
+responder un 304 igual arma el padrón entero: las credenciales activas con su
+alumno y los deudores. El 304 solo ahorra los bytes. Con el único worker de
+gunicorn, cada poll de un lector ocupa el proceso — medido en local (SQLite, 2026-09-28):
+~630-840 ms por `padron_de` con 2000 alumnos con QR y cara; la revisión
+adversarial midió ~350 ms en otro escenario; en Render con Neon, sin medir — mientras los molinetes de ese mismo gimnasio (y todo el resto del
+sitio) esperan. Se suma al cold start de Neon, que ya es el riesgo técnico más
+grande de la feature (spec §5).
+
+**Resolución / próximo paso:** no se optimiza todavía: la feature se construyó
+sin hardware (no hay ningún lector conectado a la rama) y el número es local. **Medirlo en Render antes del primer cliente
+grande.** Si pesa, las dos salidas son una huella barata con una query agregada
+(conteo y `max(modificado)` de credenciales y alumnos del gimnasio, más la fecha
+local, que es lo que mueve el corte de deuda) para contestar el 304 sin armar
+nada, o un caché del cuerpo invalidado por esa misma huella.
+
+---
+
 ## [2026-09-22] `Gimnasio.activo` no bloqueaba nada
 **Estado:** resuelto
 

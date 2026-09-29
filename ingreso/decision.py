@@ -1,0 +1,316 @@
+"""El único lugar donde se decide si la puerta abre.
+
+Molde `pagos/acceso.py`: un módulo, resultado en `dataclass(frozen=True)`, y un
+docstring con lo que no hay que deshacer.
+
+Cuatro decisiones que conviene no deshacer:
+
+1. **`decidir` no toca la base.** `contexto_de` resuelve todo el lote de una
+   vez, con un número FIJO de queries traiga una lectura o cien. La alternativa
+   obvia (una query por evento) es el patrón que ya causó un 502 en producción
+   con el importador. Por eso `contexto` no tiene default: un `contexto=None`
+   "que se lo arma solo" es la puerta por la que volvería a entrar.
+
+2. **El antipassback va ÚLTIMO.** Significa "podés entrar pero ya entraste".
+   Adelantarlo haría que el segundo scan de un deudor diga "ya pasaste" en vez
+   de "tenés una cuota vencida".
+
+3. **Cada lectura se mide contra SU `momento`, nunca contra `now()`**: la
+   reserva vigente y el antipassback. Un lote en diferido trae horas de
+   eventos, y medido contra el instante del upload el reporte mentiría.
+
+4. **`estado_cuenta` del gimnasio NO figura acá.** Que un gimnasio le deba la
+   app al dueño del producto no le cierra la puerta a sus alumnos: dejar
+   ochenta personas afuera de un edificio no es una palanca de cobro. La
+   invariante se fija en la vista, con su test.
+"""
+
+from dataclasses import dataclass, field
+from datetime import timedelta
+
+from django.db.models import Q
+from django.utils import timezone
+
+from alumnos.models import Alumno
+from ingreso.models import Credencial, EventoIngreso, obtener_configuracion
+
+
+@dataclass(frozen=True)
+class Lectura:
+    """Lo que el lector dice que leyó.
+
+    `tipo` usa el vocabulario de `Credencial.Tipo` ("qr"/"facial"). `momento`
+    viene con zona. `id_equipo` es el id que el evento tiene EN el equipo (la
+    idempotencia del lote) y `en_diferido` dice que el equipo ya abrió por su
+    cuenta con el padrón cacheado. Los dos viajan acá y no en un parámetro
+    aparte de `registrar_lote`: con un `set` de ids paralelo, una lectura sin
+    id matchearía por el string vacío.
+    """
+
+    tipo: str
+    valor: str
+    sentido: str
+    momento: object
+    id_equipo: str = ""
+    en_diferido: bool = False
+    #: Diagnóstico para `EventoIngreso.detalle` (p. ej. el desfase del reloj
+    #: del lector en modo online). No interviene en la decisión.
+    nota: str = ""
+
+    @property
+    def valor_normalizado(self):
+        """El lector puede agregar espacios o un `\\r\\n`. Sin esto, la tarjeta
+        buena "no anda" y nadie entiende por qué."""
+        return self.valor.strip()
+
+
+MENSAJES = {
+    EventoIngreso.Resultado.SIN_CREDENCIAL:
+        "Credencial no reconocida. Pasá por el mostrador.",
+    EventoIngreso.Resultado.CREDENCIAL_INACTIVA:
+        "Esa credencial está dada de baja.",
+    EventoIngreso.Resultado.ALUMNO_INACTIVO:
+        "Tu cuenta está dada de baja. Hablá con el gimnasio.",
+    EventoIngreso.Resultado.DEUDA:
+        "Tenés una cuota sin pagar. Pasá por el mostrador.",
+    EventoIngreso.Resultado.SIN_RESERVA:
+        "No tenés turno reservado para este horario.",
+    EventoIngreso.Resultado.DUPLICADO:
+        "Ya registramos tu ingreso hace un momento.",
+}
+"""El texto que ve el alumno en la pantalla del molinete, por resultado. Un
+solo lugar para que `decidir` y la respuesta de un reintento
+(`mensaje_de`) no puedan divergir."""
+
+
+SALUDO = "¡Hola, {nombre}! Pasá."
+"""El texto de un ingreso permitido. Plantilla y no texto hecho porque el
+padrón la manda una sola vez y el puente la completa con el `nombre` de cada
+fila («Juan P.»); online se completa con el nombre de pila."""
+
+
+def _saludo(alumno):
+    return SALUDO.format(nombre=alumno.nombre)
+
+
+def _mensaje_de_deuda(dias):
+    return (
+        f"Tenés una cuota sin pagar hace {dias} "
+        f"{'día' if dias == 1 else 'días'}. Pasá por el mostrador."
+    )
+
+
+def mensaje_de(resultado, alumno=None):
+    """El mensaje de un veredicto YA GUARDADO (el reintento de un lote). El de
+    DEUDA sale sin los días de atraso: no se guardan, y recalcularlos hoy daría
+    un número distinto del que vio el alumno."""
+    if resultado == EventoIngreso.Resultado.PERMITIDO:
+        return _saludo(alumno) if alumno is not None else "Pasá."
+    return MENSAJES.get(resultado, "")
+
+
+@dataclass(frozen=True)
+class Decision:
+    permitido: bool
+    resultado: str
+    mensaje: str
+    alumno: object = None
+    credencial: object = None
+
+
+@dataclass
+class Contexto:
+    """Todo lo que la decisión necesita, ya traído de la base."""
+
+    config: object
+    credenciales: dict            # (tipo, valor normalizado) -> Credencial
+    bloqueados: dict              # alumno_id -> días de atraso, de los que deben
+    reservas: object              # turnos.services.ReservasDelLote, o None
+    #: `(alumno_id, sentido) -> [momento, ...]` de los ingresos PERMITIDOS ya
+    #: guardados dentro de la ventana del lote. Una lista y no "el último":
+    #: en diferido, el último de la base puede estar lejos de una lectura y
+    #: uno anterior, pegado a ella.
+    ultimo_permitido: dict
+    #: Lo que este mismo lote ya dio por permitido, misma forma, para que el
+    #: antipassback vea dos lecturas del mismo alumno dentro del mismo request.
+    concedidos: dict = field(default_factory=dict)
+
+
+def contexto_de(dispositivo, lecturas):
+    """La ÚNICA función de este módulo que consulta la base.
+
+    Queries fijas, traiga una lectura o cien: la configuración, las
+    credenciales, y según lo que esté prendido, los bloqueados, las reservas
+    (más la configuración de turnos) y los ingresos recientes.
+    """
+    from pagos import acceso
+    from turnos import services as turnos_services
+
+    gimnasio = dispositivo.gimnasio
+    config = obtener_configuracion(gimnasio)
+
+    # Filtrar por `gimnasio` ES el aislamiento de tenant en la puerta: el QR
+    # válido de un alumno de otro gimnasio no está en este diccionario, así que
+    # da SIN_CREDENCIAL. Y la clave lleva el `tipo` porque la unicidad de
+    # `Credencial` es `(gimnasio, tipo, valor)`: un id facial y un QR pueden
+    # compartir el texto.
+    #
+    # **Puede haber más de una fila por `(tipo, valor)`**: la unicidad es
+    # parcial sobre las activas, así que el id facial 42 de un ex-alumno (dado
+    # de baja) convive con el 42 que el equipo le reasignó a otro. Gana SIEMPRE
+    # la activa: el `order_by` las deja últimas y el dict se queda con la
+    # última. Entre inactivas, la más reciente (da CREDENCIAL_INACTIVA igual).
+    # Sin el orden explícito el veredicto dependería del orden en que la base
+    # devuelve las filas, y podía rechazar al alumno nuevo por la baja del viejo.
+    valores = {l.valor_normalizado for l in lecturas}
+    credenciales = {
+        (c.tipo, c.valor): c
+        for c in Credencial.objects.for_gimnasio(gimnasio)
+        .filter(valor__in=valores)
+        .select_related("alumno")
+        .order_by("activa", "modificado", "pk")
+    }
+    alumnos = list({c.alumno_id: c.alumno for c in credenciales.values()}.values())
+    if not alumnos:
+        return Contexto(
+            config=config, credenciales=credenciales, bloqueados={},
+            reservas=None, ultimo_permitido={},
+        )
+
+    # Cada lectura con el alumno que la credencial identifica. Las consultas
+    # de abajo se acotan a una ventana ALREDEDOR DE CADA LECTURA y nunca a un
+    # rango `[min, max]` del lote: un lector con el reloj reseteado manda una
+    # lectura del 2000-01-01, y con un rango único esa sola lectura traería a
+    # memoria el historial ENTERO de ingresos y reservas de todo el lote.
+    pares = {
+        (credencial.alumno, lectura.momento)
+        for lectura in lecturas
+        if (credencial := credenciales.get(
+            (lectura.tipo, lectura.valor_normalizado)
+        )) is not None
+    }
+
+    # La regla de deuda NO se reescribe acá: `pagos/acceso.py` dice en su
+    # docstring que es "el único lugar donde se decide si un alumno está
+    # bloqueado por falta de pago", y copiar su `Exists` sería la segunda copia
+    # que ese módulo existe para evitar. `bloqueados_entre` es su versión en
+    # bloque. Se evalúa contra HOY (no contra el momento de cada lectura): la
+    # deuda es un estado de la cuenta, no del instante del evento -- riesgo
+    # aceptado en la spec.
+    bloqueados = {}
+    if config.bloquea_por_deuda:
+        hoy = timezone.localdate()
+        bloqueados = {
+            alumno_id: (hoy - desde).days
+            for alumno_id, desde in acceso.bloqueados_entre(
+                gimnasio, alumnos, hoy=hoy
+            ).items()
+        }
+
+    reservas = None
+    if config.exige_reserva:
+        reservas = turnos_services.reservas_vigentes_en_momentos(gimnasio, pares)
+
+    ultimo_permitido = {}
+    minutos = config.minutos_antipassback
+    if minutos:
+        # **La ventana por lectura es obligatoria, no una optimización.** Sin
+        # ella esta query trae el historial ENTERO de cada alumno del lote: un
+        # socio con dos años de ingresos son ~500 filas, y cien de ellos en un
+        # lote son 50.000 filas a memoria en cada scan. La cantidad de QUERIES
+        # sería la misma, así que un test que solo cuenta queries pasa con el
+        # bug puesto -- exactamente la trampa que este proyecto ya pagó. Lo que
+        # se mide es la ventana, con sus propios tests.
+        ventana = timedelta(minutes=minutos)
+        por_momento = {}
+        for alumno, momento in pares:
+            por_momento.setdefault(momento, set()).add(alumno.pk)
+        filtro = Q()
+        for momento, ids in por_momento.items():
+            filtro |= Q(
+                alumno_id__in=ids,
+                momento__range=(momento - ventana, momento + ventana),
+            )
+        previos = (
+            EventoIngreso.objects.for_gimnasio(gimnasio)
+            .filter(filtro, resultado=EventoIngreso.Resultado.PERMITIDO)
+            .values_list("alumno_id", "sentido", "momento")
+        )
+        for alumno_id, sentido, momento in previos:
+            ultimo_permitido.setdefault((alumno_id, sentido), []).append(momento)
+
+    return Contexto(
+        config=config, credenciales=credenciales, bloqueados=bloqueados,
+        reservas=reservas, ultimo_permitido=ultimo_permitido,
+    )
+
+
+def decidir(lectura, contexto):
+    """Decide sobre lo que `contexto_de` ya trajo: **no toca la base**.
+
+    No es pura, y la impureza es deliberada: al conceder un ingreso anota el
+    momento en `contexto.concedidos`, que es lo que le permite al antipassback
+    ver dos lecturas del mismo alumno dentro del MISMO lote. Consecuencia para
+    quien la llame: **las lecturas de un lote se recorren en orden**, y el mismo
+    `contexto` se reusa para todas.
+    """
+    credencial = contexto.credenciales.get(
+        (lectura.tipo, lectura.valor_normalizado)
+    )
+    if credencial is None:
+        return Decision(
+            False, EventoIngreso.Resultado.SIN_CREDENCIAL,
+            MENSAJES[EventoIngreso.Resultado.SIN_CREDENCIAL],
+        )
+    if not credencial.activa:
+        return Decision(
+            False, EventoIngreso.Resultado.CREDENCIAL_INACTIVA,
+            MENSAJES[EventoIngreso.Resultado.CREDENCIAL_INACTIVA],
+            credencial.alumno, credencial,
+        )
+
+    alumno = credencial.alumno
+    if alumno.estado != Alumno.Estado.ACTIVO:
+        return Decision(
+            False, EventoIngreso.Resultado.ALUMNO_INACTIVO,
+            MENSAJES[EventoIngreso.Resultado.ALUMNO_INACTIVO],
+            alumno, credencial,
+        )
+    if alumno.pk in contexto.bloqueados:
+        return Decision(
+            False, EventoIngreso.Resultado.DEUDA,
+            _mensaje_de_deuda(contexto.bloqueados[alumno.pk]),
+            alumno, credencial,
+        )
+    if contexto.config.exige_reserva and (
+        contexto.reservas is None
+        or contexto.reservas.vigente(alumno.pk, lectura.momento) is None
+    ):
+        return Decision(
+            False, EventoIngreso.Resultado.SIN_RESERVA,
+            MENSAJES[EventoIngreso.Resultado.SIN_RESERVA],
+            alumno, credencial,
+        )
+
+    minutos = contexto.config.minutos_antipassback
+    if minutos:
+        clave = (alumno.pk, lectura.sentido)
+        previos = [
+            *contexto.ultimo_permitido.get(clave, ()),
+            *contexto.concedidos.get(clave, ()),
+        ]
+        if any(
+            abs((lectura.momento - previo).total_seconds()) < minutos * 60
+            for previo in previos
+        ):
+            return Decision(
+                False, EventoIngreso.Resultado.DUPLICADO,
+                MENSAJES[EventoIngreso.Resultado.DUPLICADO],
+                alumno, credencial,
+            )
+        contexto.concedidos.setdefault(clave, []).append(lectura.momento)
+
+    return Decision(
+        True, EventoIngreso.Resultado.PERMITIDO,
+        _saludo(alumno), alumno, credencial,
+    )

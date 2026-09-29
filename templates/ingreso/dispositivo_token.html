@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}Clave de {{ dispositivo.nombre }} · App Gimnasios{% endblock %}
+
+{% block content %}
+{% comment %}
+  `hx-history="false"`: antes de cada navegación boosteada, htmx 2 guarda el
+  `<body>` en `localStorage["htmx-history-cache"]` (sin vencimiento) y el
+  «atrás» lo restaura sin pedirlo al servidor. Con el atributo en cualquier
+  elemento de la página, htmx no la guarda: el secreto no queda en disco y el
+  «atrás» vuelve al servidor, que responde `no-store`. Lo exige
+  `ingreso.tests_vistas.SecretosFueraDelHistorialDeHtmxTests`.
+{% endcomment %}
+<div class="tarjeta" hx-history="false">
+  <h1>{% if modo == "alta" %}Lector dado de alta{% else %}Clave nueva{% endif %}</h1>
+
+  <p class="texto-suave">
+    Cargá esta clave en <strong>{{ dispositivo.nombre }}</strong> (o pasásela a
+    quien lo instala). <strong>No la vas a poder ver de nuevo:</strong> la app
+    guarda solo una huella de la clave, así que ni vos ni nadie puede
+    recuperarla. Si se pierde, generás una nueva desde el lector.
+    {% if modo == "rotacion" %}La clave anterior ya no abre la puerta.{% endif %}
+  </p>
+
+  {% if not dispositivo.activo %}
+    <p><strong>Este lector está desactivado:</strong> aunque cargues la clave,
+    no va a abrir la puerta hasta que lo vuelvas a activar desde su ficha.</p>
+  {% endif %}
+
+  <table class="tabla-detalle">
+    <tr>
+      <th>Clave</th>
+      <td><code id="dato-token" class="break-all">{{ token }}</code></td>
+    </tr>
+  </table>
+
+  <div class="acciones-lista">
+    <button type="button" class="boton" id="copiar">Copiar la clave</button>
+    <a class="boton-secundario" href="{% url 'ingreso:instructivo' %}">Qué hacer con la clave</a>
+    <a class="boton-secundario" href="{% url 'ingreso:dispositivos' %}">Volver a los lectores</a>
+  </div>
+</div>
+
+<script>
+  document.getElementById("copiar").addEventListener("click", async (evento) => {
+    try {
+      await navigator.clipboard.writeText(
+        document.getElementById("dato-token").textContent
+      );
+      evento.target.textContent = "¡Copiada!";
+    } catch {
+      // navigator.clipboard no existe fuera de HTTPS/localhost: la clave igual
+      // está a la vista para copiarla a mano.
+      evento.target.textContent = "Copiala a mano";
+    }
+  });
+</script>
+{% endblock %}

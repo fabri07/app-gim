@@ -16,6 +16,7 @@ concurrencia real acá; en Postgres (producción) sí aplica el lock.
 """
 
 from datetime import date, datetime, time, timedelta
+from datetime import timezone as dt_timezone
 from unittest.mock import patch
 from urllib.parse import parse_qs
 
@@ -58,6 +59,230 @@ from turnos.services import (
     url_google_calendar,
     vacantes_de_franja,
 )
+from turnos import services
+
+
+class ReservaVigenteTests(TestCase):
+    """El reloj se congela porque un test de bordes que compare contra la hora
+    real pasa o falla según la hora del día en que se corra."""
+
+    # 2026-09-27 22:30 UTC == 19:30 en Buenos Aires.
+    MOMENTO = datetime(2026, 9, 27, 22, 30, tzinfo=dt_timezone.utc)
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Juan", apellido="P"
+        )
+        obtener_configuracion(self.gimnasio)  # duracion_minutos = 60
+
+    def _reserva(self, hora):
+        return Reserva.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            fecha=date(2026, 9, 27), hora_inicio=hora,
+        )
+
+    def test_una_reserva_en_curso_es_vigente(self):
+        reserva = self._reserva(time(19))  # 19:00 a 20:00, y son las 19:30
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            self.assertEqual(
+                services.reserva_vigente(self.gimnasio, self.alumno), reserva
+            )
+
+    def test_el_que_llega_unos_minutos_antes_entra(self):
+        """`TOLERANCIA_INGRESO` de 15 minutos: el alumno que llega 19:30 para
+        una clase de 19:45 no puede quedar en la calle."""
+        self._reserva(time(19, 45))
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            self.assertIsNotNone(
+                services.reserva_vigente(self.gimnasio, self.alumno)
+            )
+
+    def test_una_reserva_terminada_no_es_vigente(self):
+        self._reserva(time(17))  # 17:00 a 18:00
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            self.assertIsNone(
+                services.reserva_vigente(self.gimnasio, self.alumno)
+            )
+
+    def test_una_reserva_de_mas_tarde_todavia_no_es_vigente(self):
+        self._reserva(time(21))
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            self.assertIsNone(
+                services.reserva_vigente(self.gimnasio, self.alumno)
+            )
+
+    def test_una_clase_que_cruza_la_medianoche(self):
+        """La ventana se arma sobre dos fechas: con un solo `fecha=` la clase
+        de 23:30 desaparece a las 00:05, que es justo cuando el alumno sale."""
+        Reserva.objects.create(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            fecha=date(2026, 9, 27), hora_inicio=time(23, 30),
+        )
+        medianoche = datetime(2026, 9, 28, 3, 5, tzinfo=dt_timezone.utc)  # 00:05 local
+
+        with patch("django.utils.timezone.now", return_value=medianoche):
+            self.assertIsNotNone(
+                services.reserva_vigente(self.gimnasio, self.alumno)
+            )
+
+    def test_un_ahora_con_zona_se_compara_en_hora_local(self):
+        """La puerta pasa el `momento` de la lectura, que viene con zona. Sin
+        pasarlo a hora local, 22:30 UTC (19:30 acá) se leería como las 22:30
+        y el turno de las 19 no aparecería."""
+        reserva = self._reserva(time(19))
+
+        self.assertEqual(
+            services.reserva_vigente(
+                self.gimnasio, self.alumno, ahora=self.MOMENTO
+            ),
+            reserva,
+        )
+
+    def test_reservas_vigentes_en_bloque_no_crece_en_queries(self):
+        alumnos = [self.alumno]
+        for i in range(9):
+            alumnos.append(
+                Alumno.objects.create(
+                    gimnasio=self.gimnasio, nombre=f"A{i}", apellido="X"
+                )
+            )
+        for alumno in alumnos:
+            Reserva.objects.create(
+                gimnasio=self.gimnasio, alumno=alumno,
+                fecha=date(2026, 9, 27), hora_inicio=time(19),
+            )
+
+        with patch("django.utils.timezone.now", return_value=self.MOMENTO):
+            with CaptureQueriesContext(connection) as pocos:
+                vigentes_pocos = services.reservas_vigentes(
+                    self.gimnasio, alumnos[:2]
+                )
+            with CaptureQueriesContext(connection) as muchos:
+                vigentes_muchos = services.reservas_vigentes(
+                    self.gimnasio, alumnos
+                )
+
+        # Que devuelva lo que tiene que devolver: un test de costo que pasa
+        # con un resultado vacío no está midiendo nada.
+        self.assertEqual(len(vigentes_pocos), 2)
+        self.assertEqual(len(vigentes_muchos), 10)
+        self.assertEqual(len(pocos), len(muchos))
+
+
+class ReservasVigentesEnMomentosTests(TestCase):
+    """La versión de `reservas_vigentes` para un lote de lecturas con momentos
+    distintos (el lector que estuvo offline y sube tres horas de eventos).
+
+    Es la misma regla escrita dos veces -- la ventana en SQL y
+    `ReservasDelLote.vigente` en Python --, así que el test central las compara
+    instante por instante, cruzando la medianoche y con dos duraciones de
+    turno. Si tocás una, la otra tiene que seguirla.
+    """
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        obtener_configuracion(self.gimnasio)  # duracion_minutos = 60
+        self.alumnos = []
+        horarios = [
+            (date(2026, 9, 27), time(18)),
+            (date(2026, 9, 27), time(19, 45)),
+            (date(2026, 9, 27), time(23, 30)),  # cruza la medianoche
+            (date(2026, 9, 28), time(0, 10)),
+            (date(2026, 9, 28), time(8)),
+        ]
+        for i, (fecha, hora) in enumerate(horarios):
+            alumno = Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=f"A{i}", apellido="X"
+            )
+            Reserva.objects.create(
+                gimnasio=self.gimnasio, alumno=alumno, fecha=fecha, hora_inicio=hora
+            )
+            self.alumnos.append(alumno)
+
+    def _comparar_en_cada_instante(self):
+        """Dos lecturas por instante: un lote de UN momento (donde el SQL ya
+        recorta) y un lote con TODOS los momentos juntos, que es el uso real.
+        En el segundo la base trae reservas de otras lecturas y la que decide
+        es la gemela en Python: sin él, una `_en_curso` más laxa que el SQL
+        pasaba este test."""
+        # 2026-09-27 17:00 local -> 2026-09-28 10:00 local, de a 5 minutos.
+        inicio = datetime(2026, 9, 27, 20, 0, tzinfo=dt_timezone.utc)
+        instantes = [inicio + timedelta(minutes=5 * i) for i in range(17 * 12)]
+        lote_entero = services.reservas_vigentes_en_momentos(
+            self.gimnasio, [(a, m) for a in self.alumnos for m in instantes]
+        )
+        vistos = 0
+        for ahora in instantes:
+            esperado = set(
+                services.reservas_vigentes(self.gimnasio, self.alumnos, ahora)
+            )
+            lote_de_uno = services.reservas_vigentes_en_momentos(
+                self.gimnasio, [(a, ahora) for a in self.alumnos]
+            )
+            for lote in (lote_de_uno, lote_entero):
+                obtenido = {
+                    a.pk for a in self.alumnos
+                    if lote.vigente(a.pk, ahora) is not None
+                }
+                self.assertEqual(obtenido, esperado, ahora)
+            vistos += len(esperado)
+        return vistos
+
+    def test_coincide_con_reservas_vigentes_en_cada_instante(self):
+        # Que la comparación haya visto reservas de verdad, no dos vacíos.
+        self.assertGreater(self._comparar_en_cada_instante(), 50)
+
+    def test_coincide_tambien_con_turnos_de_45_minutos(self):
+        """Con 60 minutos un desfasaje en la duración puede quedar tapado por
+        la grilla de 5 minutos del barrido; con 45 el borde cae en otro lado."""
+        ConfiguracionTurnos.objects.filter(gimnasio=self.gimnasio).update(
+            duracion_minutos=45
+        )
+
+        self.assertGreater(self._comparar_en_cada_instante(), 40)
+
+    def test_no_trae_reservas_fuera_de_las_ventanas_de_cada_momento(self):
+        """Un reloj reseteado manda una lectura de hace años: con un rango
+        `[min, max]` esa sola lectura traería todas las reservas del medio."""
+        alumno = self.alumnos[0]
+        viejo = datetime(2000, 1, 1, 12, 0, tzinfo=dt_timezone.utc)
+        ahora = datetime(2026, 9, 27, 21, 30, tzinfo=dt_timezone.utc)  # 18:30
+
+        # La de las 18:00 del 27 (en curso a las 18:30) y ninguna más, aunque
+        # el alumno tenga otras entre el 2000 y hoy.
+        Reserva.objects.create(
+            gimnasio=self.gimnasio, alumno=alumno,
+            fecha=date(2010, 5, 5), hora_inicio=time(10),
+        )
+        lote = services.reservas_vigentes_en_momentos(
+            self.gimnasio, [(alumno, viejo), (alumno, ahora)]
+        )
+        self.assertEqual(
+            [r.fecha for r in lote.por_alumno[alumno.pk]], [date(2026, 9, 27)]
+        )
+
+    def test_una_query_mas_la_configuracion_sin_importar_los_pares(self):
+        desde = datetime(2026, 9, 27, 20, 0, tzinfo=dt_timezone.utc)
+        # 100 momentos distintos (el tope del lote) de a 10 minutos: de las
+        # 17:00 a las 09:30 del día siguiente, así caen las cinco reservas.
+        instantes = [desde + timedelta(minutes=10 * i) for i in range(100)]
+        with CaptureQueriesContext(connection) as pocos:
+            services.reservas_vigentes_en_momentos(
+                self.gimnasio, [(a, desde) for a in self.alumnos[:1]]
+            )
+        with CaptureQueriesContext(connection) as muchos:
+            lote = services.reservas_vigentes_en_momentos(
+                self.gimnasio,
+                [(a, m) for a in self.alumnos for m in instantes],
+            )
+
+        self.assertEqual(len(lote.por_alumno), 5)
+        self.assertEqual(len(pocos), len(muchos))
 
 
 class ConfiguracionTurnosModelTests(TestCase):

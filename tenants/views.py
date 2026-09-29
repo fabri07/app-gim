@@ -98,6 +98,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         dominio que mostrar, así que devolvemos `alumno=None` y el template
         renderiza un estado vacío en vez de 500.
         """
+        from ingreso import presentacion
         from novedades.models import Novedad
         from pagos import acceso
         from pagos.models import MedioCobro
@@ -155,6 +156,12 @@ class HomeView(LoginRequiredMixin, TemplateView):
         bloqueo = acceso.bloqueo_de(alumno, hoy=hoy)
 
         return {
+            # «Tu código para entrar»: solo el estado y el link a
+            # `ingreso:mi_codigo`, nunca el QR (así el inicio sigue cacheable
+            # y entrando en el historial de htmx). Una o dos queries fijas.
+            **presentacion.tarjeta_del_portal(
+                alumno, perfil.gimnasio, bloqueo=bloqueo
+            ),
             "alumno": alumno,
             "bloqueo": bloqueo,
             "rutina_actual": None if bloqueo else rutina_actual,
@@ -181,6 +188,8 @@ class HomeView(LoginRequiredMixin, TemplateView):
     @staticmethod
     def _metricas_dashboard(gimnasio):
         from alumnos.models import Alumno
+        from ingreso import analitica as analitica_ingreso
+        from ingreso import presentacion as presentacion_ingreso
         from novedades.models import Novedad
         from pagos import acceso
         from pagos.models import Cuota
@@ -196,6 +205,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         # portal del alumno —que usa `vigente_de`, con fecha local— decía que
         # no tenía rutina.
         hoy = timezone.localdate()
+        control_ingreso = presentacion_ingreso.resumen_para_el_panel(gimnasio)
 
         return {
             "alumnos_activos_count": Alumno.objects.for_gimnasio(gimnasio)
@@ -239,6 +249,20 @@ class HomeView(LoginRequiredMixin, TemplateView):
             # viviera solo en la ficha de cada alumno, habría que sospechar
             # primero para encontrarlo.
             "planes_por_vencer": RutinaAsignada.por_vencer_de(gimnasio=gimnasio),
+            # «Control de ingreso»: ingresos y rechazos de hoy, y los lectores
+            # que no hablan con la app hace rato (la puerta puede estar
+            # caída). Dos queries fijas; sin lectores, invita a configurar.
+            # No reemplaza a la «asistencia» de `analitica` (que cuenta
+            # `Reserva`): la spec no lo pide y un gimnasio sin lector se
+            # quedaría sin esos números.
+            "control_ingreso": control_ingreso,
+            # Reservas contra ingresos reales y quién entra sin reserva. Solo
+            # con la puerta en uso: sin lector no hay ingresos que comparar.
+            "puerta_vs_reservas": (
+                analitica_ingreso.para_el_panel(gimnasio)
+                if control_ingreso["usa_la_puerta"]
+                else None
+            ),
             # Solo broadcasts en el dashboard del staff: las personales son de
             # un alumno puntual, no del panel de gestión (Parte B).
             "ultimas_novedades": Novedad.objects.for_gimnasio(gimnasio)

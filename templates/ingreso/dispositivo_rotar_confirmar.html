@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}Clave nueva para {{ dispositivo.nombre }} · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>¿Generar una clave nueva para {{ dispositivo.nombre }}?</h1>
+
+  {% if not dispositivo.activo %}
+    <p><strong>Este lector está desactivado:</strong> con la clave nueva
+    tampoco va a abrir hasta que lo vuelvas a activar desde su ficha.</p>
+  {% endif %}
+
+  <p>Qué pasa si seguís:</p>
+  <ul class="list-disc pl-6 texto-suave">
+    <li><strong>La clave actual deja de funcionar en el acto.</strong> El lector
+      no va a abrir la puerta hasta que cargues la nueva en el equipo (o en el
+      programa que lo conecta con la app).</li>
+    <li>Vas a tener que ir hasta el equipo, o pedírselo a quien lo instaló, con
+      la clave nueva a mano. Te la mostramos una sola vez.</li>
+  </ul>
+
+  <p class="texto-suave">
+    Conviene hacerlo si perdiste la clave, si sospechás que la tiene alguien
+    que no debería, o si cambiaste de instalador. Si podés elegir, hacelo en un
+    horario tranquilo: mientras tanto la puerta no abre con este lector.
+  </p>
+
+  <form method="post" class="acciones-lista" hx-boost="false">
+    {% csrf_token %}
+    <button type="submit" class="boton-peligro">Sí, generar una clave nueva</button>
+    <a class="boton-secundario" href="{% url 'ingreso:dispositivo_editar' dispositivo.pk %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

@@ -14,7 +14,7 @@
     la `errorlist` de Django no tiene estilo acá y sale en negro arriba de la
     etiqueta, indistinguible de una ayuda.
   {% endcomment %}
-  <form method="post" novalidate>
+  <form method="post" novalidate hx-boost="false">
     {% csrf_token %}
     {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
 

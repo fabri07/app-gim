@@ -572,6 +572,19 @@ class PortadaViewTests(TestCase):
         self.assertNotIn("importar tus alumnos", contenido)
         self.assertNotIn("o los importás", contenido)
 
+    def test_presenta_el_control_de_ingreso(self):
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, 'id="ingreso"')
+        self.assertContains(response, "reconocimiento facial")
+        self.assertContains(response, "¿Funciona con el molinete de mi gimnasio?")
+
+    def test_control_de_ingreso_no_promete_marcas_de_equipos(self):
+        """Todavía no hay un modelo de equipo probado contra la API: nombrar
+        un fabricante sería prometer una compatibilidad que nadie verificó."""
+        contenido = self.client.get(reverse("home")).content.decode().lower()
+        for marca in ("hikvision", "zkteco", "dahua", "suprema"):
+            self.assertNotIn(marca, contenido)
+
     def test_cotizacion_se_pide_una_sola_vez_por_request(self):
         with patch(
             "plataforma.cambio.cotizacion_dolar", return_value=None
@@ -3995,6 +4008,13 @@ def _ensuciar(gimnasio, staff, marca="X"):
     from alumnos.models import Alumno
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.models import Importacion
+    from ingreso import tokens as ingreso_tokens
+    from ingreso.models import (
+        ConfiguracionIngreso,
+        Credencial,
+        Dispositivo,
+        EventoIngreso,
+    )
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import Cuota, MedioCobro
@@ -4061,6 +4081,25 @@ def _ensuciar(gimnasio, staff, marca="X"):
     Reserva.objects.create(
         gimnasio=gimnasio, alumno=alumno,
         fecha=timezone.localdate(), hora_inicio=time(9),
+    )
+    ConfiguracionIngreso.objects.create(gimnasio=gimnasio)
+    dispositivo = Dispositivo.objects.create(
+        gimnasio=gimnasio, nombre=f"Puerta {marca}",
+        tipo=Dispositivo.Tipo.QR,
+        token_hash=ingreso_tokens.hash_de(f"token-{marca}"),
+    )
+    Credencial.objects.create(
+        gimnasio=gimnasio, alumno=alumno,
+        tipo=Credencial.Tipo.QR, valor=f"qr-{marca}",
+    )
+    EventoIngreso.objects.create(
+        gimnasio=gimnasio, dispositivo=dispositivo, alumno=alumno,
+        resultado=EventoIngreso.Resultado.PERMITIDO, momento=timezone.now(),
+    )
+    EventoIngreso.objects.create(
+        gimnasio=gimnasio, dispositivo=dispositivo,
+        resultado=EventoIngreso.Resultado.SIN_CREDENCIAL,
+        momento=timezone.now(), detalle="…abc123",
     )
     return alumno
 

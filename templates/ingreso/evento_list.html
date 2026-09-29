@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+{% block title %}Ingresos · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Ingresos</h1>
+    <a class="boton-secundario" href="{% url 'ingreso:dispositivos' %}">Lectores de la puerta</a>
+    <a class="boton-secundario" href="{% url 'ingreso:configuracion' %}">Configuración</a>
+    <a class="boton-secundario" href="{% url 'ingreso:instructivo' %}">Cómo conectar tu puerta</a>
+  </div>
+
+  <p class="texto-suave">
+    Cada vez que alguien pasa (o intenta pasar) por un lector de la puerta. Los
+    rechazos también quedan: así sabés si alguien probó con una tarjeta dada de
+    baja o si a un alumno no le anda el código.
+  </p>
+
+  <form method="get" class="filtros">
+    <div>
+      <label for="desde">Desde</label>
+      <input type="date" name="desde" id="desde" value="{{ desde_actual }}">
+    </div>
+    <div>
+      <label for="hasta">Hasta</label>
+      <input type="date" name="hasta" id="hasta" value="{{ hasta_actual }}">
+    </div>
+    <div>
+      <label for="alumno">Alumno</label>
+      <select name="alumno" id="alumno">
+        <option value="" {% if not alumno_actual %}selected{% endif %}>Todos</option>
+        {% for a in alumnos %}
+          <option value="{{ a.pk }}" {% if alumno_actual == a.pk|stringformat:"d" %}selected{% endif %}>{{ a.apellido }}, {{ a.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="resultado">Resultado</label>
+      <select name="resultado" id="resultado">
+        <option value="" {% if not resultado_actual %}selected{% endif %}>Todos</option>
+        <option value="{{ filtro_rechazados }}" {% if resultado_actual == filtro_rechazados %}selected{% endif %}>Solo rechazos</option>
+        {% for valor, etiqueta in resultados %}
+          <option value="{{ valor }}" {% if resultado_actual == valor %}selected{% endif %}>{{ etiqueta }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="boton-secundario">Filtrar</button>
+    {% if hay_filtros %}
+      <a class="boton-secundario" href="{% url 'ingreso:listado' %}">Quitar filtros</a>
+    {% endif %}
+  </form>
+
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Cuándo</th>
+          <th>Alumno</th>
+          <th>Resultado</th>
+          <th>Lector</th>
+          <th>Detalle</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in eventos %}
+          <tr>
+            {% comment %} El filtro `date` convierte a la hora local (TIME_ZONE): `momento` se guarda en UTC y a las 22:30 de Buenos Aires ya es el día siguiente. {% endcomment %}
+            <td>{{ e.momento|date:"d/m/Y H:i" }}</td>
+            <td>
+              {% if e.alumno %}
+                <a hx-boost="false" href="{% url 'alumnos:detalle' e.alumno.pk %}">{{ e.alumno.nombre }} {{ e.alumno.apellido }}</a>
+              {% else %}
+                <span class="texto-suave">Desconocido</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if e.resultado == "permitido" %}
+                <span class="badge badge--ok">{{ e.get_resultado_display }}</span>
+              {% elif e.resultado == "duplicado" %}
+                <span class="badge badge--neutro">{{ e.get_resultado_display }}</span>
+              {% else %}
+                <span class="badge badge--riesgo">{{ e.get_resultado_display }}</span>
+              {% endif %}
+              {% if e.sentido == "salida" %}<span class="badge badge--neutro">Salida</span>{% endif %}
+            </td>
+            <td>
+              {{ e.dispositivo.nombre }}
+              {% if e.en_diferido %}<span class="badge badge--neutro" title="El lector estaba sin internet y abrió con su lista guardada">Sin conexión</span>{% endif %}
+            </td>
+            <td class="texto-suave">{{ e.detalle }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5" class="texto-suave">
+              {% if hay_filtros %}Ningún ingreso coincide con esos filtros.{% else %}Todavía no pasó nadie por la puerta.{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+    <nav class="acciones-lista" aria-label="Páginas de ingresos">
+      {% if page_obj.has_previous %}
+        <a class="boton-secundario" href="{% querystring page=page_obj.previous_page_number %}">Más nuevos</a>
+      {% else %}<span></span>{% endif %}
+      <span class="texto-suave">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+        <a class="boton-secundario" href="{% querystring page=page_obj.next_page_number %}">Más viejos</a>
+      {% else %}<span></span>{% endif %}
+    </nav>
+  {% endif %}
+</div>
+{% endblock %}

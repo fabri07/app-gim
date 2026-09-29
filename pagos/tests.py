@@ -1229,6 +1229,155 @@ class BloqueoPorFaltaDePagoTests(TestCase):
         self.assertEqual(len(grande), len(chico))
 
 
+class BloqueadosEntreTests(TestCase):
+    """`bloqueados_entre`: la versión en bloque de `bloqueo_de`, para la puerta.
+
+    Tiene que ser la MISMA regla, no una segunda: el test central la compara
+    contra `bloqueo_de` alumno por alumno sobre un conjunto que cubre cada
+    rama de la regla.
+    """
+
+    def setUp(self):
+        self.hoy = date(2026, 7, 20)
+        self.gimnasio = Gimnasio.objects.create(
+            nombre="Gimnasio A", slug="gimnasio-a", dias_tolerancia_pago=3
+        )
+        # La señal estampa la activación en la fecha REAL de hoy: se retrocede
+        # a mano, igual que en `BloqueoPorFaltaDePagoTests`.
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            fecha_activacion_bloqueo=date(2026, 7, 1)
+        )
+        self.gimnasio.refresh_from_db()
+
+    def _alumno(self, nombre):
+        return Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre=nombre, apellido="X",
+            fecha_inicio_ciclo=date(2026, 6, 1),
+        )
+
+    def _cuota(self, alumno, inicio, **extra):
+        return crear_cuota(
+            gimnasio=self.gimnasio, alumno=alumno, inicio=inicio, **extra
+        )
+
+    def _conjunto_mixto(self):
+        al_dia = self._alumno("AlDia")
+        debe = self._alumno("Debe")
+        self._cuota(debe, date(2026, 7, 2))  # 18 días, tolerancia 3
+        en_tolerancia = self._alumno("EnTolerancia")
+        self._cuota(en_tolerancia, date(2026, 7, 18))  # 2 días
+        pago = self._alumno("Pago")
+        self._cuota(pago, date(2026, 7, 2), estado=Cuota.Estado.PAGADO)
+        anulado = self._alumno("Anulado")
+        self._cuota(anulado, date(2026, 7, 2), estado=Cuota.Estado.ANULADO)
+        historico = self._alumno("Historico")
+        self._cuota(historico, date(2026, 5, 1))  # anterior a la activación
+        vencido = self._alumno("Vencido")
+        self._cuota(vencido, date(2026, 7, 5), estado=Cuota.Estado.VENCIDO)
+        # Los dos bordes de la regla, cada uno en su alumno: sin ellos, un
+        # `<=` que pasa a `<` (o un `>=` a `>`) en una sola de las dos
+        # versiones no rompía nada.
+        en_el_umbral = self._alumno("EnElUmbral")
+        self._cuota(en_el_umbral, date(2026, 7, 17))  # hoy - 3 exacto
+        en_la_activacion = self._alumno("EnLaActivacion")
+        self._cuota(en_la_activacion, date(2026, 7, 1))  # == activación
+        return [
+            al_dia, debe, en_tolerancia, pago, anulado, historico, vencido,
+            en_el_umbral, en_la_activacion,
+        ]
+
+    def test_coincide_con_bloqueo_de_alumno_por_alumno(self):
+        alumnos = self._conjunto_mixto()
+
+        bloqueados = acceso.bloqueados_entre(self.gimnasio, alumnos, hoy=self.hoy)
+
+        esperados = {}
+        for alumno in alumnos:
+            bloqueo = acceso.bloqueo_de(alumno, hoy=self.hoy)
+            if bloqueo is not None:
+                esperados[alumno.pk] = bloqueo.periodo_inicio
+        # Sin esto, un conjunto donde nadie debe haría pasar la comparación
+        # con dos vacíos. Cuatro: Debe, Vencido y los dos bordes.
+        self.assertEqual(len(esperados), 4)
+        self.assertEqual(set(bloqueados), set(esperados))
+        # Y el valor es el arranque de la MISMA cuota que muestra el portal.
+        self.assertEqual(bloqueados, esperados)
+
+    def test_el_valor_es_la_cuota_mas_vieja_de_las_que_bloquean(self):
+        alumno = self._alumno("Juan")
+        self._cuota(alumno, date(2026, 7, 10))
+        self._cuota(alumno, date(2026, 7, 3))
+
+        self.assertEqual(
+            acceso.bloqueados_entre(self.gimnasio, [alumno], hoy=self.hoy),
+            {alumno.pk: date(2026, 7, 3)},
+        )
+
+    def test_con_la_tolerancia_apagada_no_bloquea_a_nadie(self):
+        alumnos = self._conjunto_mixto()
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            dias_tolerancia_pago=None, fecha_activacion_bloqueo=None
+        )
+        self.gimnasio.refresh_from_db()
+
+        with CaptureQueriesContext(connection) as ctx:
+            bloqueados = acceso.bloqueados_entre(
+                self.gimnasio, alumnos, hoy=self.hoy
+            )
+
+        self.assertEqual(bloqueados, {})
+        self.assertEqual(len(ctx), 0)
+
+    def test_sin_alumnos_no_consulta(self):
+        with CaptureQueriesContext(connection) as ctx:
+            self.assertEqual(
+                acceso.bloqueados_entre(self.gimnasio, [], hoy=self.hoy), {}
+            )
+        self.assertEqual(len(ctx), 0)
+
+    def test_no_bloquea_por_cuotas_de_otro_gimnasio(self):
+        """El alumno viene de la puerta de ESTE gimnasio: una cuota impaga
+        cargada en otro (dato corrupto, o un alumno mudado) no lo traba acá."""
+        otro = Gimnasio.objects.create(nombre="Gimnasio B", slug="gimnasio-b")
+        alumno = self._alumno("Juan")
+        Cuota.objects.create(
+            gimnasio=otro, alumno=alumno, monto=0,
+            periodo_inicio=date(2026, 7, 2), periodo_fin=date(2026, 7, 29),
+        )
+
+        self.assertEqual(
+            acceso.bloqueados_entre(self.gimnasio, [alumno], hoy=self.hoy), {}
+        )
+
+    def test_el_costo_no_crece_con_los_alumnos(self):
+        """Lo que crece es lo que multiplica el costo: alumnos CON cuota que
+        bloquea. Y el resultado no puede ser vacío, o la comparación de
+        queries pasa sola."""
+        def sembrar(cantidad, desde):
+            creados = []
+            for i in range(cantidad):
+                alumno = self._alumno(f"A{desde + i}")
+                self._cuota(alumno, date(2026, 7, 2))
+                creados.append(alumno)
+            return creados
+
+        pocos = sembrar(3, 0)
+        muchos = pocos + sembrar(30, 100)
+
+        with CaptureQueriesContext(connection) as chico:
+            bloqueados_pocos = acceso.bloqueados_entre(
+                self.gimnasio, pocos, hoy=self.hoy
+            )
+        with CaptureQueriesContext(connection) as grande:
+            bloqueados_muchos = acceso.bloqueados_entre(
+                self.gimnasio, muchos, hoy=self.hoy
+            )
+
+        self.assertEqual(len(bloqueados_pocos), 3)
+        self.assertEqual(len(bloqueados_muchos), 33)
+        self.assertEqual(len(grande), len(chico))
+
+
 class BloqueoEnLasVistasDelAlumnoTests(TestCase):
     """Qué puede y qué no puede hacer un alumno bloqueado."""
 

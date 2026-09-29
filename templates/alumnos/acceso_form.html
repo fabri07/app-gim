@@ -11,12 +11,12 @@
       comunicásela en persona o por WhatsApp, no se envía automáticamente.
     </p>
 
-    <form method="post" novalidate>
+    <form method="post" novalidate hx-boost="false">
       {% csrf_token %}
       {{ form.as_p }}
       <div class="acciones-lista">
         <button type="submit" class="boton">Crear acceso</button>
-        <a class="boton-secundario" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
+        <a class="boton-secundario" hx-boost="false" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
       </div>
     </form>
   </div>

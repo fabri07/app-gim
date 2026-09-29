@@ -22,7 +22,7 @@ from datetime import date, datetime, time, timedelta
 from urllib.parse import urlencode
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from .models import ConfiguracionTurnos, CupoExcepcion, HorarioAtencion, Reserva, obtener_configuracion
@@ -48,6 +48,145 @@ def _ahora_local() -> datetime:
     (los campos `DateField`/`TimeField` no llevan tzinfo propio).
     """
     return timezone.localtime().replace(tzinfo=None)
+
+
+TOLERANCIA_INGRESO = timedelta(minutes=15)
+"""Cuánto antes del turno se le deja entrar al alumno. Sin esto, el que llega
+diez minutos antes queda en la puerta mirando el molinete."""
+
+
+def _inicio_entre(desde, hasta):
+    """`Q` de las reservas cuyo inicio cae en `(desde, hasta]` (naive, local).
+
+    Una `Q` por día tocado y no un solo `fecha=`: la ventana puede cruzar la
+    medianoche (una clase que arranca 23:30 sigue en curso a las 00:05) y, en
+    un lote en diferido, abarcar varios días.
+    """
+    if desde.date() == hasta.date():
+        return Q(fecha=hasta.date(), hora_inicio__gt=desde.time(),
+                 hora_inicio__lte=hasta.time())
+    return (
+        Q(fecha=desde.date(), hora_inicio__gt=desde.time())
+        | Q(fecha__gt=desde.date(), fecha__lt=hasta.date())
+        | Q(fecha=hasta.date(), hora_inicio__lte=hasta.time())
+    )
+
+
+def _ventana_de_reservas(ahora, duracion_minutos):
+    """Las `Q` que matchean una reserva EN CURSO en `ahora` (naive, local):
+    arrancó hace menos de `duracion_minutos` o arranca dentro de
+    `TOLERANCIA_INGRESO`. Mismo problema de medianoche y misma forma que
+    `notificaciones/management/commands/enviar_recordatorios.py`.
+
+    Su gemela en Python es `_en_curso`: **si tocás una, la otra tiene que
+    seguirla** (`ReservasVigentesEnMomentosTests` las compara instante por
+    instante).
+    """
+    return _inicio_entre(
+        ahora - timedelta(minutes=duracion_minutos), ahora + TOLERANCIA_INGRESO
+    )
+
+
+def _en_curso(reserva, ahora, duracion_minutos):
+    """La misma regla que `_ventana_de_reservas`, sobre una reserva ya traída."""
+    inicio = datetime.combine(reserva.fecha, reserva.hora_inicio)
+    return (
+        ahora - timedelta(minutes=duracion_minutos)
+        < inicio
+        <= ahora + TOLERANCIA_INGRESO
+    )
+
+
+def _a_hora_local(ahora):
+    """`ahora` naive en hora local. Uno con zona (el `momento` de una lectura
+    de la puerta) se convierte ANTES de comparar: `fecha`/`hora_inicio` se
+    guardan en hora de Argentina, y comparado en UTC un ingreso de las 22:30
+    caería en el día siguiente."""
+    if ahora is None:
+        return _ahora_local()
+    if timezone.is_aware(ahora):
+        return timezone.localtime(ahora).replace(tzinfo=None)
+    return ahora
+
+
+def reservas_vigentes(gimnasio, alumnos, ahora=None) -> dict:
+    """`{alumno_id: Reserva}` de los que tienen un turno en curso AHORA.
+
+    En bloque y en UNA query (más la de la configuración): la usa la puerta,
+    que puede recibir un lote de cien lecturas y no puede pagar una query por
+    alumno.
+
+    `ahora` puede venir con zona (el `momento` de una lectura de la puerta):
+    se pasa a hora local ANTES de comparar, porque `fecha`/`hora_inicio` se
+    guardan en hora de Argentina. Comparado en UTC, un ingreso de las 22:30
+    caería en el día siguiente y el alumno quedaría sin turno.
+    """
+    ahora = _a_hora_local(ahora)
+    config = obtener_configuracion(gimnasio)
+    ids = [a.pk for a in alumnos]
+    reservas = Reserva.objects.filter(
+        _ventana_de_reservas(ahora, config.duracion_minutos),
+        gimnasio=gimnasio,
+        alumno_id__in=ids,
+    )
+    return {r.alumno_id: r for r in reservas}
+
+
+@dataclass(frozen=True)
+class ReservasDelLote:
+    """Las reservas de un lote de lecturas con momentos distintos, ya traídas.
+
+    `vigente()` responde "¿tenía turno en curso en ESE instante?" sin tocar la
+    base: es lo que deja a la puerta medir cada lectura contra su propio
+    `momento` (un lote en diferido trae tres horas de eventos) con un costo
+    fijo en queries.
+    """
+
+    duracion_minutos: int
+    por_alumno: dict  # alumno_id -> [Reserva]
+
+    def vigente(self, alumno_id, ahora):
+        ahora = _a_hora_local(ahora)
+        for reserva in self.por_alumno.get(alumno_id, ()):
+            if _en_curso(reserva, ahora, self.duracion_minutos):
+                return reserva
+        return None
+
+
+def reservas_vigentes_en_momentos(gimnasio, pares) -> ReservasDelLote:
+    """Las reservas en curso de cada `(alumno, ahora)` de `pares`.
+
+    UNA query (más la de la configuración), sin importar cuántos pares haya:
+    una ventana de `_ventana_de_reservas` por momento distinto, unidas con OR.
+    **Por momento y no un rango `[min, max]`**: un lector con el reloj
+    reseteado manda una lectura del 2000-01-01, y con un rango único esa sola
+    lectura traería el historial ENTERO de reservas de todo el lote.
+
+    La hermana de `reservas_vigentes` para cuando no hay un único "ahora" (un
+    lote en diferido trae horas de eventos). La decisión fina por lectura la
+    hace `ReservasDelLote.vigente`, sin tocar la base.
+    """
+    config = obtener_configuracion(gimnasio)
+    por_momento = {}
+    for alumno, ahora in pares:
+        por_momento.setdefault(_a_hora_local(ahora), set()).add(alumno.pk)
+    if not por_momento:
+        return ReservasDelLote(config.duracion_minutos, {})
+
+    filtro = Q()
+    for ahora, ids in por_momento.items():
+        filtro |= Q(alumno_id__in=ids) & _ventana_de_reservas(
+            ahora, config.duracion_minutos
+        )
+    por_alumno = {}
+    for reserva in Reserva.objects.filter(filtro, gimnasio=gimnasio):
+        por_alumno.setdefault(reserva.alumno_id, []).append(reserva)
+    return ReservasDelLote(config.duracion_minutos, por_alumno)
+
+
+def reserva_vigente(gimnasio, alumno, ahora=None):
+    """El turno en curso de `alumno`, o `None`."""
+    return reservas_vigentes(gimnasio, [alumno], ahora=ahora).get(alumno.pk)
 
 
 @dataclass(frozen=True)

@@ -255,6 +255,48 @@ HOJAS = (
             ("hora_inicio", "hora_inicio"), ("creado", "creado"),
         ),
     ),
+    Hoja(
+        "control-de-ingreso", "ingreso.ConfiguracionIngreso", "gimnasio",
+        "Cómo está configurada la puerta del gimnasio.",
+        (
+            ("bloquea_por_deuda", "bloquea_por_deuda"),
+            ("exige_reserva", "exige_reserva"),
+            ("minutos_antipassback", "minutos_antipassback"),
+        ),
+    ),
+    Hoja(
+        "lectores-de-puerta", "ingreso.Dispositivo", "gimnasio",
+        "Lectores de la puerta. El token con el que cada uno se autentica no se "
+        "exporta: es la llave de la puerta (las contraseñas tampoco se exportan).",
+        (
+            ("id", "id"), ("nombre", "nombre"), ("tipo", "tipo"),
+            ("activo", "activo"), ("ultimo_contacto", "ultimo_contacto"),
+            ("creado", "creado"),
+        ),
+    ),
+    Hoja(
+        "credenciales-de-ingreso", "ingreso.Credencial", "gimnasio",
+        "Con qué entra cada alumno a la puerta. Ni el código QR ni el id del "
+        "lector se exportan: son llaves de la puerta, igual que las "
+        "contraseñas.",
+        (
+            ("id", "id"), ("alumno_id", "alumno_id"),
+            ("alumno", "alumno__apellido"), ("tipo", "tipo"),
+            ("activa", "activa"),
+        ),
+    ),
+    Hoja(
+        "ingresos", "ingreso.EventoIngreso", "gimnasio",
+        "Quién entró, cuándo y por qué puerta. Incluye los intentos "
+        "rechazados, con el motivo.",
+        (
+            ("id", "id"), ("momento", "momento"),
+            ("alumno_id", "alumno_id"), ("alumno", "alumno__apellido"),
+            ("lector", "dispositivo__nombre"), ("resultado", "resultado"),
+            ("sentido", "sentido"), ("en_diferido", "en_diferido"),
+            ("detalle", "detalle"),
+        ),
+    ),
 )
 
 #: Modelos que NO se exportan, con el motivo que se le cuenta al gimnasio en el

@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}Lector facial de {{ alumno }} · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Lector facial de {{ alumno.nombre }} {{ alumno.apellido }}</h1>
+  <p class="texto-suave">
+    La cara se registra en el lector, no en la app: acá solo anotás el número
+    de usuario que el equipo le dio a {{ alumno.nombre }}, para que la app sepa
+    quién pasó.
+  </p>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+    {% include 'partials/campo_form.html' with campo=form.valor %}
+    <button type="submit" class="boton">Guardar</button>
+    <a class="boton-secundario" hx-boost="false" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

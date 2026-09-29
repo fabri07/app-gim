@@ -76,9 +76,12 @@ DNS wildcard ni SSL por subdominio todavía.
 El producto inicial resuelve el dolor actual: dejar de imprimir rutinas, dejar de mandar
 todo por WhatsApp, saber quién pagó, dar imagen profesional.
 
-**No construir todavía:** QR de ingreso, control de asistencia, app nativa, Mercado Pago,
-débitos automáticos, chat interno, nutrición, métricas deportivas, IA de rutinas,
-subdominios por gimnasio.
+**No construir todavía:** app nativa, Mercado Pago, débitos automáticos, chat interno,
+nutrición, métricas deportivas, IA de rutinas, subdominios por gimnasio.
+
+> **Actualizado.** Esta lista incluía «QR de ingreso, control de asistencia». Salió el
+> 2026-09-28: varios establecimientos se lo pidieron al dueño del producto, que decidió
+> construirlo. El detalle vive en `CLAUDE.md` § "Control de ingreso".
 
 ---
 
@@ -335,9 +338,14 @@ reporte mensual de deudores, historial de rutinas por alumno, biblioteca global 
 ejercicios, duplicación avanzada de rutinas, panel financiero simple, **subdominios por
 gimnasio**.
 
-**Prioridad baja:** Mercado Pago, débitos automáticos, QR de ingreso, control de asistencia,
-app nativa, push reales, IA de rutinas, WhatsApp API, nutrición, medidas corporales,
-gamificación.
+**Prioridad baja:** Mercado Pago, débitos automáticos, app nativa, push reales, IA de
+rutinas, WhatsApp API, nutrición, medidas corporales, gamificación.
+
+> **Actualizado.** «QR de ingreso, control de asistencia» estaba en prioridad baja y se
+> construyó el 2026-09-28 (control de ingreso por molinete, con QR o lector facial), porque
+> varios establecimientos se lo pidieron al dueño del producto. Sin hardware todavía: lo construido es el contrato
+> HTTP con los lectores y las pantallas; el modo kiosco quedó afuera. Ver `CLAUDE.md`
+> § "Control de ingreso".
 
 ---
 

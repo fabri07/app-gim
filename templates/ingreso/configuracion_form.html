@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}Control de ingreso · App Gimnasios{% endblock %}
+
+{% block content %}
+{% comment %}
+  El aviso que pide ACCIÓN (bloqueo sin tolerancia) va en su propia tarjeta
+  ámbar, arriba y no anidada. Lo que el lector no puede aplicar sin internet es
+  informativo: `.nota-informativa`, neutra, al lado de los campos.
+{% endcomment %}
+{% if bloqueo_sin_efecto %}
+  <div class="tarjeta aviso-urgente" role="status">
+    <p>
+      <strong>Esto no va a bloquear a nadie hasta que cargues los días de tolerancia en Mi gimnasio.</strong>
+      Son los días que tiene un alumno para pagar antes de que la puerta deje
+      de abrirle.
+      <a href="{% url 'gimnasio_editar' %}">Ir a Mi gimnasio</a>
+    </p>
+  </div>
+{% endif %}
+
+<div class="tarjeta">
+  <div class="acciones-lista">
+    <h1>Control de ingreso</h1>
+    <a class="boton-secundario" href="{% url 'ingreso:listado' %}">Ver ingresos</a>
+    <a class="boton-secundario" href="{% url 'ingreso:dispositivos' %}">Lectores de la puerta</a>
+    <a class="boton-secundario" href="{% url 'ingreso:instructivo' %}">Cómo conectar tu puerta</a>
+  </div>
+
+  <p class="texto-suave">
+    Qué hace la puerta cuando un alumno pasa su código o su cara por el lector.
+    La app nunca guarda la cara de nadie: eso queda en el equipo.
+  </p>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+
+    {% include 'partials/campo_form.html' with campo=form.bloquea_por_deuda %}
+    {% include 'partials/campo_form.html' with campo=form.exige_reserva %}
+    {% include 'partials/campo_form.html' with campo=form.minutos_antipassback %}
+
+    {% comment %}
+      Al lado de los campos y antes del botón, no en una nota al pie: es una
+      promesa que la app no puede cumplir sin internet (riesgo aceptado 4 de la
+      spec) y el dueño tiene que leerla en el momento de prender la regla.
+    {% endcomment %}
+    <div class="nota-informativa">
+      <strong>Con el lector sin internet</strong>, el equipo decide con la
+      última lista que bajó: no puede pedir turno reservado ni frenar la doble
+      lectura, y un alumno que se atrasó con la cuota después de esa lista
+      puede entrar igual. Todo se corrige solo cuando vuelve la conexión.
+    </div>
+
+    <button type="submit" class="boton">Guardar</button>
+  </form>
+</div>
+{% endblock %}

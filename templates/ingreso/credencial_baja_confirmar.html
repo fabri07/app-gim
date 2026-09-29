@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}Dar de baja la credencial de {{ alumno }} · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>¿Dar de baja {% if credencial.tipo == "qr" %}el código QR{% else %}el lector facial{% endif %} de {{ alumno.nombre }} {{ alumno.apellido }}?</h1>
+
+  <p>Qué pasa si seguís:</p>
+  <ul class="list-disc pl-6 texto-suave">
+    {% if credencial.tipo == "qr" %}
+      <li><strong>Ese código deja de abrir la puerta en el acto</strong>, en la
+        tarjeta impresa y en el celular.</li>
+      <li><strong>No se puede reactivar.</strong> Si la tarjeta se perdió o se
+        la llevó otra persona, reactivarla le devolvería la entrada a quien la
+        tenga. Para que {{ alumno.nombre }} vuelva a entrar con código, vas a
+        tener que generarle uno nuevo.</li>
+    {% else %}
+      <li><strong>El lector deja de reconocerle la cara</strong> para abrir la
+        puerta.</li>
+      <li>Se reactiva volviendo a cargar el número del lector desde su ficha.</li>
+    {% endif %}
+    <li>Los ingresos que ya hizo quedan en el historial.</li>
+  </ul>
+
+  <form method="post" class="acciones-lista">
+    {% csrf_token %}
+    <button type="submit" class="boton-peligro">Sí, dar de baja</button>
+    <a class="boton-secundario" hx-boost="false" href="{% url 'alumnos:detalle' alumno.pk %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

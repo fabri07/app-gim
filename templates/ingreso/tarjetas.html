@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Imprimir tarjetas de ingreso · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Imprimir tarjetas de ingreso</h1>
+  {% comment %}
+    Esta pantalla no muestra ningún código: solo cuántos hay. El PDF sale por
+    POST desde forms con `hx-boost="false"` (htmx se traga la descarga) y la
+    respuesta lleva `no-store`: cada tarjeta abre la puerta.
+  {% endcomment %}
+  <p class="texto-suave">
+    Una tarjeta por alumno activo con código, del tamaño de una tarjeta de
+    crédito, {{ por_hoja }} por hoja A4. Recortalas por la línea punteada.
+    Cada tarjeta abre la puerta: guardá las que sobren y, si una se pierde,
+    regenerá el código desde la ficha del alumno.
+  </p>
+
+  {% if total %}
+    <p><strong>{{ total }}</strong> tarjeta{{ total|pluralize }} para imprimir.</p>
+    {% if tandas|length > 1 %}
+      <p class="texto-suave">Se descargan por tandas para que la app no se trabe mientras arma el archivo.</p>
+    {% endif %}
+    <div class="acciones-lista">
+      {% for tanda in tandas %}
+        <form method="post" action="{% url 'ingreso:tarjetas_pdf' %}" hx-boost="false" class="inline-block">
+          {% csrf_token %}
+          <input type="hidden" name="tanda" value="{{ tanda.numero }}">
+          <button type="submit" class="boton{% if not forloop.first %}-secundario{% endif %}">
+            {% if tandas|length > 1 %}Tarjetas {{ tanda.desde }} a {{ tanda.hasta }} (PDF){% else %}Descargar tarjetas (PDF){% endif %}
+          </button>
+        </form>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p>Todavía no hay ningún alumno activo con código de ingreso.</p>
+    <form method="post" action="{% url 'ingreso:credenciales_en_bloque' %}">
+      {% csrf_token %}
+      <button type="submit" class="boton">Generar códigos de ingreso</button>
+    </form>
+  {% endif %}
+
+  <p class="mt-4"><a href="{% url 'alumnos:listado' %}">Volver a alumnos</a></p>
+</div>
+{% endblock %}

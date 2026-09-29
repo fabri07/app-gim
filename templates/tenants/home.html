@@ -127,6 +127,42 @@
     </div>
   </div>
 
+  {% comment %}
+    «Control de ingreso»: va arriba de las cuotas porque un lector callado es
+    la señal de que la puerta puede estar caída, y eso es lo único de esta
+    tarjeta que pide actuar YA. Ámbar (no rojo) cuando hay un lector sin
+    contacto: es algo para revisar, no un error del sistema. Sin ningún lector
+    no hay números («0 ingresos» no dice nada): la invitación a configurarla va
+    más abajo, al lado de las novedades. Ver `presentacion.resumen_para_el_panel`.
+  {% endcomment %}
+  {% if control_ingreso.usa_la_puerta %}
+    {% with hoy=control_ingreso.hoy|date:"Y-m-d" %}
+      <div class="tarjeta{% if control_ingreso.lectores_sin_contacto %} aviso-urgente{% endif %}">
+        <div class="acciones-lista">
+          <h2>Control de ingreso</h2>
+          <a class="boton-secundario" href="{% url 'ingreso:listado' %}?desde={{ hoy }}&amp;hasta={{ hoy }}">Ver los de hoy</a>
+        </div>
+        <p>
+          <strong>{{ control_ingreso.ingresos_hoy }} ingreso{{ control_ingreso.ingresos_hoy|pluralize }} hoy</strong>
+          &middot;
+          {% if control_ingreso.rechazos_hoy %}
+            <a href="{% url 'ingreso:listado' %}?resultado=rechazados&amp;desde={{ hoy }}&amp;hasta={{ hoy }}">{{ control_ingreso.rechazos_hoy }} rechazo{{ control_ingreso.rechazos_hoy|pluralize }}</a>
+          {% else %}
+            <span class="texto-suave">sin rechazos</span>
+          {% endif %}
+        </p>
+        {% if control_ingreso.lectores_sin_contacto %}
+          <p>
+            {% if control_ingreso.lectores_sin_contacto == 1 %}Un lector de la puerta no se comunica con la app{% else %}{{ control_ingreso.lectores_sin_contacto }} lectores de la puerta no se comunican con la app{% endif %}
+            hace más de una hora (o nunca lo hizo). Puede estar apagado o sin
+            internet: revisalo antes de que alguien se quede afuera.
+            <a class="boton-urgente" href="{% url 'ingreso:dispositivos' %}">Ver lectores</a>
+          </p>
+        {% endif %}
+      </div>
+    {% endwith %}
+  {% endif %}
+
   <div class="tarjeta">
     <div class="acciones-lista">
       <h2>Cuotas en curso</h2>
@@ -173,47 +209,95 @@
     {% endfor %}
   </div>
 
+  {% comment %}
+    Sin ningún lector activo: el nav de staff no tiene ítem para la puerta,
+    así que esta tarjeta es la única forma de descubrirla (spec §9).
+  {% endcomment %}
+  {% if control_ingreso and not control_ingreso.usa_la_puerta %}
+    <div class="tarjeta">
+      <div class="acciones-lista">
+        <h2>Control de ingreso</h2>
+        <a class="boton-secundario" href="{% url 'ingreso:dispositivos' %}">Configurar la puerta</a>
+        <a class="boton-secundario" href="{% url 'ingreso:instructivo' %}">Cómo conectarla</a>
+      </div>
+      <p class="texto-suave">
+        Conectá un lector de QR o de cara en la entrada y vas a ver acá quién
+        vino de verdad cada día, y quién intentó entrar y no pudo.
+      </p>
+    </div>
+  {% endif %}
+
   <div class="tarjeta">
     <h2>Asistencia por día y horario</h2>
     <p class="texto-suave">Todo el historial de reservas, para ver el patrón recurrente de horas pico.</p>
     {% if asistencia.dias %}
-      <div class="calor-grilla" style="grid-template-columns: auto repeat({{ asistencia.horas|length }}, minmax(2rem, 1fr));">
-        <div></div>
-        {% for hora in asistencia.horas %}
-          <div class="calor-etiqueta-hora">{{ hora }}h</div>
-        {% endfor %}
-        {% for dia in asistencia.dias %}
-          <div class="calor-etiqueta-dia">{{ dia.nombre }}</div>
-          {% for celda in dia.celdas %}
-            <div class="calor-celda calor-celda--{{ celda.nivel }}" title="{{ dia.nombre }} {{ celda.hora }}h: {{ celda.valor }} reserva(s)">{{ celda.valor }}</div>
-          {% endfor %}
-        {% endfor %}
-      </div>
-      <details class="tabla-detalle">
-        <summary>Ver como tabla</summary>
-        <div class="tabla-scroll">
-          <table class="tabla">
-            <thead>
-              <tr>
-                <th>Día</th>
-                {% for hora in asistencia.horas %}<th>{{ hora }}h</th>{% endfor %}
-              </tr>
-            </thead>
-            <tbody>
-              {% for dia in asistencia.dias %}
-                <tr>
-                  <td>{{ dia.nombre }}</td>
-                  {% for celda in dia.celdas %}<td>{{ celda.valor }}</td>{% endfor %}
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </details>
+      {% include 'partials/grilla_calor.html' with grilla=asistencia unidad='reserva(s)' %}
     {% else %}
       <p class="texto-suave">Todavía no hay reservas registradas.</p>
     {% endif %}
   </div>
+
+  {% comment %}
+    Reservas contra lo que pasó en la puerta (`ingreso/analitica.py`). Solo
+    con la puerta en uso. Las dos grillas comparten columnas y escala de
+    color, y van una debajo de la otra para comparar la misma celda.
+  {% endcomment %}
+  {% if puerta_vs_reservas %}
+    {% with c=puerta_vs_reservas.comparacion sr=puerta_vs_reservas.sin_reserva %}
+    <div class="tarjeta" id="reservas-contra-ingresos">
+      <h2>Reservas contra ingresos reales</h2>
+      <p class="texto-suave">
+        Últimas {{ c.semanas }} semanas: arriba, a qué hora reservaron; abajo,
+        a qué hora entraron de verdad por la puerta. Misma escala de color en
+        las dos. El que llega unos minutos antes de su turno de las 19 cuenta
+        en las 18: es la hora a la que pasó.
+      </p>
+      {% if c.reservas.dias %}
+        <h3 class="mt-4 font-semibold">Reservado · {{ c.total_reservas }} reserva{{ c.total_reservas|pluralize }}</h3>
+        {% include 'partials/grilla_calor.html' with grilla=c.reservas unidad='reserva(s)' %}
+        <h3 class="mt-4 font-semibold">Llegaron por la puerta · {{ c.total_ingresos }} ingreso{{ c.total_ingresos|pluralize }}</h3>
+        {% include 'partials/grilla_calor.html' with grilla=c.ingresos unidad='ingreso(s)' %}
+      {% else %}
+        <p class="texto-suave">Todavía no hay reservas ni ingresos en estas semanas.</p>
+      {% endif %}
+
+      {% if sr %}
+        <h3 class="mt-4 font-semibold">Vinieron sin reserva · últimos {{ sr.dias }} días</h3>
+        {% if sr.alumnos %}
+          <p class="texto-suave">
+            {{ sr.total_sin_reserva }} de {{ sr.total_ingresos }} ingreso{{ sr.total_ingresos|pluralize }}
+            fueron sin un turno en curso (vale llegar hasta 15 minutos antes, igual que en la puerta).
+          </p>
+          <div class="tabla-scroll">
+            <table class="tabla">
+              <thead><tr><th>Alumno</th><th>Veces sin reserva</th><th>Última vez</th></tr></thead>
+              <tbody>
+                {% for fila in sr.alumnos %}
+                  <tr>
+                    <td><a href="{% url 'ingreso:listado' %}?alumno={{ fila.pk }}">{{ fila.nombre }}</a></td>
+                    <td>{{ fila.veces }}</td>
+                    <td>{{ fila.ultima|date:"d/m H:i" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% if sr.mas %}<p class="texto-suave">y {{ sr.mas }} más.</p>{% endif %}
+        {% elif sr.total_ingresos %}
+          <p class="texto-suave">Todos los que entraron esta semana tenían turno.</p>
+        {% else %}
+          <p class="texto-suave">Nadie entró por la puerta en estos días.</p>
+        {% endif %}
+        {% if puerta_vs_reservas.exige_reserva %}
+          <p class="texto-suave">
+            La puerta exige turno reservado: a los que llegan sin reserva no les abre, y quedan en
+            <a href="{% url 'ingreso:listado' %}?resultado=sin_reserva">los rechazos por falta de turno</a>.
+          </p>
+        {% endif %}
+      {% endif %}
+    </div>
+    {% endwith %}
+  {% endif %}
 
   {% comment %}
     Los tres gráficos temporales van ANTES de los de composición (género,
@@ -802,6 +886,35 @@
           Subí el comprobante acá abajo y el gimnasio te reactiva todo apenas
           lo confirme. Si ya pagaste, avisale al gimnasio.
         </p>
+      </div>
+    {% endif %}
+
+    {% if codigo_ingreso %}
+      {% comment %}
+        Solo el estado y el link: el QR se dibuja en `ingreso:mi_codigo`, que va
+        con `no-store` y fuera del historial de htmx. El inicio no lleva la
+        llave de la puerta. Sin código y sin lector de QR en el gimnasio,
+        `codigo_ingreso` es None y la tarjeta no aparece.
+        El link lleva `hx-boost="false"`: el QR tiene que llegar como documento
+        propio con `no-store`; boosteado quedaría en el DOM de ESTE documento,
+        que sí entra al bfcache (ver `ingreso.presentacion.fuera_del_boost`).
+      {% endcomment %}
+      <div class="tarjeta">
+        <h2>Tu código para entrar</h2>
+        {% if codigo_ingreso.vigente %}
+          {% if aviso_deuda_en_puerta %}
+            <p>Con la cuota pendiente, la puerta no te va a dejar pasar hasta que el gimnasio registre el pago.</p>
+          {% else %}
+            <p class="texto-suave">Mostralo en el lector de la puerta.</p>
+          {% endif %}
+          <a class="boton w-full mt-2" hx-boost="false" href="{% url 'ingreso:mi_codigo' %}">Mostrar mi código</a>
+        {% elif codigo_ingreso.estado == estados_codigo.DADO_DE_BAJA %}
+          <p class="texto-suave">Tu código fue dado de baja y ya no abre la puerta. Pedile uno nuevo al gimnasio.</p>
+        {% elif codigo_ingreso.estado == estados_codigo.ALUMNO_INACTIVO %}
+          <p class="texto-suave">Tu código no abre la puerta mientras estés dado de baja en el gimnasio.</p>
+        {% else %}
+          <p class="texto-suave">Todavía no tenés código, pedíselo al gimnasio.</p>
+        {% endif %}
       </div>
     {% endif %}
 
