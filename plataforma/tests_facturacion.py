@@ -737,7 +737,6 @@ class ExigirAnotadoTests(TestCase):
 
     def setUp(self):
         self.gimnasio = _gimnasio("Vida Plena", 60)
-        self.jefe = _superadmin()
 
     def test_un_gimnasio_pelado_levanta_y_nombra_la_salida(self):
         pelado = Gimnasio.objects.get(pk=self.gimnasio.pk)
@@ -754,7 +753,7 @@ class ExigirAnotadoTests(TestCase):
         facturacion.exigir_anotado(anotado)
 
     def test_un_anotado_con_pagos_pasa(self):
-        _pago(self.gimnasio, self.jefe, date(2026, 5, 1), date(2026, 5, 30))
+        _pago(self.gimnasio, _superadmin(), date(2026, 5, 1), date(2026, 5, 30))
 
         facturacion.exigir_anotado(facturacion.gimnasio_anotado(self.gimnasio.pk))
 

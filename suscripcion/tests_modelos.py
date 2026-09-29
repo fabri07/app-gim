@@ -9,6 +9,7 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
 
+from alumnos.models import Alumno
 from core.models import TenantOwnedModel
 from suscripcion.models import IntentoDeCobro
 from tenants.models import Gimnasio, Perfil
@@ -97,8 +98,19 @@ class ConLaCuentaDemoTests(TestCase):
         demo = Gimnasio.objects.create(nombre="Gimnasio Demo", slug="demo", es_demo=True)
         staff = User.objects.create_user("staff-demo", password="c-123456")
         Perfil.objects.create(usuario=staff, gimnasio=demo, rol=Perfil.Rol.STAFF)
+        usuario_alumno = User.objects.create_user("alumno-demo", password="c-123456")
+        perfil = Perfil.objects.create(
+            usuario=usuario_alumno, gimnasio=demo, rol=Perfil.Rol.ALUMNO
+        )
+        Alumno.objects.create(
+            gimnasio=demo, nombre="Ana", apellido="Demo", perfil=perfil
+        )
         intento = _intento(demo, email_de_quien_pago="staff@ejemplo.com")
 
         vaciar_gimnasio(gimnasio=demo)
 
+        # Sin esta aserción el test no probaría nada: si no se borra ningún
+        # `User`, tampoco se puede trabar por un FK a `User`.
+        self.assertFalse(User.objects.filter(pk=usuario_alumno.pk).exists())
+        self.assertTrue(User.objects.filter(pk=staff.pk).exists())
         self.assertTrue(IntentoDeCobro.objects.filter(pk=intento.pk).exists())
