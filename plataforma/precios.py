@@ -34,6 +34,20 @@ DIAS_CICLO = 30
 #: justo cuando se terminan.
 DIAS_GRATIS = 30
 
+#: Meses que cubre el plan anual.
+MESES_ANIO = 12
+
+#: Meses que se regalan al pagar el año por adelantado. Supuesto del dueño del
+#: producto, pendiente de confirmar: se pagan 10 de 12.
+DESCUENTO_ANUAL_MESES = 2
+
+#: Días del período anual: 12 ciclos de `DIAS_CICLO`, o sea 360 A PROPÓSITO.
+#: Con un año calendario (365) (a) se regalarían 5 días y (b) -- lo grave -- los
+#: períodos mensual y anual dejarían de encajar en la misma grilla de 30 días:
+#: un gimnasio que paga anual y después mensual arrastraría un corrimiento en
+#: `periodo_desde` para siempre.
+DIAS_ANIO = MESES_ANIO * DIAS_CICLO
+
 #: Con cuántos días de anticipación un vencimiento entra en «Para cobrar».
 DIAS_AVISO_COBRO = 7
 
@@ -85,25 +99,41 @@ def precio_usd(alumnos_activos):
     return escalon_de(alumnos_activos)[1]
 
 
+def precio_usd_anual(alumnos_activos):
+    """Cuánto paga por el año un gimnasio con esa cantidad de alumnos activos.
+
+    Es el mensual por `MESES_ANIO - DESCUENTO_ANUAL_MESES` meses. El anual
+    **congela el escalón de precio por 12 meses**: un gimnasio de 95 alumnos que
+    llega a 250 paga todo el año al precio de 100. Es una decisión comercial
+    asumida, no un bug.
+    """
+    return precio_usd(alumnos_activos) * (MESES_ANIO - DESCUENTO_ANUAL_MESES)
+
+
 def fin_de_prueba(inicio):
     """El día en que se termina la prueba gratis, que es el día en que vence
     el primer cobro."""
     return inicio + timedelta(days=DIAS_GRATIS)
 
 
-def periodo_siguiente(inicio, cubierto_hasta):
+def periodo_siguiente(inicio, cubierto_hasta, dias=DIAS_CICLO):
     """`(desde, hasta)` del primer período todavía NO cubierto por un pago.
 
     `hasta` es **inclusivo**, igual que `Cuota.periodo_fin`: un período de 30
     días que arranca el 31/1 termina el 1/3. Sin pagos registrados
     (`cubierto_hasta is None`) el primer período arranca cuando se termina la
     prueba.
+
+    `dias` es el largo del período (`DIAS_CICLO` para el mensual, `DIAS_ANIO`
+    para el anual). El default es lo que deja intactos a `proximo_vencimiento`,
+    `estado_pago` y `dias_de_atraso`: el «cuándo vence el próximo cobro» del
+    monitor no depende de qué plan podría elegir el gimnasio.
     """
     if cubierto_hasta is None:
         desde = fin_de_prueba(inicio)
     else:
         desde = cubierto_hasta + timedelta(days=1)
-    return desde, desde + timedelta(days=DIAS_CICLO - 1)
+    return desde, desde + timedelta(days=dias - 1)
 
 
 def proximo_vencimiento(inicio, hoy, cubierto_hasta):

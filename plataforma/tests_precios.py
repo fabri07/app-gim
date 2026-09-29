@@ -72,6 +72,53 @@ class PeriodoSiguienteTests(SimpleTestCase):
         self.assertEqual((hasta - desde).days, precios.DIAS_CICLO - 1)
 
 
+class PlanAnualTests(SimpleTestCase):
+    """El anual son 12 ciclos de 30 días (360), para que mensual y anual
+    encajen en la misma grilla de períodos."""
+
+    def test_dias_anio_son_360(self):
+        self.assertEqual(precios.DIAS_ANIO, 360)
+
+    def test_precio_anual_es_el_mensual_por_diez_en_cada_escalon(self):
+        for alumnos, esperado in [(0, 100), (100, 100), (101, 150), (300, 150), (301, 200)]:
+            with self.subTest(alumnos=alumnos):
+                self.assertEqual(precios.precio_usd_anual(alumnos), esperado)
+                self.assertEqual(
+                    precios.precio_usd_anual(alumnos), precios.precio_usd(alumnos) * 10
+                )
+
+    def test_periodo_anual_dura_exactamente_360_dias_sin_pagos(self):
+        desde, hasta = precios.periodo_siguiente(
+            date(2026, 1, 1), None, dias=precios.DIAS_ANIO
+        )
+        self.assertEqual(desde, date(2026, 1, 31))
+        self.assertEqual(hasta - desde, timedelta(days=359))
+
+    def test_periodo_anual_dura_exactamente_360_dias_con_pagos(self):
+        desde, hasta = precios.periodo_siguiente(
+            date(2026, 1, 1), date(2026, 3, 1), dias=precios.DIAS_ANIO
+        )
+        self.assertEqual(desde, date(2026, 3, 2))
+        self.assertEqual(hasta - desde, timedelta(days=359))
+
+    def test_mensual_y_anual_arrancan_el_mismo_dia(self):
+        for cubierto in (None, date(2026, 3, 1)):
+            with self.subTest(cubierto=cubierto):
+                mensual = precios.periodo_siguiente(date(2026, 1, 1), cubierto)
+                anual = precios.periodo_siguiente(
+                    date(2026, 1, 1), cubierto, dias=precios.DIAS_ANIO
+                )
+                self.assertEqual(mensual[0], anual[0])
+
+    def test_despues_de_un_anual_el_mensual_encaja_en_la_grilla(self):
+        desde_anual, hasta_anual = precios.periodo_siguiente(
+            date(2026, 1, 1), None, dias=precios.DIAS_ANIO
+        )
+        desde_mensual, _ = precios.periodo_siguiente(date(2026, 1, 1), hasta_anual)
+        self.assertEqual(desde_mensual, hasta_anual + timedelta(days=1))
+        self.assertEqual(desde_mensual - desde_anual, timedelta(days=360))
+
+
 class ProximoVencimientoTests(SimpleTestCase):
     INICIO = date(2026, 1, 1)
 
