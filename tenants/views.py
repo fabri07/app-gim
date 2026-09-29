@@ -188,6 +188,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
     @staticmethod
     def _metricas_dashboard(gimnasio):
         from alumnos.models import Alumno
+        from ingreso import analitica as analitica_ingreso
         from ingreso import presentacion as presentacion_ingreso
         from novedades.models import Novedad
         from pagos import acceso
@@ -204,6 +205,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         # portal del alumno —que usa `vigente_de`, con fecha local— decía que
         # no tenía rutina.
         hoy = timezone.localdate()
+        control_ingreso = presentacion_ingreso.resumen_para_el_panel(gimnasio)
 
         return {
             "alumnos_activos_count": Alumno.objects.for_gimnasio(gimnasio)
@@ -253,7 +255,14 @@ class HomeView(LoginRequiredMixin, TemplateView):
             # No reemplaza a la «asistencia» de `analitica` (que cuenta
             # `Reserva`): la spec no lo pide y un gimnasio sin lector se
             # quedaría sin esos números.
-            "control_ingreso": presentacion_ingreso.resumen_para_el_panel(gimnasio),
+            "control_ingreso": control_ingreso,
+            # Reservas contra ingresos reales y quién entra sin reserva. Solo
+            # con la puerta en uso: sin lector no hay ingresos que comparar.
+            "puerta_vs_reservas": (
+                analitica_ingreso.para_el_panel(gimnasio)
+                if control_ingreso["usa_la_puerta"]
+                else None
+            ),
             # Solo broadcasts en el dashboard del staff: las personales son de
             # un alumno puntual, no del panel de gestión (Parte B).
             "ultimas_novedades": Novedad.objects.for_gimnasio(gimnasio)

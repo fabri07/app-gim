@@ -231,43 +231,73 @@
     <h2>Asistencia por día y horario</h2>
     <p class="texto-suave">Todo el historial de reservas, para ver el patrón recurrente de horas pico.</p>
     {% if asistencia.dias %}
-      <div class="calor-grilla" style="grid-template-columns: auto repeat({{ asistencia.horas|length }}, minmax(2rem, 1fr));">
-        <div></div>
-        {% for hora in asistencia.horas %}
-          <div class="calor-etiqueta-hora">{{ hora }}h</div>
-        {% endfor %}
-        {% for dia in asistencia.dias %}
-          <div class="calor-etiqueta-dia">{{ dia.nombre }}</div>
-          {% for celda in dia.celdas %}
-            <div class="calor-celda calor-celda--{{ celda.nivel }}" title="{{ dia.nombre }} {{ celda.hora }}h: {{ celda.valor }} reserva(s)">{{ celda.valor }}</div>
-          {% endfor %}
-        {% endfor %}
-      </div>
-      <details class="tabla-detalle">
-        <summary>Ver como tabla</summary>
-        <div class="tabla-scroll">
-          <table class="tabla">
-            <thead>
-              <tr>
-                <th>Día</th>
-                {% for hora in asistencia.horas %}<th>{{ hora }}h</th>{% endfor %}
-              </tr>
-            </thead>
-            <tbody>
-              {% for dia in asistencia.dias %}
-                <tr>
-                  <td>{{ dia.nombre }}</td>
-                  {% for celda in dia.celdas %}<td>{{ celda.valor }}</td>{% endfor %}
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </details>
+      {% include 'partials/grilla_calor.html' with grilla=asistencia unidad='reserva(s)' %}
     {% else %}
       <p class="texto-suave">Todavía no hay reservas registradas.</p>
     {% endif %}
   </div>
+
+  {% comment %}
+    Reservas contra lo que pasó en la puerta (`ingreso/analitica.py`). Solo
+    con la puerta en uso. Las dos grillas comparten columnas y escala de
+    color, y van una debajo de la otra para comparar la misma celda.
+  {% endcomment %}
+  {% if puerta_vs_reservas %}
+    {% with c=puerta_vs_reservas.comparacion sr=puerta_vs_reservas.sin_reserva %}
+    <div class="tarjeta" id="reservas-contra-ingresos">
+      <h2>Reservas contra ingresos reales</h2>
+      <p class="texto-suave">
+        Últimas {{ c.semanas }} semanas: arriba, a qué hora reservaron; abajo,
+        a qué hora entraron de verdad por la puerta. Misma escala de color en
+        las dos. El que llega unos minutos antes de su turno de las 19 cuenta
+        en las 18: es la hora a la que pasó.
+      </p>
+      {% if c.reservas.dias %}
+        <h3 class="mt-4 font-semibold">Reservado · {{ c.total_reservas }} reserva{{ c.total_reservas|pluralize }}</h3>
+        {% include 'partials/grilla_calor.html' with grilla=c.reservas unidad='reserva(s)' %}
+        <h3 class="mt-4 font-semibold">Llegaron por la puerta · {{ c.total_ingresos }} ingreso{{ c.total_ingresos|pluralize }}</h3>
+        {% include 'partials/grilla_calor.html' with grilla=c.ingresos unidad='ingreso(s)' %}
+      {% else %}
+        <p class="texto-suave">Todavía no hay reservas ni ingresos en estas semanas.</p>
+      {% endif %}
+
+      {% if sr %}
+        <h3 class="mt-4 font-semibold">Vinieron sin reserva · últimos {{ sr.dias }} días</h3>
+        {% if sr.alumnos %}
+          <p class="texto-suave">
+            {{ sr.total_sin_reserva }} de {{ sr.total_ingresos }} ingreso{{ sr.total_ingresos|pluralize }}
+            fueron sin un turno en curso (vale llegar hasta 15 minutos antes, igual que en la puerta).
+          </p>
+          <div class="tabla-scroll">
+            <table class="tabla">
+              <thead><tr><th>Alumno</th><th>Veces sin reserva</th><th>Última vez</th></tr></thead>
+              <tbody>
+                {% for fila in sr.alumnos %}
+                  <tr>
+                    <td><a href="{% url 'ingreso:listado' %}?alumno={{ fila.pk }}">{{ fila.nombre }}</a></td>
+                    <td>{{ fila.veces }}</td>
+                    <td>{{ fila.ultima|date:"d/m H:i" }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% if sr.mas %}<p class="texto-suave">y {{ sr.mas }} más.</p>{% endif %}
+        {% elif sr.total_ingresos %}
+          <p class="texto-suave">Todos los que entraron esta semana tenían turno.</p>
+        {% else %}
+          <p class="texto-suave">Nadie entró por la puerta en estos días.</p>
+        {% endif %}
+        {% if puerta_vs_reservas.exige_reserva %}
+          <p class="texto-suave">
+            La puerta exige turno reservado: a los que llegan sin reserva no les abre, y quedan en
+            <a href="{% url 'ingreso:listado' %}?resultado=sin_reserva">los rechazos por falta de turno</a>.
+          </p>
+        {% endif %}
+      {% endif %}
+    </div>
+    {% endwith %}
+  {% endif %}
 
   {% comment %}
     Los tres gráficos temporales van ANTES de los de composición (género,

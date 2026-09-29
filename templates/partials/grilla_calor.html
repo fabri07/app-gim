@@ -1,0 +1,38 @@
+{% comment %}
+  Grilla de calor día × hora (`tenants.analitica.grilla_de_calor`) con su «Ver
+  como tabla». Parámetros: `grilla` y `unidad` (lo que cuenta cada celda, para
+  el `title`: «reserva(s)», «ingreso(s)»).
+{% endcomment %}
+<div class="calor-grilla" style="grid-template-columns: auto repeat({{ grilla.horas|length }}, minmax(2rem, 1fr));">
+  <div></div>
+  {% for hora in grilla.horas %}
+    <div class="calor-etiqueta-hora">{{ hora }}h</div>
+  {% endfor %}
+  {% for dia in grilla.dias %}
+    <div class="calor-etiqueta-dia">{{ dia.nombre }}</div>
+    {% for celda in dia.celdas %}
+      <div class="calor-celda calor-celda--{{ celda.nivel }}" title="{{ dia.nombre }} {{ celda.hora }}h: {{ celda.valor }} {{ unidad }}">{{ celda.valor }}</div>
+    {% endfor %}
+  {% endfor %}
+</div>
+<details class="tabla-detalle">
+  <summary>Ver como tabla</summary>
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Día</th>
+          {% for hora in grilla.horas %}<th>{{ hora }}h</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for dia in grilla.dias %}
+          <tr>
+            <td>{{ dia.nombre }}</td>
+            {% for celda in dia.celdas %}<td>{{ celda.valor }}</td>{% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
