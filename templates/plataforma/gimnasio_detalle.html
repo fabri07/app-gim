@@ -180,6 +180,7 @@
             <th>Pesos</th>
             <th>Tipo de cambio</th>
             <th>Alumnos</th>
+            <th>Origen</th>
             <th>Notas</th>
           </tr>
         </thead>
@@ -192,6 +193,7 @@
               <td>{% if pago.monto_ars %}{{ pago.monto_ars|floatformat:2 }}{% else %}—{% endif %}</td>
               <td>{% if pago.tipo_cambio %}{{ pago.tipo_cambio|floatformat:2 }}{% else %}—{% endif %}</td>
               <td>{{ pago.alumnos_activos }}</td>
+              <td>{{ pago.get_origen_display }}</td>
               <td>{{ pago.notas|default:"—" }}</td>
             </tr>
           {% endfor %}

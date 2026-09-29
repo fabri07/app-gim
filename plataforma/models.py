@@ -21,11 +21,17 @@ from tenants.models import Perfil
 
 
 class PagoPlataforma(TimeStampedModel):
-    """Un cobro de la plataforma a un gimnasio, registrado a mano.
+    """Un cobro de la plataforma a un gimnasio.
 
-    No hay integración de cobros: el superadmin cobra por transferencia y
-    carga la fila. Mismo criterio que `pagos.Cuota` dentro del gimnasio
-    («primero se cobra, después se sofistica»).
+    Las filas entran por **dos caminos**, y `origen` los distingue: el
+    registro manual del superadmin (cobra por transferencia y carga la fila,
+    `Origen.MANUAL`) y el cobro online de la app `suscripcion` por Mercado
+    Pago (`Origen.ONLINE`), que la crea sola cuando se acredita el pago.
+
+    **`registrado_por` es nullable por eso**: un pago online no lo tipeó
+    nadie, así que no tiene autor. La `CheckConstraint`
+    `pago_plataforma_manual_con_autor` sostiene lo que importa: un pago
+    tipeado a mano siempre tiene quién lo cargó.
 
     Los montos se guardan **los dos**, en dólares y en pesos, además del
     `tipo_cambio` del día. No es redundancia: el precio se pacta en USD pero
@@ -74,9 +80,18 @@ class PagoPlataforma(TimeStampedModel):
     #: exclusivo, todos los gimnasios quedarían corridos un día.
     periodo_hasta = models.DateField(verbose_name="período hasta (inclusive)")
     notas = models.TextField(blank=True)
+    class Origen(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        ONLINE = "online", "Mercado Pago"
+
+    origen = models.CharField(
+        max_length=10, choices=Origen.choices, default=Origen.MANUAL
+    )
     registrado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="pagos_plataforma_registrados",
         verbose_name="registrado por",
     )
@@ -103,6 +118,16 @@ class PagoPlataforma(TimeStampedModel):
             models.UniqueConstraint(
                 fields=["gimnasio", "periodo_desde"],
                 name="pago_plataforma_un_periodo_por_gimnasio",
+            ),
+            # Un pago tipeado a mano siempre tiene autor. Es UNIDIRECCIONAL a
+            # propósito: prohibir el autor en una fila online no compra nada y
+            # bloquearía que el superadmin repare un cobro online. Va el
+            # literal "online" y no `Origen.ONLINE`: dentro de la `Meta`
+            # anidada el nombre de la clase de afuera no está en scope.
+            models.CheckConstraint(
+                condition=models.Q(origen="online")
+                | models.Q(registrado_por__isnull=False),
+                name="pago_plataforma_manual_con_autor",
             ),
         ]
         indexes = [

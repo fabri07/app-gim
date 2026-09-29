@@ -199,6 +199,9 @@ class PagoPlataformaCreateView(GimnasioDePlataformaMixin, CreateView):
         gimnasio = self.get_gimnasio()
         form.instance.gimnasio = gimnasio
         form.instance.registrado_por = self.request.user
+        # Esta es la vista del camino manual: lo dice explícito aunque el
+        # default del modelo ya lo cubra.
+        form.instance.origen = PagoPlataforma.Origen.MANUAL
         try:
             # El `clean()` del form chequea el período y recién después se
             # inserta: entre el SELECT y el INSERT entra el segundo submit.

@@ -20,8 +20,9 @@ class PagoPlataformaAdmin(admin.ModelAdmin):
         "monto_usd",
         "monto_ars",
         "alumnos_activos",
+        "origen",
     )
-    list_filter = ("gimnasio",)
+    list_filter = ("gimnasio", "origen")
     date_hierarchy = "fecha_pago"
     search_fields = ("gimnasio__nombre", "notas")
     # Sin el `select_related`, el listado hace una query por fila para

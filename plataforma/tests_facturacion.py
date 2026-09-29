@@ -74,6 +74,29 @@ class PagoPlataformaModeloTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             _pago(self.gimnasio, self.jefe, date(2026, 5, 1), date(2026, 4, 1))
 
+    def test_un_pago_creado_sin_origen_queda_manual(self):
+        pago = _pago(self.gimnasio, self.jefe, date(2026, 5, 1), date(2026, 5, 30))
+
+        pago.refresh_from_db()
+        self.assertEqual(pago.origen, PagoPlataforma.Origen.MANUAL)
+
+    def test_un_pago_manual_sin_autor_no_entra_en_la_base(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            _pago(
+                self.gimnasio, None, date(2026, 5, 1), date(2026, 5, 30),
+                origen=PagoPlataforma.Origen.MANUAL,
+            )
+
+    def test_un_pago_online_sin_autor_se_guarda(self):
+        pago = _pago(
+            self.gimnasio, None, date(2026, 5, 1), date(2026, 5, 30),
+            origen=PagoPlataforma.Origen.ONLINE,
+        )
+
+        pago.refresh_from_db()
+        self.assertIsNone(pago.registrado_por)
+        self.assertEqual(pago.origen, PagoPlataforma.Origen.ONLINE)
+
     def test_el_periodo_hasta_es_inclusivo_y_se_muestra_como_tal(self):
         pago = _pago(self.gimnasio, self.jefe, date(2026, 5, 1), date(2026, 5, 30))
 
@@ -328,6 +351,7 @@ class RegistrarPagoViewTests(TestCase):
         pago = PagoPlataforma.objects.get()
         self.assertEqual(pago.gimnasio, self.gimnasio)
         self.assertEqual(pago.registrado_por, self.jefe)
+        self.assertEqual(pago.origen, PagoPlataforma.Origen.MANUAL)
         self.assertEqual(pago.monto_ars, Decimal("23047.50"))
 
     def test_avisa_si_el_gimnasio_que_acaba_de_pagar_sigue_congelado(self):
