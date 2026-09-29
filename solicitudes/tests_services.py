@@ -72,6 +72,18 @@ class MaquinaDeEstadosTests(TransactionTestCase):
         # una casilla que alguien lea, o el lead se pierde acá.
         self.assertEqual(mail.outbox[0].reply_to, ["soporte@tugimapp.com"])
 
+    @override_settings(EMAIL_REPLY_TO="")
+    def test_sin_casilla_configurada_el_mail_sale_sin_reply_to(self):
+        """Es el estado que corre en producción entre el deploy de esta feature
+        y el momento en que se carga `EMAIL_REPLY_TO` en Render -- y el de
+        cualquier entorno que no la cargue nunca. Sin el condicional de
+        `_enviar`, la cabecera saldría como `Reply-To: <>`, que es peor que no
+        mandarla: algunos servidores rechazan el mensaje entero y el lead se
+        pierde sin que quede rastro (el envío es `fail_silently`)."""
+        self._crear()
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].reply_to, [])
+
     def test_email_se_normaliza_a_minusculas(self):
         s = self._crear(email="  ANA@Box.COM ")
         self.assertEqual(s.email, "ana@box.com")
