@@ -46,6 +46,11 @@ FUENTE = "dolarapi.com"
 #: panel, y el único worker de gunicorn tiene 30 s antes de que lo maten.
 TIMEOUT = 3
 
+#: dolarapi.com responde 403 al User-Agent por defecto de urllib
+#: («Python-urllib/3.x»); con uno propio responde 200. Medido el 2026-09-28
+#: desde Render y desde local.
+USER_AGENT = "TuGimApp/1.0 (+https://www.tugimapp.com)"
+
 #: La cotización cambia una vez por día hábil; no hace falta pedirla más.
 TTL = 24 * 3600
 
@@ -64,7 +69,8 @@ _FALLO = "sin-cotizacion"
 def _descargar():
     """El único punto que toca la red. Aparte para poder parchearlo en los
     tests sin simular todo `urllib`."""
-    with urllib.request.urlopen(URL, timeout=TIMEOUT) as respuesta:
+    pedido = urllib.request.Request(URL, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(pedido, timeout=TIMEOUT) as respuesta:
         return json.loads(respuesta.read().decode("utf-8"))
 
 
