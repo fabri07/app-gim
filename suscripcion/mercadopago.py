@@ -22,6 +22,7 @@ respuesta de la API.
 
 import hashlib
 import hmac
+import http.client
 import json
 import urllib.error
 import urllib.parse
@@ -60,6 +61,17 @@ class ErrorDeMercadoPago(Exception):
     """La API no respondió lo esperado. El mensaje es corto y sin secretos."""
 
 
+def _headers(clave_idempotencia):
+    headers = {
+        "Authorization": f"Bearer {settings.MERCADOPAGO_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+    }
+    if clave_idempotencia:
+        headers["X-Idempotency-Key"] = clave_idempotencia
+    return headers
+
+
 def _pedir(metodo, ruta, *, cuerpo=None, clave_idempotencia=None):
     """El único punto que toca la red. Devuelve el JSON parseado.
 
@@ -72,16 +84,17 @@ def _pedir(metodo, ruta, *, cuerpo=None, clave_idempotencia=None):
             "suscripcion.mercadopago._pedir no puede salir a la red en la "
             "suite: parchear la función pública que se está usando."
         )
-    headers = {
-        "Authorization": f"Bearer {settings.MERCADOPAGO_ACCESS_TOKEN}",
-        "Content-Type": "application/json",
-        "User-Agent": USER_AGENT,
-    }
-    if clave_idempotencia:
-        headers["X-Idempotency-Key"] = clave_idempotencia
     datos = json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else None
+    # Los headers se arman en otra función y no se atan a ningún nombre local
+    # de `_pedir`: Sentry captura las variables locales de cada frame y su
+    # scrubber por defecto no es recursivo (filtra `token`, no `headers`), así
+    # que un `headers` local con el Bearer viajaría a Sentry en cualquier
+    # excepción que pase por acá.
     pedido = urllib.request.Request(
-        BASE + ruta, data=datos, headers=headers, method=metodo
+        BASE + ruta,
+        data=datos,
+        headers=_headers(clave_idempotencia),
+        method=metodo,
     )
     try:
         with urllib.request.urlopen(pedido, timeout=TIMEOUT) as respuesta:
@@ -94,6 +107,10 @@ def _pedir(metodo, ruta, *, cuerpo=None, clave_idempotencia=None):
         raise ErrorDeMercadoPago(f"Timeout en {metodo} {ruta}") from None
     except ValueError:
         raise ErrorDeMercadoPago(f"Respuesta inválida en {metodo} {ruta}") from None
+    except (OSError, http.client.HTTPException):
+        # Cortes al LEER la respuesta (`ConnectionResetError`, `IncompleteRead`):
+        # urllib no los envuelve y los llamadores sólo atrapan ErrorDeMercadoPago.
+        raise ErrorDeMercadoPago(f"Sin conexión en {metodo} {ruta}") from None
 
 
 def es_de_prueba():

@@ -1,6 +1,8 @@
 import hashlib
 import hmac
+import http.client
 import json
+import traceback
 import urllib.error
 from datetime import datetime, timezone as tz
 from decimal import Decimal
@@ -93,6 +95,36 @@ class PedirTests(SimpleTestCase):
         with mock.patch("urllib.request.urlopen", return_value=respuesta):
             with self.assertRaises(mp.ErrorDeMercadoPago):
                 mp._pedir("GET", "/x")
+
+    @override_settings(TESTING=False, MERCADOPAGO_ACCESS_TOKEN="TEST-token-secreto-123")
+    def test_ningun_frame_de_la_traza_guarda_el_token(self):
+        # Sentry captura las variables locales de cada frame.
+        error = urllib.error.HTTPError("https://x", 500, "no", {}, BytesIO(b"{}"))
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            # try/except a mano: `assertRaises` limpia los frames de la traza
+            # (`traceback.clear_frames`) y el test pasaría sin mirar nada.
+            try:
+                mp._pedir("GET", "/x", clave_idempotencia="k")
+            except mp.ErrorDeMercadoPago as e:
+                traza = e.__traceback__
+            else:
+                self.fail("debía levantar ErrorDeMercadoPago")
+        frames = [f for f, _ in traceback.walk_tb(traza)]
+        self.assertTrue(any(f.f_code.co_name == "_pedir" for f in frames))
+        for frame in frames:
+            self.assertNotIn("token-secreto", repr(frame.f_locals))
+            self.assertNotIn("Bearer", repr(frame.f_locals))
+
+    @override_settings(TESTING=False, MERCADOPAGO_ACCESS_TOKEN="TEST-token-secreto-123")
+    def test_cortes_al_leer_la_respuesta_son_error_de_mp(self):
+        for excepcion in (ConnectionResetError(), http.client.IncompleteRead(b"")):
+            with self.subTest(excepcion=type(excepcion).__name__):
+                respuesta = mock.MagicMock()
+                respuesta.__enter__.return_value.read.side_effect = excepcion
+                with mock.patch("urllib.request.urlopen", return_value=respuesta):
+                    with self.assertRaises(mp.ErrorDeMercadoPago) as ctx:
+                        mp._pedir("GET", "/x")
+                self.assertNotIn("token-secreto", str(ctx.exception))
 
     @override_settings(TESTING=False, MERCADOPAGO_ACCESS_TOKEN="TEST-123")
     def test_timeout(self):
