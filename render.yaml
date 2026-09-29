@@ -139,6 +139,16 @@ services:
         sync: false
       - key: VAPID_ADMIN_EMAIL
         sync: false
+      # Cobro online de la suscripción (Mercado Pago, Checkout Pro). Las 2
+      # credenciales o ninguna -> `COBRO_ONLINE_ENABLED`; con una sola la app
+      # no arranca. COBROS_AVISO_EMAIL es suelta y opcional (vacía cae a
+      # DEFAULT_FROM_EMAIL).
+      - key: MERCADOPAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_SECRET
+        sync: false
+      - key: COBROS_AVISO_EMAIL
+        sync: false
       # Monitoreo de errores (Sentry), opcional e independiente -- no es un
       # grupo todo-o-nada. Sin SENTRY_DSN el SDK no se inicializa.
       # SENTRY_PANEL_URL es solo el link "Errores (Sentry)" del panel de

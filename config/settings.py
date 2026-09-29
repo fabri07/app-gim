@@ -437,6 +437,27 @@ PUSH_ENABLED = (
     and not TESTING
 )
 
+# Cobro online de la suscripción a la plataforma (Mercado Pago, Checkout Pro).
+# Es UNA sola credencial, la de la plataforma: no hay OAuth por gimnasio. Las 2
+# o ninguna -> `COBRO_ONLINE_ENABLED`; sin ellas el cobro online queda oculto y
+# sólo queda el registro manual del pago. En local va el token de PRUEBA
+# (`TEST-...`). Sin `MERCADOPAGO_PUBLIC_KEY`: Checkout Pro por redirección no la
+# usa. `not TESTING`: mismo criterio que R2/PUSH_ENABLED.
+MERCADOPAGO_ACCESS_TOKEN = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "")
+MERCADOPAGO_WEBHOOK_SECRET = os.environ.get("MERCADOPAGO_WEBHOOK_SECRET", "")
+COBRO_ONLINE_ENABLED = (
+    _bandera_todo_o_nada(
+        ["MERCADOPAGO_ACCESS_TOKEN", "MERCADOPAGO_WEBHOOK_SECRET"],
+        "Mercado Pago",
+        "para que el cobro online quede oculto y sólo quede el registro manual",
+    )
+    and not TESTING
+)
+# A quién le llegan los avisos de cobros online (acreditado, con problema).
+# Suelta y opcional, mismo criterio que SOLICITUDES_AVISO_EMAIL: vacía cae a
+# DEFAULT_FROM_EMAIL.
+COBROS_AVISO_EMAIL = os.environ.get("COBROS_AVISO_EMAIL", "")
+
 # Monitoreo de errores (Sentry, opcional). Es UNA sola variable requerida
 # (`SENTRY_DSN`), no un grupo -- mismo criterio que `SOPORTE_CONTACTO`: no
 # tiene sentido pasarla por `_bandera_todo_o_nada`, que existe para detectar
