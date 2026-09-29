@@ -1,10 +1,14 @@
 Hola {{ solicitud.nombre_contacto }},
 
-Gracias por tu interés en TuGimApp. Por ahora no vamos a poder darte de alta
-para {{ solicitud.nombre_gimnasio }}.
+Gracias por escribirnos y por contarnos sobre {{ solicitud.nombre_gimnasio }}.
 
-{% if solicitud.motivo_decision %}{{ solicitud.motivo_decision }}
-
-{% endif %}Si creés que es un error, escribinos y lo vemos.
+Por ahora no vamos a poder abrirte una cuenta. No es una decisión definitiva:
+damos de alta los gimnasios de a uno y a mano, así que si más adelante podemos
+avanzar te escribimos a este mismo email.
+{% if contacto %}
+Si te parece que nos estamos equivocando, contanos y lo volvemos a mirar:
+{{ contacto }}
+{% endif %}
+Gracias igual, y éxitos con tu gimnasio.
 
 — El equipo de TuGimApp

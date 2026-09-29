@@ -35,14 +35,18 @@
     <hr>
     <form method="post" action="{% url 'plataforma:solicitud_lista_espera' solicitud.pk %}">
       {% csrf_token %}
-      <label for="motivo-espera">Nota (opcional)</label>
+      <label for="motivo-espera">Nota interna (opcional)</label>
+      <p class="texto-suave">Queda en el historial de acá abajo. Al interesado
+        NO se le manda: el mail que recibe es siempre el mismo.</p>
       <textarea id="motivo-espera" name="motivo" rows="2"></textarea>
       <button type="submit" class="boton-secundario">Pasar a lista de espera</button>
     </form>
     <hr>
     <form method="post" action="{% url 'plataforma:solicitud_rechazar' solicitud.pk %}">
       {% csrf_token %}
-      <label for="motivo-rechazo">Motivo (opcional)</label>
+      <label for="motivo-rechazo">Motivo interno (opcional)</label>
+      <p class="texto-suave">Para acordarte de por qué, y para el historial de
+        acá abajo. Al interesado NO se le manda.</p>
       <textarea id="motivo-rechazo" name="motivo" rows="2"></textarea>
       <button type="submit" class="boton-secundario">Rechazar</button>
     </form>

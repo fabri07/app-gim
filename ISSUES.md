@@ -20,6 +20,62 @@ del log.
 
 ---
 
+## [2026-09-29] El mail de rechazo de una solicitud estaba frío, y la nota interna podía viajar
+**Estado:** resuelto
+
+El dueño del producto probó el embudo de punta a punta y se rechazó a sí mismo
+para ver qué le llegaba. El mail decía:
+
+> Gracias por tu interés en TuGimApp. Por ahora no vamos a poder darte de alta
+> para PRUEBA INTERNA - no es un gimnasio real.
+>
+> Si creés que es un error, escribinos y lo vemos.
+
+**Lo primero que hay que aclarar, porque el diagnóstico obvio es el
+equivocado:** ese «PRUEBA INTERNA - no es un gimnasio real» es el
+`nombre_gimnasio` que él mismo tipeó en el formulario de prueba, NO una nota
+interna filtrada — se verificó renderizando el template con
+`motivo_decision=""` y comparando contra el mail recibido, que sale byte por
+byte igual. El problema visible era el texto: «no vamos a poder darte de alta
+**para** <lo que escribiste>» pega el dato crudo al final de la frase, y
+«escribinos y lo vemos» no dice a dónde.
+
+**Impacto:** un rechazo es el único mail que ese lead va a leer del producto, y
+ése cerraba la puerta sin dar ningún canal. Y el defecto latente que apareció
+al mirar el template era peor: `{% if solicitud.motivo_decision %}` lo
+interpolaba TAL CUAL en el cuerpo. `motivo_decision` es la nota de triage del
+superadmin —se pide en `plataforma/solicitud_detalle.html` con la etiqueta
+«Motivo (opcional)», sin ninguna advertencia, y se muestra en el historial de
+auditoría—, así que el primer «no es un gimnasio real» escrito para uso interno
+le habría llegado a la persona de la que se escribió. **Un campo con dos
+audiencias y sólo una rotulada.**
+
+**Resolución:**
+- Copy nuevo en `rechazo.txt` y `lista_espera.txt`: breve, sin el nombre pegado
+  a la negativa, con la puerta abierta («no es una decisión definitiva») y una
+  casilla real a la que escribir.
+- **El motivo interno ya no viaja**, y el docstring de `emails.enviar_rechazo`
+  dice que no hay que volver a ponerlo: si algún día hay que decirle algo
+  puntual a un lead, va un campo NUEVO rotulado como visible para él.
+- El panel ahora lo pide como «Motivo interno» / «Nota interna», con la ayuda
+  «Al interesado NO se le manda».
+- La casilla sale de `EMAIL_REPLY_TO` (que ya viaja como cabecera `Reply-To`) y
+  **no** de `SOPORTE_CONTACTO`, que es texto libre de pantalla y podría no ser
+  un email. Sin ella configurada, el mail no invita a escribir a ninguna parte:
+  el `From` es no-reply, y prometer un canal que no existe es peor que no
+  ofrecer ninguno (mismo criterio que el link de «olvidé mi contraseña»).
+- `CuerpoDeLosMailsDeDecisionTests` (4 tests) fija las dos cosas. Verificado
+  que **fallan sin el fix**: reponiendo la interpolación vieja en el template,
+  2 de los 4 se ponen en rojo.
+
+**Lección, que es la de siempre en este proyecto:** el texto que ve el usuario
+final se verifica LEYÉNDOLO renderizado, no revisando el template. Acá se
+renderizaron las cuatro variantes (rechazo y lista de espera, con casilla y
+sin) antes de dar nada por bueno, y eso además destapó dos saltos de línea
+feos que el código no muestra.
+
+---
+
 ## [2026-09-28] Control de ingreso: pendientes manuales antes del merge
 **Estado:** abierto (pendiente previo al merge de `worktree-control-de-ingreso`)
 **Impacto:** la suite y `/code-review` no ven nada de esto, y cada punto puede

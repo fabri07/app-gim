@@ -216,3 +216,66 @@ class MaquinaDeEstadosTests(TransactionTestCase):
         self.assertEqual(n, 1)
         s.refresh_from_db()
         self.assertEqual(s.estado, _Estado.EXPIRADA)
+
+
+@override_settings(
+    EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+    DEFAULT_FROM_EMAIL="no-reply@tugimapp.com",
+    EMAIL_REPLY_TO="soporte@tugimapp.com",
+    SOLICITUDES_AVISO_EMAIL="dueno@tugimapp.com",
+)
+class CuerpoDeLosMailsDeDecisionTests(TransactionTestCase):
+    """Lo que el interesado LEE cuando se lo rechaza o se lo posterga.
+
+    `motivo_decision` es la nota de triage del superadmin (se pide rotulada
+    como interna en `plataforma/solicitud_detalle.html` y se muestra en el
+    historial de auditoría). Estos tests existen porque los templates la
+    interpolaban tal cual en el cuerpo: un «no es un gimnasio real» escrito
+    para uso interno terminaba leído por la persona de la que se escribió.
+    """
+
+    MOTIVO_INTERNO = "PRUEBA INTERNA - no es un gimnasio real, descartar"
+
+    def _pendiente(self):
+        s = services.crear_solicitud(
+            datos=DATOS, ip_hash="h", url_verificacion_para=_url_verif
+        )
+        services.verificar(token_str=s.tokens.first().token, url_panel_para=_url_panel)
+        s.refresh_from_db()
+        return s
+
+    def _cuerpo_tras(self, transicion):
+        s = self._pendiente()
+        mail.outbox.clear()
+        transicion(solicitud=s, actor=None, motivo=self.MOTIVO_INTERNO)
+        self.assertEqual(len(mail.outbox), 1)
+        s.refresh_from_db()
+        # La nota SÍ se guarda: lo que no tiene que hacer es viajar.
+        self.assertEqual(s.motivo_decision, self.MOTIVO_INTERNO)
+        return mail.outbox[0]
+
+    def test_el_rechazo_no_le_manda_la_nota_interna_al_interesado(self):
+        msg = self._cuerpo_tras(services.rechazar)
+        self.assertNotIn(self.MOTIVO_INTERNO, msg.body)
+        self.assertNotIn("no es un gimnasio real", msg.body)
+
+    def test_la_lista_de_espera_no_le_manda_la_nota_interna_al_interesado(self):
+        msg = self._cuerpo_tras(services.a_lista_espera)
+        self.assertNotIn(self.MOTIVO_INTERNO, msg.body)
+
+    def test_el_rechazo_deja_la_puerta_abierta_y_una_casilla_real(self):
+        """Un rechazo sin salida hace que el lead no vuelva nunca. Con
+        `EMAIL_REPLY_TO` seteada, el cuerpo dice a dónde escribir."""
+        msg = self._cuerpo_tras(services.rechazar)
+        self.assertIn("soporte@tugimapp.com", msg.body)
+        self.assertEqual(msg.reply_to, ["soporte@tugimapp.com"])
+
+    @override_settings(EMAIL_REPLY_TO="")
+    def test_sin_casilla_configurada_no_invita_a_escribir_a_ninguna_parte(self):
+        """El `From` es no-reply: prometer un canal que no existe es peor que
+        no ofrecer ninguno (mismo criterio que el link de 'olvidé mi
+        contraseña', que se esconde sin `EMAIL_*`)."""
+        msg = self._cuerpo_tras(services.rechazar)
+        self.assertNotIn("escribinos", msg.body)
+        self.assertNotIn("@", msg.body.replace("no-reply@tugimapp.com", ""))
+        self.assertIsNone(msg.reply_to or None)

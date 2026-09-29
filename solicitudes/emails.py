@@ -45,6 +45,19 @@ def _enviar(asunto, base_template, contexto, destinatario):
     ).send(fail_silently=True)
 
 
+def _contacto():
+    """La casilla a la que se le puede contestar, o "" si no hay ninguna.
+
+    Es `EMAIL_REPLY_TO` y no `SOPORTE_CONTACTO`: la primera es, por
+    definición, una dirección de mail (va como cabecera `Reply-To`), y la
+    segunda es texto libre que el panel muestra en pantalla y podría no ser un
+    email. Sin ella, los mails NO invitan a escribir a ninguna parte: el `From`
+    es una casilla no-reply, y prometer un canal que no existe es peor que no
+    ofrecer ninguno (mismo criterio que el link de "olvidé mi contraseña", que
+    se esconde si no hay `EMAIL_*`)."""
+    return getattr(settings, "EMAIL_REPLY_TO", "")
+
+
 def enviar_verificacion(solicitud, url_verificacion):
     """Doble opt-in: confirmá que este email es tuyo."""
     _enviar(
@@ -81,19 +94,34 @@ def enviar_invitacion(solicitud, url_invitacion):
 
 
 def enviar_lista_espera(solicitud):
+    """Postergada: sigue viva, avisamos cuando se pueda.
+
+    **`motivo_decision` NO va en el cuerpo**, ver `enviar_rechazo`.
+    """
     _enviar(
         "Recibimos tu solicitud en TuGimApp",
         "lista_espera",
-        {"solicitud": solicitud},
+        {"solicitud": solicitud, "contacto": _contacto()},
         solicitud.email,
     )
 
 
 def enviar_rechazo(solicitud):
+    """Rechazada: breve, sin razones internas, y con la puerta abierta.
+
+    **`motivo_decision` NO va en el cuerpo, y no hay que volver a ponerlo.** Es
+    la nota de triage que el superadmin escribe para sí mismo: se pide con esa
+    etiqueta en `plataforma/solicitud_detalle.html` y se muestra en el historial
+    de auditoría (`SolicitudEvento.motivo`). Interpolarla acá mandaba ese texto
+    tal cual al interesado — un "no es un gimnasio real" escrito para uso
+    interno, leído por la persona de la que se escribió. Un campo no puede
+    tener dos audiencias: si algún día hay que decirle algo puntual a un lead,
+    va un campo NUEVO, rotulado como visible para él.
+    """
     _enviar(
         "Sobre tu solicitud en TuGimApp",
         "rechazo",
-        {"solicitud": solicitud},
+        {"solicitud": solicitud, "contacto": _contacto()},
         solicitud.email,
     )
 
