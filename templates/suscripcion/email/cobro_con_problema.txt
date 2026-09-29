@@ -1,0 +1,16 @@
+Cobro online con problema: {{ titulo }}.
+
+{{ que_hacer }}
+
+Gimnasio: {{ intento.gimnasio.nombre }}
+Plan: {{ intento.get_plan_display }}
+Período: {{ intento.periodo_desde|date:"d/m/Y" }} al {{ intento.periodo_hasta|date:"d/m/Y" }}
+Monto: USD {{ intento.monto_usd }} — ARS {{ intento.monto_ars }} (dólar a {{ intento.tipo_cambio }})
+Pago de Mercado Pago: {{ intento.payment_id }}{% if pago_adicional_id %}
+Pago adicional (a devolver): {{ pago_adicional_id }}{% endif %}
+{% if problema == "devuelto" %}
+Estado de la cuenta hoy: {{ intento.gimnasio.get_estado_cuenta_display }}{% if intento.gimnasio.estado_cuenta == "normal" %} (sigue con acceso){% endif %}.
+{% endif %}{% if url_panel %}
+Ficha en el panel:
+{{ url_panel }}
+{% endif %}

@@ -1,0 +1,15 @@
+Se acreditó un cobro online por Mercado Pago.
+
+Gimnasio: {{ intento.gimnasio.nombre }}
+Plan: {{ intento.get_plan_display }}
+Período: {{ intento.periodo_desde|date:"d/m/Y" }} al {{ intento.periodo_hasta|date:"d/m/Y" }}
+Monto: USD {{ intento.monto_usd }} — ARS {{ intento.monto_ars }} (dólar a {{ intento.tipo_cambio }})
+Pago de Mercado Pago: {{ intento.payment_id }}
+{% if descongelado %}
+La cuenta estaba congelada y quedó al día: se descongeló sola.
+{% elif sigue_debiendo_desde %}
+El pago no alcanza para ponerlo al día: sigue debiendo desde el {{ sigue_debiendo_desde|date:"d/m/Y" }}.
+{% endif %}{% if url_panel %}
+Ficha en el panel:
+{{ url_panel }}
+{% endif %}
