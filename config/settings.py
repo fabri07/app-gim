@@ -88,7 +88,10 @@ INSTALLED_APPS = [
     #                  plataforma (la cola de revisión), así que va antes.
     #   plataforma -> panel del dueño del producto (mira TODOS los gimnasios:
     #                 facturación, uso, estado de cuenta). Lee el dominio
-    #                 entero y nadie la lee a ella, así que va última de todas.
+    #                 entero. La lee `suscripcion`, así que va antes de ella.
+    #   suscripcion -> cobro online de la suscripción a la plataforma (Mercado
+    #                  Pago). Lee `plataforma.facturacion` y nadie la lee a
+    #                  ella, así que va última de todas.
     'core',
     'tenants',
     'ejercicios',
@@ -103,6 +106,7 @@ INSTALLED_APPS = [
     'notificaciones',
     'solicitudes',
     'plataforma',
+    'suscripcion',
 ]
 
 MIDDLEWARE = [

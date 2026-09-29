@@ -137,16 +137,45 @@ def gimnasios_anotados():
     ).order_by("nombre")
 
 
-def periodo_a_cobrar(gimnasio):
+def exigir_anotado(gimnasio):
+    """Levanta `ValueError` si `gimnasio` no vino de `gimnasios_anotados()`.
+
+    `periodo_a_cobrar` lee `cubierto_hasta` con `getattr`, así que con un
+    `Gimnasio` pelado devuelve `None` EN SILENCIO y cobra siempre el primer
+    período después de la prueba. Quien cobra plata llama a esto primero.
+    `hasattr` y no un chequeo de valor: un anotado que nunca pagó tiene
+    `cubierto_hasta = None` y sí pasa.
+    """
+    if not hasattr(gimnasio, "cubierto_hasta"):
+        raise ValueError(
+            "El gimnasio no viene de facturacion.gimnasios_anotados(): sin "
+            "`cubierto_hasta` se cobraría siempre el primer período. Usá "
+            "facturacion.gimnasio_anotado(pk)."
+        )
+
+
+def gimnasio_anotado(pk):
+    """El gimnasio `pk` con las anotaciones de facturación. Levanta
+    `Gimnasio.DoesNotExist` como cualquier `get`.
+
+    Es el ÚNICO acceso desde `suscripcion` a un gimnasio para facturar.
+    """
+    return gimnasios_anotados().get(pk=pk)
+
+
+def periodo_a_cobrar(gimnasio, dias=precios.DIAS_CICLO):
     """`(desde, hasta)` del próximo período a cobrarle a ese gimnasio ya
-    anotado. `hasta` es inclusivo.
+    anotado. `hasta` es inclusivo. `dias` es el largo del período (30 el
+    mensual, `precios.DIAS_ANIO` el anual).
 
     Vive acá y no en la vista para que el formulario de registrar un pago
     proponga exactamente el mismo período que el monitor usa para decir que
     está vencido: son la misma regla leída dos veces.
     """
     return precios.periodo_siguiente(
-        inicio_efectivo(gimnasio), getattr(gimnasio, "cubierto_hasta", None)
+        inicio_efectivo(gimnasio),
+        getattr(gimnasio, "cubierto_hasta", None),
+        dias=dias,
     )
 
 

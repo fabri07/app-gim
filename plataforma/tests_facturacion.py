@@ -21,7 +21,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from alumnos.models import Alumno
-from plataforma import facturacion
+from plataforma import facturacion, precios
 from plataforma.forms import PagoPlataformaForm
 from plataforma.models import PagoPlataforma
 from plataforma.precios import EstadoPago
@@ -729,3 +729,54 @@ class CostoConPagosTests(TestCase):
             self.client.get(reverse("plataforma:gimnasio_detalle", args=[grande_pk]))
 
         self.assertEqual(len(grande), len(chico))
+
+
+class ExigirAnotadoTests(TestCase):
+    """`exigir_anotado`: el guard contra el `Gimnasio` pelado, con el que
+    `periodo_a_cobrar` devuelve el primer período en silencio."""
+
+    def setUp(self):
+        self.gimnasio = _gimnasio("Vida Plena", 60)
+        self.jefe = _superadmin()
+
+    def test_un_gimnasio_pelado_levanta_y_nombra_la_salida(self):
+        pelado = Gimnasio.objects.get(pk=self.gimnasio.pk)
+
+        with self.assertRaises(ValueError) as error:
+            facturacion.exigir_anotado(pelado)
+
+        self.assertIn("gimnasios_anotados()", str(error.exception))
+
+    def test_un_anotado_que_nunca_pago_pasa(self):
+        anotado = facturacion.gimnasio_anotado(self.gimnasio.pk)
+
+        self.assertIsNone(anotado.cubierto_hasta)
+        facturacion.exigir_anotado(anotado)
+
+    def test_un_anotado_con_pagos_pasa(self):
+        _pago(self.gimnasio, self.jefe, date(2026, 5, 1), date(2026, 5, 30))
+
+        facturacion.exigir_anotado(facturacion.gimnasio_anotado(self.gimnasio.pk))
+
+    def test_gimnasio_anotado_inexistente_levanta_does_not_exist(self):
+        with self.assertRaises(Gimnasio.DoesNotExist):
+            facturacion.gimnasio_anotado(999999)
+
+
+class PeriodoACobrarConDiasTests(TestCase):
+    def setUp(self):
+        self.gimnasio = _gimnasio("Vida Plena", 60)
+
+    def test_sin_dias_sigue_dando_30(self):
+        desde, hasta = facturacion.periodo_a_cobrar(
+            facturacion.gimnasio_anotado(self.gimnasio.pk)
+        )
+
+        self.assertEqual((hasta - desde).days + 1, 30)
+
+    def test_con_dias_anual_da_360(self):
+        desde, hasta = facturacion.periodo_a_cobrar(
+            facturacion.gimnasio_anotado(self.gimnasio.pk), dias=precios.DIAS_ANIO
+        )
+
+        self.assertEqual((hasta - desde).days + 1, 360)
