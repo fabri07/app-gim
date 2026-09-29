@@ -11,7 +11,7 @@ quien llama (la vista tiene el `request`), porque estos módulos no tienen uno.
 """
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import EmailMessage
 from django.template.loader import render_to_string
 
 
@@ -31,13 +31,18 @@ def _enviar(asunto, base_template, contexto, destinatario):
     if not destinatario:
         return
     cuerpo = render_to_string(f"solicitudes/email/{base_template}.txt", contexto)
-    send_mail(
-        asunto,
-        cuerpo,
-        settings.DEFAULT_FROM_EMAIL or None,
-        [destinatario],
-        fail_silently=True,
-    )
+    # `EmailMessage` en vez de `send_mail` sólo para poder poner `reply_to`:
+    # el From es una casilla no-reply, así que la respuesta del interesado
+    # tiene que ir a una casilla que alguien lea (`EMAIL_REPLY_TO`). Sin esa
+    # variable el mail sale igual que antes, sin la cabecera.
+    reply_to = [settings.EMAIL_REPLY_TO] if getattr(settings, "EMAIL_REPLY_TO", "") else None
+    EmailMessage(
+        subject=asunto,
+        body=cuerpo,
+        from_email=settings.DEFAULT_FROM_EMAIL or None,
+        to=[destinatario],
+        reply_to=reply_to,
+    ).send(fail_silently=True)
 
 
 def enviar_verificacion(solicitud, url_verificacion):

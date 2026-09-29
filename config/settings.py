@@ -372,6 +372,13 @@ EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "")
+# A dónde contesta el interesado que aprieta "Responder" sobre un mail del
+# embudo de solicitudes. `DEFAULT_FROM_EMAIL` es una casilla no-reply que no
+# está dada de alta en el reenvío de Cloudflare: sin este Reply-To, la
+# respuesta más natural del mundo ("hola, quiero saber más") rebota y el lead
+# se pierde en el paso donde más caro sale perderlo. Vacío -> el mail sale sin
+# cabecera Reply-To (comportamiento previo), nunca rompe.
+EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO", "")
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 

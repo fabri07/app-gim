@@ -50,6 +50,7 @@ def _link_inv(usuario):
 @override_settings(
     EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
     DEFAULT_FROM_EMAIL="no-reply@tugimapp.com",
+    EMAIL_REPLY_TO="soporte@tugimapp.com",
     SOLICITUDES_AVISO_EMAIL="dueno@tugimapp.com",
 )
 class MaquinaDeEstadosTests(TransactionTestCase):
@@ -67,6 +68,9 @@ class MaquinaDeEstadosTests(TransactionTestCase):
         self.assertTrue(SolicitudEvento.objects.filter(solicitud=s).exists())
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("ana@box.com", mail.outbox[0].to)
+        # El From es no-reply: la respuesta del interesado tiene que caer en
+        # una casilla que alguien lea, o el lead se pierde acá.
+        self.assertEqual(mail.outbox[0].reply_to, ["soporte@tugimapp.com"])
 
     def test_email_se_normaliza_a_minusculas(self):
         s = self._crear(email="  ANA@Box.COM ")

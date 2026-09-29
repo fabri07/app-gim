@@ -108,6 +108,12 @@ services:
         sync: false
       - key: DEFAULT_FROM_EMAIL
         sync: false
+      # Opcional e independiente de las 4 de arriba: a dónde contesta el
+      # interesado que aprieta "Responder" sobre un mail del embudo de
+      # solicitudes. El From es una casilla no-reply que no tiene reenvío; sin
+      # esto, esa respuesta rebota. Vacío -> el mail sale sin Reply-To.
+      - key: EMAIL_REPLY_TO
+        sync: false
       # Exportador de datos ("Mi gimnasio"). Las dos son opcionales e
       # independientes. EXPORTACION_AVISO_EMAIL: a quién se le avisa cada vez
       # que un gimnasio real descarga sus datos (necesita las EMAIL_* de
