@@ -30,11 +30,13 @@ un importador de planes/ejercicios desde Excel (ver "Importador de Excel
 acceso al alumno que no paga (ver "Bloqueo de acceso por falta de pago" más
 abajo), y un panel de plataforma para el dueño del producto —superadmin—
 que monitorea, factura y congela gimnasios (ver "Panel de plataforma" más
-abajo), y el control de ingreso por molinete con QR o lector facial (ver
+abajo), el control de ingreso por molinete con QR o lector facial (ver
 "Control de ingreso" más abajo; sin hardware todavía, lo construido es el
-contrato HTTP y las pantallas) — el ROADMAP.md no las documenta todavía como
-fases propias, viven en `ISSUES.md` y en los mensajes de commit ("Fase 6,
-Task N", "Parte A/B/C", "Proyecto 2, Task N").
+contrato HTTP y las pantallas), y el sitio público en `/` con el embudo de
+solicitudes de acceso (ver "Sitio público y embudo de solicitudes" más
+abajo) — el ROADMAP.md no las documenta todavía como fases propias, viven en
+`ISSUES.md` y en los mensajes de commit ("Fase 6, Task N", "Parte A/B/C",
+"Proyecto 2, Task N").
 
 **Nota:** el acceso del alumno NO es magic-link como decía la primera versión
 del ROADMAP — el dueño del producto pidió que el staff asigne usuario y
@@ -334,6 +336,14 @@ turnos. `pagos/acceso.py` es el ÚNICO lugar donde vive esa regla —
 - **`ingreso`** — la puerta del gimnasio: lectores, credenciales (QR o id
   facial) y el registro de cada intento de pasar; ver "Control de ingreso"
   abajo.
+- **`solicitudes`** — el embudo público de captación: un interesado deja una
+  solicitud en `/solicitar/` y el dueño del producto la aprueba desde el
+  panel. **Ninguno de sus modelos es `TenantOwnedModel`** (son datos DE la
+  plataforma, no DE un gimnasio); ver "Sitio público y embudo de solicitudes"
+  abajo.
+- **`plataforma`** — no es una app de dominio del gimnasio y va última en
+  `INSTALLED_APPS`: es el panel del dueño del producto, el único lugar donde
+  se ven TODOS los gimnasios. Ver "Panel de plataforma" abajo.
 
 ## Editar la rutina asignada y el panel «Cómo viene el alumno»
 
@@ -905,6 +915,13 @@ del panel se come el timeout entero mientras la API esté muerta; el timeout es
 de 3 s porque esto corre dentro del request y gunicorn tiene 30). Bajo
 `TESTING` no sale a la red, mismo criterio que R2.
 
+**Y manda un `User-Agent` propio** (`cambio.USER_AGENT`): con el de `urllib`
+por defecto («Python-urllib/3.x») dolarapi responde **403**, y como el módulo
+se traga todo, el panel mostraba sólo USD sin un solo error a la vista —
+exactamente el modo de falla que la regla de arriba tolera a propósito. Medido
+el 2026-09-28 desde Render y desde local. Si la cotización desaparece del
+panel, el primer sospechoso es éste, no el cache.
+
 **`fecha` vuelve como datetime *aware* en UTC**, que es como la publica la API:
 se muestra SIEMPRE con el filtro `date` o con `timezone.localtime(...)`, nunca
 con `.date()` ni `.hour` a secas — con UTC-3 una cotización de las 21:30 de
@@ -1014,9 +1031,22 @@ es su «código», y en el modelo es `Credencial.valor`. **Ningún modelo lleva
   `/ingreso/v1/eventos/` y `/ingreso/v1/padron/`: la versión va en la ruta
   porque el instalador la deja cableada en un equipo que no podemos
   actualizar), las pantallas de staff (`ingreso:listado`, `dispositivos`,
-  `configuracion`, las de credenciales y `tarjetas`) y `ingreso:mi_codigo` del
-  portal. Se entra desde la tarjeta «Control de ingreso» del dashboard y desde
-  «Configurar la puerta» en «Mi gimnasio»: **el nav se queda en 8 ítems**.
+  `configuracion`, las de credenciales y `tarjetas`), `ingreso:instructivo`
+  («Cómo conectar tu puerta»: el documento de integración en pantalla, para que
+  el dueño no tenga que mandarle un `.md` del repo a su instalador) y
+  `ingreso:mi_codigo` del portal. Se entra desde la tarjeta «Control de
+  ingreso» del dashboard y desde «Configurar la puerta» en «Mi gimnasio»: **el
+  nav se queda en 8 ítems**.
+- **`analitica.py`** — «Reservas contra ingresos reales» y «Vinieron sin
+  reserva» del panel del staff. La grilla de calor de `tenants/analitica.py`
+  cuenta lo que el alumno DIJO que iba a hacer; con un lector en la puerta
+  existe además lo que hizo, y esto pone las dos cosas lado a lado. La ventana
+  es de `SEMANAS_COMPARACION` (8) para las DOS grillas —comparar todo el
+  historial de reservas contra las pocas semanas que lleva conectada la puerta
+  haría que las reservas ganen en todas las celdas— y de `DIAS_SIN_RESERVA`
+  (7) para la lista, que es para actuar esta semana y no un ranking histórico.
+  Costo fijo, porque corre en cada carga del panel: dos agregados y tres
+  queries, nada por alumno.
 - **`management/commands/purgar_ingresos.py`**, el puente de ejemplo
   `scripts/puente_ingreso_ejemplo.py` (**solo stdlib**: tiene que correr en la
   PC de un gimnasio sin `pip install`) y `scripts/probar_ingreso_local.sh`.
@@ -1600,9 +1630,13 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
 
 - **Nav**: `templates/base.html` muestra el menú de secciones solo si
   `user.perfil.rol == "staff"`.
-- **Dashboard**: `tenants.views.HomeView` (ruta `home`) — bifurca por
-  `perfil.rol`. Para `staff`: métricas de Fase 2 §1 (alumnos activos, alumnos
-  con pago pendiente, pagos del mes, rutinas activas, últimas novedades) +
+- **Dashboard**: `tenants.views.HomeView` — **ya no está montada en ninguna
+  URL propia**: desde el sitio público, la ruta `home` (`/`) es `PortadaView`,
+  que para un anónimo sirve la landing de producto y para un autenticado
+  delega en `HomeView` sin tocarla ni renombrarla (ver "Sitio público y embudo
+  de solicitudes"). `HomeView` bifurca por `perfil.rol`. Para `staff`:
+  métricas de Fase 2 §1 (alumnos activos, alumnos con pago pendiente, pagos
+  del mes, rutinas activas, últimas novedades) +
   analítica (subproyecto 4, agregada después de Fase 6; el 5to gráfico
   "ejercicios más asignados" se sumó más tarde, ver abajo): asistencia por
   día/hora, alumnos por género, RPE por ejercicio, y ejercicios más
@@ -1644,13 +1678,17 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
 
 ## Portal del alumno y acceso (Fase 3)
 
-- **Alta de gimnasios: por comando, no self-serve.** `/accounts/register/` era
-  público y sin throttling (cualquiera creaba User + Gimnasio + Perfil STAFF y
-  quedaba logueado); se cerró el 2026-07-29, ver `ISSUES.md`. Hoy el único
-  camino es `python manage.py crear_gimnasio`
-  (`tenants/services.py::crear_gimnasio`), que crea al dueño con
-  `set_unusable_password()` porque el staff va a entrar por Google. **No
-  reintroduzcas una vista de registro** sin volver a discutir la decisión.
+- **Alta de gimnasios: nunca self-serve.** `/accounts/register/` era público
+  y sin throttling (cualquiera creaba User + Gimnasio + Perfil STAFF y quedaba
+  logueado); se cerró el 2026-07-29, ver `ISSUES.md`. Hoy hay TRES caminos y
+  los tres pasan por la misma función, `tenants/services.py::crear_gimnasio`
+  (que crea al dueño con `set_unusable_password()` cuando va a entrar por
+  Google): `python manage.py crear_gimnasio`, el alta del panel
+  (`plataforma:gimnasio_crear`) y la aprobación de una solicitud
+  (`solicitudes.services.aprobar`). Los tres los ejecuta el dueño del
+  producto, nunca el interesado. **No reintroduzcas una vista de registro**
+  sin volver a discutir la decisión — y el formulario público de `/solicitar/`
+  NO es una: no crea ningún tenant, deja un lead para moderar.
 - **Acceso**: `Alumno.perfil` (`OneToOneField` a `tenants.Perfil`, nullable)
   vincula un alumno con su login. El staff lo crea/resetea desde la ficha del
   alumno (`alumnos:acceso_crear` / `alumnos:acceso_cambiar_password`,
@@ -2182,18 +2220,22 @@ plantilla.
   cambios" (ver `ISSUES.md` `[2026-08-14]` sobre por qué la distancia es
   RGB simple, no Lab/CIEDE2000).
 - **Tipografía por gimnasio**: `Gimnasio.tipografia` es un `TextChoices` con
-  6 opciones curadas de Google Fonts (Inter, Montserrat, Poppins, Oswald,
-  Playfair Display) más `sistema` como default — texto libre queda afuera a
-  propósito, mismo criterio que `grupo_muscular` de `Ejercicio`: un catálogo
-  cerrado evita que el dueño rompa la estética con una fuente ilegible. El
-  default `sistema` no carga ningún recurso externo: mapea a `var(--font-sans)`,
-  el stack que Tailwind v4 ya aplica por preflight, así que un gimnasio
-  existente no cambia de aspecto hasta que el dueño elige explícitamente. Las
-  demás opciones se sirven desde Google Fonts CDN, no auto-hospedadas (mismo
-  criterio que Alpine.js/htmx por CDN) — se reevalúa si el tráfico lo
-  justifica. El mapeo tipografía → (familia CSS, query de Google Fonts) vive
-  en `Gimnasio.TIPOGRAFIA_FUENTES`, única fuente de verdad para `base.html` y
-  el preview en vivo de `gimnasio_form.html`. La variable `--font-gimnasio`
+  5 opciones curadas (Plus Jakarta Sans —el default—, Sora, Manrope, Outfit,
+  Space Grotesk) — texto libre queda afuera a propósito, mismo criterio que
+  `grupo_muscular` de `Ejercicio`: un catálogo cerrado evita que el dueño rompa
+  la estética con una fuente ilegible. **El default está AUTO-HOSPEDADO y las
+  otras cuatro salen de Google Fonts.** Plus Jakarta Sans se declara con
+  `@font-face` en `styles/input.css` sobre el `.woff2` variable que
+  `npm run prebuild:css` copia a `static/fonts/` desde
+  `@fontsource-variable/plus-jakarta-sans` (ver `package.json`), así que la
+  mayoría del tráfico —todo gimnasio que no cambió el default— nunca dispara
+  una carga externa: es el rol que cumplía la opción `sistema`, que salió del
+  catálogo con el rediseño de marca (antes el catálogo eran 6 fuentes de
+  Google —Inter, Montserrat, Poppins, Oswald, Playfair Display— más
+  `sistema`). El mapeo tipografía → (familia CSS, query de Google Fonts, que
+  es `None` para la auto-hospedada) vive en `Gimnasio.TIPOGRAFIA_FUENTES`,
+  única fuente de verdad para `base.html` y el preview en vivo de
+  `gimnasio_form.html`. La variable `--font-gimnasio`
   sigue el mismo patrón que los colores (default en `input.css`, override
   inline en `base.html`), aplicada vía `font-[family-name:var(--font-gimnasio)]`
   en `body` — el hint `family-name:` es necesario porque sin él Tailwind
@@ -2203,7 +2245,7 @@ plantilla.
   `tipografia_css_family` se inyecta en `base.html` con `|safe` a propósito —
   `<style>` es un elemento "raw text" y el navegador no decodifica entidades
   ahí adentro, así que sin `|safe` el autoescape de Django convierte las
-  comillas de `'Playfair Display'` en `&#x27;` y rompe el CSS en vez de
+  comillas de `'Plus Jakarta Sans'` en `&#x27;` y rompe el CSS en vez de
   protegerlo (el valor sale de un dict fijo del código, nunca de input de
   usuario, por eso es seguro). Ver `tenants.tests.GimnasioUpdateViewTests.
   test_tipografia_con_comillas_no_queda_html_escapada`.
@@ -2248,6 +2290,152 @@ plantilla.
   MISMO scope de `x-data`, si no el toggle no hace nada). No se usó para
   nada más ("solo si hace falta", ROADMAP Fase 4).
 
+## Sitio público y embudo de solicitudes (`solicitudes/`, 2026-09-25)
+
+Hay **dos** superficies públicas y no hay que confundirlas: la landing de un
+GIMNASIO (`g/<slug>/`, ver la sección siguiente) y el sitio del PRODUCTO, que
+es esto. Acá el visitante es un dueño de gimnasio que todavía no es cliente, y
+lo único que puede hacer es dejar una solicitud: el alta de tenants sigue
+cerrada (ver "Portal del alumno y acceso").
+
+**`tenants.views.PortadaView` es la raíz `/`** y se quedó con el nombre de ruta
+`home`, que se referencia sin namespace en todo el proyecto — por eso el
+reemplazo no rompió nada. Bifurca en tres:
+
+- **Autenticado** → delega en `HomeView` (dashboard de staff, portal del
+  alumno, o el redirect del superadmin sin `Perfil` a `plataforma:inicio`).
+  Delegación pura: `HomeView` no se tocó ni se renombró, y por eso dejó de
+  tener URL propia.
+- **Anónimo con la cookie `gimnasio_preferido`** → al login de su gimnasio,
+  exactamente lo que ya hacía `LoginView.get` cuando el anónimo caía en
+  `/accounts/login/` (misma función compartida, no una copia).
+- **Anónimo sin cookie** → la landing de producto (`tenants/portada.html`).
+
+Sin `LoginRequiredMixin` a propósito, misma familia que `GimnasioLandingView`.
+Antes de esto, un anónimo en `/` era un redirect al login: el producto no tenía
+ninguna página que se pudiera mandar por WhatsApp.
+
+- **La portada no inventa ningún dato que ya viva en el código.** Los precios
+  salen de `plataforma/precios.py` vía `_contexto_precios()` (con el importe en
+  pesos sólo si hay cotización, ver "Cotización del dólar"), y los colores del
+  selector de paisajes del hero salen de `Gimnasio.PALETAS` — **nunca hex
+  escritos en el template ni en el CSS**, así que retocar un paisaje o mover un
+  escalón de precio se refleja solo. `og:image`/`og:url` van **absolutas**
+  (`build_absolute_uri` sobre `static(...)`): los crawlers de redes no bajan
+  una URL relativa, y el hash del manifest de WhiteNoise hace que escribir la
+  ruta a mano sea imposible. La sección de venta del control de ingreso
+  (`id="ingreso"`) **no nombra ninguna marca de equipo** a propósito: no hay
+  hardware probado todavía (ver "Control de ingreso").
+
+### El embudo: doble opt-in, y por qué
+
+`/solicitar/` (`solicitudes:solicitar`) → mail de confirmación →
+`solicitudes:verificar` → la solicitud entra a la cola del panel
+(`plataforma:solicitud_lista`). Los estados son `NO_VERIFICADA` →
+`PENDIENTE` → `APROBADA`/`RECHAZADA`/`LISTA_ESPERA`, más `EXPIRADA` para la que
+nunca confirmó.
+
+- **El aviso al dueño del producto sale recién con el email confirmado.** Sin
+  doble opt-in, cualquier bot le llena la bandeja —que ES la cola de trabajo—
+  de leads con mails inventados, y encima el mail de invitación de una
+  aprobación iría a una casilla ajena.
+- **Un solo trámite ABIERTO por email**, con un `UniqueConstraint` parcial
+  sobre `ESTADOS_ABIERTOS` (índice parcial: anda igual en SQLite y en
+  Postgres). Cerrada la solicitud (aprobada, rechazada o expirada) el mismo
+  email puede volver a pedir.
+- **Todo camino termina en la misma pantalla «enviada»**, y eso incluye el
+  choque contra ese índice, el honeypot, el rate-limit y el duplicado: la
+  respuesta es NEUTRAL o el formulario se vuelve un oráculo que dice qué mails
+  ya pidieron una cuenta. El `IntegrityError` se traga en el service y
+  `crear_solicitud` devuelve `None`.
+- **`solicitudes/services.py` es el ÚNICO lugar que escribe** sobre estos
+  modelos. Todas las transiciones toman `select_for_update()`, son
+  idempotentes, y los mails salen por `transaction.on_commit` (mismo patrón que
+  `notificaciones`/`calendario`: si la transacción se revierte no sale ningún
+  mail). Las URLs absolutas las arma la vista, que es la que tiene el
+  `request`, y se pasan como valores o callables.
+- **Aprobar NO reimplementa el alta**: llama a `tenants.services.crear_gimnasio`
+  y descarta la contraseña generada. Devuelve `(gimnasio, resultado)` con
+  `resultado` en `{"aprobada", "ya_existia", "email_en_uso"}` — con
+  `email_en_uso` **no crea ni aprueba nada** y le manda un «ya tenés cuenta»,
+  porque ese email ya es de alguien que entra hoy.
+- **El link para definir la contraseña reusa el token de reset de Django**
+  (`solicitudes/tokens.py`: `default_token_generator` + `uidb64` apuntando a
+  `password_reset_confirm`, que acá resuelve a `StaffPasswordResetConfirmView`
+  con `post_reset_login=True`). Como se valida con `check_token(user, token)`,
+  **no pasa por `ResetPasswordStaffForm.get_users()`** y funciona aunque el
+  usuario recién creado nunca haya pedido un reset. Caduca a
+  `PASSWORD_RESET_TIMEOUT` (3 días): de ahí el botón «reenviar» del panel.
+
+### Anti-spam en capas, sin una dependencia nueva
+
+`solicitudes/antispam.py`: honeypot (`website`), tiempo mínimo **firmado** con
+`signing.dumps` (un campo oculto sin firmar lo falsifica cualquiera), dedup por
+email y rate-limit por IP, los dos sobre `django.core.cache`. Nada de esto
+reemplaza al índice único ni a la neutralidad de la vista: son capas baratas
+para frenar bots antes de tocar la base.
+
+- **La IP sale de `CF-Connecting-IP`, nunca del primer `X-Forwarded-For`.** El
+  sitio va proxeado por Cloudflare, que pone ese header; `X-Forwarded-For` lo
+  puede mandar el cliente falseado y rotarlo para saltear el rate-limit
+  (Cloudflare **agrega** la IP real al final, no reemplaza lo que vino). Es la
+  misma función que reusa el freno por IP del control de ingreso.
+- **La IP se guarda hasheada** (`sha256(valor + SECRET_KEY)`), nunca en claro:
+  trazabilidad anti-abuso sin persistir un dato personal.
+
+### Los mails del embudo
+
+`solicitudes/emails.py`, texto plano (mismo criterio YAGNI que el reset de
+contraseña), con `EmailMessage` para poder poner `Reply-To` (ver
+"Olvidé mi contraseña"). El aviso al dueño va a `SOLICITUDES_AVISO_EMAIL`, con
+`DEFAULT_FROM_EMAIL` como fallback.
+
+**`motivo_decision` NO va en el cuerpo de ningún mail, y no hay que volver a
+ponerlo.** Es la nota de triage del superadmin: se pide como «Motivo interno» en
+`plataforma/solicitud_detalle.html` y se muestra en el historial de auditoría.
+Los templates de rechazo y de lista de espera la interpolaban tal cual, así que
+un «no es un gimnasio real» escrito para uso interno le llegaba a la persona de
+la que se escribió — **un campo no puede tener dos audiencias**. Si algún día
+hay que decirle algo puntual a un lead, va un campo NUEVO rotulado como visible
+para él. Lo fija `CuerpoDeLosMailsDeDecisionTests`, y el rechazo además tiene
+que dejar la puerta abierta y una casilla real: es el único mail que ese
+interesado va a leer del producto. La casilla sale de `EMAIL_REPLY_TO` y **no**
+de `SOPORTE_CONTACTO` (texto libre de pantalla, puede no ser un email); sin
+ella, el mail no invita a escribir a ninguna parte.
+
+**`fail_silently=True` a propósito**, y el motivo importa: estos envíos corren
+en `transaction.on_commit`, o sea DESPUÉS de que la fila se commiteó. Si un
+fallo transitorio de SMTP levantara ahí, el interesado se comería un 500 con la
+solicitud YA creada, y el índice único parcial le impediría reintentar. La
+recuperación es el reenvío desde el panel y el cron de expiración, no una
+excepción. **Consecuencia aceptada:** un mail que rebota no deja rastro en
+ningún log — si una casilla de aviso no entrega, la evidencia es idéntica a la
+del estado sano (mismo modo de falla que una bandera opcional apagada).
+
+### Nada de esto es `TenantOwnedModel`
+
+`SolicitudAcceso`/`SolicitudAccesoToken`/`SolicitudEvento` heredan de
+`TimeStampedModel` y **quedan fuera de los tres lugares** donde va todo modelo
+tenant-owned (`tenants/demo.py::vaciar_gimnasio`, el fixture `_ensuciar` y
+`HOJAS`/`EXCLUIDOS` del exportador). Son datos de la plataforma sobre un
+interesado: los ve el superadmin, el gimnasio no los ve en ninguna pantalla, y
+`SolicitudAcceso` ni siquiera tiene FK a `Gimnasio` hasta que se aprueba —
+mismo criterio que `plataforma.PagoPlataforma` (la regla completa está en esa
+sección).
+
+- **`SolicitudEvento` es el historial completo** (una fila por transición, en la
+  misma transacción que el cambio de estado); los campos `decidida_*` de
+  `SolicitudAcceso` son sólo la ÚLTIMA decisión, denormalizados para que el
+  listado del panel no haga un subquery por fila.
+- **`manage.py expirar_solicitudes` no es housekeeping: es el camino de
+  recuperación.** Pasa a `EXPIRADA` las `NO_VERIFICADA` con el token vencido, y
+  eso es lo que **libera el email** — mientras la solicitud siga abierta, el
+  índice único parcial le impide a ese interesado volver a pedir, así que sin
+  este cron alguien que tipeó mal su casilla o nunca vio el mail queda trabado
+  para siempre. **No manda ningún mail** (no hay nada útil que decirle a quien
+  nunca confirmó). Lo agenda `.github/workflows/expirar-solicitudes.yml`,
+  07:00 UTC, después de `generar-pagos`.
+
 ## Landing pública (subproyecto 5, más allá del ROADMAP original)
 
 `tenants.views.GimnasioLandingView` (ruta `g/<slug>/`, `tenants/urls.py`) es
@@ -2263,7 +2451,10 @@ del dueño del producto: los alumnos NO pueden autoregistrarse (el staff
 asigna usuario/contraseña a mano, ver `alumnos/views.py::CrearAccesoView`),
 así que la landing solo ofrece contactar al gimnasio (`link_whatsapp`/
 `link_instagram`/`contacto`, campos que ya existían desde Fase 1) o, si ya
-es alumno, ir al login de siempre.
+es alumno, ir al login de siempre. **Eso es sobre los ALUMNOS de un gimnasio
+y sigue igual**: el embudo de leads que sí existe es el del PRODUCTO
+(`/solicitar/`, ver "Sitio público y embudo de solicitudes"), donde el
+interesado es un dueño de gimnasio, no un alumno.
 
 **Blanco-etiquetado sin tocar el `:root` global**: `templates/tenants/
 landing.html` pisa `--color-primario`/`--color-secundario` y `font-family`
@@ -2557,9 +2748,14 @@ reseteara a mano desde la Shell de Render (`manage.py changepassword`).
   consola de Django — nunca rompe nada, el link simplemente queda oculto
   para no ofrecer un flujo que no entrega nada. `EMAIL_PORT`/`EMAIL_USE_TLS`
   son constantes fijas (el submission port TLS de Resend), no variables de
-  entorno. **En tests, Django ya fuerza `EMAIL_BACKEND` a `locmem`
-  automáticamente** (built-in del test runner) — a diferencia de R2/Google,
-  no hace falta usar `TESTING` para esto.
+  entorno. **`EMAIL_REPLY_TO` es una variable SUELTA, fuera del grupo** (mismo
+  criterio que `SOPORTE_CONTACTO`): el `From` es una casilla no-reply, así que
+  sin ella la respuesta de quien recibe el mail no llega a ninguna parte. Hoy
+  la consumen SÓLO los mails de `solicitudes/emails.py`, que por eso usan
+  `EmailMessage` y no `send_mail`; **el reset de contraseña de Django no pasa
+  por ahí y sale sin `Reply-To`**. **En tests, Django ya fuerza
+  `EMAIL_BACKEND` a `locmem` automáticamente** (built-in del test runner) — a
+  diferencia de R2/Google, no hace falta usar `TESTING` para esto.
 - **Las 4 vistas de Django, wireadas a mano** (`tenants/urls.py`), mismo
   criterio que `login`/`logout` (nunca `include('django.contrib.auth.urls')`
   en este proyecto): `password_reset`, `password_reset_done`,
@@ -2652,11 +2848,12 @@ navegador (sin publicar en app stores) — reusa el 100% de las templates
 Django/HTMX existentes, y agrega solo la capa de instalabilidad + push
 notifications.
 
-- **`notificaciones`** es la app más nueva del proyecto, **última** en
-  `INSTALLED_APPS` a propósito: sus signals/servicios leen
-  `Novedad`/`RutinaAsignada`/`Reserva`/`Cuota`/`Gimnasio`/`Perfil`, así
-  que depende de todo el dominio (mismo criterio de orden que el resto de
-  `INSTALLED_APPS`).
+- **`notificaciones`** va **después de todo el dominio** en `INSTALLED_APPS`
+  a propósito: sus signals/servicios leen
+  `Novedad`/`RutinaAsignada`/`Reserva`/`Cuota`/`Gimnasio`/`Perfil` (mismo
+  criterio de orden que el resto del archivo). Fue la última de la lista hasta
+  que aparecieron `solicitudes` y `plataforma`, que dependen de más todavía;
+  hoy el orden termina en `notificaciones`, `solicitudes`, `plataforma`.
 - **`SuscripcionPush`** (una fila por dispositivo/navegador, NO OneToOne con
   el usuario — un alumno puede tener el celu y la PC suscriptos) **es
   `TenantOwnedModel`**, no solo scopeada vía FK a `usuario`: mismo argumento
@@ -2839,9 +3036,10 @@ región de un servicio no es editable después de crearlo, y `generateValue: tru
 sobre `DJANGO_SECRET_KEY` habría generado una clave nueva, deslogueando a todos
 e invalidando los tokens de reset. `render.yaml` sigue describiendo el servicio
 viejo (`app-gim`, Oregón), que queda **prendido y sin dominio** como vuelta
-atrás; su valor hoy es ser la lista completa de las 21 variables que la app
-necesita, y `config/tests.py::BlueprintDeclaraLoQueSettingsLeeTests` falla si
-`settings.py` lee una que ahí no está.
+atrás; su valor hoy es ser la lista completa de las variables que la app
+necesita (28 al 2026-09-29), y
+`config/tests.py::BlueprintDeclaraLoQueSettingsLeeTests` falla si `settings.py`
+lee una que ahí no está.
 
 **`www` va PROXEADO por Cloudflare (nube naranja), no en "Solo DNS".** No es
 cosmético: en Solo DNS la IP de origen queda expuesta, se pierden WAF y
@@ -2865,10 +3063,10 @@ de staff, ver sección propia más abajo) se actualizaron en Render
 (`GOOGLE_OAUTH_REDIRECT_URI`/`GOOGLE_LOGIN_REDIRECT_URI`) y ya estaban
 dados de alta en la consola de Google Cloud apuntando a `tugimapp.com` antes
 del corte, así que no hubo ventana de corte para ninguna de las dos
-integraciones. **Pendiente, sin confirmar todavía**: los registros SPF/DKIM
-que pida el proveedor de email — el dominio es lo que destraba el email
-transaccional (sin verificación de dominio, Resend solo deja enviar a la
-casilla propia), pero no hay evidencia de que este paso ya se haya hecho.
+integraciones. Los registros SPF/DKIM que pide Resend **ya están cargados**
+(ver "Lo que sigue pendiente" más abajo): el dominio es lo que destraba el
+email transaccional, porque sin verificación de dominio Resend solo deja
+enviar a la casilla propia.
 
 - **Plan elegido: arrancar en el free tier de Render, upgradear cuando entre
   el primer gimnasio pago** (decisión del usuario, coincide con "primero se
@@ -2877,7 +3075,8 @@ casilla propia), pero no hay evidencia de que este paso ya se haya hecho.
 - **`render.yaml`** define el Blueprint: **solo el web service (free)**. Ya no
   declara `databases:` — la base salió del Blueprint el 2026-07-29 y vive en
   Neon (ver abajo). Tampoco tiene cron: **Render no ofrece plan free para cron
-  jobs**, así que los dos trabajos programados corren en GitHub Actions.
+  jobs**, así que TODOS los trabajos programados corren en GitHub Actions
+  (hoy siete workflows).
 - **La base es Neon, no Render** (migrada el 2026-07-29, ver `ISSUES.md`). El
   Postgres free de Render expiraba a los 30 días + 14 de gracia y después
   Render borra los datos; el de Neon es free permanente. `DATABASE_URL` se
@@ -2898,6 +3097,9 @@ casilla propia), pero no hay evidencia de que este paso ya se haya hecho.
 - **Trabajos programados (GitHub Actions, no Render):**
   - `.github/workflows/generar-pagos.yml` — corre `manage.py generar_pagos`
     todos los días 06:30 UTC. Usa la URL **pooled** (conexiones cortas).
+  - `.github/workflows/expirar-solicitudes.yml` — `manage.py
+    expirar_solicitudes`: cierra los leads que nunca confirmaron el email (ver
+    "Sitio público y embudo de solicitudes").
   - `.github/workflows/backup.yml` — `pg_dump` diario a las 06:00 UTC, cifrado
     con GPG y subido al bucket R2 `app-gim-backups`. Usa la URL **directa**.
     El día 1 de cada mes copia también a `monthly/` y **encadena** la
@@ -2917,6 +3119,10 @@ casilla propia), pero no hay evidencia de que este paso ya se haya hecho.
     de `ISSUES.md`: `calendario/signals.py` no chequea `raw`, así que un
     `loaddata` sincronizaría cada `Reserva` restaurada contra la API real de
     Google Calendar.
+  - Los otros tres viven documentados en su propia sección:
+    `enviar-recordatorios.yml` (cada 15 min, ver "PWA instalable + Web Push")
+    y `restaurar-demo.yml`/`sembrar-demo.yml` (cada 6 h, ver "Cuenta de
+    demostración compartida").
 - **Cloudflare R2 — creado y en uso.** Bucket `app-gim-media`, endpoint
   `https://<account_id>.r2.cloudflarestorage.com`. Las 4 credenciales
   (`R2_BUCKET_NAME`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/
@@ -2924,9 +3130,10 @@ casilla propia), pero no hay evidencia de que este paso ya se haya hecho.
   (van marcadas `sync: false` en el Blueprint, así que no se leen del repo —
   verificarlas ahí, no acá).
 - **Qué se guarda en R2 y qué no** (pregunta recurrente): R2 guarda SOLO los
-  archivos subidos por usuarios, que son exactamente tres campos —
-  `Gimnasio.logo` (`logos/`), `Cuota.comprobante` (`comprobantes/`) e
-  `Importacion.archivo` (`importaciones/`, el `.xlsx` original). **Todo el
+  archivos subidos por usuarios, que son exactamente cuatro campos —
+  `Gimnasio.logo` (`logos/`), `Gimnasio.fondo_imagen` (`fondos/`),
+  `Cuota.comprobante` (`comprobantes/`) e `Importacion.archivo`
+  (`importaciones/`, el `.xlsx` o el `.pdf` original). **Todo el
   resto de los datos vive en Postgres**: alumnos, rutinas, ejercicios, pagos,
   novedades, turnos/reservas, tokens de Google Calendar, usuarios, y el
   `resultado` JSON de cada importación. Los estáticos (`static/css/app.css`,
@@ -3008,9 +3215,12 @@ python manage.py test alumnos.tests.AlumnoTests.test_creacion_basica_y_str
                                      # un solo test (ruta punteada app.tests.Clase.metodo)
 python manage.py createsuperuser     # acceso a /admin/
 python manage.py crear_gimnasio --nombre "Gimnasio Central" --email dueno@gmail.com
-                                     # imprime una contraseña provisoria; ver
-                                     # --sin-password (solo cuando exista Google login)
-python manage.py generar_pagos       # autogenera pendientes del mes + vence atrasados
+                                     # imprime una contraseña provisoria; con
+                                     # --sin-password el dueño entra por Google
+python manage.py generar_pagos       # autogenera pendientes del ciclo + vence atrasados
+python manage.py expirar_solicitudes # cierra los leads que nunca verificaron el email
+python manage.py sembrar_demo --gimnasio <slug>    # datos de muestra (ver su sección)
+python manage.py restaurar_demo --gimnasio <slug>  # vacía y resiembra la cuenta demo
 python manage.py exportar_gimnasio --gimnasio <slug> --salida datos.zip
                                      # mismo ZIP que el botón de "Mi gimnasio", sin timeout
 python manage.py purgar_ingresos --gimnasio <slug> --meses 24 --dry-run
@@ -3019,7 +3229,8 @@ python manage.py purgar_ingresos --gimnasio <slug> --meses 24 --dry-run
 python manage.py collectstatic       # solo hace falta simulando producción (DEBUG=False)
 
 npm install                          # una vez, para compilar Tailwind
-npm run build:css                    # compila static/css/input.css -> app.css
+npm run build:css                    # compila styles/input.css -> static/css/app.css
+                                     # (el prebuild copia la fuente auto-hospedada)
 npm run watch:css                    # lo mismo, en watch mode durante desarrollo
 ```
 
