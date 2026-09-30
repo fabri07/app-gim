@@ -1,0 +1,64 @@
+# Avisos de vencimiento de la suscripción
+# (suscripcion.avisos.avisar, ver suscripcion/management/commands/avisar_cobros.py).
+#
+# Manda un mail al staff de cada gimnasio cuya suscripción está por vencer,
+# vence hoy o ya venció, con el link para pagar online. Un aviso por período y
+# tipo (dedup en `AvisoDeCobro`). Que GitHub retrase el `schedule` 2-4 h en el
+# plan free es inocuo acá: un mail a las 11 en vez de a las 9 da igual.
+#
+# Vive acá y no en render.yaml porque Render no ofrece plan free para cron jobs
+# (mismo criterio que generar-pagos.yml).
+
+name: Avisar vencimientos de la suscripción
+
+on:
+  schedule:
+    - cron: "0 12 * * *"   # 09:00 de Argentina
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: avisar-cobros-production
+  cancel-in-progress: false
+
+jobs:
+  avisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # SHA pineado, no tag (mismo criterio que generar-pagos.yml).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # Manda mails: sin las EMAIL_* caen al backend de consola en silencio y
+      # nadie se entera. Sin MERCADOPAGO_* el comando sale con error a
+      # propósito (workflow en rojo, sin ping): el mail invita a pagar online.
+      - name: Correr avisar_cobros
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_POOLED }}
+          DJANGO_DEBUG: "False"
+          MERCADOPAGO_ACCESS_TOKEN: ${{ secrets.MERCADOPAGO_ACCESS_TOKEN }}
+          MERCADOPAGO_WEBHOOK_SECRET: ${{ secrets.MERCADOPAGO_WEBHOOK_SECRET }}
+          EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
+          EMAIL_HOST_USER: ${{ secrets.EMAIL_HOST_USER }}
+          EMAIL_HOST_PASSWORD: ${{ secrets.EMAIL_HOST_PASSWORD }}
+          DEFAULT_FROM_EMAIL: ${{ secrets.DEFAULT_FROM_EMAIL }}
+          EMAIL_REPLY_TO: ${{ secrets.EMAIL_REPLY_TO }}
+        run: python manage.py avisar_cobros
+
+      # Alerta por AUSENCIA de ping (mismo criterio que los otros crons). El
+      # guard va adentro del paso: los secrets no se pueden evaluar en `if`.
+      - name: Avisar a Healthchecks
+        env:
+          PING: ${{ secrets.HEALTHCHECKS_URL_AVISAR_COBROS }}
+        run: |
+          if [ -n "$PING" ]; then
+            curl -fsS -m 10 --retry 3 "$PING"
+          else
+            echo "HEALTHCHECKS_URL_AVISAR_COBROS sin cargar: se saltea el ping."
+          fi

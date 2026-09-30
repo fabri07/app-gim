@@ -1,0 +1,10 @@
+Hola.
+
+{% if tipo == "por_vencer" %}La suscripción de {{ gimnasio.nombre }} a TuGimApp vence el {{ vencimiento|date:"d/m/Y" }}.{% elif tipo == "vence_hoy" %}La suscripción de {{ gimnasio.nombre }} a TuGimApp vence hoy, {{ vencimiento|date:"d/m/Y" }}.{% else %}La suscripción de {{ gimnasio.nombre }} a TuGimApp venció el {{ vencimiento|date:"d/m/Y" }}.{% endif %}
+
+Precio del plan mensual: USD {{ precio_usd }} (se paga en pesos, al dólar MEP del día).
+
+Podés pagar online, con Mercado Pago, desde acá:
+{{ url_pago }}
+
+Si ya pagaste, ignorá este mensaje.

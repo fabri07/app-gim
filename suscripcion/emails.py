@@ -15,6 +15,7 @@ sin link.
 from django.conf import settings
 from django.core.mail import EmailMessage
 from django.template.loader import render_to_string
+from django.urls import reverse
 
 #: Qué hacer en cada caso de «cobro con problema». Es el cuerpo del mail: el
 #: superadmin tiene que poder actuar leyéndolo, sin abrir el código.
@@ -48,7 +49,7 @@ PROBLEMAS = {
 }
 
 
-def _enviar(asunto, base_template, contexto):
+def _enviar(asunto, base_template, contexto, destinos=None):
     """Manda un mail de TEXTO PLANO al dueño del producto.
 
     **`fail_silently=True` a propósito:** estos envíos se disparan por
@@ -59,8 +60,12 @@ def _enviar(asunto, base_template, contexto):
     mail es best-effort (mismo criterio que el push del proyecto: "esto es
     telemetría y no puede tumbar una página"); la fuente de verdad es el panel.
     """
-    destino = settings.COBROS_AVISO_EMAIL or settings.DEFAULT_FROM_EMAIL
-    if not destino:
+    # `destinos` explícitos: el aviso de vencimiento va al staff del gimnasio,
+    # no al superadmin. Sin ellos, el destino es el del dueño del producto.
+    if destinos is None:
+        destino = settings.COBROS_AVISO_EMAIL or settings.DEFAULT_FROM_EMAIL
+        destinos = [destino] if destino else []
+    if not destinos:
         return
     cuerpo = render_to_string(f"suscripcion/email/{base_template}.txt", contexto)
     # `EmailMessage` en vez de `send_mail` sólo para poder poner `reply_to`,
@@ -71,7 +76,7 @@ def _enviar(asunto, base_template, contexto):
         subject=asunto,
         body=cuerpo,
         from_email=settings.DEFAULT_FROM_EMAIL or None,
-        to=[destino],
+        to=list(destinos),
         reply_to=reply_to,
     ).send(fail_silently=True)
 
@@ -108,4 +113,33 @@ def enviar_cobro_con_problema(intento, *, problema, url_panel, pago_adicional_id
             "pago_adicional_id": pago_adicional_id,
             "url_panel": url_panel,
         },
+    )
+
+
+#: Asunto de cada tipo de aviso de vencimiento.
+_ASUNTOS_AVISO = {
+    "por_vencer": "Tu suscripción a TuGimApp vence pronto",
+    "vence_hoy": "Tu suscripción a TuGimApp vence hoy",
+    "vencido": "Tu suscripción a TuGimApp está vencida",
+}
+
+
+def enviar_aviso_cobro(gimnasio, destinatarios, *, tipo, vencimiento, precio_usd):
+    """Avisa al STAFF del gimnasio (no al superadmin) que la suscripción está
+    por vencer, vence hoy o venció, e invita a pagar online desde
+    `suscripcion:mi_suscripcion`. `tipo` es un valor de `AvisoDeCobro.Tipo`."""
+    # Import tardío: `avisos` importa este módulo.
+    from suscripcion.avisos import URL_SITIO
+
+    _enviar(
+        f"{_ASUNTOS_AVISO[tipo]}: {gimnasio.nombre}",
+        "aviso_cobro",
+        {
+            "gimnasio": gimnasio,
+            "tipo": tipo,
+            "vencimiento": vencimiento,
+            "precio_usd": precio_usd,
+            "url_pago": f"{URL_SITIO}{reverse('suscripcion:mi_suscripcion')}",
+        },
+        destinos=destinatarios,
     )

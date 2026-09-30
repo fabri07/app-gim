@@ -109,3 +109,44 @@ class IntentoDeCobro(TimeStampedModel):
             f"{self.periodo_desde:%d/%m/%Y}–{self.periodo_hasta:%d/%m/%Y} · "
             f"{self.get_estado_display()}"
         )
+
+
+class AvisoDeCobro(models.Model):
+    """Un aviso de vencimiento ya mandado al staff de un gimnasio.
+
+    Es el dedup del cron `avisar_cobros`: una fila por (gimnasio, período,
+    tipo), así que el mismo aviso no sale dos veces aunque el comando corra
+    varias veces el mismo día (o GitHub reintente).
+
+    **No se reusa `notificaciones.RecordatorioEnviado`**: es un
+    `TenantOwnedModel`, o sea un dato DEL gimnasio (se exporta, se borra al
+    vaciar la demo). Esto es un dato de la plataforma SOBRE el gimnasio, y
+    tampoco lleva FK a `User` (ver el docstring del módulo).
+    """
+
+    class Tipo(models.TextChoices):
+        POR_VENCER = "por_vencer", "Por vencer"
+        VENCE_HOY = "vence_hoy", "Vence hoy"
+        VENCIDO = "vencido", "Vencido"
+
+    gimnasio = models.ForeignKey(
+        "tenants.Gimnasio",
+        on_delete=models.PROTECT,
+        related_name="avisos_de_cobro",
+    )
+    periodo_desde = models.DateField()
+    tipo = models.CharField(max_length=12, choices=Tipo.choices)
+    enviado = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "aviso de cobro"
+        verbose_name_plural = "avisos de cobro"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["gimnasio", "periodo_desde", "tipo"],
+                name="suscripcion_un_aviso_por_periodo_y_tipo",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.gimnasio} · {self.periodo_desde:%d/%m/%Y} · {self.get_tipo_display()}"
