@@ -1,0 +1,69 @@
+# Reconciliación de cobros online de la suscripción
+# (suscripcion.services.reconciliar_pendientes, ver
+# suscripcion/management/commands/reconciliar_cobros.py).
+#
+# Red de seguridad para «el webhook de Mercado Pago se perdió y el usuario
+# cerró la pestaña»: busca los pagos de los intentos recientes que quedaron sin
+# acreditar y los acredita. NO es el camino principal (ese es el webhook y la
+# vuelta del navegador). GitHub retrasa los `schedule` del plan free 2-4 h, así
+# que no hay que contar con la puntualidad.
+#
+# Vive acá y no en render.yaml porque Render no ofrece plan free para cron jobs
+# (mismo criterio que generar-pagos.yml).
+
+name: Reconciliar cobros de la suscripción
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # cada 6 h; GitHub los retrasa 2-4 h en el plan free
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reconciliar-cobros-production
+  cancel-in-progress: false
+
+jobs:
+  reconciliar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # SHA pineado, no tag (mismo criterio que generar-pagos.yml).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # A diferencia de expirar-solicitudes, este comando habla con Mercado Pago
+      # Y manda mails (avisos de cobro acreditado), así que necesita más secrets.
+      # Sin las EMAIL_* el mail cae al backend de consola en silencio: el cobro
+      # se acredita igual pero nadie se entera. Sin MERCADOPAGO_* el comando
+      # sale con error a propósito (workflow en rojo, sin ping).
+      - name: Correr reconciliar_cobros
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_POOLED }}
+          DJANGO_DEBUG: "False"
+          MERCADOPAGO_ACCESS_TOKEN: ${{ secrets.MERCADOPAGO_ACCESS_TOKEN }}
+          MERCADOPAGO_WEBHOOK_SECRET: ${{ secrets.MERCADOPAGO_WEBHOOK_SECRET }}
+          EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
+          EMAIL_HOST_USER: ${{ secrets.EMAIL_HOST_USER }}
+          EMAIL_HOST_PASSWORD: ${{ secrets.EMAIL_HOST_PASSWORD }}
+          DEFAULT_FROM_EMAIL: ${{ secrets.DEFAULT_FROM_EMAIL }}
+          EMAIL_REPLY_TO: ${{ secrets.EMAIL_REPLY_TO }}
+          COBROS_AVISO_EMAIL: ${{ secrets.COBROS_AVISO_EMAIL }}
+        run: python manage.py reconciliar_cobros
+
+      # Alerta por AUSENCIA de ping (mismo criterio que los otros crons). El
+      # guard va adentro del paso: los secrets no se pueden evaluar en `if`.
+      - name: Avisar a Healthchecks
+        env:
+          PING: ${{ secrets.HEALTHCHECKS_URL_RECONCILIAR_COBROS }}
+        run: |
+          if [ -n "$PING" ]; then
+            curl -fsS -m 10 --retry 3 "$PING"
+          else
+            echo "HEALTHCHECKS_URL_RECONCILIAR_COBROS sin cargar: se saltea el ping."
+          fi
