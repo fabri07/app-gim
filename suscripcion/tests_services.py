@@ -423,6 +423,60 @@ class AcreditarTests(BaseServicios):
         self.gimnasio.refresh_from_db()
         self.assertEqual(self.gimnasio.estado_cuenta, Gimnasio.EstadoCuenta.NORMAL)
 
+    def test_una_lectura_vieja_de_aprobado_no_acredita_un_pago_ya_devuelto(self):
+        """Carrera: B leyó «refunded» y commiteó primero; A, con una lectura
+        vieja de «approved» del MISMO pago, llega después."""
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            estado_cuenta=Gimnasio.EstadoCuenta.SUSPENDIDA,
+            estado_cuenta_desde=timezone.now(),
+        )
+        self._acreditar(_pago(self.intento, "651", status="refunded"))
+
+        self._acreditar(_pago(self.intento, "651"))
+
+        self.intento.refresh_from_db()
+        self.assertEqual(self.intento.estado_mp, "refunded")
+        self.assertNotEqual(self.intento.estado, Estado.PAGADO)
+        self.assertFalse(PagoPlataforma.objects.exists())
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(
+            self.gimnasio.estado_cuenta, Gimnasio.EstadoCuenta.SUSPENDIDA
+        )
+
+    def test_una_lectura_vieja_de_en_proceso_no_pisa_el_aprobado(self):
+        self._acreditar(_pago(self.intento, "661"))
+
+        self._acreditar(_pago(self.intento, "661", status="in_process"))
+
+        self.intento.refresh_from_db()
+        self.assertEqual(self.intento.estado, Estado.PAGADO)
+        self.assertEqual(self.intento.estado_mp, "approved")
+
+    def test_integrity_error_al_crear_el_pago_es_duplicado_con_mail(self):
+        """El `IntegrityError` sale de la base de verdad (una fila MANUAL sin
+        autor viola `pago_plataforma_manual_con_autor`), no de un mock que lo
+        levanta en Python: así el test también prueba que el `atomic()`
+        propio deja la transacción de afuera usable."""
+        crear_real = PagoPlataforma.objects.create
+
+        def crear_que_choca(**kwargs):
+            return crear_real(**{**kwargs, "origen": PagoPlataforma.Origen.MANUAL})
+
+        with patch.object(
+            PagoPlataforma.objects, "create", side_effect=crear_que_choca
+        ):
+            self._acreditar(_pago(self.intento, "671"))
+
+        self.intento.refresh_from_db()
+        self.assertEqual(self.intento.estado, Estado.DUPLICADO)
+        self.assertEqual(self.intento.payment_id, "671")
+        self.assertIsNone(self.intento.pago)
+        self.assertFalse(PagoPlataforma.objects.exists())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Pago duplicado", mail.outbox[0].subject)
+        # La base sigue usable después del error.
+        self.assertEqual(IntentoDeCobro.objects.count(), 1)
+
     def test_estado_pendiente_solo_queda_guardado(self):
         self._acreditar(_pago(self.intento, status="in_process"))
 
@@ -511,16 +565,41 @@ class ReconciliarTests(BaseServicios):
         self.assertEqual(self.primero.estado, Estado.CREADO)
         self.assertEqual(self.segundo.estado, Estado.PAGADO)
 
-    def test_ignora_los_viejos_y_los_que_ya_tienen_pago(self):
+    def test_ignora_los_viejos_y_los_ya_pagados(self):
         IntentoDeCobro.objects.filter(pk=self.primero.pk).update(
             creado=timezone.now() - timedelta(days=services.DIAS_RECONCILIACION + 1)
         )
-        IntentoDeCobro.objects.filter(pk=self.segundo.pk).update(payment_id="999")
+        IntentoDeCobro.objects.filter(pk=self.segundo.pk).update(
+            estado=Estado.PAGADO, payment_id="999", estado_mp="approved"
+        )
 
         with patch("suscripcion.mercadopago.buscar_pagos", return_value=[]) as buscar:
             self.assertEqual(services.reconciliar_pendientes(), 0)
 
         buscar.assert_not_called()
+
+    def test_un_rechazado_con_payment_id_cuyo_reintento_se_aprobo_se_acredita(self):
+        """Primera tarjeta rechazada (el webhook dejó RECHAZADO con su id), el
+        reintento aprobado en la misma pantalla y el webhook de ese aprobado
+        perdido: la reconciliación tiene que encontrarlo igual."""
+        IntentoDeCobro.objects.filter(pk=self.segundo.pk).delete()
+        rechazado = _pago(self.primero, "901", status="rejected")
+        self._acreditar(rechazado)
+        self.primero.refresh_from_db()
+        self.assertEqual(self.primero.estado, Estado.RECHAZADO)
+        self.assertEqual(self.primero.payment_id, "901")
+        aprobado = _pago(self.primero, "902")
+        self._mp(aprobado)
+
+        with patch(
+            "suscripcion.mercadopago.buscar_pagos", return_value=[aprobado, rechazado]
+        ):
+            self.assertEqual(services.reconciliar_pendientes(), 1)
+
+        self.primero.refresh_from_db()
+        self.assertEqual(self.primero.estado, Estado.PAGADO)
+        self.assertEqual(self.primero.payment_id, "902")
+        self.assertEqual(PagoPlataforma.objects.count(), 1)
 
     def test_sin_integracion_no_reconcilia(self):
         with override_settings(COBRO_ONLINE_ENABLED=False):

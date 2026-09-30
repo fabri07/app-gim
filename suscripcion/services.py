@@ -380,6 +380,25 @@ def acreditar(payment_id, *, url_panel_para=None):
         if intento.payment_id == pago_id and intento.estado_mp == estado_mp:
             return intento
 
+        # Para el MISMO pago, `estado_mp` no retrocede. `consultar_pago` corre
+        # fuera del lock (a propósito: no se retiene un lock esperando a la
+        # red), así que dos llamadas concurrentes pueden commitear en otro
+        # orden que el de sus lecturas: A lee «approved», B lee «refunded», B
+        # commitea primero y A, con una foto vieja, acreditaría un pago ya
+        # devuelto (y hasta descongelaría la cuenta). Lo simétrico: una
+        # lectura vieja de `in_process` que pisa el `approved` de un PAGADO.
+        # Un pago devuelto no vuelve a ningún otro estado; uno aprobado sólo
+        # avanza a devuelto.
+        if intento.payment_id == pago_id:
+            if intento.estado_mp in ESTADOS_MP_DEVUELTO and (
+                estado_mp not in ESTADOS_MP_DEVUELTO
+            ):
+                return intento
+            if intento.estado_mp in ESTADOS_MP_APROBADO and estado_mp not in (
+                ESTADOS_MP_APROBADO | ESTADOS_MP_DEVUELTO
+            ):
+                return intento
+
         intento.payment_id = pago_id
         intento.estado_mp = estado_mp
         intento.respuesta_mp = mercadopago.resumen_de_pago(pago)
@@ -476,21 +495,30 @@ def _acreditar_aprobado(intento, pago, pago_id, url_panel):
 
 def reconciliar_pendientes(*, limite=50, url_panel_para=None):
     """Busca en Mercado Pago los pagos de los intentos recientes que todavía
-    no tienen ninguno anotado, y los acredita. Devuelve cuántos intentos
-    quedaron pagados.
+    no se acreditaron, y los acredita. Devuelve cuántos intentos quedaron
+    pagados.
 
     Es lo único que cubre «el webhook se perdió y el usuario cerró la
     pestaña». Un `ErrorDeMercadoPago` en un intento se loguea y no corta el
     resto: la próxima corrida lo vuelve a intentar.
+
+    **Se filtra por ESTADO (los acreditables), no por `payment_id` vacío.** El
+    caso que importa es justamente el de un intento que YA tiene un pago
+    anotado: la primera tarjeta rechazada (RECHAZADO con ese `payment_id`),
+    el reintento aprobado en la misma pantalla de Mercado Pago, y el webhook
+    de ese aprobado perdido. Con `payment_id=""` la reconciliación no lo
+    vuelve a mirar nunca y un gimnasio que pagó se queda congelado. Lo mismo
+    un link CANCELADO que igual se pagó, o un CREADO que guardó un
+    `in_process`. Re-consultar pagos ya vistos es inofensivo: `acreditar` es
+    idempotente.
     """
     if not integracion_activa():
         raise CobroNoDisponible("integracion_apagada")
 
     desde = timezone.now() - timedelta(days=DIAS_RECONCILIACION)
     pendientes = IntentoDeCobro.objects.filter(
-        estado__in=(_Estado.CREADO, _Estado.VENCIDO),
+        estado__in=_ACREDITABLES,
         creado__gte=desde,
-        payment_id="",
     ).order_by("creado", "id")[:limite]
 
     acreditados = 0
