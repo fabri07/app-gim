@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% block title %}Mi suscripción · App Gimnasios{% endblock %}
+
+{% comment %}
+La suscripción del gimnasio a la plataforma y el formulario para pagarla por
+Mercado Pago. Abre también con la cuenta congelada (tercer nivel de allowlist
+de `plataforma/middleware.py`): es justamente donde se paga para salir.
+
+Todo caso raro se explica acá con un 200 (integración apagada, cuenta demo,
+gimnasio sin cobro): bajo el `hx-boost` global un 4xx es un click muerto.
+{% endcomment %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Mi suscripción</h1>
+  <p class="texto-suave">Lo que tu gimnasio le paga a TuGimApp por usar la app.</p>
+
+  {% if factura %}
+    <p>
+      Estado: <span class="badge badge--{{ fila.estado.badge }}">{{ fila.estado.etiqueta }}</span>
+    </p>
+    {% if fila.cubierto_hasta %}
+      <p>Pago hasta el <strong>{{ fila.cubierto_hasta|date:"d/m/Y" }}</strong> inclusive.</p>
+    {% endif %}
+    {% if fila.vencimiento %}
+      <p>Próximo vencimiento: <strong>{{ fila.vencimiento|date:"d/m/Y" }}</strong>.</p>
+    {% endif %}
+  {% endif %}
+</div>
+
+{% if error %}
+  <div class="tarjeta aviso-error" role="alert">
+    <p><strong>No pudimos generar el link de pago.</strong></p>
+    <p>{{ error }}</p>
+  </div>
+{% endif %}
+
+{% if not integracion_activa %}
+  <div class="tarjeta">
+    <h2>Pagar online</h2>
+    <p>El pago online todavía no está disponible.</p>
+    {% if SOPORTE_CONTACTO %}
+      <p>Escribinos y lo resolvemos por transferencia: <strong>{{ SOPORTE_CONTACTO }}</strong></p>
+    {% else %}
+      <p>Escribile al soporte de la app y lo resolvemos por transferencia.</p>
+    {% endif %}
+  </div>
+{% elif not factura and not es_demo %}
+  <div class="tarjeta">
+    <h2>Pagar online</h2>
+    <p>Tu cuenta no tiene cobro: no tenés nada que pagar.</p>
+  </div>
+{% else %}
+  {% if intento_abierto %}
+    {% comment %}
+      Un link ya generado y todavía vivo: se puede retomar sin generar otro.
+      `hx-boost="false"` porque el destino es mercadopago.com.ar (cross-origin).
+    {% endcomment %}
+    <div class="tarjeta aviso-urgente">
+      <p>
+        Ya generaste un link de pago del plan {{ intento_abierto.get_plan_display|lower }}
+        por <strong>$ {{ intento_abierto.monto_ars }}</strong>, válido hasta el
+        {{ intento_abierto.expira|date:"d/m/Y H:i" }}.
+      </p>
+      <a class="boton" href="{{ intento_abierto.init_point }}" hx-boost="false">Continuar al pago</a>
+    </div>
+  {% endif %}
+
+  <div class="tarjeta">
+    <h2>Pagar online con Mercado Pago</h2>
+    {% if es_demo %}
+      <p class="texto-suave">
+        Esta es la cuenta de demostración: podés ver los planes y los precios,
+        pero no se puede pagar desde acá.
+      </p>
+    {% endif %}
+
+    {% comment %}
+      `hx-boost="false"` es obligatorio: la respuesta es un redirect a
+      mercadopago.com.ar, cross-origin. htmx no puede seguirlo y el click
+      quedaría tragado sin ningún error (mismo caso que «Conectar Google
+      Calendar»). Los radios van a mano porque `partials/campo_form.html` pone
+      un único `<label for>` y un grupo de radios necesita un `<fieldset>`.
+    {% endcomment %}
+    <form method="post" action="{% url 'suscripcion:iniciar_pago' %}" hx-boost="false" novalidate>
+      {% csrf_token %}
+      {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+      <fieldset class="form-campo">
+        <legend>Elegí el plan</legend>
+        {% for opcion in planes %}
+          <label>
+            <input type="radio" name="{{ form.plan.html_name }}" value="{{ opcion.valor }}"
+              {% if form.plan.value == opcion.valor %}checked{% endif %}>
+            <strong>{{ opcion.etiqueta }}</strong>:
+            USD {{ opcion.monto_usd }}{% if opcion.monto_ars %} (hoy $ {{ opcion.monto_ars }}){% endif %}
+            <span class="texto-suave">· del {{ opcion.desde|date:"d/m/Y" }} al {{ opcion.hasta|date:"d/m/Y" }}</span>
+          </label>
+        {% endfor %}
+        {% for error in form.plan.errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+      </fieldset>
+      {% if not cotizacion %}
+        <p class="texto-suave">
+          Ahora no tenemos la cotización del dólar, así que el monto en pesos lo
+          vas a ver al generar el link.
+        </p>
+      {% endif %}
+      {% if es_demo %}
+        <button type="submit" class="boton" id="pagar" disabled>Pagar con Mercado Pago</button>
+      {% else %}
+        <button type="submit" class="boton" id="pagar">Pagar con Mercado Pago</button>
+      {% endif %}
+    </form>
+    {% comment %}
+      El doble click no genera dos links: el segundo POST reusaría el mismo
+      (`services.crear_intento`), pero igual se deshabilita el botón para que
+      no parezca que no pasó nada. Mismo patrón que `plataforma/pago_form.html`.
+    {% endcomment %}
+    <script>
+      (function () {
+        var boton = document.getElementById("pagar");
+        if (!boton || boton.disabled) { return; }
+        boton.form.addEventListener("submit", function () {
+          boton.disabled = true;
+          boton.textContent = "Generando el link…";
+        });
+      })();
+    </script>
+  </div>
+{% endif %}
+{% endblock %}

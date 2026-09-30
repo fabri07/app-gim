@@ -70,6 +70,22 @@ CLAVE_SESION_ACTIVIDAD = "plataforma_actividad"
 #: 200 le rompe la instalación de la app a un gimnasio que después paga.
 APPS_SIN_BLOQUEO = frozenset({"admin", "plataforma", "notificaciones"})
 
+#: Apps que el middleware no BLOQUEA para el staff, pero SÍ registra. Es el
+#: tercer nivel de la allowlist, entre «no mirar nada» (`APPS_SIN_BLOQUEO`) y
+#: «bloquear como a todo el resto».
+#:
+#: `suscripcion` es la pantalla donde el gimnasio paga para salir del
+#: bloqueo: bloquearla es tirar la llave adentro de la casa cerrada. No va en
+#: `APPS_SIN_BLOQUEO` porque esa lista corre ANTES de tocar `request.user`
+#: (existe para rutas cacheables y rutas que pide la máquina) y se perdería el
+#: registro del día, que acá es justo la señal que interesa: el gimnasio sigue
+#: vivo del otro lado de la deuda. Y es sólo para el staff: el alumno de un
+#: gimnasio bloqueado que tipee la URL tiene que ver el cartel, no un 403.
+#:
+#: El webhook de Mercado Pago NO depende de esto: es anónimo, y el middleware
+#: corta antes (en el `is_authenticated`) para cualquier request sin sesión.
+APPS_SIN_BLOQUEO_CON_REGISTRO = frozenset({"suscripcion"})
+
 #: Rutas de `tenants` que el middleware no mira. Van como nombre PELADO porque
 #: `tenants/urls.py` no define `app_name` (y su comentario dice que no hay que
 #: agregárselo: todo el proyecto referencia esas rutas sin namespace).
@@ -251,6 +267,16 @@ class PlataformaMiddleware:
         # Salir de ahí lo cubre `suplantacion_volver`, que está en la
         # allowlist de arriba.
         perfil = perfil_de(request)
+        # Tercer nivel de la allowlist (ver `APPS_SIN_BLOQUEO_CON_REGISTRO`):
+        # DESPUÉS del registro, para que pagar cuente como uso, y sólo para el
+        # staff, que es el único que puede pagar.
+        if (
+            match is not None
+            and match.app_name in APPS_SIN_BLOQUEO_CON_REGISTRO
+            and perfil is not None
+            and perfil.rol == Perfil.Rol.STAFF
+        ):
+            return None
         if not sin_acceso(perfil):
             return None
 

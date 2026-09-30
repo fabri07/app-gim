@@ -165,6 +165,9 @@
         {% if SOPORTE_CONTACTO %}({{ SOPORTE_CONTACTO }}){% endif %}
         y vuelven a ver su rutina al instante.
       </span>
+      {% if COBRO_ONLINE_DISPONIBLE %}
+        <a href="{% url 'suscripcion:mi_suscripcion' %}"><strong>Pagar ahora</strong></a>
+      {% endif %}
     </div>
   {% endif %}
   {% if request.session.suplantacion %}

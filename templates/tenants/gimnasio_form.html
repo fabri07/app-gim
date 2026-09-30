@@ -213,6 +213,22 @@
   </section>
 
   {% comment %}
+    La entrada a la suscripción de la plataforma, por el mismo motivo que la de
+    control de ingreso: el nav de staff NO gana ningún ítem. Sin queries: el
+    estado del cobro se calcula recién en la pantalla de la suscripción.
+  {% endcomment %}
+  <section class="tarjeta" id="suscripcion">
+    <h2>Suscripción a TuGimApp</h2>
+    <p class="texto-suave">
+      Qué pagás por usar la app, hasta cuándo está pago y, si está disponible,
+      pagar online con Mercado Pago.
+    </p>
+    <div class="acciones-lista mt-4">
+      <a class="boton-secundario" href="{% url 'suscripcion:mi_suscripcion' %}">Ver mi suscripción</a>
+    </div>
+  </section>
+
+  {% comment %}
     El botón existe SIEMPRE y sale deshabilitado hasta que la exportación se
     habilita desde /admin/ (la cuenta demo exporta siempre): el dueño tiene que
     ver que sus datos se pueden sacar aunque hoy no lo necesite. El `disabled`

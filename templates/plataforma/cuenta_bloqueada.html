@@ -9,8 +9,12 @@ favoritos tiene que poder explicar qué pasó en vez de parecer rota.
 
 Sin links a ninguna sección de la app a propósito: todas terminan acá mismo,
 así que ofrecerlas es prometer algo que no va a pasar. Las únicas salidas son
-las que `base.html` ya trae (salir de la sesión) y, para el alumno, escribirle
-a su gimnasio.
+las que `base.html` ya trae (salir de la sesión), para el alumno escribirle a
+su gimnasio, y para el staff UNA sola excepción, deliberada: «Pagar la
+suscripción», que lleva a `suscripcion:mi_suscripcion`. Es el único link a
+una sección que existe acá, y abre de verdad porque esa app es el tercer
+nivel de la allowlist del middleware (`APPS_SIN_BLOQUEO_CON_REGISTRO`). Sale
+sólo con el cobro online configurado; si no, el soporte es la única salida.
 {% endcomment %}
 
 {% block content %}
@@ -37,8 +41,14 @@ a su gimnasio.
         pagos, turnos y novedades quedan tal cual y vuelven a estar disponibles
         apenas se reactive la cuenta.
       </p>
+      {% if COBRO_ONLINE_DISPONIBLE %}
+        <p>
+          <a class="boton" href="{% url 'suscripcion:mi_suscripcion' %}">Pagar la suscripción</a>
+        </p>
+        <p class="texto-suave">Se reactiva sola apenas se acredita el pago.</p>
+      {% endif %}
       {% if SOPORTE_CONTACTO %}
-        <p>Escribinos para reactivarla: <strong>{{ SOPORTE_CONTACTO }}</strong></p>
+        <p>{% if COBRO_ONLINE_DISPONIBLE %}O escribinos{% else %}Escribinos{% endif %} para reactivarla: <strong>{{ SOPORTE_CONTACTO }}</strong></p>
       {% else %}
         <p>Escribile al soporte de la app para reactivarla.</p>
       {% endif %}

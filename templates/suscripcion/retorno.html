@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+{% block title %}Tu pago · App Gimnasios{% endblock %}
+
+{% comment %}
+Adonde vuelve el navegador desde Mercado Pago. Lo que se muestra sale del
+estado del intento en la base (después de consultar la API), nunca del
+`status` del querystring, que es dato del cliente.
+
+«Confirmando» cubre tanto «todavía no llegó» como «Mercado Pago no contestó»:
+un lookup fallido no puede parecerse a un pago fallido.
+{% endcomment %}
+
+{% block content %}
+<div class="tarjeta">
+  {% if situacion == "pagado" %}
+    <h1>¡Listo!</h1>
+    <p>Tu suscripción está paga hasta el <strong>{{ intento.periodo_hasta|date:"d/m/Y" }}</strong>.</p>
+    <a class="boton" href="{% url 'home' %}">Ir al inicio</a>
+  {% elif situacion == "rechazado" %}
+    <h1>El pago fue rechazado</h1>
+    <p>Mercado Pago no aprobó el pago. No se te cobró nada: podés volver a intentarlo con otro medio.</p>
+    <a class="boton" href="{% url 'suscripcion:mi_suscripcion' %}">Volver a intentar</a>
+  {% elif situacion == "revisando" %}
+    <h1>Recibimos tu pago</h1>
+    <p>Lo estamos revisando y te escribimos apenas quede acreditado.</p>
+    <a class="boton-secundario" href="{% url 'suscripcion:mi_suscripcion' %}">Ver mi suscripción</a>
+  {% elif situacion == "devuelto" %}
+    <h1>Este pago fue devuelto</h1>
+    <p>Mercado Pago devolvió este pago, así que no cuenta para tu suscripción.</p>
+    <a class="boton" href="{% url 'suscripcion:mi_suscripcion' %}">Ver mi suscripción</a>
+  {% elif situacion == "cancelado" %}
+    <h1>Este link ya no se usa</h1>
+    <p>Generaste un link nuevo después de éste. Pagá desde la página de tu suscripción.</p>
+    <a class="boton" href="{% url 'suscripcion:mi_suscripcion' %}">Ir a mi suscripción</a>
+  {% else %}
+    <h1>Estamos confirmando tu pago</h1>
+    <p>Se acredita en un minuto. Si ya pagaste, no hace falta que vuelvas a pagar.</p>
+    <a class="boton-secundario" href="{% url 'suscripcion:mi_suscripcion' %}">Ver mi suscripción</a>
+  {% endif %}
+</div>
+{% endblock %}

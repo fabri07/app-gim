@@ -153,6 +153,7 @@ TEMPLATES = [
                 'tenants.context_processors.password_reset_disponible',
                 'tenants.context_processors.tour_onboarding_disponible',
                 'plataforma.context_processors.estado_cuenta',
+                'suscripcion.context_processors.cobro_online',
             ],
         },
     },
