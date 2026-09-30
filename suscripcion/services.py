@@ -52,6 +52,11 @@ TOLERANCIA_MONTO = Decimal("0.01")
 #: Hasta cuántos días atrás la reconciliación busca intentos sin pago.
 DIAS_RECONCILIACION = 7
 
+#: Un link vivo sólo se reusa si le quedan más de estos minutos. Con menos,
+#: Mercado Pago lo rechaza apenas el gimnasio termina de cargar la tarjeta:
+#: se vence y se genera uno nuevo.
+MINUTOS_MINIMOS_PARA_REUSAR = 30
+
 ESTADOS_MP_APROBADO = frozenset({"approved"})
 ESTADOS_MP_RECHAZADO = frozenset({"rejected", "cancelled"})
 ESTADOS_MP_DEVUELTO = frozenset({"refunded", "charged_back"})
@@ -144,6 +149,13 @@ def crear_intento(
     with transaction.atomic():
         # Serializa dos clicks concurrentes del mismo gimnasio: el segundo
         # espera acá y después encuentra el `CREADO` del primero.
+        #
+        # **El lock se retiene a propósito durante la cotización y la llamada a
+        # Mercado Pago** (hasta ~8 s: 3 s de `cambio` + 5 s de
+        # `mercadopago.TIMEOUT`). Soltarlo antes reabre el doble click: dos
+        # POST verían «no hay CREADO» y generarían dos preferencias del mismo
+        # período. Lo acotan esos dos timeouts, y lo único que espera detrás
+        # es otro click del MISMO gimnasio.
         Gimnasio.objects.select_for_update().get(pk=gimnasio_pk)
         gimnasio = facturacion.gimnasio_anotado(gimnasio_pk)
         facturacion.exigir_anotado(gimnasio)
@@ -160,17 +172,26 @@ def crear_intento(
             gimnasio=gimnasio, estado=_Estado.CREADO, periodo_desde=desde
         ).first()
         if abierto is not None:
-            if abierto.plan == plan:
+            le_queda = abierto.expira - ahora
+            if abierto.plan != plan:
+                # Cambió de plan: el link anterior deja de valer. Si igual lo
+                # paga, `acreditar` lo acredita (CANCELADO es acreditable) o lo
+                # frena por solapamiento.
+                IntentoDeCobro.objects.filter(pk=abierto.pk).update(
+                    estado=_Estado.CANCELADO, modificado=ahora
+                )
+            elif le_queda > timedelta(minutes=MINUTOS_MINIMOS_PARA_REUSAR):
                 # El doble click (o volver a la pantalla) reusa el link vivo:
                 # no se genera un segundo cobro del mismo período, y dos
                 # pantallas no pueden mostrar dos tipos de cambio distintos.
                 return abierto
-            # Cambió de plan: el link anterior deja de valer. Si igual lo
-            # paga, `acreditar` lo acredita (CANCELADO es acreditable) o lo
-            # frena por solapamiento.
-            IntentoDeCobro.objects.filter(pk=abierto.pk).update(
-                estado=_Estado.CANCELADO, modificado=ahora
-            )
+            else:
+                # Mismo plan pero a punto de vencer: Mercado Pago lo rechazaría
+                # a mitad del pago. Se vence y se genera uno nuevo (VENCIDO
+                # sigue siendo acreditable si igual se llega a pagar).
+                IntentoDeCobro.objects.filter(pk=abierto.pk).update(
+                    estado=_Estado.VENCIDO, modificado=ahora
+                )
 
         cotizacion = cambio.cotizacion_dolar()
         if cotizacion is None:
@@ -338,7 +359,14 @@ def acreditar(payment_id, *, url_panel_para=None):
     # ANTES de abrir la transacción: no se retiene un lock mientras se espera a
     # la red. Y el estado sale SIEMPRE de acá, nunca del cuerpo de un webhook,
     # que viaja sin firmar (la firma cubre el `data.id`, no el `action`).
-    pago = mercadopago.consultar_pago(payment_id)
+    #
+    # Se recorta EN LA MISMA LÍNEA, sin atar la respuesta completa a ningún
+    # nombre local: trae el email, el documento y los últimos cuatro dígitos
+    # de la tarjeta del pagador, y Sentry captura las variables locales de
+    # cada frame (su scrubber no es recursivo). Cualquier excepción de acá
+    # abajo mandaría esos datos. Todo lo que se lee después está en
+    # `mercadopago._CLAVES_DEL_RESUMEN`.
+    pago = mercadopago.resumen_de_pago(mercadopago.consultar_pago(payment_id))
 
     try:
         referencia = uuid.UUID(str(pago.get("external_reference") or ""))
@@ -371,9 +399,7 @@ def acreditar(payment_id, *, url_panel_para=None):
                 # vieja de un pago rechazado que llega tarde cae acá y no hace
                 # nada.
                 if estado_mp in ESTADOS_MP_APROBADO:
-                    _avisar_problema(
-                        intento, "pago_adicional", url_panel, pago_adicional_id=pago_id
-                    )
+                    _registrar_pago_adicional(intento, pago_id, estado_mp, url_panel)
                 return intento
             # El pago anterior NO se acreditó (CREADO, VENCIDO, CANCELADO,
             # RECHAZADO): se reemplaza y se sigue. Es el caso normal de una
@@ -410,7 +436,13 @@ def acreditar(payment_id, *, url_panel_para=None):
 
         intento.payment_id = pago_id
         intento.estado_mp = estado_mp
-        intento.respuesta_mp = mercadopago.resumen_de_pago(pago)
+        # `pago` ya es el resumen. Se conserva el registro de pagos adicionales
+        # (`_registrar_pago_adicional`): la devolución del pago principal no
+        # puede borrar la única traza del pago que hay que devolver.
+        adicionales = (intento.respuesta_mp or {}).get(CLAVE_PAGOS_ADICIONALES)
+        intento.respuesta_mp = dict(pago)
+        if adicionales:
+            intento.respuesta_mp[CLAVE_PAGOS_ADICIONALES] = adicionales
 
         if estado_mp in ESTADOS_MP_APROBADO and intento.estado in _ACREDITABLES:
             _acreditar_aprobado(intento, pago, pago_id, url_panel)
@@ -433,6 +465,48 @@ def acreditar(payment_id, *, url_panel_para=None):
 
         intento.save()
     return intento
+
+
+#: Clave de `IntentoDeCobro.respuesta_mp` con los pagos aprobados que llegaron
+#: sobre un intento que ya tenía plata. Lista de `{payment_id, status,
+#: detectado}`; la lee «Cobros con problema».
+CLAVE_PAGOS_ADICIONALES = "pagos_adicionales"
+
+
+def _registrar_pago_adicional(intento, pago_id, estado_mp, url_panel):
+    """Un segundo pago aprobado sobre un intento que ya movió plata: hay que
+    devolverlo a mano. Antes la única traza era un mail best-effort
+    (`fail_silently=True`): si no salía, nadie se enteraba nunca.
+
+    Queda en tres lugares: el log (sin datos del pagador), el propio intento
+    (`respuesta_mp["pagos_adicionales"]`, que lista «Cobros con problema") y el
+    mail. **Deduplicado por `payment_id`**: el webhook, el retorno y la
+    reconciliación llaman a `acreditar` varias veces por el mismo pago, y el
+    mail y el log salen sólo la primera vez que se anota. Se llama con el
+    intento bloqueado (`select_for_update`), así que dos llamadas no se pisan.
+    """
+    respuesta = dict(intento.respuesta_mp or {})
+    registrados = list(respuesta.get(CLAVE_PAGOS_ADICIONALES) or [])
+    if any(str(r.get("payment_id")) == pago_id for r in registrados):
+        return
+    registrados.append(
+        {
+            "payment_id": pago_id,
+            "status": estado_mp,
+            "detectado": timezone.now().isoformat(),
+        }
+    )
+    respuesta[CLAVE_PAGOS_ADICIONALES] = registrados
+    intento.respuesta_mp = respuesta
+    intento.save(update_fields=["respuesta_mp", "modificado"])
+    logger.warning(
+        "Pago adicional aprobado sobre un intento ya pagado: gimnasio %s, "
+        "intento %s, pago %s. Hay que devolverlo desde Mercado Pago.",
+        intento.gimnasio.slug,
+        intento.pk,
+        pago_id,
+    )
+    _avisar_problema(intento, "pago_adicional", url_panel, pago_adicional_id=pago_id)
 
 
 def _acreditar_aprobado(intento, pago, pago_id, url_panel):
@@ -489,6 +563,20 @@ def _acreditar_aprobado(intento, pago, pago_id, url_panel):
     intento.pago = pago_plataforma
     intento.acreditado_en = timezone.now()
 
+    # Los OTROS links vivos del gimnasio cuyo período se pisa con éste dejan de
+    # ofrecerse: si no, «Mi suscripción» diría «al día» y a la vez «Continuar
+    # al pago» hasta 48 h, y pagarlo sería un DUPLICADO con devolución manual.
+    # CANCELADO sigue siendo acreditable: si igual se paga, `acreditar` lo
+    # frena como DUPLICADO por el solapamiento, que es lo correcto.
+    IntentoDeCobro.objects.filter(
+        gimnasio_id=intento.gimnasio_id,
+        estado=_Estado.CREADO,
+        periodo_desde__lte=intento.periodo_hasta,
+        periodo_hasta__gte=intento.periodo_desde,
+    ).exclude(pk=intento.pk).update(
+        estado=_Estado.CANCELADO, modificado=intento.acreditado_en
+    )
+
     descongelado, sigue_debiendo_desde = _descongelar_si_corresponde(
         intento.gimnasio_id
     )
@@ -502,6 +590,19 @@ def _acreditar_aprobado(intento, pago, pago_id, url_panel):
     )
 
 
+def _ids_de_pagos(referencia_externa):
+    """Sólo los ids de la búsqueda. Cada resultado es un pago completo, con
+    los datos del pagador: en una función aparte, la lista entera muere con
+    este frame y no queda en las variables locales de `reconciliar_pendientes`
+    mientras corre `acreditar` (Sentry las captura ante cualquier excepción).
+    `acreditar` vuelve a consultar cada pago por id igual."""
+    return [
+        r["id"]
+        for r in mercadopago.buscar_pagos(str(referencia_externa))
+        if isinstance(r, dict) and r.get("id") is not None
+    ]
+
+
 def reconciliar_pendientes(*, limite=50, url_panel_para=None):
     """Busca en Mercado Pago los pagos de los intentos recientes que todavía
     no se acreditaron, y los acredita. Devuelve cuántos intentos quedaron
@@ -510,6 +611,11 @@ def reconciliar_pendientes(*, limite=50, url_panel_para=None):
     Es lo único que cubre «el webhook se perdió y el usuario cerró la
     pestaña». Un `ErrorDeMercadoPago` en un intento se loguea y no corta el
     resto: la próxima corrida lo vuelve a intentar.
+
+    **Del más NUEVO al más viejo**, con el tope de `limite`: el que más
+    probablemente tiene un aprobado con el webhook perdido es el recién
+    generado, y una acumulación de links muertos de hace días no puede dejarlo
+    afuera de la corrida.
 
     **Se filtra por ESTADO (los acreditables), no por `payment_id` vacío.** El
     caso que importa es justamente el de un intento que YA tiene un pago
@@ -528,18 +634,17 @@ def reconciliar_pendientes(*, limite=50, url_panel_para=None):
     pendientes = IntentoDeCobro.objects.filter(
         estado__in=_ACREDITABLES,
         creado__gte=desde,
-    ).order_by("creado", "id")[:limite]
+    ).order_by("-creado", "-id")[:limite]
 
     acreditados = 0
     for intento in pendientes:
         pagado = False
         try:
-            resultados = mercadopago.buscar_pagos(str(intento.referencia_externa))
             # TODOS los resultados y no sólo el primero: si hubo dos pagos
             # aprobados, el segundo tiene que llegar a `acreditar` para que
             # salga el aviso de «pago adicional».
-            for resultado in resultados:
-                final = acreditar(resultado["id"], url_panel_para=url_panel_para)
+            for pago_id in _ids_de_pagos(intento.referencia_externa):
+                final = acreditar(pago_id, url_panel_para=url_panel_para)
                 if final is not None and final.estado == _Estado.PAGADO:
                     pagado = True
         except ErrorDeMercadoPago as error:

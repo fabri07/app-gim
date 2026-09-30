@@ -43,6 +43,10 @@ más viejo, y la pantalla lo dice en vez de festejar (`pagado_con_deuda`).
     <h1>Este link ya no se usa</h1>
     <p>Generaste un link nuevo después de éste. Pagá desde la página de tu suscripción.</p>
     <a class="boton" href="{% url 'suscripcion:mi_suscripcion' %}">Ir a mi suscripción</a>
+  {% elif situacion == "sin_pago" %}
+    <h1>No se registró ningún pago</h1>
+    <p>No se registró ningún pago. Podés volver a intentarlo.</p>
+    <a class="boton" href="{% url 'suscripcion:mi_suscripcion' %}">Volver a intentar</a>
   {% else %}
     <h1>Estamos confirmando tu pago</h1>
     <p>Se acredita en un minuto. Si ya pagaste, no hace falta que vuelvas a pagar.</p>

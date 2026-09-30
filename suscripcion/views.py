@@ -76,6 +76,34 @@ def _facturacion_de(request):
     return gimnasio, facturacion.fila_de_gimnasio(gimnasio)
 
 
+def _intento_abierto_de(gimnasio):
+    """El link vivo que se le ofrece retomar, o `None`.
+
+    **Sólo si es del período que el gimnasio debe HOY.** Un `CREADO` de un
+    período ya cubierto (el gimnasio generó el link y después transfirió, y el
+    superadmin lo cargó a mano) no se ofrece: la pantalla diría «al día» y
+    «Continuar al pago» a la vez, y pagarlo sería un DUPLICADO con devolución
+    manual. `plataforma` no conoce los intentos (no importa `suscripcion`),
+    así que el pago manual no los cancela: el filtro vive acá. El pago online
+    sí los cancela (`services._acreditar_aprobado`).
+    """
+    candidatos = IntentoDeCobro.objects.filter(
+        gimnasio_id=gimnasio.pk,
+        estado=_Estado.CREADO,
+        expira__gt=timezone.now(),
+    ).exclude(init_point="")
+    for intento in candidatos:
+        dias = (
+            precios.DIAS_ANIO
+            if intento.plan == IntentoDeCobro.Plan.ANUAL
+            else precios.DIAS_CICLO
+        )
+        desde, _ = facturacion.periodo_a_cobrar(gimnasio, dias=dias)
+        if intento.periodo_desde == desde:
+            return intento
+    return None
+
+
 def periodos_adeudados(fila):
     """Cuántos períodos mensuales hay que pagar para quedar al día: el que
     venció y sigue corriendo, más uno por cada ciclo entero ya pasado. 0 si no
@@ -126,11 +154,7 @@ def _contexto_suscripcion(request, *, form=None, error=None):
         ),
     ]
 
-    intento_abierto = IntentoDeCobro.objects.filter(
-        gimnasio_id=gimnasio.pk,
-        estado=_Estado.CREADO,
-        expira__gt=timezone.now(),
-    ).exclude(init_point="").first()
+    intento_abierto = _intento_abierto_de(gimnasio)
 
     return {
         "gimnasio": gimnasio,
@@ -236,7 +260,8 @@ class RetornoView(StaffRequiredMixin, TemplateView):
             "collection_id"
         )
         # Mercado Pago manda el literal "null" cuando no hubo pago.
-        if payment_id and payment_id != "null" and services.integracion_activa():
+        self.volvio_con_pago = bool(payment_id) and payment_id != "null"
+        if self.volvio_con_pago and services.integracion_activa():
             try:
                 services.acreditar(payment_id, url_panel_para=_url_panel_para(request))
             except ErrorDeMercadoPago:
@@ -273,8 +298,13 @@ class RetornoView(StaffRequiredMixin, TemplateView):
             situacion = "devuelto"
         elif estado == _Estado.CANCELADO:
             situacion = "cancelado"
+        elif not self.volvio_con_pago and not self.intento.payment_id:
+            # Volvió SIN pagar («Volver al sitio» en Mercado Pago) y no hay
+            # ningún pago anotado: decirle «si ya pagaste no vuelvas a pagar»
+            # es falso y lo deja esperando algo que no va a llegar.
+            situacion = "sin_pago"
         else:
-            # CREADO y VENCIDO: todavía no sabemos nada del pago.
+            # CREADO y VENCIDO con un pago en camino: todavía no sabemos nada.
             situacion = "confirmando"
         contexto.update({"intento": self.intento, "situacion": situacion, **extra})
         return contexto
@@ -308,9 +338,15 @@ class WebhookView(View):
 
     | Caso                                          | Respuesta | Por qué |
     |-----------------------------------------------|-----------|---------|
+    Se evalúan en este orden:
+
+    | Caso                                          | Respuesta | Por qué |
+    |-----------------------------------------------|-----------|---------|
     | Integración apagada                           | 503 | MP reintenta cada 15 min hasta que se cargue la configuración; con 200 esas notificaciones se perderían. |
-    | Firma inválida                                | 401 | Sin tocar la base. Un reintento no arregla una firma mal firmada; 401 en serie en el panel de MP = el secret está mal cargado. |
-    | Tipo distinto de `payment`, cuerpo inválido, pago desconocido o ya acreditado | 200 | Nada que hacer; el cortocircuito de `acreditar` lo hace barato. |
+    | Tipo distinto de `payment` (con o sin firma)  | 200 | ANTES de la firma: no toca la base. Las IPN viejas y las de `merchant_order` pueden llegar sin firmar, y con 401 MP las reintentaría para siempre (ruido en el log). |
+    | `payment` con firma inválida                  | 401 | Sin tocar la base. Un reintento no arregla una firma mal firmada; 401 en serie en el panel de MP = el secret está mal cargado. |
+    | Sin `data.id`, pago desconocido o ya acreditado | 200 | Nada que hacer; el cortocircuito de `acreditar` lo hace barato. |
+    | MP responde 404 al consultar el pago          | 200 | El pago no existe (p. ej. «simular notificación» del panel de MP): reintentar no lo hace aparecer, y con 500 se reintentaría para siempre. |
     | `ErrorDeMercadoPago` (MP no contestó)         | 500 | A propósito: MP reintenta a los 15 min, muchísimo mejor que el cron (2-4 h tarde). |
 
     **Pendiente de confirmar en el sandbox**: que las notificaciones que llegan
@@ -335,6 +371,10 @@ class WebhookView(View):
             request.GET.get("type") or request.GET.get("topic") or cuerpo.get("type")
         )
 
+        # Antes de la firma: no toca la base ni la red (ver la tabla).
+        if tipo != "payment":
+            return JsonResponse({"ok": True, "accion": "ignorado"})
+
         if not mercadopago.firma_valida(
             settings.MERCADOPAGO_WEBHOOK_SECRET,
             data_id=data_id,
@@ -347,12 +387,19 @@ class WebhookView(View):
             )
             return JsonResponse({"error": "firma invalida"}, status=401)
 
-        if tipo != "payment" or not data_id:
+        if not data_id:
             return JsonResponse({"ok": True, "accion": "ignorado"})
 
         try:
             services.acreditar(data_id, url_panel_para=_url_panel_para(request))
-        except ErrorDeMercadoPago:
+        except ErrorDeMercadoPago as error:
+            if error.codigo == 404:
+                logger.warning(
+                    "Webhook: Mercado Pago no encuentra el pago %s (404); lo "
+                    "ignoro.",
+                    data_id,
+                )
+                return JsonResponse({"ok": True, "accion": "pago inexistente"})
             logger.warning(
                 "Webhook: Mercado Pago no respondió al consultar el pago %s; "
                 "respondo 500 para que reintente.",
@@ -365,7 +412,13 @@ class WebhookView(View):
 class CobrosConProblemaView(SuperadminRequiredMixin, ListView):
     """Los intentos que necesitan una acción humana (devolver plata, revisar un
     monto), que hasta acá sólo llegaban por mail. Una sola query, sin tocar
-    `facturacion.gimnasios_anotados()`."""
+    `facturacion.gimnasios_anotados()`.
+
+    Incluye los PAGADOS con un pago adicional anotado
+    (`respuesta_mp["pagos_adicionales"]`, ver
+    `services._registrar_pago_adicional`): es plata que hay que devolver y el
+    estado del intento no lo dice. `has_key` anda igual en SQLite y Postgres.
+    """
 
     template_name = "suscripcion/cobros_con_problema.html"
     context_object_name = "intentos"
@@ -378,6 +431,7 @@ class CobrosConProblemaView(SuperadminRequiredMixin, ListView):
             IntentoDeCobro.objects.filter(
                 Q(estado__in=[Estado.REVISAR, Estado.DUPLICADO, Estado.DEVUELTO])
                 | Q(estado=Estado.RECHAZADO, creado__gte=desde)
+                | Q(respuesta_mp__has_key=services.CLAVE_PAGOS_ADICIONALES)
             )
             .select_related("gimnasio")
             .order_by("-creado", "-id")

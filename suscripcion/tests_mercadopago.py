@@ -86,6 +86,20 @@ class PedirTests(SimpleTestCase):
         self.assertNotIn("cuerpo-sensible", mensaje)
 
     @override_settings(TESTING=False, MERCADOPAGO_ACCESS_TOKEN="TEST-123")
+    def test_el_error_lleva_el_codigo_http(self):
+        """El webhook distingue «el pago no existe» (404) de «MP no contestó»."""
+        error = urllib.error.HTTPError("https://x", 404, "no", {}, BytesIO(b"{}"))
+        with mock.patch("urllib.request.urlopen", side_effect=error):
+            with self.assertRaises(mp.ErrorDeMercadoPago) as ctx:
+                mp._pedir("GET", "/v1/payments/1")
+        self.assertEqual(ctx.exception.codigo, 404)
+        with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("x")):
+            with self.assertRaises(mp.ErrorDeMercadoPago) as ctx:
+                mp._pedir("GET", "/x")
+        self.assertIsNone(ctx.exception.codigo)
+        self.assertIsNone(mp.ErrorDeMercadoPago("x").codigo)
+
+    @override_settings(TESTING=False, MERCADOPAGO_ACCESS_TOKEN="TEST-123")
     def test_url_error_y_json_invalido(self):
         with mock.patch("urllib.request.urlopen", side_effect=urllib.error.URLError("x")):
             with self.assertRaises(mp.ErrorDeMercadoPago):
@@ -268,3 +282,19 @@ class ResumenTests(SimpleTestCase):
                 "external_reference": "r",
             },
         )
+
+    def test_una_respuesta_que_no_es_un_objeto_da_vacio(self):
+        for respuesta in (None, [1, 2], "texto"):
+            with self.subTest(respuesta=respuesta):
+                self.assertEqual(mp.resumen_de_pago(respuesta), {})
+
+
+class EmailTimeoutTests(SimpleTestCase):
+    def test_hay_timeout_de_smtp_por_debajo_del_de_gunicorn(self):
+        """Los mails salen sincrónicos en el `on_commit` del webhook y del
+        retorno: sin timeout, un SMTP colgado retiene el único worker hasta
+        que gunicorn lo mata a los 30 s (502)."""
+        from django.conf import settings
+
+        self.assertIsNotNone(settings.EMAIL_TIMEOUT)
+        self.assertLess(settings.EMAIL_TIMEOUT, 30)

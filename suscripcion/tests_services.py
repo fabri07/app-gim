@@ -10,6 +10,7 @@ Nada sale a la red: se parchean las funciones públicas de
 `suscripcion.mercadopago` y `plataforma.cambio.cotizacion_dolar`.
 """
 
+import traceback
 import uuid
 from datetime import timedelta
 from decimal import Decimal
@@ -605,3 +606,211 @@ class ReconciliarTests(BaseServicios):
         with override_settings(COBRO_ONLINE_ENABLED=False):
             with self.assertRaises(services.CobroNoDisponible):
                 services.reconciliar_pendientes()
+
+
+# ---------------------------------------------------------------------------
+# Fix wave de la revisión final
+# ---------------------------------------------------------------------------
+
+
+class ReusoDelLinkTests(BaseServicios):
+    def test_un_link_a_punto_de_vencer_no_se_reusa(self):
+        """Con minutos de vida, Mercado Pago lo rechazaría a mitad del pago."""
+        viejo = _crear(self.gimnasio)
+        IntentoDeCobro.objects.filter(pk=viejo.pk).update(
+            expira=timezone.now()
+            + timedelta(minutes=services.MINUTOS_MINIMOS_PARA_REUSAR - 5)
+        )
+
+        nuevo = _crear(self.gimnasio)
+
+        viejo.refresh_from_db()
+        self.assertEqual(viejo.estado, Estado.VENCIDO)
+        self.assertNotEqual(nuevo.pk, viejo.pk)
+        self.assertEqual(nuevo.estado, Estado.CREADO)
+        self.assertEqual(self.mock_preferencia.call_count, 2)
+
+    def test_un_link_con_tiempo_de_sobra_se_reusa(self):
+        viejo = _crear(self.gimnasio)
+        IntentoDeCobro.objects.filter(pk=viejo.pk).update(
+            expira=timezone.now()
+            + timedelta(minutes=services.MINUTOS_MINIMOS_PARA_REUSAR + 5)
+        )
+
+        self.assertEqual(_crear(self.gimnasio).pk, viejo.pk)
+        self.assertEqual(self.mock_preferencia.call_count, 1)
+
+
+class OtrosLinksAlPagarTests(BaseServicios):
+    def setUp(self):
+        super().setUp()
+        self.intento = _crear(self.gimnasio)
+
+    def _otro_creado(self, corrimiento):
+        return IntentoDeCobro.objects.create(
+            gimnasio=self.gimnasio,
+            plan=Plan.MENSUAL,
+            periodo_desde=self.intento.periodo_desde + timedelta(days=corrimiento),
+            periodo_hasta=self.intento.periodo_hasta + timedelta(days=corrimiento),
+            monto_usd=self.intento.monto_usd,
+            monto_ars=self.intento.monto_ars,
+            tipo_cambio=self.intento.tipo_cambio,
+            alumnos_activos=5,
+            expira=timezone.now() + timedelta(hours=40),
+            init_point="https://mp.test/checkout/otro",
+        )
+
+    def test_pagar_online_cancela_los_otros_links_que_se_pisan(self):
+        solapado = self._otro_creado(5)
+        lejano = self._otro_creado(200)
+
+        self._acreditar(_pago(self.intento))
+
+        solapado.refresh_from_db()
+        lejano.refresh_from_db()
+        self.assertEqual(solapado.estado, Estado.CANCELADO)
+        self.assertEqual(lejano.estado, Estado.CREADO)
+
+    def test_si_igual_pagan_el_link_cancelado_es_duplicado(self):
+        solapado = self._otro_creado(5)
+        self._acreditar(_pago(self.intento, "121"))
+        mail.outbox.clear()
+
+        self._acreditar(_pago(solapado, "122"))
+
+        solapado.refresh_from_db()
+        self.assertEqual(solapado.estado, Estado.DUPLICADO)
+        self.assertEqual(PagoPlataforma.objects.count(), 1)
+        self.assertIn("Pago duplicado", mail.outbox[0].subject)
+
+
+class PagoAdicionalTests(BaseServicios):
+    def setUp(self):
+        super().setUp()
+        self.intento = _crear(self.gimnasio)
+        self._acreditar(_pago(self.intento, "401"))
+        mail.outbox.clear()
+
+    def test_queda_en_el_log_y_en_el_intento_una_sola_vez(self):
+        with self.assertLogs("suscripcion.services", "WARNING") as logs:
+            self._acreditar(_pago(self.intento, "402"))
+            # La segunda llamada por el MISMO pago (webhook + retorno +
+            # reconciliación) no vuelve a anotar, loguear ni mandar el mail.
+            self._acreditar(_pago(self.intento, "402"))
+
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("vida-plena", logs.output[0])
+        self.assertIn(f"intento {self.intento.pk}", logs.output[0])
+        self.assertIn("402", logs.output[0])
+        self.assertNotIn("nunca@se.guarda", logs.output[0])
+        self.intento.refresh_from_db()
+        adicionales = self.intento.respuesta_mp["pagos_adicionales"]
+        self.assertEqual(len(adicionales), 1)
+        self.assertEqual(adicionales[0]["payment_id"], "402")
+        self.assertEqual(adicionales[0]["status"], "approved")
+        self.assertIn("detectado", adicionales[0])
+        self.assertNotIn("nunca@se.guarda", str(self.intento.respuesta_mp))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Pago adicional", mail.outbox[0].subject)
+        self.assertIn("402", mail.outbox[0].body)
+
+    def test_un_segundo_adicional_distinto_tambien_se_anota(self):
+        self._acreditar(_pago(self.intento, "402"))
+        self._acreditar(_pago(self.intento, "403"))
+
+        self.intento.refresh_from_db()
+        ids = [
+            r["payment_id"] for r in self.intento.respuesta_mp["pagos_adicionales"]
+        ]
+        self.assertEqual(ids, ["402", "403"])
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_la_devolucion_del_pago_principal_no_borra_el_registro(self):
+        self._acreditar(_pago(self.intento, "402"))
+
+        self._acreditar(_pago(self.intento, "401", status="refunded"))
+
+        self.intento.refresh_from_db()
+        self.assertEqual(self.intento.estado, Estado.DEVUELTO)
+        self.assertEqual(self.intento.respuesta_mp["status"], "refunded")
+        self.assertEqual(
+            self.intento.respuesta_mp["pagos_adicionales"][0]["payment_id"], "402"
+        )
+
+
+class DatosDelPagadorFueraDeLosFramesTests(BaseServicios):
+    """Sentry captura las variables locales de cada frame de la traza, y su
+    scrubber no es recursivo: la respuesta completa de `GET /v1/payments`
+    (email, documento y tarjeta del pagador) no puede quedar atada a ningún
+    nombre local de `services` cuando algo levanta después de consultarla."""
+
+    EMAIL = "pagador-reconocible@secreto.test"
+
+    def _frames(self, llamada):
+        # try/except a mano: `assertRaises` limpia los frames de la traza.
+        try:
+            llamada()
+        except RuntimeError as e:
+            traza = e.__traceback__
+        else:
+            self.fail("debía levantar RuntimeError")
+        return [f for f, _ in traceback.walk_tb(traza)]
+
+    def test_acreditar(self):
+        intento = _crear(self.gimnasio)
+        pago_id = self._mp(
+            _pago(
+                intento,
+                "131",
+                payer={"email": self.EMAIL, "identification": {"number": "20123456"}},
+            )
+        )
+
+        # Algo que `acreditar` llama DESPUÉS de consultar el pago.
+        with patch(
+            "suscripcion.services._monto_coincide", side_effect=RuntimeError("boom")
+        ):
+            frames = self._frames(lambda: services.acreditar(pago_id))
+
+        self.assertTrue(any(f.f_code.co_name == "acreditar" for f in frames))
+        for frame in frames:
+            self.assertNotIn(self.EMAIL, repr(frame.f_locals))
+            self.assertNotIn("20123456", repr(frame.f_locals))
+
+    def test_reconciliar(self):
+        _crear(self.gimnasio)
+        resultados = [{"id": 141, "payer": {"email": self.EMAIL}, "status": "approved"}]
+
+        with patch("suscripcion.mercadopago.buscar_pagos", return_value=resultados):
+            with patch(
+                "suscripcion.services.acreditar", side_effect=RuntimeError("boom")
+            ):
+                frames = self._frames(services.reconciliar_pendientes)
+
+        self.assertTrue(
+            any(f.f_code.co_name == "reconciliar_pendientes" for f in frames)
+        )
+        for frame in frames:
+            self.assertNotIn(self.EMAIL, repr(frame.f_locals))
+
+
+class ReconciliarOrdenTests(BaseServicios):
+    def test_el_mas_nuevo_va_primero(self):
+        """Con el tope, una acumulación de links muertos viejos no puede dejar
+        afuera al recién generado, que es el que más probablemente tiene un
+        aprobado con el webhook perdido."""
+        viejo = _crear(self.gimnasio)
+        nuevo = _crear(_gimnasio("otro"))
+        IntentoDeCobro.objects.filter(pk=viejo.pk).update(
+            creado=timezone.now() - timedelta(days=2)
+        )
+        vistas = []
+
+        def buscar(referencia):
+            vistas.append(referencia)
+            return []
+
+        with patch("suscripcion.mercadopago.buscar_pagos", side_effect=buscar):
+            services.reconciliar_pendientes(limite=1)
+
+        self.assertEqual(vistas, [str(nuevo.referencia_externa)])

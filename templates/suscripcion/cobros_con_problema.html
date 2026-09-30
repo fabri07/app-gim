@@ -6,7 +6,8 @@
 <h1>Cobros con problema</h1>
 <p class="texto-suave">
   Intentos de cobro online que necesitan una acción tuya: pagos a revisar,
-  duplicados y devoluciones, más los rechazados de los últimos 30 días.
+  duplicados, devoluciones y pagos adicionales sobre un link ya pagado (hay
+  que devolverlos), más los rechazados de los últimos 30 días.
 </p>
 
 {% if intentos %}
@@ -22,11 +23,17 @@
             <td>
               {% if i.estado == "rechazado" %}<span class="badge badge--neutro">{{ i.get_estado_display }}</span>
               {% else %}<span class="badge badge--alerta">{{ i.get_estado_display }}</span>{% endif %}
+              {% if i.respuesta_mp.pagos_adicionales %}<span class="badge badge--alerta">Pago adicional</span>{% endif %}
             </td>
             <td>{{ i.get_plan_display }}</td>
             <td>{{ i.periodo_desde|date:"d/m/Y" }} al {{ i.periodo_hasta|date:"d/m/Y" }}</td>
             <td>ARS {{ i.monto_ars }}</td>
-            <td>{{ i.payment_id|default:"—" }}</td>
+            <td>
+              {{ i.payment_id|default:"—" }}
+              {% for adicional in i.respuesta_mp.pagos_adicionales %}
+                <br>Adicional a devolver: {{ adicional.payment_id }}
+              {% endfor %}
+            </td>
             <td>{{ i.creado|date:"d/m/Y H:i" }}</td>
           </tr>
         {% endfor %}

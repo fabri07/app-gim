@@ -58,7 +58,16 @@ _CLAVES_DEL_RESUMEN = (
 
 
 class ErrorDeMercadoPago(Exception):
-    """La API no respondió lo esperado. El mensaje es corto y sin secretos."""
+    """La API no respondió lo esperado. El mensaje es corto y sin secretos.
+
+    `codigo` es el status HTTP cuando la API contestó con un error (`None` si
+    no hubo respuesta: red, timeout, JSON inválido). Lo usa el webhook para
+    distinguir «el pago no existe» (404, no se arregla reintentando) de «Mercado
+    Pago no contestó» (500 para que reintente)."""
+
+    def __init__(self, mensaje, *, codigo=None):
+        super().__init__(mensaje)
+        self.codigo = codigo
 
 
 def _headers(clave_idempotencia):
@@ -100,7 +109,9 @@ def _pedir(metodo, ruta, *, cuerpo=None, clave_idempotencia=None):
         with urllib.request.urlopen(pedido, timeout=TIMEOUT) as respuesta:
             return json.loads(respuesta.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        raise ErrorDeMercadoPago(f"HTTP {e.code} en {metodo} {ruta}") from None
+        raise ErrorDeMercadoPago(
+            f"HTTP {e.code} en {metodo} {ruta}", codigo=e.code
+        ) from None
     except urllib.error.URLError:
         raise ErrorDeMercadoPago(f"Sin conexión en {metodo} {ruta}") from None
     except TimeoutError:
@@ -220,7 +231,10 @@ def buscar_pagos(referencia_externa):
 
 
 def resumen_de_pago(pago):
-    """Sólo lo que se guarda en la base: nada del pagador."""
+    """Sólo lo que se guarda en la base: nada del pagador. Una respuesta que
+    no es un objeto JSON da `{}` (sin referencia: `acreditar` la descarta)."""
+    if not isinstance(pago, dict):
+        return {}
     return {k: pago[k] for k in _CLAVES_DEL_RESUMEN if k in pago}
 
 

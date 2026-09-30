@@ -385,6 +385,12 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "")
 # cabecera Reply-To (comportamiento previo), nunca rompe.
 EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO", "")
 EMAIL_PORT = 587
+# Segundos. Sin esto el default de `smtplib` es SIN timeout: los mails salen
+# sincrónicos (en el `on_commit` del webhook de Mercado Pago y del retorno del
+# pago), y una conexión SMTP colgada retiene el único worker de gunicorn hasta
+# que lo mata a los 30 s -> 502 para un gimnasio que acaba de pagar. Constante
+# y no variable de entorno, igual que `EMAIL_PORT`.
+EMAIL_TIMEOUT = 10
 EMAIL_USE_TLS = True
 
 # Bandera que consumen tenants/context_processors.py y login.html para

@@ -314,14 +314,44 @@ class MiSuscripcionTests(_Base):
         self.assertContains(respuesta, "Tu cuenta no tiene cobro")
         self.assertNotContains(respuesta, 'id="pagar"')
 
+    def _periodo_adeudado(self):
+        return facturacion.periodo_a_cobrar(
+            facturacion.gimnasio_anotado(self.gimnasio.pk)
+        )
+
     def test_muestra_el_link_vivo_para_retomarlo(self):
-        _intento(self.gimnasio)
+        desde, hasta = self._periodo_adeudado()
+        _intento(self.gimnasio, periodo_desde=desde, periodo_hasta=hasta)
         self._login()
 
         respuesta = self.client.get(reverse("suscripcion:mi_suscripcion"))
 
         self.assertContains(respuesta, "Continuar al pago")
         self.assertContains(respuesta, "https://mp.test/checkout/pref-1")
+
+    def test_despues_de_un_pago_manual_no_ofrece_el_link_viejo(self):
+        """El gimnasio generó el link y después transfirió; el superadmin lo
+        cargó a mano. `plataforma` no cancela intentos (no importa
+        `suscripcion`), así que es la pantalla la que no lo ofrece: «al día» y
+        «Continuar al pago» a la vez terminaba en un DUPLICADO."""
+        desde, hasta = self._periodo_adeudado()
+        _intento(self.gimnasio, periodo_desde=desde, periodo_hasta=hasta)
+        PagoPlataforma.objects.create(
+            gimnasio=self.gimnasio,
+            fecha_pago=timezone.localdate(),
+            monto_usd=Decimal("10"),
+            alumnos_activos=0,
+            periodo_desde=desde,
+            periodo_hasta=hasta,
+            registrado_por=User.objects.create_superuser("root-manual", password=CLAVE),
+        )
+        self._login()
+
+        respuesta = self.client.get(reverse("suscripcion:mi_suscripcion"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, "Continuar al pago")
+        self.assertNotContains(respuesta, "https://mp.test/checkout/pref-1")
 
     def test_un_alumno_sin_bloqueo_recibe_403(self):
         self._login("alumno-a")
@@ -509,6 +539,32 @@ class RetornoTests(_Base):
 
         respuesta = self.client.get(self._url(intento, status="approved"))
 
+        self.assertNotContains(respuesta, "¡Listo!")
+        self.assertNotContains(respuesta, "Recibimos tu pago")
+        intento.refresh_from_db()
+        self.assertEqual(intento.estado, Estado.CREADO)
+
+    def test_volver_sin_pagar_no_dice_confirmando(self):
+        """«Volver al sitio» en Mercado Pago, sin pago: «si ya pagaste no
+        vuelvas a pagar» sería falso."""
+        intento = _intento(self.gimnasio)
+        self._login()
+
+        for query in ({}, {"payment_id": "null", "status": "null"}):
+            with self.subTest(query=query):
+                respuesta = self.client.get(self._url(intento, **query))
+
+                self.assertContains(respuesta, "No se registró ningún pago")
+                self.assertContains(respuesta, "Podés volver a intentarlo")
+                self.assertContains(respuesta, reverse("suscripcion:mi_suscripcion"))
+                self.assertNotContains(respuesta, "Estamos confirmando tu pago")
+
+    def test_sin_query_pero_con_un_pago_anotado_sigue_confirmando(self):
+        intento = _intento(self.gimnasio, payment_id="555", estado_mp="in_process")
+        self._login()
+
+        respuesta = self.client.get(self._url(intento))
+
         self.assertContains(respuesta, "Estamos confirmando tu pago")
 
     def test_un_rechazado_ofrece_volver_a_intentar(self):
@@ -574,6 +630,45 @@ class WebhookTests(TestCase):
 
         self.assertEqual(respuesta.status_code, 200)
         consultar.assert_not_called()
+
+    def test_un_tipo_distinto_de_payment_sin_firma_da_200(self):
+        """Las IPN viejas y las de `merchant_order` pueden llegar sin firmar:
+        con 401 MP las reintentaría para siempre."""
+        with patch("suscripcion.mercadopago.consultar_pago") as consultar:
+            for tipo in ("merchant_order", "topic_merchant_order_wh"):
+                with self.subTest(tipo=tipo):
+                    respuesta = self._post(tipo=tipo, firma="")
+                    self.assertEqual(respuesta.status_code, 200)
+            ipn = self.client.post(f"{self.url}?id=123&topic=merchant_order")
+            self.assertEqual(ipn.status_code, 200)
+
+        consultar.assert_not_called()
+
+    def test_un_payment_sin_firma_sigue_dando_401(self):
+        respuesta = self._post(tipo="payment", firma="")
+
+        self.assertEqual(respuesta.status_code, 401)
+
+    def test_un_pago_que_mercado_pago_no_encuentra_da_200(self):
+        """«Simular notificación» del panel de MP manda un id que no existe:
+        con 500 se reintentaría para siempre."""
+        with patch(
+            "suscripcion.mercadopago.consultar_pago",
+            side_effect=ErrorDeMercadoPago("HTTP 404 en GET /v1/payments/123", codigo=404),
+        ):
+            with self.assertLogs("suscripcion.views", "WARNING"):
+                respuesta = self._post()
+
+        self.assertEqual(respuesta.status_code, 200)
+
+    def test_otro_error_http_de_mercado_pago_da_500(self):
+        with patch(
+            "suscripcion.mercadopago.consultar_pago",
+            side_effect=ErrorDeMercadoPago("HTTP 502 en GET /v1/payments/123", codigo=502),
+        ):
+            respuesta = self._post()
+
+        self.assertEqual(respuesta.status_code, 500)
 
     def test_si_mercado_pago_no_contesta_da_500_para_que_reintente(self):
         with patch(
@@ -754,6 +849,41 @@ class CobrosConProblemaTests(_Base):
         self.assertContains(respuesta, "111")
         self.assertNotContains(respuesta, "Gimnasio B")
         self.assertNotContains(respuesta, "222")
+
+    def test_lista_el_pagado_con_un_pago_adicional(self):
+        """Un segundo pago aprobado sobre un link ya pagado: el intento sigue
+        PAGADO, pero hay plata que devolver y tiene que aparecer acá."""
+        desde = timezone.localdate() - timedelta(days=10)
+        intento = _intento(
+            self.gimnasio, periodo_desde=desde, periodo_hasta=desde + timedelta(days=29)
+        )
+        _intento(self.otro, estado=Estado.PAGADO, payment_id="ajeno-9191")
+
+        def pago(pago_id):
+            return {
+                "id": int(pago_id),
+                "status": "approved",
+                "transaction_amount": float(intento.monto_ars),
+                "currency_id": "ARS",
+                "external_reference": str(intento.referencia_externa),
+            }
+
+        with override_settings(COBRO_ONLINE_ENABLED=True):
+            for pago_id in ("401", "402"):
+                with patch(
+                    "suscripcion.mercadopago.consultar_pago", return_value=pago(pago_id)
+                ):
+                    services.acreditar(pago_id)
+        intento.refresh_from_db()
+        self.assertEqual(intento.estado, Estado.PAGADO)
+        self._superadmin()
+
+        respuesta = self.client.get(reverse(self.URL))
+
+        self.assertContains(respuesta, "Gimnasio A")
+        self.assertContains(respuesta, "Pago adicional")
+        self.assertContains(respuesta, "Adicional a devolver: 402")
+        self.assertNotContains(respuesta, "ajeno-9191")
 
     def test_rechazados_solo_los_ultimos_30_dias(self):
         self._superadmin()
