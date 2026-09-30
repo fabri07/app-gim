@@ -138,6 +138,7 @@ def _contexto_suscripcion(request, *, form=None, error=None):
         "integracion_activa": services.integracion_activa(),
         "es_demo": gimnasio.es_demo,
         "factura": gimnasio.facturacion_aplica,
+        "hoy": timezone.localdate(),
         "form": form if form is not None else ElegirPlanForm(),
         "error": error,
     }

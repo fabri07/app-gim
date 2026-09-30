@@ -23,7 +23,11 @@ gimnasio sin cobro): bajo el `hx-boost` global un 4xx es un click muerto.
       <p>Pago hasta el <strong>{{ fila.cubierto_hasta|date:"d/m/Y" }}</strong> inclusive.</p>
     {% endif %}
     {% if fila.vencimiento %}
-      <p>Próximo vencimiento: <strong>{{ fila.vencimiento|date:"d/m/Y" }}</strong>.</p>
+      {% if fila.vencimiento < hoy %}
+        <p>Venció el <strong>{{ fila.vencimiento|date:"d/m/Y" }}</strong>.</p>
+      {% else %}
+        <p>Próximo vencimiento: <strong>{{ fila.vencimiento|date:"d/m/Y" }}</strong>.</p>
+      {% endif %}
     {% endif %}
   {% endif %}
 </div>
@@ -73,7 +77,7 @@ gimnasio sin cobro): bajo el `hx-boost` global un 4xx es un click muerto.
     <div class="tarjeta aviso-urgente">
       <p>
         Ya generaste un link de pago del plan {{ intento_abierto.get_plan_display|lower }}
-        por <strong>$ {{ intento_abierto.monto_ars }}</strong>, válido hasta el
+        por <strong>$ {{ intento_abierto.monto_ars|floatformat:"2g" }}</strong>, válido hasta el
         {{ intento_abierto.expira|date:"d/m/Y H:i" }}.
       </p>
       <a class="boton" href="{{ intento_abierto.init_point }}" hx-boost="false">Continuar al pago</a>
@@ -110,20 +114,24 @@ gimnasio sin cobro): bajo el `hx-boost` global un 4xx es un click muerto.
               {% if form.plan.value == opcion.valor %}checked{% endif %}>
             <span>
               <strong>{{ opcion.etiqueta }}</strong>:
-              USD {{ opcion.monto_usd }}{% if opcion.monto_ars %} (hoy $ {{ opcion.monto_ars }}){% endif %}
+              USD {{ opcion.monto_usd }}{% if opcion.monto_ars %} (hoy $ {{ opcion.monto_ars|floatformat:"2g" }}){% endif %}
               · del {{ opcion.desde|date:"d/m/Y" }} al {{ opcion.hasta|date:"d/m/Y" }}
             </span>
           </label>
         {% endfor %}
       </fieldset>
       {% for error in form.plan.errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+      {% comment %}
+        Sin cotización `services.crear_intento` no genera ningún link (nunca un
+        monto inventado), así que el botón sale deshabilitado en vez de
+        prometer algo que después falla.
+      {% endcomment %}
       {% if not cotizacion %}
         <p class="texto-suave">
-          Ahora no tenemos la cotización del dólar, así que el monto en pesos lo
-          vas a ver al generar el link.
+          Ahora mismo no podemos calcular el monto en pesos. Probá de nuevo en unos minutos.
         </p>
       {% endif %}
-      {% if es_demo %}
+      {% if es_demo or not cotizacion %}
         <button type="submit" class="boton" id="pagar" disabled>Pagar con Mercado Pago</button>
       {% else %}
         <button type="submit" class="boton" id="pagar">Pagar con Mercado Pago</button>

@@ -216,7 +216,16 @@ def crear_intento(
                 email_pagador=email_de_quien_pago,
                 ahora=ahora,
             )
-        except ErrorDeMercadoPago:
+        except ErrorDeMercadoPago as exc:
+            # Sin esta línea la falla es invisible para el operador: el
+            # gimnasio ve el aviso y el log sólo muestra un 200. El texto de
+            # `ErrorDeMercadoPago` (método, ruta, código HTTP) no lleva
+            # secretos por diseño, y un 401 acá es el token mal cargado.
+            logger.warning(
+                "Mercado Pago no generó el link para el gimnasio %s: %s",
+                gimnasio.slug,
+                exc,
+            )
             # Se levanta ADENTRO del `atomic`: el rollback se lleva el intento
             # recién creado, así no queda uno huérfano sin link que además
             # ocuparía el índice de «un CREADO por período».

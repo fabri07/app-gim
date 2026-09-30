@@ -244,6 +244,43 @@ class MiSuscripcionTests(_Base):
         self.assertContains(respuesta, "10 días de atraso")
         self.assertContains(respuesta, "Con el próximo pago mensual quedás al día")
 
+    def test_sin_cotizacion_lo_dice_y_no_deja_pagar(self):
+        """`crear_intento` no genera ningún link sin cotización: prometer «el
+        monto lo vas a ver al generar el link» y después fallar al apretar es
+        una pantalla que se contradice."""
+        self._login()
+
+        with patch("plataforma.cambio.cotizacion_dolar", return_value=None):
+            respuesta = self.client.get(reverse("suscripcion:mi_suscripcion"))
+
+        self.assertContains(respuesta, "Ahora mismo no podemos calcular el monto en pesos")
+        self.assertRegex(respuesta.content.decode(), r'<button[^>]*id="pagar"[^>]*disabled')
+
+    def test_con_cotizacion_muestra_los_pesos_agrupados_y_deja_pagar(self):
+        self._login()
+
+        with patch(
+            "plataforma.cambio.cotizacion_dolar",
+            return_value={"compra": Decimal("1500"), "venta": Decimal("1557")},
+        ):
+            respuesta = self.client.get(reverse("suscripcion:mi_suscripcion"))
+
+        html = respuesta.content.decode()
+        # 10 USD (escalón de hasta 100 alumnos) × 1557.
+        self.assertIn("$ 15.570,00", html)
+        self.assertNotIn("Ahora mismo no podemos calcular", html)
+        self.assertNotRegex(html, r'<button[^>]*id="pagar"[^>]*disabled')
+
+    def test_un_vencimiento_pasado_dice_vencio(self):
+        # El gimnasio de `_Base` venció hace 10 días.
+        vencimiento = timezone.localdate() - timedelta(days=10)
+        self._login()
+
+        respuesta = self.client.get(reverse("suscripcion:mi_suscripcion"))
+
+        self.assertContains(respuesta, f"Venció el <strong>{vencimiento:%d/%m/%Y}</strong>")
+        self.assertNotContains(respuesta, "Próximo vencimiento")
+
     def test_el_form_de_pagar_sale_del_boost(self):
         self._login()
 
@@ -340,6 +377,33 @@ class IniciarPagoTests(_Base):
 
         self.assertEqual(respuesta.status_code, 200)
         self.assertContains(respuesta, services.MENSAJES["sin_cotizacion"])
+
+    @override_settings(MERCADOPAGO_ACCESS_TOKEN="TEST-token-muy-secreto")
+    def test_si_mercado_pago_rechaza_la_preferencia_queda_en_el_log(self):
+        """Sin el log el operador sólo ve un 200: el 401 de un token mal
+        cargado sería invisible. Y el log no lleva el token."""
+        with (
+            patch(
+                "plataforma.cambio.cotizacion_dolar",
+                return_value={"compra": Decimal("1150"), "venta": Decimal("1200")},
+            ),
+            patch(
+                "suscripcion.mercadopago.crear_preferencia",
+                side_effect=ErrorDeMercadoPago(
+                    "HTTP 401 en POST /checkout/preferences"
+                ),
+            ),
+            self.assertLogs("suscripcion.services", level="WARNING") as logs,
+        ):
+            respuesta = self.client.post(self.url, {"plan": "mensual"})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, services.MENSAJES["mercadopago"])
+        salida = "\n".join(logs.output)
+        self.assertIn("gimnasio-a", salida)
+        self.assertIn("HTTP 401 en POST /checkout/preferences", salida)
+        self.assertNotIn("TEST-token-muy-secreto", salida)
+        self.assertFalse(IntentoDeCobro.objects.exists())
 
     def test_un_plan_invalido_se_ve_como_error(self):
         with patch.object(services, "crear_intento") as crear:

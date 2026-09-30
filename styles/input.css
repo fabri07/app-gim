@@ -1137,8 +1137,11 @@
     @apply border-gray-900 bg-gray-50 font-medium;
   }
 
+  /* El radio a su tamaño natural: sin esto hereda el `w-full px-3 py-2
+     border mb-3` de todo `input` y queda un punto flotando en 170px vacíos
+     con el texto corrido a la derecha (medido en «Mi suscripción»). */
   .selector-fondo-tipo__opcion input {
-    @apply accent-gray-900;
+    @apply accent-gray-900 w-auto m-0 p-0 border-0 shrink-0;
   }
 
   .config-fondo-imagen,
