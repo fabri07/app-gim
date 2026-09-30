@@ -45,7 +45,7 @@ sólo con el cobro online configurado; si no, el soporte es la única salida.
         <p>
           <a class="boton" href="{% url 'suscripcion:mi_suscripcion' %}">Pagar la suscripción</a>
         </p>
-        <p class="texto-suave">Se reactiva sola apenas se acredita el pago.</p>
+        <p class="texto-suave">La cuenta se reactiva sola cuando queda al día.</p>
       {% endif %}
       {% if SOPORTE_CONTACTO %}
         <p>{% if COBRO_ONLINE_DISPONIBLE %}O escribinos{% else %}Escribinos{% endif %} para reactivarla: <strong>{{ SOPORTE_CONTACTO }}</strong></p>

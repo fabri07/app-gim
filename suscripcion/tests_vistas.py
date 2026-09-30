@@ -223,6 +223,27 @@ class MiSuscripcionTests(_Base):
         self.assertContains(respuesta, f"del {siguiente_desde:%d/%m/%Y}")
         self.assertNotContains(respuesta, f"del {primer_desde:%d/%m/%Y}")
 
+    def test_con_varios_periodos_de_atraso_avisa_que_un_pago_no_alcanza(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            facturacion_inicio=timezone.localdate() - timedelta(days=100)
+        )
+        self._login()
+
+        respuesta = self.client.get(reverse("suscripcion:mi_suscripcion"))
+
+        # Vence a los 30 días del inicio: 70 de atraso = 3 períodos.
+        self.assertContains(respuesta, "70 días de atraso")
+        self.assertContains(respuesta, "3 períodos mensuales")
+        self.assertContains(respuesta, "un solo pago mensual no alcanza")
+
+    def test_con_un_periodo_de_atraso_alcanza_con_uno(self):
+        self._login()
+
+        respuesta = self.client.get(reverse("suscripcion:mi_suscripcion"))
+
+        self.assertContains(respuesta, "10 días de atraso")
+        self.assertContains(respuesta, "Con el próximo pago mensual quedás al día")
+
     def test_el_form_de_pagar_sale_del_boost(self):
         self._login()
 
@@ -365,14 +386,58 @@ class RetornoTests(_Base):
         self.assertContains(respuesta, "Estamos confirmando tu pago")
         self.assertNotContains(respuesta, "¡Listo!")
 
-    def test_un_intento_pagado_muestra_hasta_cuando(self):
-        intento = _intento(self.gimnasio, estado=Estado.PAGADO)
+    def _pagar_el_periodo_mas_viejo(self, facturacion_inicio):
+        """Deja la cuenta SUSPENDIDA, genera el intento del primer período sin
+        cubrir y vuelve de Mercado Pago con ese pago aprobado: pasa por el
+        `acreditar` real, con sólo la API parcheada."""
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            facturacion_inicio=facturacion_inicio,
+            estado_cuenta=Gimnasio.EstadoCuenta.SUSPENDIDA,
+        )
+        desde, hasta = precios.periodo_siguiente(facturacion_inicio, None)
+        intento = _intento(self.gimnasio, periodo_desde=desde, periodo_hasta=hasta)
+        pago = {
+            "id": 777,
+            "status": "approved",
+            "transaction_amount": float(intento.monto_ars),
+            "currency_id": "ARS",
+            "external_reference": str(intento.referencia_externa),
+            "date_approved": "2026-09-28T12:00:00.000-03:00",
+        }
         self._login()
+        with patch("suscripcion.mercadopago.consultar_pago", return_value=pago):
+            respuesta = self.client.get(self._url(intento, payment_id="777"))
+        intento.refresh_from_db()
+        self.assertEqual(intento.estado, Estado.PAGADO)
+        return intento, respuesta
 
-        respuesta = self.client.get(self._url(intento))
+    def test_pagar_el_unico_periodo_adeudado_dice_listo(self):
+        intento, respuesta = self._pagar_el_periodo_mas_viejo(
+            timezone.localdate() - timedelta(days=40)
+        )
 
+        self.assertEqual(respuesta.status_code, 200)
         self.assertContains(respuesta, "¡Listo!")
         self.assertContains(respuesta, f"{intento.periodo_hasta:%d/%m/%Y}")
+        self.assertNotContains(respuesta, "Todavía hay períodos sin pagar")
+
+    def test_con_varios_periodos_adeudados_no_dice_listo(self):
+        """Pagado no es «al día»: la cuenta sigue suspendida porque el pago
+        cubrió el período más viejo. «¡Listo!» con una fecha pasada y un link
+        al inicio que termina en el cartel rompería la confianza."""
+        intento, respuesta = self._pagar_el_periodo_mas_viejo(
+            timezone.localdate() - timedelta(days=100)
+        )
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, "¡Listo!")
+        self.assertContains(respuesta, "Todavía hay períodos sin pagar")
+        self.assertContains(respuesta, "reactivar la cuenta")
+        self.assertContains(respuesta, reverse("suscripcion:mi_suscripcion"))
+        self.assertEqual(
+            Gimnasio.objects.get(pk=self.gimnasio.pk).estado_cuenta,
+            Gimnasio.EstadoCuenta.SUSPENDIDA,
+        )
 
     def test_el_status_del_querystring_se_ignora(self):
         intento = _intento(self.gimnasio)
@@ -466,7 +531,10 @@ class WebhookTests(TestCase):
         consultar.assert_called_once_with("123")
 
     def test_un_cuerpo_que_no_es_json_nunca_da_500(self):
-        casos = ["esto no es json", "[1, 2, 3]", "[" * 100000, "\xff\xfe"]
+        # `b"\x80abc"` en bytes y no en str: el cliente de test codifica un str
+        # a UTF-8 y nunca llegaría un `UnicodeDecodeError` (con `b"\xff\xfe"`
+        # tampoco: `json` lo lee como un BOM de UTF-16 y da `JSONDecodeError`).
+        casos = ["esto no es json", "[1, 2, 3]", "[" * 100000, b"\xff\xfe", b"\x80abc"]
         with patch(
             "suscripcion.mercadopago.consultar_pago",
             return_value={"id": 123, "status": "approved"},
@@ -501,9 +569,7 @@ class WebhookTests(TestCase):
         consultar.assert_not_called()
 
     def test_una_sesion_de_staff_no_alcanza(self):
-        """La vista ignora `request.user` por completo: es lo que hace seguro
-        el `csrf_exempt`. Un staff logueado sin firma recibe lo mismo que un
-        anónimo sin firma."""
+        """Sin firma, un staff logueado recibe lo mismo que un anónimo."""
         staff = _usuario("staff-g", self.gimnasio, Perfil.Rol.STAFF)
         logueado = Client(enforce_csrf_checks=True)
         logueado.force_login(staff)
@@ -513,6 +579,46 @@ class WebhookTests(TestCase):
 
         self.assertEqual(respuesta.status_code, 401)
         consultar.assert_not_called()
+
+    def test_ignora_request_user_con_una_firma_valida(self):
+        """La vista ignora `request.user` por completo: es lo que hace seguro
+        el `csrf_exempt`. Con la MISMA notificación firmada, un staff logueado
+        y un anónimo tienen que producir exactamente el mismo resultado
+        (status y estado del intento). Con la firma mala los dos dan 401 y el
+        test no distinguiría una vista que lea el usuario después."""
+        staff = _usuario("staff-g", self.gimnasio, Perfil.Rol.STAFF)
+        logueado = Client(enforce_csrf_checks=True)
+        logueado.force_login(staff)
+        anonimo = Client(enforce_csrf_checks=True)
+
+        resultados = []
+        hoy = timezone.localdate()
+        for cliente, pago_id, corrimiento in (
+            (anonimo, "501", 0),
+            # Otro período, para que el segundo no choque por solapamiento
+            # con el pago que acaba de crear el primero.
+            (logueado, "502", 100),
+        ):
+            desde = hoy + timedelta(days=corrimiento)
+            intento = _intento(
+                self.gimnasio,
+                periodo_desde=desde,
+                periodo_hasta=desde + timedelta(days=29),
+            )
+            pago = {
+                "id": int(pago_id),
+                "status": "approved",
+                "transaction_amount": float(intento.monto_ars),
+                "currency_id": "ARS",
+                "external_reference": str(intento.referencia_externa),
+            }
+            with patch("suscripcion.mercadopago.consultar_pago", return_value=pago):
+                respuesta = self._post(data_id=pago_id, client=cliente)
+            intento.refresh_from_db()
+            resultados.append((respuesta.status_code, intento.estado))
+
+        self.assertEqual(resultados[0], (200, Estado.PAGADO))
+        self.assertEqual(resultados[1], resultados[0])
 
     def test_no_pide_csrf(self):
         cliente = Client(enforce_csrf_checks=True)

@@ -8,6 +8,9 @@ estado del intento en la base (después de consultar la API), nunca del
 
 «Confirmando» cubre tanto «todavía no llegó» como «Mercado Pago no contestó»:
 un lookup fallido no puede parecerse a un pago fallido.
+
+«Pagado» tampoco es «al día»: con varios períodos adeudados el pago cubre el
+más viejo, y la pantalla lo dice en vez de festejar (`pagado_con_deuda`).
 {% endcomment %}
 
 {% block content %}
@@ -16,6 +19,14 @@ un lookup fallido no puede parecerse a un pago fallido.
     <h1>¡Listo!</h1>
     <p>Tu suscripción está paga hasta el <strong>{{ intento.periodo_hasta|date:"d/m/Y" }}</strong>.</p>
     <a class="boton" href="{% url 'home' %}">Ir al inicio</a>
+  {% elif situacion == "pagado_con_deuda" %}
+    <h1>Recibimos tu pago</h1>
+    <p>
+      Acreditamos el período del {{ intento.periodo_desde|date:"d/m" }} al
+      {{ intento.periodo_hasta|date:"d/m" }}. Todavía hay períodos sin pagar:
+      pagá el siguiente para {% if cuenta_congelada %}reactivar la cuenta{% else %}quedar al día{% endif %}.
+    </p>
+    <a class="boton" href="{% url 'suscripcion:mi_suscripcion' %}">Pagar el siguiente período</a>
   {% elif situacion == "rechazado" %}
     <h1>El pago fue rechazado</h1>
     <p>Mercado Pago no aprobó el pago. No se te cobró nada: podés volver a intentarlo con otro medio.</p>

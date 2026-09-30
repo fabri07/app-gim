@@ -37,6 +37,7 @@ from suscripcion.forms import ElegirPlanForm
 from suscripcion.mercadopago import ErrorDeMercadoPago
 from suscripcion.models import IntentoDeCobro
 from tenants.mixins import StaffRequiredMixin
+from tenants.models import Gimnasio
 
 logger = logging.getLogger(__name__)
 
@@ -56,19 +57,38 @@ def _url_panel_para(request):
     return url
 
 
-def _contexto_suscripcion(request, *, form=None, error=None):
-    """Todo lo que muestra `mi_suscripcion.html`. Lo comparten el GET de
-    `MiSuscripcionView` y el re-render de `IniciarPagoView` cuando el link no
-    se pudo generar, para que las dos pantallas no puedan divergir.
+def _facturacion_de(request):
+    """`(gimnasio anotado, fila)` del gimnasio del usuario: el ÚNICO lugar
+    donde estas vistas leen el estado de cobro. Lo usan la pantalla de la
+    suscripción y el retorno, que tienen que contar la misma historia.
 
     **El gimnasio sale de `facturacion.gimnasio_anotado`, nunca de
     `request.user.perfil.gimnasio`**: esa es una instancia pelada, sin
     `cubierto_hasta`, y con ella `periodo_a_cobrar` propone el primer período
     después de la prueba aunque el gimnasio ya haya pagado tres. Es el bug más
-    fácil de reintroducir en esta pantalla, y lo fija un test.
+    fácil de reintroducir acá, y lo fija un test.
     """
     gimnasio = facturacion.gimnasio_anotado(request.user.perfil.gimnasio_id)
-    fila = facturacion.fila_de_gimnasio(gimnasio)
+    return gimnasio, facturacion.fila_de_gimnasio(gimnasio)
+
+
+def periodos_adeudados(fila):
+    """Cuántos períodos mensuales hay que pagar para quedar al día: el que
+    venció y sigue corriendo, más uno por cada ciclo entero ya pasado. 0 si no
+    hay atraso. Es lo que le avisa al dueño que un solo pago puede no alcanzar.
+    """
+    if not fila.dias_de_atraso:
+        return 0
+    return fila.dias_de_atraso // precios.DIAS_CICLO + 1
+
+
+def _contexto_suscripcion(request, *, form=None, error=None):
+    """Todo lo que muestra `mi_suscripcion.html`. Lo comparten el GET de
+    `MiSuscripcionView` y el re-render de `IniciarPagoView` cuando el link no
+    se pudo generar, para que las dos pantallas no puedan divergir. El estado
+    de cobro sale de `_facturacion_de`.
+    """
+    gimnasio, fila = _facturacion_de(request)
     alumnos = gimnasio.alumnos_activos
 
     # Una sola llamada por request: la cotización está cacheada, pero aun así
@@ -111,6 +131,7 @@ def _contexto_suscripcion(request, *, form=None, error=None):
     return {
         "gimnasio": gimnasio,
         "fila": fila,
+        "periodos_adeudados": periodos_adeudados(fila) if gimnasio.facturacion_aplica else 0,
         "planes": planes,
         "cotizacion": cotizacion,
         "intento_abierto": intento_abierto,
@@ -225,8 +246,20 @@ class RetornoView(StaffRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         contexto = super().get_context_data(**kwargs)
         estado = self.intento.estado
+        extra = {}
         if estado == _Estado.PAGADO:
-            situacion = "pagado"
+            # Pagado NO es «al día»: un gimnasio con varios períodos vencidos
+            # paga el más viejo, y `services.acreditar` sólo descongela si con
+            # eso queda cubierto hasta hoy. El mensaje sale del estado de cobro
+            # recién leído, no del intento: «¡Listo!» con una fecha pasada y un
+            # «Ir al inicio» que termina en el cartel es peor que no decir nada.
+            gimnasio, fila = _facturacion_de(self.request)
+            normal = gimnasio.estado_cuenta == Gimnasio.EstadoCuenta.NORMAL
+            if fila.estado == precios.EstadoPago.VENCIDA or not normal:
+                situacion = "pagado_con_deuda"
+                extra = {"cuenta_congelada": not normal}
+            else:
+                situacion = "pagado"
         elif estado == _Estado.RECHAZADO:
             situacion = "rechazado"
         elif estado in (_Estado.REVISAR, _Estado.DUPLICADO):
@@ -238,7 +271,7 @@ class RetornoView(StaffRequiredMixin, TemplateView):
         else:
             # CREADO y VENCIDO: todavía no sabemos nada del pago.
             situacion = "confirmando"
-        contexto.update({"intento": self.intento, "situacion": situacion})
+        contexto.update({"intento": self.intento, "situacion": situacion, **extra})
         return contexto
 
 

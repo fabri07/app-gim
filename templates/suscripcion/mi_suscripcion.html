@@ -28,6 +28,20 @@ gimnasio sin cobro): bajo el `hx-boost` global un 4xx es un click muerto.
   {% endif %}
 </div>
 
+{% if periodos_adeudados %}
+  <div class="tarjeta aviso-urgente">
+    <p>
+      Tenés {{ fila.dias_de_atraso }} día{{ fila.dias_de_atraso|pluralize }} de atraso.
+      {% if periodos_adeudados > 1 %}
+        Para quedar al día hacen falta <strong>{{ periodos_adeudados }} períodos mensuales</strong>
+        (o el plan anual): un solo pago mensual no alcanza.
+      {% else %}
+        Con el próximo pago mensual quedás al día.
+      {% endif %}
+    </p>
+  </div>
+{% endif %}
+
 {% if error %}
   <div class="tarjeta aviso-error" role="alert">
     <p><strong>No pudimos generar el link de pago.</strong></p>
@@ -80,24 +94,29 @@ gimnasio sin cobro): bajo el `hx-boost` global un 4xx es un click muerto.
       mercadopago.com.ar, cross-origin. htmx no puede seguirlo y el click
       quedaría tragado sin ningún error (mismo caso que «Conectar Google
       Calendar»). Los radios van a mano porque `partials/campo_form.html` pone
-      un único `<label for>` y un grupo de radios necesita un `<fieldset>`.
+      un único `<label for>` y un grupo de radios necesita un `<fieldset>`;
+      reusan las píldoras del selector de fondo de «Mi gimnasio»
+      (`.selector-fondo-tipo`), ya compiladas, y el error va debajo.
     {% endcomment %}
     <form method="post" action="{% url 'suscripcion:iniciar_pago' %}" hx-boost="false" novalidate>
       {% csrf_token %}
       {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
-      <fieldset class="form-campo">
-        <legend>Elegí el plan</legend>
+      <p><strong>Elegí el plan</strong></p>
+      <fieldset class="selector-fondo-tipo">
+        <legend class="sr-only">Plan</legend>
         {% for opcion in planes %}
-          <label>
+          <label class="selector-fondo-tipo__opcion">
             <input type="radio" name="{{ form.plan.html_name }}" value="{{ opcion.valor }}"
               {% if form.plan.value == opcion.valor %}checked{% endif %}>
-            <strong>{{ opcion.etiqueta }}</strong>:
-            USD {{ opcion.monto_usd }}{% if opcion.monto_ars %} (hoy $ {{ opcion.monto_ars }}){% endif %}
-            <span class="texto-suave">· del {{ opcion.desde|date:"d/m/Y" }} al {{ opcion.hasta|date:"d/m/Y" }}</span>
+            <span>
+              <strong>{{ opcion.etiqueta }}</strong>:
+              USD {{ opcion.monto_usd }}{% if opcion.monto_ars %} (hoy $ {{ opcion.monto_ars }}){% endif %}
+              · del {{ opcion.desde|date:"d/m/Y" }} al {{ opcion.hasta|date:"d/m/Y" }}
+            </span>
           </label>
         {% endfor %}
-        {% for error in form.plan.errors %}<p class="config-error">{{ error }}</p>{% endfor %}
       </fieldset>
+      {% for error in form.plan.errors %}<p class="config-error">{{ error }}</p>{% endfor %}
       {% if not cotizacion %}
         <p class="texto-suave">
           Ahora no tenemos la cotización del dólar, así que el monto en pesos lo
