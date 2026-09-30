@@ -5,11 +5,15 @@
 """
 
 from datetime import timedelta
+from io import StringIO
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core import mail
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import connection
-from django.test import TransactionTestCase
+from django.test import SimpleTestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -113,6 +117,20 @@ class AvisarCobrosTests(TransactionTestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertCountEqual(mail.outbox[0].to, ["staff@x.com", "otro@x.com"])
 
+    def test_sin_destinatarios_no_marca_el_aviso_y_avisa_al_cargar_un_email(self):
+        g = _gimnasio("sinmail", vence_en=-2)
+        usuario = _usuario(g, "")
+        with self.assertLogs("suscripcion.avisos", level="WARNING") as logs:
+            self.assertEqual(avisos.avisar(), 0)
+        self.assertIn("sinmail", logs.output[0])
+        self.assertEqual(AvisoDeCobro.objects.count(), 0)
+        self.assertEqual(mail.outbox, [])
+        usuario.email = "ya@x.com"
+        usuario.save()
+        self.assertEqual(avisos.avisar(), 1)
+        self.assertEqual(mail.outbox[0].to, ["ya@x.com"])
+        self.assertEqual(AvisoDeCobro.objects.count(), 1)
+
     def test_costo_de_queries_constante_con_mas_gimnasios(self):
         def armar(n, prefijo):
             for i in range(n):
@@ -141,3 +159,22 @@ class AvisarCobrosTests(TransactionTestCase):
             if "suscripcion_avisodecobro" not in q["sql"]
             and q["sql"].split()[0].upper() not in {"BEGIN", "COMMIT", "SAVEPOINT", "RELEASE"}
         )
+
+
+class ComandoAvisarCobrosTests(SimpleTestCase):
+    def test_sin_integracion_falla(self):
+        with patch("suscripcion.services.integracion_activa", return_value=False), patch(
+            "suscripcion.avisos.avisar"
+        ) as avisar:
+            with self.assertRaises(CommandError):
+                call_command("avisar_cobros", stdout=StringIO())
+        avisar.assert_not_called()
+
+    def test_con_integracion_delega_e_informa(self):
+        out = StringIO()
+        with patch("suscripcion.services.integracion_activa", return_value=True), patch(
+            "suscripcion.avisos.avisar", return_value=4
+        ) as avisar:
+            call_command("avisar_cobros", stdout=out)
+        avisar.assert_called_once_with()
+        self.assertIn("4", out.getvalue())

@@ -17,6 +17,10 @@ from django.core.mail import EmailMessage
 from django.template.loader import render_to_string
 from django.urls import reverse
 
+#: El cron no tiene `request` para armar la URL absoluta; mismo criterio que el
+#: `USER_AGENT` de `plataforma/cambio.py`, que ya escribe el dominio.
+URL_SITIO = "https://www.tugimapp.com"
+
 #: Qué hacer en cada caso de «cobro con problema». Es el cuerpo del mail: el
 #: superadmin tiene que poder actuar leyéndolo, sin abrir el código.
 PROBLEMAS = {
@@ -128,9 +132,6 @@ def enviar_aviso_cobro(gimnasio, destinatarios, *, tipo, vencimiento, precio_usd
     """Avisa al STAFF del gimnasio (no al superadmin) que la suscripción está
     por vencer, vence hoy o venció, e invita a pagar online desde
     `suscripcion:mi_suscripcion`. `tipo` es un valor de `AvisoDeCobro.Tipo`."""
-    # Import tardío: `avisos` importa este módulo.
-    from suscripcion.avisos import URL_SITIO
-
     _enviar(
         f"{_ASUNTOS_AVISO[tipo]}: {gimnasio.nombre}",
         "aviso_cobro",

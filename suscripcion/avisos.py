@@ -5,6 +5,7 @@ Sin esto nadie visita la pantalla de pago de la que no se enteró. Los dispara
 a las 11 en vez de a las 9 da igual.
 """
 
+import logging
 from collections import defaultdict
 
 from django.db import transaction
@@ -15,9 +16,10 @@ from suscripcion import emails
 from suscripcion.models import AvisoDeCobro
 from tenants.models import Perfil
 
-#: El cron no tiene `request` para armar la URL absoluta; mismo criterio que el
-#: `USER_AGENT` de `plataforma/cambio.py`, que ya escribe el dominio.
-URL_SITIO = "https://www.tugimapp.com"
+logger = logging.getLogger(__name__)
+
+#: Vive en `emails` (que arma el link); se reexporta acá.
+URL_SITIO = emails.URL_SITIO
 
 Tipo = AvisoDeCobro.Tipo
 
@@ -67,21 +69,28 @@ def avisar(hoy=None):
     mandados = 0
     for fila, tipo in candidatos:
         gimnasio = fila.gimnasio
+        para = destinatarios.get(gimnasio.pk, [])
+        if not para:
+            # Sin destinatarios NO se crea la fila de dedup: si se creara, el
+            # aviso (sobre todo el VENCIDO, uno por período) se perdería para
+            # siempre aunque después se cargue un email.
+            logger.warning(
+                "Aviso de cobro sin destinatarios: el gimnasio %s no tiene staff "
+                "activo con email.",
+                gimnasio.slug,
+            )
+            continue
         with transaction.atomic():
             _, creado = AvisoDeCobro.objects.get_or_create(
                 gimnasio=gimnasio, periodo_desde=fila.vencimiento, tipo=tipo
             )
             if not creado:
                 continue
-            para = destinatarios.get(gimnasio.pk, [])
-            if para:
-                # Valores ya resueltos: el callback no vuelve a tocar la base.
-                transaction.on_commit(
-                    lambda g=gimnasio, p=para, t=tipo, v=fila.vencimiento, usd=fila.precio_usd: (
-                        emails.enviar_aviso_cobro(
-                            g, p, tipo=t, vencimiento=v, precio_usd=usd
-                        )
-                    )
+            # Valores ya resueltos: el callback no vuelve a tocar la base.
+            transaction.on_commit(
+                lambda g=gimnasio, p=para, t=tipo, v=fila.vencimiento, usd=fila.precio_usd: (
+                    emails.enviar_aviso_cobro(g, p, tipo=t, vencimiento=v, precio_usd=usd)
                 )
-                mandados += 1
+            )
+            mandados += 1
     return mandados
