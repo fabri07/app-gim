@@ -20,7 +20,10 @@ salir del bloqueo.
 import json
 import logging
 
+from datetime import timedelta
+
 from django.conf import settings
+from django.db.models import Q
 from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
@@ -29,9 +32,10 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import TemplateView
+from django.views.generic import ListView, TemplateView
 
 from plataforma import cambio, facturacion, precios
+from plataforma.mixins import SuperadminRequiredMixin
 from suscripcion import mercadopago, services
 from suscripcion.forms import ElegirPlanForm
 from suscripcion.mercadopago import ErrorDeMercadoPago
@@ -356,3 +360,25 @@ class WebhookView(View):
             )
             return JsonResponse({"error": "reintentar"}, status=500)
         return JsonResponse({"ok": True})
+
+
+class CobrosConProblemaView(SuperadminRequiredMixin, ListView):
+    """Los intentos que necesitan una acción humana (devolver plata, revisar un
+    monto), que hasta acá sólo llegaban por mail. Una sola query, sin tocar
+    `facturacion.gimnasios_anotados()`."""
+
+    template_name = "suscripcion/cobros_con_problema.html"
+    context_object_name = "intentos"
+    DIAS_DE_RECHAZADOS = 30
+
+    def get_queryset(self):
+        Estado = IntentoDeCobro.Estado
+        desde = timezone.now() - timedelta(days=self.DIAS_DE_RECHAZADOS)
+        return (
+            IntentoDeCobro.objects.filter(
+                Q(estado__in=[Estado.REVISAR, Estado.DUPLICADO, Estado.DEVUELTO])
+                | Q(estado=Estado.RECHAZADO, creado__gte=desde)
+            )
+            .select_related("gimnasio")
+            .order_by("-creado", "-id")
+        )

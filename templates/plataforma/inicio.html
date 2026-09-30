@@ -19,6 +19,7 @@
   <a class="boton-secundario" href="{% url 'plataforma:solicitud_lista' %}">
     Solicitudes{% if solicitudes_pendientes %} <span class="badge badge--alerta">{{ solicitudes_pendientes }}</span>{% endif %}
   </a>
+  <a class="boton-secundario" href="{% url 'suscripcion:cobros_con_problema' %}">Cobros con problema</a>
   {% if SENTRY_PANEL_URL %}
     <a class="boton-secundario" href="{{ SENTRY_PANEL_URL }}" target="_blank" rel="noopener" hx-boost="false">Errores (Sentry)</a>
   {% endif %}

@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Cobros con problema · Plataforma{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<h1>Cobros con problema</h1>
+<p class="texto-suave">
+  Intentos de cobro online que necesitan una acción tuya: pagos a revisar,
+  duplicados y devoluciones, más los rechazados de los últimos 30 días.
+</p>
+
+{% if intentos %}
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
+        <tr><th>Gimnasio</th><th>Estado</th><th>Plan</th><th>Período</th><th>Monto</th><th>Pago (MP)</th><th>Fecha</th></tr>
+      </thead>
+      <tbody>
+        {% for i in intentos %}
+          <tr>
+            <td><a href="{% url 'plataforma:gimnasio_detalle' i.gimnasio_id %}">{{ i.gimnasio.nombre }}</a></td>
+            <td>
+              {% if i.estado == "rechazado" %}<span class="badge badge--neutro">{{ i.get_estado_display }}</span>
+              {% else %}<span class="badge badge--alerta">{{ i.get_estado_display }}</span>{% endif %}
+            </td>
+            <td>{{ i.get_plan_display }}</td>
+            <td>{{ i.periodo_desde|date:"d/m/Y" }} al {{ i.periodo_hasta|date:"d/m/Y" }}</td>
+            <td>ARS {{ i.monto_ars }}</td>
+            <td>{{ i.payment_id|default:"—" }}</td>
+            <td>{{ i.creado|date:"d/m/Y H:i" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="texto-suave">No hay cobros con problema.</p>
+{% endif %}
+{% endblock %}

@@ -729,3 +729,59 @@ class PublicoDeLasVistasTests(TestCase):
                     self.assertEqual(publicos, [])
                 else:
                     self.assertEqual(len(publicos), 1)
+
+
+class CobrosConProblemaTests(_Base):
+    URL = "suscripcion:cobros_con_problema"
+
+    def _superadmin(self):
+        User.objects.create_superuser("root-cobros", password=CLAVE)
+        self.client.login(username="root-cobros", password=CLAVE)
+
+    def test_un_staff_recibe_403(self):
+        self._login()
+        self.assertEqual(self.client.get(reverse(self.URL)).status_code, 403)
+
+    def test_muestra_el_revisar_y_no_el_pagado(self):
+        self._superadmin()
+        _intento(self.gimnasio, estado=Estado.REVISAR, payment_id="111")
+        _intento(self.otro, estado=Estado.PAGADO, payment_id="222")
+
+        respuesta = self.client.get(reverse(self.URL))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Gimnasio A")
+        self.assertContains(respuesta, "111")
+        self.assertNotContains(respuesta, "Gimnasio B")
+        self.assertNotContains(respuesta, "222")
+
+    def test_rechazados_solo_los_ultimos_30_dias(self):
+        self._superadmin()
+        viejo = _intento(self.gimnasio, estado=Estado.RECHAZADO, payment_id="333")
+        IntentoDeCobro.objects.filter(pk=viejo.pk).update(
+            creado=timezone.now() - timedelta(days=31)
+        )
+        _intento(self.otro, estado=Estado.RECHAZADO, payment_id="444")
+
+        respuesta = self.client.get(reverse(self.URL))
+
+        self.assertContains(respuesta, "444")
+        self.assertNotContains(respuesta, "333")
+
+    def test_el_costo_en_queries_no_crece_con_los_intentos(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        self._superadmin()
+
+        def costo():
+            with CaptureQueriesContext(connection) as ctx:
+                self.client.get(reverse(self.URL))
+            return len(ctx)
+
+        for n in range(2):
+            _intento(self.gimnasio, estado=Estado.REVISAR, payment_id=f"a{n}")
+        con_2 = costo()
+        for n in range(6):
+            _intento(self.otro, estado=Estado.DEVUELTO, payment_id=f"b{n}")
+        self.assertEqual(costo(), con_2)
