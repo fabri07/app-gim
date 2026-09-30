@@ -57,9 +57,11 @@ el contrato con la API está parcheado en los tests.
 - **Un webhook con `data.id` y sin `type` se contesta 200 y se ignora.**
   Tratarlo como pago daría 500 infinitos sobre notificaciones que no son de
   pagos. Confirmar en el sandbox que las de pago siempre traen `type`.
-- **`reconciliar_pendientes` recorre del más viejo al más nuevo con límite
-  50**: un backlog de intentos muertos (7 días de ventana) podría demorar a los
-  más nuevos una corrida.
+- ~~**`reconciliar_pendientes` recorre del más viejo al más nuevo con límite
+  50**~~ — **resuelto en la revisión final**: ahora va del más nuevo al más
+  viejo, así un backlog de intentos muertos no demora al recién generado. El
+  que puede quedar afuera de una corrida es el más viejo de la ventana de 7
+  días, que es el que menos probablemente tiene un pago perdido.
 - **Facturación AFIP/ARCA fuera de alcance**: Mercado Pago no emite las facturas
   de lo que cobra la plataforma.
 - **Desarrollo local**: el Python de python.org de esta Mac no trae

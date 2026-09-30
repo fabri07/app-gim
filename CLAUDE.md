@@ -1033,6 +1033,16 @@ una cotización vieja siempre subfactura.
   pantallas no muestren dos tipos de cambio del mismo mes — el anti-doble-click
   deja de ser un problema de JS. Mensual y anual comparten `periodo_desde`, así
   que cambiar de plan pasa el link anterior a `CANCELADO` y libera el índice.
+  **Sólo se reusa si le quedan más de `MINUTOS_MINIMOS_PARA_REUSAR` (30)**:
+  con menos, MP lo rechazaría a mitad del pago, así que se pasa a `VENCIDO` y
+  se genera otro.
+- **Un link vivo sólo se ofrece («Continuar al pago») si es del período que el
+  gimnasio debe HOY** (`views._intento_abierto_de`). Pagar online un período
+  además pasa a `CANCELADO` los otros `CREADO` del gimnasio que se solapan con
+  él; el pago MANUAL no puede hacerlo (`plataforma` no importa `suscripcion`),
+  y por eso el filtro vive en la pantalla. Sin las dos cosas, un gimnasio que
+  generó el link y después transfirió veía «al día» y «Continuar al pago» a la
+  vez hasta 48 h, y pagarlo era un `DUPLICADO` con devolución manual.
 - **El link vence a las 48 h** (`HORAS_VALIDEZ_LINK`), en MP (`expires` +
   `expiration_date_to`) y en `IntentoDeCobro.expira`. 48 y no 24: el aviso del
   viernes a la noche se tiene que poder pagar el domingo; no una semana: el MEP
@@ -1092,6 +1102,14 @@ atrapan ésa. `TIMEOUT = 5` y cero reintentos internos: el reintento es MP a los
   Bearer adentro. Lo fija un test que recorre los frames de la traza — **con un
   `try/except` a mano, porque `assertRaises` limpia los frames**
   (`traceback.clear_frames`) y el test pasaría sin mirar nada.
+  **Lo mismo vale para los datos del PAGADOR**: `GET /v1/payments` trae su
+  email, documento y tarjeta, así que `acreditar` recorta la respuesta con
+  `resumen_de_pago` en la misma línea que la consulta (nunca queda entera en
+  un local), y `reconciliar_pendientes` sólo ve los ids de la búsqueda
+  (`services._ids_de_pagos`). Lo fija
+  `tests_services.DatosDelPagadorFueraDeLosFramesTests`.
+- `ErrorDeMercadoPago.codigo` es el status HTTP (`None` sin respuesta): el
+  webhook trata un **404** como «ese pago no existe» y contesta 200.
 - `init_point` vs `sandbox_init_point` se elige por el prefijo `TEST-` del
   token, en el módulo: el riesgo concreto es desplegarle un link de sandbox a un
   cliente real.
@@ -1129,8 +1147,12 @@ sin firmar (la firma cubre el `data.id`, no el `action`).
   sólo avanza a devuelto.
 - **Un pago DISTINTO sobre un intento** (un link se puede pagar más de una
   vez): si el intento ya movió plata (`PAGADO`/`DUPLICADO`/`REVISAR`/`DEVUELTO`)
-  no se pisa nada, y si el nuevo está aprobado sale el mail «pago adicional»
-  para devolverlo; si no la movió (`CREADO`/`VENCIDO`/`CANCELADO`/`RECHAZADO`),
+  no se pisa nada, y si el nuevo está aprobado se anota en
+  `respuesta_mp["pagos_adicionales"]` (deduplicado por `payment_id`), va un
+  `WARNING` al log y sale el mail «pago adicional» para devolverlo — el log y
+  el mail sólo la primera vez, y «Cobros con problema» lista esos intentos
+  aunque sigan `PAGADO` (antes la única traza era un mail best-effort); si no
+  la movió (`CREADO`/`VENCIDO`/`CANCELADO`/`RECHAZADO`),
   el `payment_id` se reemplaza y se sigue — es la tarjeta rechazada seguida de
   un reintento aprobado en la misma pantalla de MP.
 - **Acreditables son `CREADO`, `VENCIDO`, `CANCELADO` y `RECHAZADO`.** La plata
@@ -1184,7 +1206,10 @@ cartel de cuenta congelada es la lección de «"Pago confirmado" a secas sobre
 alguien que sigue sin acceso». El `status` del querystring de retorno se
 ignora, la referencia de la URL se valida contra el gimnasio del usuario (404),
 y un `ErrorDeMercadoPago` ahí muestra «estamos confirmando tu pago»: un lookup
-fallido no puede parecerse a un pago fallido.
+fallido no puede parecerse a un pago fallido. Pero si volvió **sin** pago (sin
+`payment_id` o con el literal `"null"`) y el intento no tiene ninguno anotado,
+dice «No se registró ningún pago» (situación `sin_pago`): «si ya pagaste no
+vuelvas a pagar» ahí es falso.
 
 ### El webhook: no es «200 siempre»
 
@@ -1193,11 +1218,15 @@ argumento que `/ingreso/v1/`: la URL queda cargada en el panel de MP y en cada
 preferencia ya generada). `csrf_exempt` y **nunca mira `request.user`**, que es
 lo que lo hace seguro (lo fija `test_ignora_request_user_con_una_firma_valida`).
 
+En este orden:
+
 | Caso | Respuesta | Por qué |
 |---|---|---|
 | Integración apagada | 503 | MP reintenta hasta que se cargue la configuración; con 200 se perderían. |
-| Firma inválida | 401, sin tocar la base | Un reintento no arregla una firma; 401 en serie en el panel de MP = secret mal cargado. |
-| Tipo distinto de `payment`, cuerpo inválido, pago ajeno o ya acreditado | 200 | Nada que hacer; el cortocircuito de `acreditar` lo hace barato. |
+| Tipo distinto de `payment`, firmado o no | 200, **antes de la firma** | No toca la base. Las IPN viejas y las de `merchant_order` pueden llegar sin firmar: con 401 se reintentaban para siempre. |
+| `payment` con firma inválida | 401, sin tocar la base | Un reintento no arregla una firma; 401 en serie en el panel de MP = secret mal cargado. |
+| Sin `data.id`, cuerpo inválido, pago ajeno o ya acreditado | 200 | Nada que hacer; el cortocircuito de `acreditar` lo hace barato. |
+| MP contesta 404 al consultar el pago | 200 | El pago no existe (el «simular notificación» del panel de MP): con 500 se reintentaba para siempre. |
 | `ErrorDeMercadoPago` (MP no contestó) | **500 a propósito** | MP reintenta cada 15 min, muchísimo mejor que el cron (2-4 h tarde). Con 200, un gimnasio que pagó queda sin acreditar hasta mañana. |
 
 Una notificación con `data.id` pero sin `type` se contesta 200 y se ignora:
@@ -1241,7 +1270,9 @@ tenía el mismo problema.
   así «tarjeta rechazada + reintento aprobado + webhook perdido» no se volvía a
   mirar nunca y el gimnasio que pagó quedaba congelado. Pasa TODOS los
   resultados a `acreditar`, para que un segundo aprobado dispare el aviso de
-  pago adicional.
+  pago adicional. Recorre **del más nuevo al más viejo** (tope 50): un backlog
+  de links muertos no puede dejar afuera al recién generado, que es el que más
+  probablemente tiene un aprobado con el webhook perdido.
 - **`avisar_cobros`** (`avisar-cobros.yml`, diario a las 12:00 UTC) manda al
   staff del gimnasio el aviso «por vencer» (`DIAS_AVISO_COBRO`), «vence hoy» y
   «vencido», deduplicado por `AvisoDeCobro(gimnasio, periodo_desde, tipo)`.
@@ -1254,6 +1285,11 @@ tenía el mismo problema.
 - Los mails (`suscripcion/emails.py`) siguen el molde de `solicitudes`: texto
   plano, `fail_silently=True`, `EMAIL_REPLY_TO`. Los del superadmin van a
   `COBROS_AVISO_EMAIL`, suelta y opcional (vacía cae a `DEFAULT_FROM_EMAIL`).
+  Salen sincrónicos en el `on_commit` del webhook y del retorno, así que
+  **`EMAIL_TIMEOUT = 10`** (constante en `settings.py`, no variable de
+  entorno): sin él `smtplib` espera para siempre y un SMTP colgado retiene el
+  único worker hasta el kill de gunicorn a los 30 s — un 502 para el gimnasio
+  que acaba de pagar.
 
 ### Qué sólo se prueba en el sandbox
 
