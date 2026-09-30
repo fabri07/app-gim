@@ -49,6 +49,11 @@ ya actualizados.
 2. La app es la fuente de verdad; nada de sync en vivo con Excel.
 3. Pagos simples: sin Mercado Pago ni integraciones financieras en el MVP.
    Los pendientes del mes se autogeneran por cron; el dueño confirma.
+   **Matiz desde el 2026-09-29:** Mercado Pago entró **sólo** para que el
+   gimnasio le pague la suscripción a la plataforma (`suscripcion/`, ver
+   "Cobro online de la suscripción"). El cobro del gimnasio a sus alumnos
+   (`pagos`) sigue exactamente así: sin MP, el staff confirma. No leas esa
+   entrada como una puerta abierta para los dos.
 4. Aislamiento por gimnasio desde el modelo de datos: ningún registro
    operativo existe sin `gimnasio`.
 5. Archivos de usuario (comprobantes, logos) van a Cloudflare R2, nunca al
@@ -816,6 +821,9 @@ deja afuera la vista que alguien agregue sin acordarse.
   `tenants` (`tenants/urls.py` no define `app_name`). Cada entrada tapa una
   forma distinta de dejar a alguien encerrado: sin `logout` no puede ni salir,
   sin `suplantacion_volver` el staff queda atrapado en la cuenta del alumno.
+  Desde el 2026-09-29 hay un **tercer nivel**, `APPS_SIN_BLOQUEO_CON_REGISTRO`
+  (`suscripcion`), que se evalúa DESPUÉS del registro del día y sólo para el
+  staff: ver "Cobro online de la suscripción".
 - **El tráfico de la PWA no cuenta como uso**: el service worker, el manifest y
   los íconos los pide el navegador solo, en segundo plano, sin que nadie haya
   abierto la app — le anotarían un día de uso a un gimnasio que nadie tocó.
@@ -963,6 +971,303 @@ pantalla del admin.
 que `SOPORTE_CONTACTO`): sin ella el SDK ni se inicializa y la app funciona
 igual. `SENTRY_PANEL_URL` es puramente cosmética (el link del panel) y se lee
 en cada request para que `override_settings` sirva en un test.
+
+## Cobro online de la suscripción (`suscripcion/`, 2026-09-29)
+
+Hasta acá el dueño del producto le cobraba a cada gimnasio por transferencia y
+cargaba a mano la fila de `PagoPlataforma`. El modo de falla caro: **el
+gimnasio que paga un domingo a la noche seguía bloqueado hasta que alguien
+mirara el panel.** Ahora el staff paga desde la app con Mercado Pago (Checkout
+Pro, un link por ciclo — no débito automático, así el monto se calcula fresco
+cada vez y no se lo come la inflación) y el pago se acredita solo. **El registro
+manual no se eliminó**: queda para el que transfiere o paga en efectivo, y
+`PagoPlataforma.origen` (`MANUAL`/`ONLINE`) distingue los dos caminos.
+
+**Alcance: SÓLO plataforma → gimnasio.** El cobro del gimnasio a sus alumnos
+(`pagos`) no se tocó; ver el matiz en «Principios no negociables» #3. Spec en
+`docs/superpowers/specs/2026-09-29-cobro-online-suscripcion-design.md` (su
+sección final «Decisiones de ejecución» manda sobre el resto).
+
+### Por qué una app aparte
+
+La pantalla de pago la usa el **dueño del gimnasio**, y toda vista de
+`plataforma` lleva `SuperadminRequiredMixin` — es la invariante de esa app. En
+`tenants` tampoco: está al principio del orden de dependencias y tendría que
+importar `plataforma.precios`/`facturacion`. `suscripcion` tiene **dos
+públicos** (el staff del gimnasio y, en `cobros/`, el superadmin) más Mercado
+Pago, que no tiene sesión: cada vista declara el suyo con exactamente uno de
+los dos mixins o es el webhook, y lo fija
+`tests_vistas.test_toda_vista_declara_su_publico`, el sustituto de «toda vista
+de `plataforma` es superadmin». Va **última** en `INSTALLED_APPS` (lee
+`plataforma`): el comentario que decía que `plataforma` era la última porque
+nadie la leía dejó de ser cierto y se corrigió.
+
+`IntentoDeCobro` (el link generado) y `AvisoDeCobro` (el dedup de los mails de
+vencimiento) **no son `TenantOwnedModel`**: son datos de la plataforma SOBRE el
+gimnasio, igual que `PagoPlataforma`, así que quedan fuera de los tres lugares
+(`vaciar_gimnasio`, `_ensuciar`, `HOJAS`/`EXCLUIDOS`). Por eso `AvisoDeCobro`
+no reusa `notificaciones.RecordatorioEnviado`, que sí es del gimnasio. **Ninguno
+tiene FK a `User`**, y no es opcional: `vaciar_gimnasio` borra los `User` de la
+demo cada 6 h; con PROTECT ese cron se cae con `ProtectedError`, con CASCADE se
+borra un registro de plata. Quién apretó «Pagar» queda como texto
+(`email_de_quien_pago`). Por lo mismo `PagoPlataforma.registrado_por` pasó a
+nullable (un pago online no lo tipeó nadie), con la `CheckConstraint`
+`pago_plataforma_manual_con_autor` sosteniendo lo que importa: una fila
+`MANUAL` siempre tiene autor. Es unidireccional a propósito: prohibir el autor
+en una online bloquearía que el superadmin la repare.
+
+### El precio se congela en el link
+
+El intento guarda monto USD, monto ARS, tipo de cambio, alumnos activos y
+período en el momento de generar el link: **lo que se le cobra es lo que se le
+mostró**, la misma invariante por la que `PagoPlataforma` guarda los tres
+montos. Sin cotización (`cambio.cotizacion_dolar()` en `None`) **no hay link**
+(`CobroNoDisponible("sin_cotizacion")` + un `WARNING` con el slug) y el botón de
+la pantalla sale deshabilitado: antes la pantalla prometía un monto que después
+no podía producir. Nunca se persiste la última cotización buena: en Argentina
+una cotización vieja siempre subfactura.
+
+- **`UniqueConstraint(gimnasio, periodo_desde)` parcial sobre `estado="creado"`**
+  (calcado del de `ingreso`): un solo link vivo por período. Es lo que hace que
+  el segundo click **reuse el link** en vez de crear un segundo cobro, y que dos
+  pantallas no muestren dos tipos de cambio del mismo mes — el anti-doble-click
+  deja de ser un problema de JS. Mensual y anual comparten `periodo_desde`, así
+  que cambiar de plan pasa el link anterior a `CANCELADO` y libera el índice.
+- **El link vence a las 48 h** (`HORAS_VALIDEZ_LINK`), en MP (`expires` +
+  `expiration_date_to`) y en `IntentoDeCobro.expira`. 48 y no 24: el aviso del
+  viernes a la noche se tiene que poder pagar el domingo; no una semana: el MEP
+  se mueve.
+- **Vencer es perezoso**: `crear_intento` marca `VENCIDO` los `CREADO` vencidos
+  del gimnasio en la misma transacción, antes de insertar. Con el índice
+  parcial un `CREADO` eterno bloquearía el link nuevo, y el cron llega 2-4 h
+  tarde.
+- **`crear_intento` es estricto, `acreditar` es permisivo.** El primero se
+  niega (con un 200 que explica, nunca un 4xx: bajo el `hx-boost` global es un
+  click muerto) si `Gimnasio.facturacion_aplica` es falso — la regla vive ahí y
+  en ningún otro lado —; en la demo la pantalla muestra precio y plan con el
+  botón deshabilitado. `acreditar` **no se niega por nada de eso**: si la plata
+  entró, se acredita y se avisa. Negarse al acreditar es quedarse con plata sin
+  registro.
+- Si Mercado Pago falla al crear la preferencia, `crear_intento` loguea un
+  `WARNING` con el slug y el error de MP (método, ruta y código HTTP, sin
+  secretos por diseño: un 401 ahí es el token mal cargado) y levanta **adentro
+  del `atomic`**, así el rollback se lleva el intento recién creado y no queda
+  uno huérfano ocupando el índice. Antes de ese log el operador no tenía ningún
+  rastro: el gimnasio veía el aviso y el log de Render, un 200.
+- **`DIAS_ANIO = 360`** (12 × `DIAS_CICLO`), no 365: con un año calendario los
+  períodos mensual y anual dejan de encajar en la grilla de 30 días y un
+  gimnasio que pasa de anual a mensual arrastra el corrimiento para siempre.
+  `precio_usd_anual` es el mensual × (12 − `DESCUENTO_ANUAL_MESES`), y el anual
+  **congela el escalón de precio 12 meses** (decisión comercial asumida, ver
+  `ISSUES.md [2026-09-29]`).
+- **Todo acceso desde `suscripcion` a un gimnasio para facturar pasa por
+  `facturacion.gimnasio_anotado(pk)`, y `crear_intento` además llama a
+  `facturacion.exigir_anotado`.** `periodo_a_cobrar` lee `cubierto_hasta` con
+  `getattr`, así que con un `Gimnasio` pelado —que es exactamente
+  `request.user.perfil.gimnasio`, la forma natural de escribir la vista—
+  devuelve `None` en silencio y cobra siempre el primer período después de la
+  prueba, aunque el gimnasio ya haya pagado tres. Un comentario no alcanzaba:
+  el guard levanta `ValueError`. `gimnasios_anotados()` sigue siendo UNA query;
+  la lista «Cobros con problema» del superadmin es una query aparte.
+
+### `mercadopago.py` levanta, al revés de `cambio.py`
+
+Mismo molde (stdlib `urllib` —el SDK oficial arrastra `requests`, que el
+proyecto ya rechazó para `cambio.py`—, un único seam de red `_pedir`) y **la
+regla de errores invertida**. `cambio.py` traga todo porque el panel no puede
+caerse por una API de terceros y no hay plata en juego; acá la hay:
+`crear_preferencia`, `consultar_pago` y `buscar_pagos` **levantan
+`ErrorDeMercadoPago`** y quien llama decide cómo degradar. `_pedir` **levanta
+`RuntimeError` bajo `TESTING`**: un patch olvidado en el camino de la plata
+tiene que romper el test, no pasar en verde con el pago sin acreditar. Los
+cortes al LEER la respuesta (`ConnectionResetError`, `IncompleteRead`) urllib no
+los envuelve, y se mapean a `ErrorDeMercadoPago` porque los llamadores sólo
+atrapan ésa. `TIMEOUT = 5` y cero reintentos internos: el reintento es MP a los
+15 min, o el cron.
+
+- **El header `Authorization` se arma en `_headers()` y nunca se ata a una
+  variable local de `_pedir`.** Sentry (`SENTRY_DSN`) captura las variables
+  locales de cada frame, y el scrubber por defecto de `sentry-sdk` **no es
+  recursivo**: filtra un local llamado `token`, no un dict `headers` con el
+  Bearer adentro. Lo fija un test que recorre los frames de la traza — **con un
+  `try/except` a mano, porque `assertRaises` limpia los frames**
+  (`traceback.clear_frames`) y el test pasaría sin mirar nada.
+- `init_point` vs `sandbox_init_point` se elige por el prefijo `TEST-` del
+  token, en el módulo: el riesgo concreto es desplegarle un link de sandbox a un
+  cliente real.
+- **Una sola credencial, la de la plataforma**; no hay OAuth por gimnasio. El
+  día que `pagos` (gimnasio → alumno) tenga MP, necesita credenciales POR
+  gimnasio y cifradas con `EncryptedTextField`: este módulo no sirve tal cual.
+- `binary_mode` + `ticket`/`atm` excluidos: un pago no puede quedar «en
+  revisión» ni pagarse en un Rapipago a los 3 días con el tipo de cambio de
+  hace 3 días. Costo asumido: se pierde al que paga en efectivo (le queda el
+  registro manual).
+- `firma_valida` es puro y no levanta. Los segmentos ausentes del manifest se
+  **omiten** (no van vacíos), el `data.id` va en minúsculas, y **el `ts` no se
+  valida como ventana de frescura**: la defensa contra un replay es la
+  idempotencia, y un reloj más es uno que puede rechazar un reintento legítimo.
+
+### `acreditar`: el único punto de entrada, llamado por tres caminos que compiten
+
+El webhook, el retorno del navegador y la reconciliación llaman a
+`services.acreditar(payment_id)`, en cualquier orden y cantidad de veces. **El
+webhook llegando antes que el navegador es el caso normal, no el borde.** Es
+idempotente con `select_for_update()` + re-chequeo de estado (molde
+`solicitudes/services.py::_decidir`), no recibe `request` sino `url_panel_para`
+(un callable; el cron no tiene request), y **el estado del pago sale SIEMPRE de
+`GET /v1/payments/{id}`**, consultado antes de abrir la transacción (no se
+retiene un lock esperando a la red) — nunca del cuerpo del webhook, que viaja
+sin firmar (la firma cubre el `data.id`, no el `action`).
+
+- **La idempotencia es por `(payment_id, estado_mp)`, no por `payment_id`.** MP
+  manda otra notificación con el MISMO id cuando el pago pasa a
+  `refunded`/`charged_back`; cortar por id solo se tragaba la devolución.
+- **`estado_mp` no retrocede para el mismo pago.** Como la consulta corre fuera
+  del lock, dos llamadas pueden commitear en otro orden que el de sus lecturas:
+  una foto vieja de «approved» acreditaría (y descongelaría) un pago que otra
+  llamada ya registró como devuelto. Un devuelto no vuelve a nada; un aprobado
+  sólo avanza a devuelto.
+- **Un pago DISTINTO sobre un intento** (un link se puede pagar más de una
+  vez): si el intento ya movió plata (`PAGADO`/`DUPLICADO`/`REVISAR`/`DEVUELTO`)
+  no se pisa nada, y si el nuevo está aprobado sale el mail «pago adicional»
+  para devolverlo; si no la movió (`CREADO`/`VENCIDO`/`CANCELADO`/`RECHAZADO`),
+  el `payment_id` se reemplaza y se sigue — es la tarjeta rechazada seguida de
+  un reintento aprobado en la misma pantalla de MP.
+- **Acreditables son `CREADO`, `VENCIDO`, `CANCELADO` y `RECHAZADO`.** La plata
+  en la cuenta le gana a nuestro reloj: MP puede aprobar un pago iniciado un
+  minuto antes del vencimiento, o el gimnasio pagar el link que canceló al
+  cambiar de plan. **Un `filter(estado=CREADO)` acá se come un pago real.**
+- **El monto de MP se VALIDA, nunca se escribe.** `transaction_amount` contra
+  `intento.monto_ars` (±1 centavo) y `currency_id == "ARS"`; si no coincide,
+  `REVISAR` + mail, sin `PagoPlataforma`. Es `transaction_amount` y no
+  `total_paid_amount` (con cuotas incluye el interés del comprador: no es un
+  pago de más) ni `net_received_amount` (resta la comisión: bajaría el KPI de
+  ingresos ~2% en silencio contra las filas manuales). Escribir lo que reporta
+  MP dejaría que un checkout manipulado compre un mes por ARS 1.
+- **Doble cobro por SOLAPAMIENTO, no sólo por igualdad.** Antes de crear el
+  `PagoPlataforma` se busca cualquier pago del gimnasio cuyo rango se solape (el
+  superadmin pudo cargar a mano el período con otra fecha de inicio, que la
+  `UniqueConstraint(gimnasio, periodo_desde)` no ve). Solapa → `DUPLICADO` +
+  mail. La constraint queda como red para la carrera, y su `IntegrityError`
+  también va a `DUPLICADO` + mail, dentro de su propio `atomic()`. **Nunca
+  copiar el `except IntegrityError: return None` de `solicitudes`**: ahí existe
+  para no filtrar información; acá sería quedarse con la plata sin decírselo a
+  nadie.
+- **Devolución y contracargo**: el intento `PAGADO` pasa a `DEVUELTO` y sale
+  mail al superadmin. **No se borra el `PagoPlataforma` ni se recongela la
+  cuenta**: cortar es siempre una decisión humana.
+
+### Descongelar: «restauración automática, corte nunca»
+
+La invariante de `Gimnasio.EstadoCuenta` («los escalones son MANUALES, nunca un
+cron») **no se viola, se extiende**, y conviene leerla bien antes de «arreglar»
+esto: todos sus argumentos son sobre el peligro de **cortar** automático (el día
+equivocado, a alguien que quizás ya transfirió). Restaurar tiene el riesgo
+inverso: dejar afuera un fin de semana a un gimnasio que YA pagó. Se descongela
+si y sólo si las cuatro: (a) el `approved` vino de consultar la API; (b) el
+monto coincidió; (c) el `PagoPlataforma` se creó en esta transacción; (d)
+recalculado desde la base, `Max(periodo_hasta) >= timezone.localdate()`. **La
+(d) es la que importa**: quien debe tres meses y paga uno no se descongela, y el
+mail al superadmin dice desde cuándo sigue debiendo (es
+`pagos/views.py::_avisar_si_sigue_bloqueado` un piso más arriba). Se escribe con
+`update(estado_cuenta=NORMAL, estado_cuenta_desde=None)`: `update()` para no
+tocar `modificado` (versiona logo, fondo e ícono PWA), y los dos campos juntos
+porque una fecha vieja sobre una cuenta normal se lee como congelada. Riesgo
+aceptado: sin campo `motivo`, un gimnasio suspendido por otra razón se
+descongela con un pago que lo deja al día.
+
+**Por lo mismo, `RetornoView` sólo dice «¡Listo!» si el gimnasio quedó al día
+de verdad.** Pagar uno de varios períodos adeudados muestra que todavía se
+deben períodos (situación `pagado_con_deuda`, leída del estado de cobro recién
+recalculado y no del intento): «¡Listo!» con un «Ir al inicio» que termina en el
+cartel de cuenta congelada es la lección de «"Pago confirmado" a secas sobre
+alguien que sigue sin acceso». El `status` del querystring de retorno se
+ignora, la referencia de la URL se valida contra el gimnasio del usuario (404),
+y un `ErrorDeMercadoPago` ahí muestra «estamos confirmando tu pago»: un lookup
+fallido no puede parecerse a un pago fallido.
+
+### El webhook: no es «200 siempre»
+
+`/suscripcion/v1/webhook/mercadopago/` (la versión va en la ruta, mismo
+argumento que `/ingreso/v1/`: la URL queda cargada en el panel de MP y en cada
+preferencia ya generada). `csrf_exempt` y **nunca mira `request.user`**, que es
+lo que lo hace seguro (lo fija `test_ignora_request_user_con_una_firma_valida`).
+
+| Caso | Respuesta | Por qué |
+|---|---|---|
+| Integración apagada | 503 | MP reintenta hasta que se cargue la configuración; con 200 se perderían. |
+| Firma inválida | 401, sin tocar la base | Un reintento no arregla una firma; 401 en serie en el panel de MP = secret mal cargado. |
+| Tipo distinto de `payment`, cuerpo inválido, pago ajeno o ya acreditado | 200 | Nada que hacer; el cortocircuito de `acreditar` lo hace barato. |
+| `ErrorDeMercadoPago` (MP no contestó) | **500 a propósito** | MP reintenta cada 15 min, muchísimo mejor que el cron (2-4 h tarde). Con 200, un gimnasio que pagó queda sin acreditar hasta mañana. |
+
+Una notificación con `data.id` pero sin `type` se contesta 200 y se ignora:
+tratarla como pago haría 500 infinitos sobre notificaciones que no son de pagos
+(pendiente de confirmar en el sandbox que las de pago siempre traen `type`).
+
+### El gimnasio suspendido tiene que poder pagar: tercer nivel de allowlist
+
+Con `SUSPENDIDA`, `PlataformaMiddleware` le muestra el cartel al staff en toda
+ruta: sin arreglarlo, **la feature era inalcanzable justo para el cliente que
+más la necesita**. `APPS_SIN_BLOQUEO` era el arreglo equivocado: corre ANTES de
+tocar `request.user` (existe para rutas cacheables y de máquina) y perdía
+`registrar_dia_activo`, que acá es justo la señal que interesa — el gimnasio
+sigue vivo del otro lado de la deuda. Va **`APPS_SIN_BLOQUEO_CON_REGISTRO =
+{"suscripcion"}`**, evaluado DESPUÉS del registro del día y **sólo para el
+staff**: aplicado a cualquiera, el alumno de un gimnasio bloqueado que tipea
+`/suscripcion/` recibiría el 403 de `StaffRequiredMixin` en vez del cartel. El
+webhook no depende de esto (es anónimo y el middleware corta antes). Las
+entradas cuestan cero queries: el botón «Pagar la suscripción» de
+`cuenta_bloqueada.html`, el «Pagar ahora» del banner de atraso de `base.html`
+(los dos condicionados a `COBRO_ONLINE_DISPONIBLE`, un context processor que es
+una bandera de settings) y la tarjeta «Suscripción a TuGimApp» de «Mi
+gimnasio». **El nav no ganó ningún ítem.**
+
+**Todo form o link que termina en mercadopago.com.ar lleva `hx-boost="false"`**
+(«Pagar con Mercado Pago», «Continuar al pago»): es el redirect cross-origin de
+siempre, que htmx hace por XHR y no puede seguir. Y los radios del plan
+destaparon un defecto latente: heredaban el `input { w-full … }` global y
+quedaban como un punto flotando en un casillero vacío;
+`.selector-fondo-tipo__opcion input` ahora lleva `w-auto m-0 p-0 border-0
+shrink-0`, lo que de paso arregló el selector de fondo de «Mi gimnasio», que
+tenía el mismo problema.
+
+### Crons y avisos
+
+- **`reconciliar_cobros`** (`reconciliar-cobros.yml`, cada 6 h) es la red para
+  «el webhook se perdió y el usuario cerró la pestaña», y por eso usa
+  `buscar_pagos` por `external_reference` (ahí nunca hubo un `payment_id` que
+  consultar). **Reconcilia todo intento reciente en estado acreditable, tenga o
+  no `payment_id`**: el plan original miraba sólo los de `payment_id` vacío, y
+  así «tarjeta rechazada + reintento aprobado + webhook perdido» no se volvía a
+  mirar nunca y el gimnasio que pagó quedaba congelado. Pasa TODOS los
+  resultados a `acreditar`, para que un segundo aprobado dispare el aviso de
+  pago adicional.
+- **`avisar_cobros`** (`avisar-cobros.yml`, diario a las 12:00 UTC) manda al
+  staff del gimnasio el aviso «por vencer» (`DIAS_AVISO_COBRO`), «vence hoy» y
+  «vencido», deduplicado por `AvisoDeCobro(gimnasio, periodo_desde, tipo)`.
+  **Sin destinatarios NO se crea la fila de dedup** (se loguea un `WARNING`): si
+  se creara, el «vencido» —uno por período— se perdería para siempre aunque
+  después se cargue un email.
+- **Los dos comandos levantan `CommandError` sin la integración.** Un cron que
+  no hace nada en silencio porque faltan los secrets es indistinguible del sano:
+  así el workflow queda en rojo y no pinguea a Healthchecks.
+- Los mails (`suscripcion/emails.py`) siguen el molde de `solicitudes`: texto
+  plano, `fail_silently=True`, `EMAIL_REPLY_TO`. Los del superadmin van a
+  `COBROS_AVISO_EMAIL`, suelta y opcional (vacía cae a `DEFAULT_FROM_EMAIL`).
+
+### Qué sólo se prueba en el sandbox
+
+La suite no sale a la red: todo el contrato con MP está parcheado sobre
+`suscripcion.mercadopago`. Queda por confirmar contra el sandbox (usuarios de
+prueba, credenciales `TEST-…`, el nombre del titular `APRO`/`OTHE` decide el
+resultado): que el manifest de `firma_valida` coincide con el real, que las
+notificaciones de la `notification_url` llegan firmadas (si no, darían 401 y
+las levantaría la reconciliación, tarde), y que el email del pagador que se
+manda en la preferencia no rompe el sandbox. Pasos manuales en
+`ISSUES.md [2026-09-29]`. **En local**, el Python de python.org de esta Mac no
+trae certificados raíz (`CERTIFICATE_VERIFY_FAILED` contra dolarapi y MP):
+correr `runserver` con `SSL_CERT_FILE` apuntando al bundle de `certifi`.
+Render no tiene el problema.
 
 ## Control de ingreso (`ingreso/`, 2026-09-28)
 
@@ -3123,6 +3428,21 @@ enviar a la casilla propia.
     `enviar-recordatorios.yml` (cada 15 min, ver "PWA instalable + Web Push")
     y `restaurar-demo.yml`/`sembrar-demo.yml` (cada 6 h, ver "Cuenta de
     demostración compartida").
+  - `.github/workflows/reconciliar-cobros.yml` (cada 6 h) y
+    `.github/workflows/avisar-cobros.yml` (diario, 12:00 UTC = 09:00 local),
+    del cobro online (ver "Cobro online de la suscripción"). Los dos necesitan
+    los secrets `MERCADOPAGO_ACCESS_TOKEN`/`MERCADOPAGO_WEBHOOK_SECRET` (sin
+    ellos salen en rojo a propósito), las `EMAIL_*`/`DEFAULT_FROM_EMAIL`/
+    `EMAIL_REPLY_TO` (sin ellas el mail cae a consola en silencio) y
+    `NEON_DATABASE_URL_POOLED`; el de reconciliar además `COBROS_AVISO_EMAIL`.
+    Pinguean `HEALTHCHECKS_URL_RECONCILIAR_COBROS` y
+    `HEALTHCHECKS_URL_AVISAR_COBROS`.
+- **Cobro online (Mercado Pago):** tres variables nuevas en Render (`sync:
+  false` en el Blueprint): `MERCADOPAGO_ACCESS_TOKEN` y
+  `MERCADOPAGO_WEBHOOK_SECRET` son un grupo todo-o-nada
+  (`_bandera_todo_o_nada` → `COBRO_ONLINE_ENABLED`; sin ellas el cobro online
+  queda oculto y sólo queda el registro manual), y `COBROS_AVISO_EMAIL` es
+  suelta. En el `.env` local van las credenciales **de prueba** (`TEST-…`).
 - **Cloudflare R2 — creado y en uso.** Bucket `app-gim-media`, endpoint
   `https://<account_id>.r2.cloudflarestorage.com`. Las 4 credenciales
   (`R2_BUCKET_NAME`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/
@@ -3219,6 +3539,10 @@ python manage.py crear_gimnasio --nombre "Gimnasio Central" --email dueno@gmail.
                                      # --sin-password el dueño entra por Google
 python manage.py generar_pagos       # autogenera pendientes del ciclo + vence atrasados
 python manage.py expirar_solicitudes # cierra los leads que nunca verificaron el email
+python manage.py reconciliar_cobros  # acredita cobros online cuyo webhook se perdió
+                                     # (falla con CommandError sin MERCADOPAGO_*)
+python manage.py avisar_cobros       # mails de «por vencer/vence hoy/vencido» al staff
+                                     # (idem; la 1ra corrida avisa a todos los ya vencidos)
 python manage.py sembrar_demo --gimnasio <slug>    # datos de muestra (ver su sección)
 python manage.py restaurar_demo --gimnasio <slug>  # vacía y resiembra la cuenta demo
 python manage.py exportar_gimnasio --gimnasio <slug> --salida datos.zip
@@ -3267,3 +3591,8 @@ con clientes pagos).
 El QR de ingreso y el control de asistencia salieron de esta lista el
 2026-09-28, cuando varios establecimientos se los pidieron al dueño del
 producto (ver "Control de ingreso"). El modo kiosco de esa feature sigue sin construirse.
+
+Mercado Pago salió de esta lista el 2026-09-29, **acotado**: sólo para el cobro
+de la suscripción de la plataforma al gimnasio (ver "Cobro online de la
+suscripción"). Para el cobro del gimnasio a sus alumnos (`pagos`) sigue acá,
+igual que el débito automático en los dos casos.

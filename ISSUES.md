@@ -20,6 +20,80 @@ del log.
 
 ---
 
+## [2026-09-29] Cobro online de la suscripción: riesgos aceptados y pasos manuales pendientes
+**Estado:** aceptado (riesgos asumidos a propósito) + abierto (sin probar en el sandbox de Mercado Pago)
+
+El gimnasio ahora le paga la suscripción a la plataforma desde la app, con
+Mercado Pago (`suscripcion/`, ver `CLAUDE.md` § "Cobro online de la
+suscripción"). El código está completo y cubierto por la suite, pero **ningún
+pago pasó todavía por Mercado Pago de verdad**, ni siquiera en el sandbox: todo
+el contrato con la API está parcheado en los tests.
+
+**Impacto / riesgos aceptados:**
+- **Descongelamiento automático sin campo `motivo`.** `acreditar` descongela la
+  cuenta cuando el pago la deja al día. `Gimnasio.estado_cuenta` no guarda por
+  qué se congeló, así que un gimnasio suspendido por abuso o por una disputa se
+  descongela con un pago. Hoy es tolerable (un solo operador, y le llega el
+  mail); el arreglo es un campo `motivo`, no un caso especial en `acreditar`.
+- **Devolución y contracargo no recongelan ni borran el pago.** El intento pasa
+  a `DEVUELTO` y sale mail al superadmin; el `PagoPlataforma` queda y la cuenta
+  sigue como estaba. Cortar es una decisión humana. Una devolución sobre un
+  intento en `REVISAR`/`DUPLICADO` sólo guarda el `estado_mp`, **sin mail**.
+- **Se pierde al que paga en efectivo**: `ticket`/`atm` están excluidos (junto
+  con `binary_mode`, es lo que hace que no exista el «pago pendiente»). Le queda
+  el registro manual. Camino de vuelta: sacar `binary_mode`, agregar un estado
+  `PENDIENTE` y no crear el `PagoPlataforma` hasta `approved`.
+- **El plan anual congela el escalón de precio 12 meses**: un gimnasio de 95
+  alumnos que llega a 250 paga todo el año al precio de 100. Y
+  `DESCUENTO_ANUAL_MESES = 2` (paga 10 de 12) es un **supuesto pendiente de
+  confirmar** por el dueño del producto a la luz de eso.
+- **La migración `plataforma/0005` no se puede revertir** una vez que existe un
+  `PagoPlataforma` ONLINE sin autor: el `AlterField` inverso a NOT NULL falla.
+  Antes de revertir, borrar o reasignar esas filas.
+- **La primera corrida de `avisar_cobros` después del deploy** le manda el mail
+  «vencido» a todo gimnasio facturable que ya esté atrasado (todavía no hay
+  filas de `AvisoDeCobro`). Misma familia que la ráfaga de push de
+  `marcar_vencidos`: mirar antes a quién le va a llegar.
+- **Un webhook con `data.id` y sin `type` se contesta 200 y se ignora.**
+  Tratarlo como pago daría 500 infinitos sobre notificaciones que no son de
+  pagos. Confirmar en el sandbox que las de pago siempre traen `type`.
+- **`reconciliar_pendientes` recorre del más viejo al más nuevo con límite
+  50**: un backlog de intentos muertos (7 días de ventana) podría demorar a los
+  más nuevos una corrida.
+- **Facturación AFIP/ARCA fuera de alcance**: Mercado Pago no emite las facturas
+  de lo que cobra la plataforma.
+- **Desarrollo local**: el Python de python.org de esta Mac no trae
+  certificados raíz (`CERTIFICATE_VERIFY_FAILED` contra dolarapi y MP). Correr
+  el servidor con `SSL_CERT_FILE` apuntando al bundle de `certifi`. Render no
+  está afectado.
+
+**Resolución / próximo paso — a mano, antes del primer cobro real:**
+1. Cuenta de Mercado Pago **del dueño del producto** y, en «Tus
+   integraciones», una aplicación con **Checkout Pro**; usuarios de prueba
+   (vendedor + comprador) y credenciales `TEST-…`.
+2. **Acreditación a 30 días** en «Costos de recibir pagos» (~1,79% + IVA
+   contra ~6,39%). Cero código.
+3. **Webhook** en `https://www.tugimapp.com/suscripcion/v1/webhook/mercadopago/`
+   **con la barra final** (con `APPEND_SLASH` el redirect de
+   `CommonMiddleware` pierde el cuerpo del POST), topic sólo **Pagos**. La
+   clave secreta se muestra **una sola vez**: copiarla. Configurar también la
+   URL de prueba.
+4. En Render: `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` (las dos
+   o ninguna) y `COBROS_AVISO_EMAIL`. En el `.env` local, las de prueba.
+5. Secrets de GitHub para `reconciliar-cobros.yml` y `avisar-cobros.yml`: los
+   dos `MERCADOPAGO_*`, las seis de mail (`EMAIL_HOST`, `EMAIL_HOST_USER`,
+   `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL`, `EMAIL_REPLY_TO`,
+   `COBROS_AVISO_EMAIL`), y los checks de Healthchecks
+   `HEALTHCHECKS_URL_RECONCILIAR_COBROS` y `HEALTHCHECKS_URL_AVISAR_COBROS`.
+6. **Probar en el sandbox**: un pago `APRO` (acredita y, si corresponde,
+   descongela), uno `OTHE` (rechazado + reintento aprobado), y confirmar que el
+   manifest de `firma_valida` coincide con el real de MP, que las
+   notificaciones de la `notification_url` llegan firmadas y que el email del
+   pagador que va en la preferencia no rompe el sandbox.
+7. **Confirmar el descuento anual** (2 meses supuestos).
+
+---
+
 ## [2026-09-29] El mail de rechazo de una solicitud estaba frío, y la nota interna podía viajar
 **Estado:** resuelto
 

@@ -83,6 +83,12 @@ nutrición, métricas deportivas, IA de rutinas, subdominios por gimnasio.
 > 2026-09-28: varios establecimientos se lo pidieron al dueño del producto, que decidió
 > construirlo. El detalle vive en `CLAUDE.md` § "Control de ingreso".
 
+> **Actualizado.** «Mercado Pago» sigue en esta lista para el cobro del gimnasio a sus
+> alumnos (§3, `pagos`, sin cambios), pero entró el 2026-09-29 **sólo** para que el gimnasio
+> le pague la suscripción a la plataforma: cobrar por transferencia y cargarlo a mano dejaba
+> bloqueado hasta el lunes al gimnasio que pagaba un domingo. El detalle vive en `CLAUDE.md`
+> § "Cobro online de la suscripción".
+
 ---
 
 # Fase 0 — Extracción del esqueleto reutilizable
@@ -346,6 +352,12 @@ rutinas, WhatsApp API, nutrición, medidas corporales, gamificación.
 > varios establecimientos se lo pidieron al dueño del producto. Sin hardware todavía: lo construido es el contrato
 > HTTP con los lectores y las pantallas; el modo kiosco quedó afuera. Ver `CLAUDE.md`
 > § "Control de ingreso".
+
+> **Actualizado.** «Mercado Pago» estaba en prioridad baja y se construyó el 2026-09-29,
+> **acotado** a la suscripción plataforma → gimnasio (link de Checkout Pro por ciclo, mensual
+> o anual, que se acredita solo y descongela la cuenta si la deja al día). El cobro del
+> gimnasio a sus alumnos (`pagos`) y el débito automático siguen en prioridad baja. Ver
+> `CLAUDE.md` § "Cobro online de la suscripción".
 
 ---
 
