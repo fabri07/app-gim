@@ -2676,6 +2676,30 @@ ninguna página que se pudiera mandar por WhatsApp.
   ruta a mano sea imposible. La sección de venta del control de ingreso
   (`id="ingreso"`) **no nombra ninguna marca de equipo** a propósito: no hay
   hardware probado todavía (ver "Control de ingreso").
+- **Fotos de contexto (2026-10-11).** La portada lleva cinco fotos generadas
+  con IA (hero, «antes», rutinas, ingreso, cierre) en `static/img/portada/`,
+  como WebP en varios anchos. La regla completa está en DESIGN.md, «Fotos de
+  contexto»: ninguna pantalla legible (lo que se lee de la app es la maqueta
+  HTML superpuesta), sin marcas ni texto, y rotuladas «Imágenes ilustrativas»
+  porque las personas no son clientes. Tres trampas, cada una con su test en
+  `PortadaFotosDeContextoTests`:
+  - **Un WebP sin commitear es un 500 en `/` en producción**: con `DEBUG=False`
+    el manifest de WhiteNoise levanta `ValueError` por cualquier `{% static %}`
+    que falte. `finders.find` lo encuentra igual en disco, así que el test
+    pregunta a `git ls-files`.
+  - **La foto va FUERA de cualquier `aria-hidden` y de cualquier `[data-demo]`**
+    (el `data-demo` pasó de `.funcion__demo` a `.funcion__superpuesta` en las
+    funciones con foto).
+  - **Solo la foto del hero carga sin `lazy`**, con `fetchpriority="high"`.
+
+  `sw.js` excluye `/static/img/portada/` de su caché, que nunca expira (la
+  dejaría para siempre en el teléfono de cada visitante anónimo), y desde la
+  `v2` poda las cachés viejas en `activate`. Las fotos se convierten con
+  `scripts/fotos_portada.py <carpeta> static/img/portada`, que recorta, aplica
+  la corrección de color hacia el `fondo` de Bosque (leído de
+  `Gimnasio.PALETAS`) y escribe los anchos que pide el template. Toca sólo las
+  escenas que encuentra en la carpeta, y los placeholders salen únicamente con
+  `--placeholders`.
 
 ### El embudo: doble opt-in, y por qué
 

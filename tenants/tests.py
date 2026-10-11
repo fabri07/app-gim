@@ -9,6 +9,7 @@ TenantOwnedModel concreto para ejercitarlos.
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from importlib import import_module
+from html.parser import HTMLParser
 from io import BytesIO, StringIO
 from unittest.mock import patch
 from xml.etree import ElementTree
@@ -621,6 +622,136 @@ class PortadaViewTests(TestCase):
         ) as mock_cot:
             self.client.get(reverse("home"))
         self.assertEqual(mock_cot.call_count, 1)
+
+
+class _ArbolDeImagenes(HTMLParser):
+    """Junta cada `<img>`/`<source>` de una página con la pila de ancestros
+    que lo contiene, para poder preguntar dónde vive cada imagen."""
+
+    VACIOS = {"img", "source", "br", "hr", "meta", "link", "input", "wbr"}
+
+    def __init__(self):
+        super().__init__()
+        self.pila = []
+        self.imagenes = []
+        self.textos_ejemplo = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in ("img", "source"):
+            self.imagenes.append((tag, attrs, list(self.pila)))
+        if tag not in self.VACIOS:
+            self.pila.append((tag, attrs))
+
+    def handle_endtag(self, tag):
+        for i in range(len(self.pila) - 1, -1, -1):
+            if self.pila[i][0] == tag:
+                del self.pila[i:]
+                break
+
+    def handle_data(self, data):
+        if any("portada__ejemplo" in (a.get("class") or "") for _, a in self.pila):
+            self.textos_ejemplo.append(data)
+
+
+class PortadaFotosDeContextoTests(TestCase):
+    """Las fotos de contexto de la portada (ver DESIGN.md, «Fotos de
+    contexto»). Cada test se escribió para fallar con el defecto que nombra:
+    un archivo que falta es un 500 en producción por el manifest de
+    WhiteNoise, una foto dentro de un `aria-hidden` silencia su `alt`, y una
+    foto lazy en el hero retrasa el LCP."""
+
+    def setUp(self):
+        self.arbol = _ArbolDeImagenes()
+        self.arbol.feed(self.client.get(reverse("home")).content.decode())
+        self.imgs = [i for i in self.arbol.imagenes if i[0] == "img"]
+
+    @staticmethod
+    def _nombre_estatico(url):
+        prefijo = settings.STATIC_URL
+        return url.split("?")[0].removeprefix(prefijo)
+
+    def _urls(self):
+        for tag, attrs, _ in self.arbol.imagenes:
+            if attrs.get("src"):
+                yield attrs["src"]
+            for candidato in (attrs.get("srcset") or "").split(","):
+                if candidato.strip():
+                    yield candidato.strip().split()[0]
+
+    def test_hay_fotos_en_la_portada(self):
+        # Sin esto, todos los demás pasarían con una portada sin imágenes.
+        self.assertGreaterEqual(len(self.imgs), 5)
+
+    def test_cada_imagen_y_cada_candidato_de_srcset_existe(self):
+        from django.contrib.staticfiles import finders
+
+        urls = list(self._urls())
+        self.assertGreater(len(urls), len(self.imgs))  # hay candidatos de srcset
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertIsNotNone(finders.find(self._nombre_estatico(url)))
+        for tag, attrs, _ in self.arbol.imagenes:
+            if attrs.get("srcset"):
+                with self.subTest(srcset=attrs["srcset"][:60]):
+                    self.assertTrue(attrs.get("sizes"))
+
+    def test_imagenes_de_portada_estan_versionadas_en_git(self):
+        """`finders.find` encuentra el archivo en disco aunque nadie lo haya
+        commiteado; en Render el `collectstatic` corre sobre el repo y el
+        manifest de WhiteNoise convierte el faltante en un 500 en `/`."""
+        import shutil
+        import subprocess
+
+        if not shutil.which("git") or not (settings.BASE_DIR / ".git").exists():
+            self.skipTest("Sin git en este entorno.")
+        nombres = {self._nombre_estatico(u) for u in self._urls()}
+        for nombre in sorted(nombres):
+            with self.subTest(nombre=nombre):
+                resultado = subprocess.run(
+                    ["git", "ls-files", "--error-unmatch", f"static/{nombre}"],
+                    cwd=settings.BASE_DIR,
+                    capture_output=True,
+                )
+                self.assertEqual(resultado.returncode, 0, f"static/{nombre} no está en git")
+
+    def test_imagenes_con_alt_dimensiones_y_fuera_de_aria_hidden(self):
+        for _, attrs, ancestros in self.imgs:
+            with self.subTest(src=attrs.get("src")):
+                self.assertTrue((attrs.get("alt") or "").strip())
+                self.assertTrue(attrs.get("width"))
+                self.assertTrue(attrs.get("height"))
+                self.assertFalse(
+                    any("aria-hidden" in a for _, a in ancestros),
+                    "Un alt adentro de un aria-hidden no lo anuncia ningún lector de pantalla.",
+                )
+                self.assertFalse(
+                    any("data-demo" in a for _, a in ancestros),
+                    "El selector de paisajes recolorea los [data-demo]: la foto va afuera.",
+                )
+
+    def test_la_unica_imagen_sin_lazy_es_la_del_hero(self):
+        sin_lazy = [i for i in self.imgs if i[1].get("loading") != "lazy"]
+        self.assertEqual(len(sin_lazy), 1)
+        _, attrs, ancestros = sin_lazy[0]
+        self.assertEqual(attrs.get("fetchpriority"), "high")
+        self.assertTrue(
+            any("portada__hero" in (a.get("class") or "").split() for _, a in ancestros)
+        )
+
+    def test_rotula_las_imagenes_como_ilustrativas(self):
+        self.assertIn("Imágenes ilustrativas", " ".join(self.arbol.textos_ejemplo))
+
+
+class ServiceWorkerFotosDePortadaTests(SimpleTestCase):
+    """El SW cachea /static/ para siempre: las fotos de la portada (que baja
+    cualquier anónimo) quedan afuera, y las cachés viejas se podan."""
+
+    def test_no_cachea_las_fotos_de_la_portada_y_poda_cachés_viejas(self):
+        contenido = (settings.BASE_DIR / "static" / "js" / "sw.js").read_text()
+        self.assertIn('"/static/img/portada/"', contenido)
+        self.assertIn("SIN_CACHE.some", contenido)
+        self.assertIn("caches.delete", contenido)
 
 
 class TenantIsolationTests(TestCase):

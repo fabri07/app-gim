@@ -7,14 +7,29 @@
 // fingerprinting de WhiteNoise). Sin esto, un dispositivo compartido podría
 // servir el HTML/tema de un gimnasio a un usuario de otro. Tampoco hay
 // fallback offline en esta primera versión (YAGNI, ver ISSUES.md).
-const CACHE_ESTATICOS = "app-gim-estaticos-v1";
+//
+// Las fotos de la portada (`/static/img/portada/`) tampoco se cachean: las
+// baja cualquier visitante anónimo, pesan cientos de KB y, como la caché
+// nunca expira, quedarían para siempre en su teléfono (y una copia más por
+// cada re-encodeo). WhiteNoise ya las sirve con `immutable` por un año: la
+// caché HTTP del navegador alcanza.
+const CACHE_ESTATICOS = "app-gim-estaticos-v2";
+const SIN_CACHE = ["/static/img/portada/"];
 
 self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(clients.claim());
+  // Poda las cachés de versiones anteriores (la v1 guardaba todo /static/).
+  event.waitUntil(
+    caches
+      .keys()
+      .then((claves) =>
+        Promise.all(claves.filter((c) => c !== CACHE_ESTATICOS).map((c) => caches.delete(c)))
+      )
+      .then(() => clients.claim())
+  );
 });
 
 self.addEventListener("fetch", (event) => {
@@ -24,7 +39,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  if (url.pathname.startsWith("/static/")) {
+  if (url.pathname.startsWith("/static/") && !SIN_CACHE.some((p) => url.pathname.startsWith(p))) {
     event.respondWith(
       caches.open(CACHE_ESTATICOS).then(async (cache) => {
         const cacheada = await cache.match(req);
