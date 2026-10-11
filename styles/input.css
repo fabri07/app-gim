@@ -1462,7 +1462,13 @@
      ILUSTRACIONES de producto, no superficies de UI: por eso el marco del
      celular lleva un radio propio fuera de la Two-Radius Rule. La UI de
      adentro sí usa md/2xl/full, y la profundidad sale del bisel oscuro, no de
-     una sombra más fuerte (One Shadow Rule intacta). Ver DESIGN.md. */
+     una sombra más fuerte (One Shadow Rule intacta). Ver DESIGN.md.
+
+     Las FOTOS de contexto (hero, «antes», rutinas, ingreso, cierre) van en el
+     bloque «Fotos de contexto» más abajo: el texto sobre una foto siempre
+     lleva un velo del primario mezclado con negro (contraste 4.5:1 en el peor
+     píxel), y la foto nunca entra en un `[data-demo]`: el selector de
+     paisajes recolorea las maquetas, no las fotos. */
   .portada {
     @apply pb-10;
   }
@@ -2149,6 +2155,166 @@
   }
   .portada__faq p {
     @apply max-w-2xl pb-5 text-gray-700;
+  }
+
+  /* --- Fotos de contexto (DESIGN.md, «Fotos de contexto») ---
+     El velo es el primario mezclado al 55% con negro. Con ≥ 0.8 de opacidad
+     el blanco da ~5.5:1 aun sobre un píxel blanco de la foto (el peor caso):
+     no se baja de ahí debajo de un texto. Nada de esto se anima. */
+  .portada__hero--foto {
+    @apply pt-0 gap-y-8 lg:gap-y-6;
+    --velo: color-mix(in srgb, var(--color-primario) 55%, black);
+  }
+  /* La foto ocupa la fila del texto a todo el ancho de la ventana (rompe el
+     contenedor con el margen negativo); su altura la define el contenido de
+     esa fila, nunca la imagen, así que no hay salto de layout al cargarla. */
+  .portada__foto {
+    @apply relative overflow-hidden self-stretch;
+    grid-row: 1;
+    grid-column: 1 / -1;
+    margin-inline: calc(50% - 50vw);
+    background-color: var(--velo);
+  }
+  .portada__foto picture,
+  .portada__foto img,
+  .portada__velo {
+    @apply absolute inset-0 block h-full w-full;
+  }
+  .portada__foto img {
+    @apply object-cover object-center;
+  }
+  .portada__velo {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--velo) 80%, transparent),
+      color-mix(in srgb, var(--velo) 88%, transparent)
+    );
+  }
+  .portada__hero--foto .portada__hero-copy {
+    @apply relative z-10 py-14 sm:py-16;
+    grid-row: 1;
+    grid-column: 1;
+  }
+  .portada__hero--foto .portada__titulo,
+  .portada__hero--foto .portada__cta-texto {
+    @apply text-white;
+  }
+  .portada__hero--foto .portada__titulo-marca {
+    color: color-mix(in srgb, var(--color-secundario) 30%, white);
+  }
+  .portada__hero--foto .portada__sub {
+    @apply text-white/90;
+  }
+  .portada__hero--foto .portada__hero-nota {
+    @apply text-white/85;
+  }
+  .portada__hero--foto .portada__cta-texto {
+    text-decoration-color: color-mix(in srgb, white 55%, transparent);
+  }
+  .portada__hero--foto .portada__cta-texto:hover {
+    text-decoration-color: white;
+  }
+  .portada__hero--foto .portada__hero-copy a:focus-visible {
+    outline-color: white;
+  }
+  .portada__hero--foto .portada__hero-demo {
+    @apply relative z-10;
+  }
+  .portada__hero-paisajes .paisajes {
+    @apply mt-0;
+  }
+  @media (min-width: 1024px) {
+    /* Escritorio: el velo cubre opaco la columna del texto (que termina antes
+       del 52% del ancho en todo el rango de lg) y se abre sobre la foto a la
+       derecha. La maqueta baja 7rem por debajo de la foto: es la pista de que
+       la página sigue (patrón hero-centric). */
+    .portada__velo {
+      background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--velo) 88%, transparent) 0%,
+        color-mix(in srgb, var(--velo) 80%, transparent) 52%,
+        color-mix(in srgb, var(--velo) 35%, transparent) 75%,
+        color-mix(in srgb, var(--velo) 15%, transparent) 100%
+      );
+    }
+    .portada__foto {
+      margin-bottom: 7rem;
+    }
+    .portada__hero--foto .portada__hero-copy {
+      @apply self-start;
+      padding-block: 6rem calc(7rem + 5rem);
+    }
+    .portada__hero--foto .portada__hero-demo {
+      @apply self-end pt-24;
+      grid-row: 1;
+      grid-column: 2;
+    }
+    .portada__hero-paisajes {
+      grid-row: 2;
+      grid-column: 2;
+    }
+  }
+
+  /* «Antes»: una banda ancha arriba de la comparativa. */
+  .portada__foto-banda {
+    @apply mb-10 overflow-hidden rounded-2xl;
+    aspect-ratio: 3 / 2;
+    background-color: color-mix(in oklab, var(--color-primario) 13%, white);
+  }
+  @media (min-width: 768px) {
+    .portada__foto-banda {
+      aspect-ratio: 21 / 9;
+    }
+  }
+  .portada__foto-banda img,
+  .portada__foto-campo img,
+  .portada__cierre-foto {
+    @apply block h-full w-full object-cover;
+  }
+
+  /* Funciones con foto: la foto arriba y la pantalla de ejemplo montada
+     sobre su borde inferior. El `data-demo`/`aria-hidden` va en
+     `.funcion__superpuesta`, nunca en el contenedor de la foto: así el `alt`
+     se anuncia y el selector de paisajes no toca la foto. */
+  .funcion__demo--foto {
+    @apply bg-transparent p-0;
+  }
+  .portada__foto-campo {
+    @apply overflow-hidden rounded-2xl;
+    aspect-ratio: 4 / 3;
+    background-color: color-mix(in oklab, var(--color-primario) 13%, white);
+  }
+  .portada__foto-campo--vertical {
+    aspect-ratio: 4 / 5;
+  }
+  @media (min-width: 768px) {
+    .portada__foto-campo--vertical {
+      aspect-ratio: 1 / 1;
+    }
+  }
+  .funcion__superpuesta {
+    @apply relative z-10 -mt-20 mx-3 sm:mx-8;
+  }
+
+  /* Cierre: la foto detrás y un velo UNIFORME (el texto va centrado, un
+     degradé dejaría parte del titular sobre la foto pelada). */
+  .portada__cierre--foto {
+    @apply relative overflow-hidden;
+    isolation: isolate;
+  }
+  .portada__cierre-foto {
+    @apply absolute inset-0;
+    z-index: -2;
+  }
+  .portada__cierre--foto::before {
+    content: "";
+    @apply absolute inset-0;
+    z-index: -1;
+    background-color: color-mix(
+      in srgb,
+      color-mix(in srgb, var(--color-primario) 55%, black) 80%,
+      transparent
+    );
   }
 
   /* --- Cierre y pie --- */

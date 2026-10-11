@@ -3,7 +3,7 @@
  * Dos cosas, y ninguna es necesaria para leer la página: sin este archivo todo
  * el contenido se ve igual.
  *  1. Selector de paisaje: recolorea las pantallas de ejemplo (`[data-demo]`:
- *     el hero y las cuatro funciones), nunca `:root` -- la página en sí sigue
+ *     el hero, las cuatro funciones y el control de ingreso), nunca `:root` -- la página en sí sigue
  *     siendo de TuGimApp. Es el único momento animado de la página.
  *  2. Nav fija: se marca al dejar el tope.
  *

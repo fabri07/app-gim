@@ -9,7 +9,12 @@ con la voz propia del sistema "Un Paisaje por Gimnasio".
 
 La prueba es el producto: los dispositivos del hero y de cada función están
 dibujados en HTML con las etiquetas REALES de la app y datos de ejemplo
-rotulados como tales. Sin logos ni testimonios de clientes (decisión del dueño,
+rotulados como tales. Las FOTOS ponen el contexto (el gimnasio, el alumno, la
+puerta, el dueño) y nunca muestran una pantalla legible, una marca ni texto:
+lo que se lee de la app es siempre la maqueta HTML superpuesta. Están rotuladas
+«Imágenes ilustrativas» y viven en `static/img/portada/` (un WebP sin commitear
+es un 500 en producción por el manifest de WhiteNoise). Ver DESIGN.md, «Fotos
+de contexto». Sin logos ni testimonios de clientes (decisión del dueño,
 2026-09-25). El importador trae planes y ejercicios, NO alumnos: no prometerlo.
 
 Los colores de las pantallas de ejemplo salen de `paletas_demo`
@@ -39,12 +44,25 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
 <div class="portada">
 
   {# ================= Hero ================= #}
-  <section class="portada__hero">
+  <section class="portada__hero portada__hero--foto">
+    <div class="portada__foto">
+      <picture>
+        <source media="(max-width: 767px)"
+                srcset="{% static 'img/portada/hero-gimnasio-movil-600.webp' %} 600w, {% static 'img/portada/hero-gimnasio-movil-1000.webp' %} 1000w"
+                sizes="100vw" width="600" height="750">
+        <img src="{% static 'img/portada/hero-gimnasio-1280.webp' %}"
+             srcset="{% static 'img/portada/hero-gimnasio-800.webp' %} 800w, {% static 'img/portada/hero-gimnasio-1280.webp' %} 1280w, {% static 'img/portada/hero-gimnasio-1920.webp' %} 1920w"
+             sizes="100vw" width="1280" height="720" fetchpriority="high" decoding="async"
+             alt="Un gimnasio de barrio a media mañana: el profe le corrige la sentadilla a una alumna mientras otros entrenan.">
+      </picture>
+      <span class="portada__velo" aria-hidden="true"></span>
+    </div>
+
     <div class="portada__hero-copy">
       <h1 class="portada__titulo">Tu gimnasio en una app<span class="pt">.</span> <span class="portada__titulo-marca">Con tu logo<span class="pt">,</span> tus colores y tu nombre<span class="pt">.</span></span></h1>
       <p class="portada__sub">Alumnos, rutinas con video, cobros y turnos en un solo lugar. Tus alumnos la instalan en el celular y ven <em>tu</em> marca, no la nuestra. En español y hecha en Argentina.</p>
       <div class="portada__cta">
-        <a class="portada-pildora" href="{% url 'solicitudes:solicitar' %}">Pedí tu prueba gratis</a>
+        <a class="portada-pildora portada-pildora--clara" href="{% url 'solicitudes:solicitar' %}">Pedí tu prueba gratis</a>
         <a class="portada__cta-texto" href="{% url 'login' %}" hx-boost="false">Ya tengo cuenta</a>
       </div>
       <p class="portada__hero-nota">{{ precios_dias_gratis }} días gratis · sin tarjeta · sin permanencia</p>
@@ -81,7 +99,9 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
 
         </div>
       </div>
+    </div>
 
+    <div class="portada__hero-paisajes">
       <div class="paisajes" role="group" aria-label="Probá con otro paisaje de colores">
         <span class="paisajes__etiqueta">Probá con otro paisaje:</span>
         {% for p in paletas_demo %}
@@ -93,7 +113,7 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
           </button>
         {% endfor %}
       </div>
-      <p class="portada__ejemplo">Nombres y números de ejemplo.</p>
+      <p class="portada__ejemplo">Nombres y números de ejemplo. Imágenes ilustrativas.</p>
     </div>
   </section>
 
@@ -109,6 +129,12 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
   <section class="portada__seccion portada__inner">
     <h2 class="portada__h2">Del quilombo de siempre a una sola app</h2>
     <p class="portada__intro">Si anotás la cuota en un cuaderno, mandás la rutina por WhatsApp y tus alumnos te preguntan todo el tiempo «¿cuánto peso hago hoy?», esto es para vos.</p>
+    <div class="portada__foto-banda">
+      <img src="{% static 'img/portada/problema-escritorio-1100.webp' %}"
+           srcset="{% static 'img/portada/problema-escritorio-600.webp' %} 600w, {% static 'img/portada/problema-escritorio-1100.webp' %} 1100w"
+           sizes="(min-width: 1152px) 1120px, 100vw" width="1100" height="733" loading="lazy" decoding="async"
+           alt="El mostrador de un gimnasio a fin de mes: un cuaderno de cuotas, una planilla impresa llena de tachones y el celular lleno de mensajes.">
+    </div>
     <div class="portada__comparativa">
       <div class="portada__col portada__col--antes">
         <p class="portada__col-titulo">Excel + papel + WhatsApp</p>
@@ -145,13 +171,21 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
         <h3 class="funcion__titulo">Rutinas por semana, con video</h3>
         <p>Armás el plan una vez, con la progresión de cada semana, y se lo asignás a cada alumno. Él lo ve en su celular: qué hace hoy, cuántas series, con cuánto peso y el video del ejercicio. Y te cuenta cómo le fue.</p>
       </div>
-      <div class="funcion__demo" data-demo aria-hidden="true">
+      <div class="funcion__demo funcion__demo--foto">
+        <div class="portada__foto-campo portada__foto-campo--vertical">
+          <img src="{% static 'img/portada/alumno-celular-1100.webp' %}"
+               srcset="{% static 'img/portada/alumno-celular-600.webp' %} 600w, {% static 'img/portada/alumno-celular-1100.webp' %} 1100w"
+               sizes="(min-width: 768px) 34rem, 100vw" width="1100" height="1375" loading="lazy" decoding="async"
+               alt="Una alumna entre series, sentada en un banco del gimnasio, mira su rutina en el celular.">
+        </div>
+        <div class="funcion__superpuesta" data-demo aria-hidden="true">
         <div class="mini">
           <div class="app-pestanas"><span>Semana 1</span><span class="is-activo">Semana 2</span><span>Semana 3</span><span>Semana 4</span></div>
           <div class="mini__fila"><span class="mini__bloque">A1</span><span class="mini__nombre">Press de banca</span><span class="mini__num">4 × 8</span><span class="mini__dato">40 kg</span></div>
           <div class="mini__fila"><span class="mini__bloque">A2</span><span class="mini__nombre">Remo con barra</span><span class="mini__num">4 × 10</span><span class="mini__dato">35 kg</span></div>
           <div class="mini__fila"><span class="mini__bloque">B1</span><span class="mini__nombre">Estocadas</span><span class="mini__num">3 × 12</span><span class="mini__dato">12 kg</span></div>
           <div class="mini__fila"><span class="mini__bloque">B2</span><span class="mini__nombre">Plancha</span><span class="mini__num">3 × 40 s</span><span class="mini__dato"><span class="app-video app-video--chico"><span class="app-video__play"></span>Video</span></span></div>
+        </div>
         </div>
       </div>
     </div>
@@ -228,12 +262,20 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
         <h3 class="funcion__titulo">Entra el que está al día</h3>
         <p>Conectás el molinete o el lector de la entrada con TuGimApp. Cada alumno pasa con el QR de su celular, con una tarjeta impresa o con su cara, y la puerta le abre, o le avisa en la pantalla que tiene la cuota pendiente, si así lo configurás. Vos ves quién vino de verdad cada día y quién intentó entrar y no pudo.</p>
       </div>
-      <div class="funcion__demo" data-demo aria-hidden="true">
+      <div class="funcion__demo funcion__demo--foto">
+        <div class="portada__foto-campo">
+          <img src="{% static 'img/portada/ingreso-puerta-1100.webp' %}"
+               srcset="{% static 'img/portada/ingreso-puerta-600.webp' %} 600w, {% static 'img/portada/ingreso-puerta-1100.webp' %} 1100w"
+               sizes="(min-width: 768px) 34rem, 100vw" width="1100" height="733" loading="lazy" decoding="async"
+               alt="La entrada de un gimnasio: un alumno acerca el celular al lector del molinete para pasar.">
+        </div>
+        <div class="funcion__superpuesta" data-demo aria-hidden="true">
         <div class="mini">
           <div class="mini__fila"><span class="mini__bloque">QR</span><span class="mini__nombre">Lucas Pereyra</span><span class="badge badge--ok">Pasó</span><span class="mini__dato">19:02</span></div>
           <div class="mini__fila"><span class="mini__bloque">Cara</span><span class="mini__nombre">Martina Gómez</span><span class="badge badge--riesgo">Cuota impaga</span><span class="mini__dato">19:04</span></div>
           <div class="mini__fila"><span class="mini__bloque">QR</span><span class="mini__nombre">Tomás Ruiz</span><span class="badge badge--ok">Pasó</span><span class="mini__dato">19:05</span></div>
           <div class="mini__fila"><span class="mini__bloque">Cara</span><span class="mini__nombre">Carla Sosa</span><span class="badge badge--ok">Pasó</span><span class="mini__dato">19:07</span></div>
+        </div>
         </div>
       </div>
     </div>
@@ -328,7 +370,11 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
 
   {# ================= Cierre ================= #}
   <div class="portada__inner">
-    <section class="portada__cierre">
+    <section class="portada__cierre portada__cierre--foto">
+      <img class="portada__cierre-foto" src="{% static 'img/portada/duenio-compu-1600.webp' %}"
+           srcset="{% static 'img/portada/duenio-compu-800.webp' %} 800w, {% static 'img/portada/duenio-compu-1600.webp' %} 1600w"
+           sizes="(min-width: 1152px) 1120px, 100vw" width="1600" height="900" loading="lazy" decoding="async"
+           alt="El dueño del gimnasio, en el mostrador, revisa su panel en la notebook con el gimnasio en marcha detrás.">
       <h2 class="portada__cierre-t">Dejá la planilla esta semana</h2>
       <p class="portada__cierre-sub">{{ precios_dias_gratis }} días gratis para probarla con tus alumnos.</p>
       <a class="portada-pildora portada-pildora--clara" href="{% url 'solicitudes:solicitar' %}">Pedí tu prueba gratis</a>

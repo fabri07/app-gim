@@ -618,6 +618,32 @@ resuelve al paisaje Bosque del `:root` y usa el canvas atmosférico de `body`.
   usa la nav pública, la voz del producto (Display de producto) y el celular
   compartido; `g/<slug>/login/` conserva la topbar de siempre y los colores
   de ESE gimnasio (`.auth-hero--gimnasio`): ahí la marca es la del gimnasio.
+- **Fotos de contexto (solo en la portada, 2026-10-11).** La maqueta prueba el
+  producto; la foto pone el contexto que la maqueta no puede: el gimnasio de
+  barrio, el alumno con el plan en el celular, la puerta y el mostrador del
+  dueño. Hay cinco escenas (hero, «antes», rutinas, ingreso y cierre),
+  generadas con IA, en `static/img/portada/`. Tres condiciones, y las tres
+  son obligatorias:
+  1. **Ninguna pantalla legible.** El celular se ve de canto, la notebook en
+     ángulo. Lo que se lee de la app es siempre la maqueta HTML montada sobre
+     el borde de la foto (`.funcion__superpuesta`).
+  2. **Sin marcas ni texto** en la foto (tampoco en el molinete).
+  3. **Las personas no son clientes**: sin nombres ni citas, y la portada lo
+     rotula («Imágenes ilustrativas», junto a «Nombres y números de ejemplo»).
+
+  Colorimetría Bosque: luz cálida crema, un verde bosque y un acento coral en
+  la escena, y una misma corrección suave hacia el `fondo` al convertirlas.
+  **Texto sobre foto, siempre sobre un velo** del primario mezclado al 55% con
+  negro, con ≥ 0.8 de opacidad debajo del texto (~5.5:1 contra un píxel blanco
+  de la foto, el peor caso). En el hero el velo es un degradé horizontal que
+  se abre recién pasada la columna del texto (vertical en celular). En el
+  cierre, con el texto centrado, el velo es uniforme. Sobre el velo, el texto va
+  en blanco y el CTA es la píldora `--clara`. **La foto nunca va dentro de un
+  `[data-demo]` ni de un `aria-hidden`**: el selector de paisajes recolorea
+  las maquetas, no las fotos, y el `alt` tiene que poder anunciarse. Son WebP
+  con `srcset`+`sizes` y `width`/`height`, `loading="lazy"` en todas menos la
+  del hero (`fetchpriority="high"`). La altura del hero la da el texto, no la
+  imagen (sin salto de layout). El service worker no las cachea.
 
 ### Banner de suplantación (componente de señal, no de marca)
 Único componente que rompe la paleta neutra a propósito: ámbar saturado
@@ -692,7 +718,9 @@ Runtime Brand Rule), nunca un hex fijo.
   siempre respetado.
 - **Do** mostrar el producto con maquetas HTML de la UI real y datos de
   ejemplo rotulados como tales, recoloreables con los paisajes — nunca una
-  captura raster genérica.
+  captura raster de la UI. Las fotos de contexto de la portada no son
+  capturas: ponen el escenario y no muestran ninguna pantalla legible (ver
+  «Fotos de contexto»).
 - **Do** dejar una sola acción llena por pantalla en el sitio público: en el
   login es «Entrar»; la píldora de la nav pasa a contorno.
 
