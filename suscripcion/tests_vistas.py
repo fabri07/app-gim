@@ -281,6 +281,20 @@ class MiSuscripcionTests(_Base):
         self.assertContains(respuesta, f"Venció el <strong>{vencimiento:%d/%m/%Y}</strong>")
         self.assertNotContains(respuesta, "Próximo vencimiento")
 
+    def test_el_anual_tacha_los_doce_meses_y_el_mensual_no_tacha_nada(self):
+        """El ahorro del anual es real (12 meses de a uno contra 10). El precio
+        de lista de la portada no se tacha acá: es la pantalla donde se cobra."""
+        self._login()
+
+        respuesta = self.client.get(reverse("suscripcion:mi_suscripcion"))
+
+        html = respuesta.content.decode()
+        # 0 alumnos activos: escalón de hasta 100, mensual 10.
+        self.assertIn(f">USD {precios.precio_usd_anual_sin_descuento(0)}</s>", html)
+        self.assertIn(f"USD {precios.precio_usd_anual(0)} (2 meses gratis)", html)
+        self.assertEqual(html.count("<s "), 1)
+        self.assertIn("tramo hasta 100 alumnos", html)
+
     def test_el_form_de_pagar_sale_del_boost(self):
         self._login()
 
@@ -915,3 +929,16 @@ class CobrosConProblemaTests(_Base):
         for n in range(6):
             _intento(self.otro, estado=Estado.DEVUELTO, payment_id=f"b{n}")
         self.assertEqual(costo(), con_2)
+
+
+class TramoDeTests(TestCase):
+    def test_etiqueta_de_cada_tramo_con_sus_bordes(self):
+        for alumnos, esperado in [
+            (0, "hasta 100"),
+            (100, "hasta 100"),
+            (101, "de 101 a 300"),
+            (300, "de 101 a 300"),
+            (301, "más de 300"),
+        ]:
+            with self.subTest(alumnos=alumnos):
+                self.assertEqual(views._tramo_de(alumnos), esperado)

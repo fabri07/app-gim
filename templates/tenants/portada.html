@@ -276,8 +276,14 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
         {% for fila in precios_filas %}
         <div class="portada__precio">
           <p class="portada__precio-tramo">{{ fila.etiqueta }}</p>
+          <p class="portada__precio-antes"><s class="portada__precio-lista" aria-label="Precio de lista: USD {{ fila.precio_lista_usd }} por mes">USD {{ fila.precio_lista_usd }}</s> <span class="portada__precio-off">{{ fila.descuento_pct }}% off</span></p>
           <p class="portada__precio-monto"><span class="portada__precio-moneda">USD</span> <span class="portada__precio-num">{{ fila.precio_usd }}</span> <span class="portada__precio-mes">/ mes</span></p>
-          {% if fila.precio_ars %}<p class="portada__precio-ars">≈ ${{ fila.precio_ars|floatformat:0 }} por mes</p>{% endif %}
+          {% if fila.precio_ars %}<p class="portada__precio-ars">≈ ${{ fila.precio_ars|floatformat:"0g" }} por mes</p>{% endif %}
+          <div class="portada__precio-anual">
+            <p class="portada__precio-anual-titulo">Pagando el año</p>
+            <p><s class="portada__precio-lista" aria-label="12 meses: USD {{ fila.anual_sin_descuento_usd }}">USD {{ fila.anual_sin_descuento_usd }}</s> <strong>USD {{ fila.anual_usd }} / año</strong></p>
+            <p class="portada__precio-anual-nota">{{ precios_meses_gratis_anual }} meses gratis{% if fila.anual_ars %} · ≈ ${{ fila.anual_ars|floatformat:"0g" }}{% endif %}</p>
+          </div>
           <ul class="portada__incluye">
             <li>Todas las funciones</li>
             <li>Portal para tus alumnos</li>
@@ -288,6 +294,7 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
         </div>
         {% endfor %}
       </div>
+      <p class="portada__precio-auto"><strong>Tu plan se ajusta solo.</strong> A medida que sumás alumnos activos pasás al tramo siguiente, sin trámites ni cambios de plan: {% for fila in precios_filas %}{% if not forloop.first %}{% if forloop.last %} y {% else %}, {% endif %}{% endif %}{{ fila.etiqueta|lower }}{% endfor %}. Si pagás el año por adelantado, tu precio queda fijo los 12 meses.</p>
       <p class="portada__precio-pie">Sin permanencia. Lo cancelás cuando quieras.</p>
     </div>
   </section>
@@ -302,6 +309,8 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
     <div class="portada__faq">
       <details><summary>¿Necesito tarjeta para la prueba?</summary>
         <p>No. Los {{ precios_dias_gratis }} días son gratis y sin datos de pago.</p></details>
+      <details><summary>¿Qué pasa si crezco y paso de tramo?</summary>
+        <p>Nada que tengas que hacer: el precio se ajusta solo según tus alumnos activos al momento de cada pago. Si pagaste el año por adelantado, tu precio queda fijo hasta que se cumplan los 12 meses.</p></details>
       <details><summary>¿Mis alumnos también usan la app?</summary>
         <p>Sí. Cada alumno tiene su propio portal donde ve su rutina, su cuota y las novedades, y reserva turnos. La puede instalar en el celular como cualquier app.</p></details>
       <details><summary>¿Puedo traer lo que tengo en Excel?</summary>

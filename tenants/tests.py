@@ -496,12 +496,42 @@ class PortadaViewTests(TestCase):
         response = self.client.get(reverse("home"))
         # Los tres montos (el markup separa "USD" del número, así que se
         # verifica el número dentro de su span) y los tres tramos.
-        self.assertContains(response, ">10</span>")
-        self.assertContains(response, ">15</span>")
-        self.assertContains(response, ">20</span>")
+        # Se busca el número DENTRO de su span: con el precio de lista
+        # tachado (que también es 20) un ">20</span>" a secas pasaba igual.
+        for monto in (10, 15, 20):
+            self.assertContains(response, f'class="portada__precio-num">{monto}</span>')
         self.assertContains(response, "Hasta 100 alumnos")
+        self.assertContains(response, "De 101 a 300 alumnos")
         self.assertContains(response, "Más de 300 alumnos")
         self.assertContains(response, "días gratis")
+
+    def test_precios_muestra_la_lista_tachada_y_el_anual_de_la_fuente_unica(self):
+        """Lo tachado y el anual salen de `plataforma.precios`, no de números
+        copiados al template: si cambia un escalón, la portada lo sigue."""
+        from plataforma import precios
+
+        response = self.client.get(reverse("home"))
+        for tope, _ in precios.ESCALONES:
+            alumnos = tope if tope is not None else 10_000
+            with self.subTest(tope=tope):
+                self.assertContains(
+                    response, f">USD {precios.precio_lista_usd(alumnos)}</s>"
+                )
+                self.assertContains(
+                    response,
+                    f">USD {precios.precio_usd_anual_sin_descuento(alumnos)}</s>",
+                )
+                self.assertContains(
+                    response, f"USD {precios.precio_usd_anual(alumnos)} / año"
+                )
+        self.assertContains(response, "50% off", count=3)
+        self.assertContains(response, "Tu plan se ajusta solo.")
+        self.assertContains(
+            response,
+            "hasta 100 alumnos, de 101 a 300 alumnos y más de 300 alumnos",
+        )
+        # El anual congela el tramo: decir sólo «se ajusta solo» sería falso.
+        self.assertContains(response, "tu precio queda fijo los 12 meses")
 
     def test_sin_cotizacion_no_muestra_pesos(self):
         """Bajo TESTING `cotizacion_dolar` devuelve None, así que la landing

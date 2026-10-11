@@ -2070,6 +2070,36 @@
     @apply mt-1 text-sm text-gray-500;
     font-variant-numeric: tabular-nums;
   }
+  /* Precio de lista tachado + píldora del descuento, arriba del monto. */
+  .portada__precio-antes {
+    @apply mb-1 flex items-center gap-2 text-sm;
+  }
+  .portada__precio-lista {
+    @apply text-gray-400 line-through;
+    font-variant-numeric: tabular-nums;
+  }
+  .portada__precio-off {
+    @apply rounded-full px-2 py-0.5 text-xs font-bold text-white;
+    background-color: var(--color-primario);
+  }
+  .portada__precio-anual {
+    @apply mt-5 space-y-0.5 border-t border-gray-100 pt-4 text-sm text-gray-900;
+    font-variant-numeric: tabular-nums;
+  }
+  .portada__precio-anual-titulo {
+    @apply text-xs font-bold uppercase tracking-wide text-gray-500;
+  }
+  .portada__precio-anual-nota {
+    @apply font-semibold;
+    color: var(--color-primario);
+  }
+  .portada__precio-auto {
+    @apply mt-8 max-w-3xl text-base;
+    color: color-mix(in oklab, white 82%, var(--color-primario));
+  }
+  .portada__precio-auto strong {
+    @apply text-white;
+  }
   .portada__incluye {
     @apply mt-6 mb-8 space-y-2.5 border-t border-gray-100 pt-6 text-sm text-gray-700;
   }

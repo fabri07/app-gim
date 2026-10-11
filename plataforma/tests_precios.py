@@ -230,3 +230,39 @@ class DiasDeAtrasoTests(SimpleTestCase):
 
     def test_un_gimnasio_al_dia_no_tiene_atraso(self):
         self.assertEqual(self._atraso(35, cubierto_hasta=date(2026, 3, 1)), 0)
+
+
+class PrecioDeListaTests(SimpleTestCase):
+    """El precio de lista es el que la portada muestra tachado. No se cobra
+    nunca, pero tiene que seguir a los escalones: si aparece un tramo nuevo sin
+    su precio de lista, la portada revienta con un KeyError."""
+
+    def test_hay_un_precio_de_lista_por_cada_escalon(self):
+        self.assertEqual(
+            set(precios.PRECIOS_DE_LISTA_USD),
+            {tope for tope, _ in precios.ESCALONES},
+        )
+
+    def test_el_precio_de_lista_supera_a_la_oferta_en_cada_escalon(self):
+        for alumnos in (0, 100, 101, 300, 301):
+            with self.subTest(alumnos=alumnos):
+                self.assertGreater(
+                    precios.precio_lista_usd(alumnos), precios.precio_usd(alumnos)
+                )
+
+    def test_precio_de_lista_por_escalon(self):
+        for alumnos, esperado in [(100, 20), (101, 30), (300, 30), (301, 40)]:
+            with self.subTest(alumnos=alumnos):
+                self.assertEqual(precios.precio_lista_usd(alumnos), esperado)
+
+    def test_anual_sin_descuento_son_doce_meses_de_la_oferta(self):
+        for alumnos in (0, 101, 301):
+            with self.subTest(alumnos=alumnos):
+                self.assertEqual(
+                    precios.precio_usd_anual_sin_descuento(alumnos),
+                    precios.precio_usd(alumnos) * 12,
+                )
+                self.assertGreater(
+                    precios.precio_usd_anual_sin_descuento(alumnos),
+                    precios.precio_usd_anual(alumnos),
+                )

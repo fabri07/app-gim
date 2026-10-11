@@ -876,6 +876,15 @@ llama. Precio en USD por escalones de alumnos **activos** (hasta 100 → 10, 101
 a 300 → 15, más de 300 → 20; bordes inclusivos), `DIAS_GRATIS = 30` de prueba
 desde `facturacion_inicio`, `DIAS_CICLO = 30` y `DIAS_AVISO_COBRO = 7`.
 
+**Precio de lista, sólo para mostrar** (2026-10-11): `PRECIOS_DE_LISTA_USD`
+(20 / 30 / 40, una clave por tope de `ESCALONES`, un test lo exige) es el
+número que la portada tacha al lado de la oferta. **No entra a ningún cálculo
+de cobro** y no se tacha en «Mi suscripción», donde se cobra. El anual (10 de
+12 meses, `DESCUENTO_ANUAL_MESES = 2`, confirmado ese día) se muestra tachando
+`precio_usd_anual_sin_descuento` (12 × mensual). La portada dice que el tramo
+«se ajusta solo» y aclara que el anual lo congela 12 meses: las dos frases van
+juntas o el texto miente. Ver `ISSUES.md [2026-10-11]`.
+
 **Ojo con la simetría**: acá `DIAS_CICLO` es 30 (lo que la PLATAFORMA le cobra
 al gimnasio) y en `pagos` es 28 (lo que el gimnasio le cobra a sus alumnos).
 Son dos negocios distintos y las dos constantes tienen que poder moverse por

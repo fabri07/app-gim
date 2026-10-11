@@ -415,10 +415,16 @@ def _contexto_precios():
     filas = []
     desde = 1
     for tope, precio in precios.ESCALONES:
-        if tope is not None:
+        if tope is None:
+            etiqueta = f"Más de {desde - 1} alumnos"
+        elif desde == 1:
             etiqueta = f"Hasta {tope} alumnos"
         else:
-            etiqueta = f"Más de {desde - 1} alumnos"
+            etiqueta = f"De {desde} a {tope} alumnos"
+        # El precio de lista es sólo para mostrar (va tachado); lo que se cobra
+        # es `precio` y el anual sale de las mismas funciones que usa el cobro.
+        lista = precios.PRECIOS_DE_LISTA_USD[tope]
+        anual = precios.precio_usd_anual(desde)
         filas.append(
             {
                 "desde": desde,
@@ -426,6 +432,11 @@ def _contexto_precios():
                 "etiqueta": etiqueta,
                 "precio_usd": precio,
                 "precio_ars": cambio.pesos(precio, cotizacion),
+                "precio_lista_usd": lista,
+                "descuento_pct": round(100 * (lista - precio) / lista),
+                "anual_usd": anual,
+                "anual_ars": cambio.pesos(anual, cotizacion),
+                "anual_sin_descuento_usd": precios.precio_usd_anual_sin_descuento(desde),
             }
         )
         if tope is not None:
@@ -433,6 +444,7 @@ def _contexto_precios():
     return {
         "precios_filas": filas,
         "precios_dias_gratis": precios.DIAS_GRATIS,
+        "precios_meses_gratis_anual": precios.DESCUENTO_ANUAL_MESES,
         "precios_cotizacion": cotizacion,
     }
 

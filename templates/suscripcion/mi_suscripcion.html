@@ -106,6 +106,10 @@ gimnasio sin cobro): bajo el `hx-boost` global un 4xx es un click muerto.
       {% csrf_token %}
       {% for error in form.non_field_errors %}<p class="config-error">{{ error }}</p>{% endfor %}
       <p><strong>Elegí el plan</strong></p>
+      <p class="texto-suave">
+        Tenés {{ gimnasio.alumnos_activos }} alumno{{ gimnasio.alumnos_activos|pluralize }} activo{{ gimnasio.alumnos_activos|pluralize }}: tramo {{ tramo }} alumnos.
+        El precio mensual se ajusta solo si cambiás de tramo; el anual queda fijo los 12 meses.
+      </p>
       <fieldset class="selector-fondo-tipo">
         <legend class="sr-only">Plan</legend>
         {% for opcion in planes %}
@@ -114,7 +118,7 @@ gimnasio sin cobro): bajo el `hx-boost` global un 4xx es un click muerto.
               {% if form.plan.value == opcion.valor %}checked{% endif %}>
             <span>
               <strong>{{ opcion.etiqueta }}</strong>:
-              USD {{ opcion.monto_usd }}{% if opcion.monto_ars %} (hoy $ {{ opcion.monto_ars|floatformat:"2g" }}){% endif %}
+              {% if opcion.sin_descuento_usd %}<s class="texto-suave">USD {{ opcion.sin_descuento_usd }}</s> {% endif %}USD {{ opcion.monto_usd }}{% if opcion.sin_descuento_usd %} ({{ meses_gratis_anual }} meses gratis){% endif %}{% if opcion.monto_ars %} (hoy $ {{ opcion.monto_ars|floatformat:"2g" }}){% endif %}
               · del {{ opcion.desde|date:"d/m/Y" }} al {{ opcion.hasta|date:"d/m/Y" }}
             </span>
           </label>

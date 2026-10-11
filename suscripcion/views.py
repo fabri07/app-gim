@@ -128,12 +128,16 @@ def _contexto_suscripcion(request, *, form=None, error=None):
     # de cambio distintos en la misma pantalla.
     cotizacion = cambio.cotizacion_dolar()
 
-    def plan(valor, etiqueta, monto_usd, dias):
+    def plan(valor, etiqueta, monto_usd, dias, sin_descuento_usd=None):
         desde, hasta = facturacion.periodo_a_cobrar(gimnasio, dias=dias)
         return {
             "valor": valor,
             "etiqueta": etiqueta,
             "monto_usd": monto_usd,
+            # Sólo el anual: lo que costarían los 12 meses de a uno, para
+            # mostrar el ahorro real. El precio de lista de la portada NO se
+            # tacha acá: ésta es la pantalla donde se le cobra.
+            "sin_descuento_usd": sin_descuento_usd,
             "monto_ars": cambio.pesos(monto_usd, cotizacion),
             "desde": desde,
             "hasta": hasta,
@@ -151,6 +155,7 @@ def _contexto_suscripcion(request, *, form=None, error=None):
             "Anual",
             precios.precio_usd_anual(alumnos),
             precios.DIAS_ANIO,
+            sin_descuento_usd=precios.precio_usd_anual_sin_descuento(alumnos),
         ),
     ]
 
@@ -161,6 +166,8 @@ def _contexto_suscripcion(request, *, form=None, error=None):
         "fila": fila,
         "periodos_adeudados": periodos_adeudados(fila) if gimnasio.facturacion_aplica else 0,
         "planes": planes,
+        "tramo": _tramo_de(alumnos),
+        "meses_gratis_anual": precios.DESCUENTO_ANUAL_MESES,
         "cotizacion": cotizacion,
         "intento_abierto": intento_abierto,
         "integracion_activa": services.integracion_activa(),
@@ -170,6 +177,18 @@ def _contexto_suscripcion(request, *, form=None, error=None):
         "form": form if form is not None else ElegirPlanForm(),
         "error": error,
     }
+
+
+def _tramo_de(alumnos):
+    """«hasta 100», «de 101 a 300» o «más de 300», leído de `ESCALONES`."""
+    tope, _ = precios.escalon_de(alumnos)
+    topes = [t for t, _ in precios.ESCALONES]
+    anterior = topes[topes.index(tope) - 1] if topes.index(tope) else None
+    if tope is None:
+        return f"más de {anterior}"
+    if anterior is None:
+        return f"hasta {tope}"
+    return f"de {anterior + 1} a {tope}"
 
 
 @method_decorator(never_cache, name="dispatch")

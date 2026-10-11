@@ -37,8 +37,8 @@ DIAS_GRATIS = 30
 #: Meses que cubre el plan anual.
 MESES_ANIO = 12
 
-#: Meses que se regalan al pagar el año por adelantado. Supuesto del dueño del
-#: producto, pendiente de confirmar: se pagan 10 de 12.
+#: Meses que se regalan al pagar el año por adelantado: se pagan 10 de 12.
+#: Confirmado por el dueño del producto el 2026-10-11.
 DESCUENTO_ANUAL_MESES = 2
 
 #: Días del período anual: 12 ciclos de `DIAS_CICLO`, o sea 360 A PROPÓSITO.
@@ -58,6 +58,16 @@ ESCALONES = (
     (300, 15),
     (None, 20),
 )
+
+#: Precio de lista de cada escalón, el que la portada muestra TACHADO al lado
+#: de la oferta. Clave = el tope del escalón en `ESCALONES` (un test exige que
+#: las claves coincidan). **Es sólo para mostrar: no entra a ningún cálculo de
+#: cobro.** Lo que se cobra sale siempre de `precio_usd`/`precio_usd_anual`.
+PRECIOS_DE_LISTA_USD = {
+    100: 20,
+    300: 30,
+    None: 40,
+}
 
 
 class EstadoPago(enum.Enum):
@@ -108,6 +118,18 @@ def precio_usd_anual(alumnos_activos):
     asumida, no un bug.
     """
     return precio_usd(alumnos_activos) * (MESES_ANIO - DESCUENTO_ANUAL_MESES)
+
+
+def precio_lista_usd(alumnos_activos):
+    """El precio de lista (el tachado) del escalón de ese gimnasio. Sólo para
+    mostrar, ver `PRECIOS_DE_LISTA_USD`."""
+    return PRECIOS_DE_LISTA_USD[escalon_de(alumnos_activos)[0]]
+
+
+def precio_usd_anual_sin_descuento(alumnos_activos):
+    """Lo que costarían 12 meses pagados de a uno: es el monto que se tacha al
+    lado del plan anual, así el ahorro que se muestra es real."""
+    return precio_usd(alumnos_activos) * MESES_ANIO
 
 
 def fin_de_prueba(inicio):

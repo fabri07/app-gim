@@ -20,6 +20,28 @@ del log.
 
 ---
 
+## [2026-10-11] Precios: lista tachada, anual a 10 meses y tramos automáticos en la portada
+**Estado:** aceptado (riesgo asumido a propósito)
+**Impacto:** la portada muestra en cada tramo un precio de lista tachado
+(USD 20 / 30 / 40, `precios.PRECIOS_DE_LISTA_USD`) con la oferta actual
+(10 / 15 / 20) como «50% off», el anual a 10 de 12 meses tachando la suma de los
+12, y un párrafo + una pregunta frecuente que explican que el tramo se ajusta
+solo con los alumnos activos. «Mi suscripción» muestra el tramo del gimnasio y,
+en el plan anual, los 12 meses tachados. **Lo que se cobra no cambió**: el
+precio de lista no entra a ningún cálculo, y el anual a 10 meses ya era lo que
+cobraba `precio_usd_anual` (el `DESCUENTO_ANUAL_MESES = 2` pasó de «pendiente
+de confirmar» a confirmado por el dueño del producto).
+**Riesgo aceptado:** la normativa argentina de lealtad comercial y defensa del
+consumidor pide que un precio «antes» tachado sea un precio real. Los 20/30/40
+tienen que ser el precio de lista que se cobre cuando termine la promoción de
+lanzamiento; si nunca se van a cobrar, conviene cambiar la leyenda.
+El texto «se ajusta solo» es cierto para el mensual (cada link recalcula el
+tramo); el anual congela el tramo 12 meses y por eso la portada lo aclara —
+**si se edita el párrafo, no se saca esa aclaración** (la fija un test).
+**Resolución / próximo paso:** en la pantalla de pago NO se tacha el precio de
+lista a propósito (ahí se le cobra a un cliente real); sólo el ahorro del anual,
+que es verdadero.
+
 ## [2026-10-11] Los crons dejaron de correr: cuota de GitHub Actions agotada por Vektor
 **Estado:** abierto (paliativo temporal hasta que se renueve la cuota)
 **Impacto:** desde el 2026-10-09 ~04:00 UTC ningún workflow corrió. Los jobs
