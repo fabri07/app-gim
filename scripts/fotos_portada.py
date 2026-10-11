@@ -28,7 +28,7 @@ PALETA = Gimnasio.PALETAS[Gimnasio.Paleta.BOSQUE]
 
 # clave: (proporción ancho/alto, anchos, punto focal x 0..1, punto focal y 0..1)
 ESCENAS = {
-    "hero-gimnasio": (16 / 9, [800, 1280, 1920], 0.5, 0.5),
+    "hero-gimnasio": (16 / 9, [800, 1280, 1672], 0.5, 0.5),
     "hero-gimnasio-movil": (4 / 5, [600, 1000], 0.62, 0.5),
     "problema-escritorio": (3 / 2, [600, 1100], 0.5, 0.5),
     "alumno-celular": (4 / 5, [600, 1100], 0.5, 0.45),

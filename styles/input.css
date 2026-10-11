@@ -2305,6 +2305,7 @@
   .portada__cierre-foto {
     @apply absolute inset-0;
     z-index: -2;
+    object-position: 50% 25%; /* la cara del dueño queda en el tercio de arriba */
   }
   .portada__cierre--foto::before {
     content: "";
