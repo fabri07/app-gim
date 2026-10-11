@@ -26,7 +26,9 @@ concurrency:
 
 jobs:
   backup:
-    runs-on: ubuntu-latest
+    # Con la variable de repo CI_RUNNER=self-hosted corre en la Mac del dueño;
+    # sin ella, en GitHub. Ver ISSUES.md [2026-10-11].
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 20
     outputs:
       monthly: ${{ steps.subir.outputs.monthly }}
@@ -36,6 +38,7 @@ jobs:
       # servidor de una major posterior a la suya, y ese error solo aparece
       # contra la base real. Si Neon sube de major, actualizar acá primero.
       - name: Instalar postgresql-client y verificar herramientas
+        if: runner.environment != 'self-hosted'
         run: |
           set -euo pipefail
           sudo install -d /usr/share/postgresql-common/pgdg
@@ -52,6 +55,28 @@ jobs:
           # (si no, esta verificación reporta el binario viejo y no sirve).
           echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
           export PATH="/usr/lib/postgresql/18/bin:$PATH"
+          pg_dump --version
+          gpg --version | head -1
+          aws --version
+
+      # En el runner propio (una Mac sin apt) las mismas cuatro herramientas salen
+      # de contenedores: pg_dump, gpg y sha256sum de la imagen oficial de
+      # Postgres 18 (la major de Neon, mismo motivo que arriba) y aws de la de
+      # AWS. Son envoltorios con el mismo nombre en el PATH, así los pasos
+      # siguientes no cambian. `-i` porque gpg lee la passphrase por stdin.
+      - name: Herramientas vía Docker (runner propio)
+        if: runner.environment == 'self-hosted'
+        run: |
+          set -euo pipefail
+          BIN="$RUNNER_TEMP/bin"
+          mkdir -p "$BIN"
+          for t in pg_dump gpg sha256sum; do
+            printf '#!/bin/sh\nexec docker run --rm -i -v "$PWD:$PWD" -w "$PWD" postgres:18 %s "$@"\n' "$t" > "$BIN/$t"
+          done
+          printf '#!/bin/sh\nexec docker run --rm -v "$PWD:$PWD" -w "$PWD" -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_DEFAULT_REGION amazon/aws-cli:2.31.0 "$@"\n' > "$BIN/aws"
+          chmod +x "$BIN"/*
+          echo "$BIN" >> "$GITHUB_PATH"
+          export PATH="$BIN:$PATH"
           pg_dump --version
           gpg --version | head -1
           aws --version

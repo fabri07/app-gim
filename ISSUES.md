@@ -20,6 +20,32 @@ del log.
 
 ---
 
+## [2026-10-11] Los crons dejaron de correr: cuota de GitHub Actions agotada por Vektor
+**Estado:** abierto (paliativo temporal hasta que se renueve la cuota)
+**Impacto:** desde el 2026-10-09 ~04:00 UTC ningún workflow corrió. Los jobs
+fallaban en 2 s sin ejecutar ningún paso, con la anotación «The job was not
+started because recent account payments have failed or your spending limit
+needs to be increased». Sin backup desde el 08-10, sin `generar_pagos`, sin
+push, demo sin restaurar, sin reconciliar cobros.
+**Causa:** la cuota gratis de Actions (2.000 min/mes para repos privados) es
+de la CUENTA, no del repo. El CI de Vektor consumió 2.181 min en máquinas de
+GitHub entre el 2 y el 9 de octubre; app-gim solo usa ~670/mes. Vektor pasó a
+un runner propio (`mac-dev`) el mismo 9. Decisión del dueño: no pagar.
+**Resolución:** los 8 workflows que corren algo eligen la máquina con
+`runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}` (mismo patrón que Vektor).
+Con la variable de repo `CI_RUNNER=self-hosted` corren en un runner propio en
+la Mac del dueño (`mac-app-gim`; uno por repo, en cuenta personal no se
+comparten). Ahí `setup-python` no anda y se usa el `python3.14` local en un
+venv por job; el backup saca `pg_dump`/`gpg`/`sha256sum` de `postgres:18` y
+`aws` de `amazon/aws-cli` vía Docker, con envoltorios en el PATH para no tocar
+los pasos. `backup-verify.yml` NO se adaptó (usa un service container, que en
+macOS no existe): solo corre el día 1, cuando la cuota ya se renovó.
+**Riesgo aceptado:** con la Mac apagada no corre nada (un job espera hasta
+24 h a un runner y después falla).
+**Próximo paso:** cuando se renueve la cuota (1° de noviembre), borrar la
+variable `CI_RUNNER` de app-gim y todo vuelve a GitHub. Vektor tiene que
+seguir en su runner propio, o se vuelve a agotar la cuota.
+
 ## [2026-09-29] Cobro online de la suscripción: riesgos aceptados y pasos manuales pendientes
 **Estado:** aceptado (riesgos asumidos a propósito) + abierto (sin probar en el sandbox de Mercado Pago)
 
