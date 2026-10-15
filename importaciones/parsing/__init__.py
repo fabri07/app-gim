@@ -37,6 +37,17 @@ from importaciones.parsing.pdf import (  # noqa: F401  (re-export)
     leer_pdf,
     leer_texto_tolerante,
 )
+from importaciones.parsing.alumnos import (  # noqa: F401  (re-export)
+    ALIAS_ALUMNOS,
+    MARCA_FILA_EJEMPLO,
+    MAX_FILAS_ALUMNOS,
+    ArchivoCSVIlegible,
+    DemasiadasFilas,
+    FilaAlumno,
+    HojaAlumnos,
+    leer_hoja_alumnos,
+    libro_desde_csv,
+)
 from importaciones.parsing.tabular import leer_hoja_biblioteca, leer_hoja_larga
 
 
@@ -78,3 +89,14 @@ def parsear_archivo_biblioteca(archivo):
     """El import de biblioteca usa solo la primera hoja del archivo."""
     wb = openpyxl.load_workbook(archivo, data_only=True)
     return leer_hoja_biblioteca(wb[wb.sheetnames[0]])
+
+
+def parsear_archivo_alumnos(archivo, *, hoy):
+    """Lee la primera hoja de un `.xlsx` o un `.csv` de ALUMNOS. Despacha por la
+    extensión de `archivo.name` (sin nombre, se trata como xlsx). `hoy` lo pasa
+    quien llama: el lector nunca calcula la fecha."""
+    if (getattr(archivo, "name", "") or "").lower().endswith(".csv"):
+        wb = libro_desde_csv(archivo)
+    else:
+        wb = openpyxl.load_workbook(archivo, data_only=True)
+    return leer_hoja_alumnos(wb[wb.sheetnames[0]], hoy=hoy)
