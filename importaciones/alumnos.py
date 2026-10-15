@@ -32,8 +32,8 @@ las pantallas)::
      "nacen_vencidas": 0, "total_filas_leidas": 120}
 """
 
+import logging
 from dataclasses import asdict
-from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -48,8 +48,11 @@ from importaciones.parsing import (
     parsear_archivo_alumnos,
 )
 from importaciones.parsing.comun import FILAS_BUSQUEDA_ENCABEZADO, normalizar_texto
+from pagos.acceso import nace_bloqueada
 from importaciones.services import ERRORES_ARCHIVO_INVALIDO, ImportacionInvalida
 from tenants.demo import MARCA as MARCA_DEMO
+
+logger = logging.getLogger(__name__)
 
 VERSION_RESULTADO = 1
 
@@ -129,7 +132,7 @@ class _ClavesDeAlumnos:
             self._por_telefono.setdefault(claves["telefono"], []).append(identidad)
         self._por_nombre.setdefault(claves["nombre"], []).append(identidad)
 
-    def evaluar(self, claves):
+    def evaluar(self, claves, *, trae_contacto):
         """`(duplicado, avisos)`. `duplicado` es la identidad repetida o `None`;
         `avisos` solo importa cuando la fila se crea.
 
@@ -146,8 +149,11 @@ class _ClavesDeAlumnos:
                 por_contacto.append((identidad, que))
         por_nombre = self._por_nombre.get(claves["nombre"], [])
 
-        tiene_contacto = bool(claves["email"] or claves["telefono"])
-        if tiene_contacto:
+        # `trae_contacto` mira lo que había en el archivo, no las claves: un
+        # email inválido y sin teléfono no tiene clave utilizable, pero la fila
+        # no deja de ser «de alguien con contacto». Con solo el nombre igual no
+        # alcanza para decir que es la misma persona: se crea con aviso.
+        if trae_contacto:
             for identidad, _ in por_contacto:
                 if identidad["claves"]["nombre"] == claves["nombre"]:
                     return identidad, []
@@ -251,10 +257,15 @@ def _leer(archivo, hoy):
             "columna)."
         )
     # El lector consumió el archivo: queda rebobinado para guardarlo entero.
+    # Si no se puede rebobinar, guardar el archivo dejaría uno truncado sin
+    # rastro: se corta acá.
     try:
         archivo.seek(0)
     except (AttributeError, ValueError, OSError):
-        pass
+        logger.exception("No se pudo rebobinar el archivo de alumnos")
+        raise ImportacionInvalida(
+            "No pude leer el archivo hasta el final. Volvé a subirlo."
+        )
     return hoja
 
 
@@ -275,8 +286,6 @@ def previsualizar_importacion_alumnos(*, gimnasio, archivo, usuario):
     indice = _ClavesDeAlumnos(gimnasio)
     a_crear, ya_existen = [], []
     filas_invalidas = [asdict(f) for f in hoja.filas_invalidas]
-    tolerancia = gimnasio.dias_tolerancia_pago
-    umbral = hoy - timedelta(days=tolerancia) if tolerancia is not None else None
     nacen_vencidas = 0
 
     for fila in hoja.filas:
@@ -293,9 +302,10 @@ def previsualizar_importacion_alumnos(*, gimnasio, archivo, usuario):
                 })
                 break
         else:
+            trae_contacto = bool(datos["email"] or datos["telefono"])
             _validar_valores(datos, avisos, no_cargados)
             claves = claves_de(datos)
-            repetido, avisos_duplicado = indice.evaluar(claves)
+            repetido, avisos_duplicado = indice.evaluar(claves, trae_contacto=trae_contacto)
             if repetido is not None:
                 if repetido["origen"] == "base":
                     motivo = (
@@ -320,8 +330,8 @@ def previsualizar_importacion_alumnos(*, gimnasio, archivo, usuario):
                 claves, nombre=datos["nombre"], apellido=datos["apellido"],
                 origen="archivo", fila=fila.fila_excel,
             )
-            inicio = datos.get("fecha_inicio_ciclo")
-            if umbral is not None and inicio and inicio < umbral:
+            # La misma regla del bloqueo, no una copia (ver `pagos.acceso`).
+            if nace_bloqueada(gimnasio, datos.get("fecha_inicio_ciclo"), hoy):
                 nacen_vencidas += 1
             a_crear.append({
                 "fila_excel": fila.fila_excel,

@@ -30,7 +30,7 @@ from datetime import timedelta
 
 from django.db.models import Exists, OuterRef, Subquery
 
-from pagos.models import Cuota
+from pagos.models import Cuota, ciclo_vigente, tolerancia_efectiva
 
 
 @dataclass(frozen=True)
@@ -60,6 +60,33 @@ def _umbral(gimnasio, hoy):
         # propósito: ante la duda no se le corta el acceso a nadie.
         return None
     return hoy - timedelta(days=gimnasio.dias_tolerancia_pago)
+
+
+def nace_bloqueada(gimnasio, fecha_inicio_ciclo, hoy):
+    """¿La cuota que el cron emitiría HOY para un alumno con este ancla nace
+    bloqueando el acceso? Función pura (sin queries): `hoy` lo pasa quien llama.
+
+    Es la misma regla que `bloqueo_de`/`contar_bloqueados`, no una copia: usa
+    `_umbral` (`periodo_inicio <= hoy - tolerancia`, con el bloqueo prendido y
+    activado) y `tolerancia_efectiva` (las cuotas anteriores a
+    `fecha_activacion_bloqueo` no bloquean). Se evalúa sobre el
+    `periodo_inicio` REAL que emite `ciclo_vigente`, no sobre el ancla cruda:
+    con un ancla de hace más de un ciclo, la cuota vigente arranca en el
+    ciclo corriente. Un ancla `None` o futura no emite nada, o sea `False`.
+    """
+    ciclo = ciclo_vigente(fecha_inicio_ciclo, hoy)
+    if ciclo is None:
+        return False
+    umbral = _umbral(gimnasio, hoy)
+    if umbral is None:
+        return False
+    periodo_inicio = ciclo[0]
+    if tolerancia_efectiva(
+        periodo_inicio, gimnasio.dias_tolerancia_pago,
+        gimnasio.fecha_activacion_bloqueo,
+    ) is None:
+        return False
+    return periodo_inicio <= umbral
 
 
 def bloqueo_de(alumno, *, hoy=None):

@@ -104,8 +104,11 @@ class CreacionTests(BaseAlumnosTests):
         self.assertIsNone(datos["fecha_nacimiento"])
 
     def test_avisos_de_lectura_llegan_al_json(self):
-        r = self._previsualizar([("Juan", "Pérez", "", "")])
-        self.assertEqual(r["avisos_lectura"], [])
+        filas = [("Juan", "Pérez", "", "")] + [(None,) * 4] * 205
+        filas.append(("Ana", "Gómez", "", ""))
+        r = self._previsualizar(filas)
+        self.assertTrue(r["avisos_lectura"])
+        self.assertTrue(any("Dejé de leer" in a for a in r["avisos_lectura"]))
 
     def test_nombre_de_121_caracteres_se_descarta(self):
         r = self._previsualizar([("J" * 121, "Pérez", "", ""), ("Ana", "A" * 121, "", "")])
@@ -236,6 +239,31 @@ class ErroresDeArchivoTests(BaseAlumnosTests):
             self._previsualizar(filas)
         self.assertIn("partes", str(ctx.exception))
 
+    def test_si_no_se_puede_rebobinar_el_archivo_levanta(self):
+        from unittest import mock
+
+        hoja = previsualizar_importacion_alumnos(
+            gimnasio=self.gimnasio, archivo=_archivo([("Juan", "Pérez", "", "")]),
+            usuario=self.usuario,
+        )
+        self.assertTrue(hoja)
+
+        class SinSeek(SimpleUploadedFile):
+            def seek(self, *a, **k):
+                raise OSError("no se puede")
+
+        archivo = SinSeek("x.xlsx", _archivo([("Ana", "Gómez", "", "")]).read())
+        from importaciones import alumnos as modulo
+
+        real = modulo.parsear_archivo_alumnos
+        with mock.patch.object(
+            modulo, "parsear_archivo_alumnos",
+            side_effect=lambda a, hoy: real(io.BytesIO(archivo.read()), hoy=hoy),
+        ), self.assertRaises(ImportacionInvalida):
+            previsualizar_importacion_alumnos(
+                gimnasio=self.gimnasio, archivo=archivo, usuario=self.usuario
+            )
+
     def test_csv_valido(self):
         archivo = SimpleUploadedFile(
             "x.csv", "Nombre;Apellido\nJuan;Pérez\n".encode("utf-8")
@@ -247,6 +275,13 @@ class ErroresDeArchivoTests(BaseAlumnosTests):
 
 
 class DuplicadosTests(BaseAlumnosTests):
+    def test_homonimo_con_email_invalido_se_crea_con_aviso(self):
+        self._alumno("Juan", "Pérez", email="juan@x.com")
+        r = self._previsualizar([("Juan", "Pérez", "no-es-mail", "")])
+        self.assertEqual(r["ya_existen"], [])
+        fila = r["a_crear"][0]
+        self.assertTrue(any("mismo nombre" in a for a in fila["avisos"]))
+
     def test_mismo_email_en_mayusculas_y_mismo_nombre(self):
         existente = self._alumno("Juan", "Pérez", email="juan@x.com")
         r = self._previsualizar([("Juan", "Pérez", "JUAN@X.COM", "")])
@@ -340,16 +375,60 @@ class NacenVencidasTests(BaseAlumnosTests):
             encabezados=ENCABEZADOS + ("Inicio del ciclo",),
         )
 
+    def _tolerancia(self, dias, activacion="ayer"):
+        # `update()` y no `save()`: la señal estampa la activación en hoy al
+        # prender la tolerancia, y acá hace falta fijarla a mano.
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            dias_tolerancia_pago=dias,
+            fecha_activacion_bloqueo=(
+                timezone.localdate() - timedelta(days=400)
+                if activacion == "ayer" else activacion
+            ),
+        )
+        self.gimnasio.refresh_from_db()
+
     def test_sin_tolerancia_es_cero(self):
         self.assertEqual(self._con_inicio(20)["nacen_vencidas"], 0)
 
-    def test_con_tolerancia_cuenta_las_anteriores_al_umbral(self):
-        self.gimnasio.dias_tolerancia_pago = 10
-        self.gimnasio.save(update_fields=["dias_tolerancia_pago"])
+    def test_borde_exacto_cuenta(self):
+        # `pagos.acceso` bloquea con periodo_inicio <= hoy - tolerancia.
+        self._tolerancia(10)
         self.assertEqual(self._con_inicio(20)["nacen_vencidas"], 1)
-        self.assertEqual(self._con_inicio(5)["nacen_vencidas"], 0)
-        # Justo en el umbral no es anterior.
-        self.assertEqual(self._con_inicio(10)["nacen_vencidas"], 0)
+        self.assertEqual(self._con_inicio(10)["nacen_vencidas"], 1)
+        self.assertEqual(self._con_inicio(9)["nacen_vencidas"], 0)
+
+    def test_tolerancia_cero_con_inicio_hoy_cuenta(self):
+        self._tolerancia(0)
+        self.assertEqual(self._con_inicio(0)["nacen_vencidas"], 1)
+
+    def test_sin_fecha_de_activacion_no_cuenta(self):
+        self._tolerancia(10, activacion=None)
+        self.assertEqual(self._con_inicio(20)["nacen_vencidas"], 0)
+
+    def test_activacion_posterior_al_periodo_no_cuenta(self):
+        self._tolerancia(10, activacion=timezone.localdate() - timedelta(days=5))
+        self.assertEqual(self._con_inicio(20)["nacen_vencidas"], 0)
+
+    def test_inicio_futuro_no_cuenta(self):
+        self._tolerancia(0)
+        self.assertEqual(self._con_inicio(-5)["nacen_vencidas"], 0)
+
+
+class NaceBloqueadaTests(TestCase):
+    def test_usa_el_periodo_real_del_cron_no_el_ancla(self):
+        from pagos.acceso import nace_bloqueada
+
+        hoy = timezone.localdate()
+        gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        Gimnasio.objects.filter(pk=gimnasio.pk).update(
+            dias_tolerancia_pago=10,
+            fecha_activacion_bloqueo=hoy - timedelta(days=400),
+        )
+        gimnasio.refresh_from_db()
+        # Ancla de hace 30 días: el ciclo vigente arrancó hace 2, no bloquea.
+        self.assertFalse(nace_bloqueada(gimnasio, hoy - timedelta(days=30), hoy))
+        self.assertTrue(nace_bloqueada(gimnasio, hoy - timedelta(days=10), hoy))
+        self.assertFalse(nace_bloqueada(gimnasio, None, hoy))
 
 
 class EscalaTests(BaseAlumnosTests):
