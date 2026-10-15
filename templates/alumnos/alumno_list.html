@@ -163,6 +163,10 @@
       var n = tildados().length;
       conteo.textContent = n ? n + " seleccionado" + (n === 1 ? "" : "s") : "";
       form.querySelectorAll('button[name="accion"]').forEach(function (b) { b.disabled = n === 0; });
+      // `ids` se sincroniza acá y no en el submit: htmx (hx-boost) arma el
+      // request con su propio listener, y no hay garantía de que el nuestro
+      // corra antes. Así el valor ya está cargado antes de cualquier envío.
+      ids.value = tildados().map(function (c) { return c.dataset.id; }).join(",");
     }
     checks.forEach(function (c) { c.addEventListener("change", actualizar); });
     todos.addEventListener("click", function () {
@@ -171,9 +175,8 @@
       actualizar();
     });
     form.addEventListener("submit", function (e) {
-      var marcados = tildados();
-      if (!marcados.length) { e.preventDefault(); return; }
-      ids.value = marcados.map(function (c) { return c.dataset.id; }).join(",");
+      // Solo guarda contra el envío vacío; `ids` ya viene sincronizado.
+      if (!tildados().length) { e.preventDefault(); }
     });
     barra.hidden = false;
     actualizar();

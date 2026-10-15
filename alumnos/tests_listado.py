@@ -135,6 +135,17 @@ class BarraDeSeleccionTests(ListadoBase):
         self.assertNotIn("name=", checks[0])
         self.assertIn(f'data-id="{a.pk}"', checks[0])
 
+    def test_ids_se_sincronizan_dentro_de_actualizar(self):
+        """`ids` no puede depender del orden de los listeners de submit: lo
+        escribe `actualizar()`, que corre en cada cambio y al arrancar."""
+        self.crear("A", "Uno")
+        html = self.client.get(self.url).content.decode()
+        cuerpo = html.split("function actualizar()")[1].split("checks.forEach")[0]
+        self.assertIn("ids.value =", cuerpo)
+        # El listener de submit ya no escribe `ids`.
+        submit = html.split('addEventListener("submit"')[1]
+        self.assertNotIn("ids.value", submit.split("barra.hidden")[0])
+
     def test_links_a_la_ficha_conservan_hx_boost_false(self):
         a = self.crear("A", "Uno")
         r = self.client.get(self.url)
