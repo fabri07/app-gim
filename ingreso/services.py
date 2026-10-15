@@ -149,8 +149,12 @@ def generar_credencial_qr(alumno, *, regenerar=False):
 
 
 @transaction.atomic
-def generar_credenciales_en_bloque(gimnasio):
+def generar_credenciales_en_bloque(gimnasio, alumno_ids=None):
     """Le crea el QR a todos los alumnos ACTIVOS que todavía no tienen.
+
+    Con `alumno_ids` (la acción en lote del listado) se acota además a esos
+    alumnos; sin él (el botón «Generar códigos de ingreso») es todo el
+    gimnasio, como siempre. Los inactivos se saltean en los dos casos.
 
     Un `bulk_create` y no una query por alumno: el gimnasio de 200 alumnos es
     justo el caso que motiva el botón.
@@ -172,6 +176,8 @@ def generar_credenciales_en_bloque(gimnasio):
         .filter(estado=Alumno.Estado.ACTIVO)
         .exclude(pk__in=ya_tienen)
     )
+    if alumno_ids is not None:
+        faltantes = faltantes.filter(pk__in=alumno_ids)
     nuevas = [
         Credencial(
             gimnasio=gimnasio, alumno=alumno,

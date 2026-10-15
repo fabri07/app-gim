@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+{% block title %}{% if accion == "fijar_fecha" %}Fijar fecha de inicio{% else %}Dar de baja{% endif %} · App Gimnasios{% endblock %}
+
+{% block content %}
+{% comment %}
+  Confirmación de las acciones en lote que la piden (`AlumnoLoteView`): fijar
+  fecha de inicio y dar de baja. Los ids viajan en un hidden, igual que desde
+  la barra del listado. Ningún form de acá lleva `hx-boost="false"`: no hay
+  archivo ni redirect externo. Los botones no tienen `name` (`confirmado` va en
+  un hidden), así que deshabilitarlos al enviar no saca nada del POST.
+{% endcomment %}
+<div class="tarjeta">
+  {% if accion == "fijar_fecha" %}
+    <h1>Fijar fecha de inicio</h1>
+
+    <p>
+      {% if cambian %}
+        <strong>{{ cambian|length }}</strong> alumno{{ cambian|length|pluralize }} cambia{{ cambian|length|pluralize:"n" }}: {{ nombres_cambian }}.
+      {% else %}
+        Ninguno de los seleccionados puede cambiar.
+      {% endif %}
+    </p>
+    {% if saltean %}
+      <p class="texto-suave">
+        Se saltea{{ saltean|length|pluralize:"n" }} {{ saltean|length }} porque ya tiene{{ saltean|length|pluralize:"n" }} cuotas emitidas (mover la fecha solaparía períodos ya cobrados): {{ nombres_saltean }}.
+      </p>
+    {% endif %}
+    {% if no_encontrados %}
+      <p class="texto-suave">{{ no_encontrados }} de los seleccionados no se encontraron (no son de tu gimnasio o ya no existen).</p>
+    {% endif %}
+
+    <form method="post" class="js-un-envio">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="fijar_fecha">
+      <input type="hidden" name="ids" value="{{ ids_csv }}">
+      <input type="hidden" name="filtros" value="{{ filtros }}">
+      {% include 'partials/campo_form.html' with campo=form.fecha %}
+      <button type="submit" class="boton-secundario">Ver cómo queda con esta fecha</button>
+    </form>
+
+    {% if fecha and cambian %}
+      {% if bloqueados %}
+        <div class="aviso-urgente mt-4">
+          {{ bloqueados }} alumno{{ bloqueados|pluralize }} activo{{ bloqueados|pluralize }} nacería{{ bloqueados|pluralize:"n" }} con el acceso pausado: con el {{ fecha|date:"d/m/Y" }} la primera cuota ya pasó la tolerancia de {{ tolerancia }} día{{ tolerancia|pluralize }} y el acceso se pausa esta misma noche, cuando corre el cobro.
+        </div>
+      {% endif %}
+      <p class="texto-suave mt-4">
+        Si después le asignás a alguno su primera rutina con otra fecha de inicio, el ciclo pasa a arrancar ese día (mientras todavía no tenga cuotas).
+      </p>
+      <form method="post" class="js-un-envio">
+        {% csrf_token %}
+        <input type="hidden" name="accion" value="fijar_fecha">
+        <input type="hidden" name="ids" value="{{ ids_csv }}">
+        <input type="hidden" name="filtros" value="{{ filtros }}">
+        <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
+        <input type="hidden" name="confirmado" value="1">
+        <button type="submit" class="boton">Confirmar: arrancan el {{ fecha|date:"d/m/Y" }}</button>
+        <a class="boton-secundario" href="{{ url_listado }}">Cancelar</a>
+      </form>
+    {% else %}
+      <p class="mt-4"><a class="boton-secundario" href="{{ url_listado }}">Volver al listado</a></p>
+    {% endif %}
+
+  {% else %}
+    <h1>Dar de baja</h1>
+
+    <p>
+      {% if cambian %}
+        Vas a dar de baja a <strong>{{ cambian|length }}</strong> alumno{{ cambian|length|pluralize }}: {{ nombres_cambian }}.
+      {% else %}
+        Ninguno de los seleccionados está activo.
+      {% endif %}
+    </p>
+    {% if ya_estaban %}
+      <p class="texto-suave">Ya estaba{{ ya_estaban|length|pluralize:"n" }} de baja: {{ nombres_ya_estaban }}.</p>
+    {% endif %}
+    {% if no_encontrados %}
+      <p class="texto-suave">{{ no_encontrados }} de los seleccionados no se encontraron (no son de tu gimnasio o ya no existen).</p>
+    {% endif %}
+
+    {% if cambian %}
+      <ul>
+        <li>Pierden el acceso a la app: no pueden iniciar sesión hasta que los reactives.</li>
+        <li>Su código QR y su cara salen del padrón del lector de la puerta. Al reactivarlos hay que volver a enrolar la cara en el equipo.</li>
+        <li>No se borra nada: sus pagos y rutinas quedan como historial.</li>
+      </ul>
+      <form method="post" class="js-un-envio mt-4">
+        {% csrf_token %}
+        <input type="hidden" name="accion" value="dar_de_baja">
+        <input type="hidden" name="ids" value="{{ ids_csv }}">
+        <input type="hidden" name="filtros" value="{{ filtros }}">
+        <input type="hidden" name="confirmado" value="1">
+        <button type="submit" class="boton-peligro">Sí, dar de baja</button>
+        <a class="boton-secundario" href="{{ url_listado }}">Cancelar</a>
+      </form>
+    {% else %}
+      <p class="mt-4"><a class="boton-secundario" href="{{ url_listado }}">Volver al listado</a></p>
+    {% endif %}
+  {% endif %}
+</div>
+
+<script>
+  // Frena el doble click: un segundo envío de la baja no hace daño (se
+  // excluyen los ya inactivos), pero sí duplicaría el mensaje de resultado.
+  document.querySelectorAll("form.js-un-envio").forEach(function (form) {
+    form.addEventListener("submit", function () {
+      form.querySelectorAll('button[type="submit"]').forEach(function (b) { b.disabled = true; });
+    });
+  });
+</script>
+{% endblock %}

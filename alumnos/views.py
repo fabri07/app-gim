@@ -22,6 +22,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import urlencode
 from django.utils.cache import add_never_cache_headers
 from django.utils.decorators import method_decorator
@@ -33,20 +34,10 @@ from django.views.generic.detail import SingleObjectMixin
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
 from tenants.mixins import StaffRequiredMixin
-from alumnos import identidad
+from alumnos import identidad, lote
 from alumnos import services as servicios
-from alumnos.forms import AlumnoForm, CrearAccesoForm
+from alumnos.forms import AlumnoForm, CrearAccesoForm, LoteForm
 from alumnos.models import Alumno
-
-
-# Topes de las acciones en lote (los usa el listado para avisar y la vista
-# del lote para rechazar). Fijar fecha es un solo UPDATE; baja y reactivación
-# guardan alumno por alumno (señales), por eso el tope es menor.
-MAX_LOTE_FECHA = 1000
-MAX_LOTE_ESTADO = 200
-
-# Únicas claves del listado que viajan al volver de una acción en lote.
-FILTROS_LISTADO = ("q", "estado", "sin_fecha")
 
 
 class AlumnoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
@@ -92,12 +83,10 @@ class AlumnoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         context["filtros_qs"] = urlencode(
             {
                 clave: valor
-                for clave in FILTROS_LISTADO
+                for clave in lote.FILTROS_LISTADO
                 if (valor := self.request.GET.get(clave, "").strip())
             }
         )
-        context["max_lote_fecha"] = MAX_LOTE_FECHA
-        context["max_lote_estado"] = MAX_LOTE_ESTADO
         # Un set de ids y no una consulta por fila: el template marca al
         # alumno con `a.pk in alumnos_por_vencer`, que en Django es una
         # búsqueda en memoria. Con una property en el modelo serían dos
@@ -110,15 +99,202 @@ class AlumnoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
 
 
 class AlumnoLoteView(StaffRequiredMixin, TenantScopedMixin, View):
-    """Acciones en lote del listado (la Task 10 las implementa).
+    """Acciones en lote del listado: fijar fecha de inicio, dar de baja,
+    reactivar y generar códigos de ingreso. Las escrituras viven en
+    `alumnos/lote.py`; acá se decide qué mostrar.
 
-    Por ahora no hace nada: GET y POST vuelven al listado.
+    **Ningún error del usuario devuelve un 4xx**: bajo el `hx-boost` global es
+    un click mudo. Selección vacía o inválida, ids de otro gimnasio y tope
+    excedido vuelven al listado con un mensaje; una fecha inválida re-renderiza
+    la confirmación (200) con el error debajo del campo. Un GET vuelve al
+    listado.
+
+    **Fijar fecha va en dos pasos, y la fecha se ve ANTES de ejecutar.** El
+    POST de la barra (sin `fecha`) muestra la confirmación con hoy por
+    defecto, quiénes cambian, quiénes se saltean por tener cuotas y cuántos
+    activos nacerían con el acceso pausado con ESA fecha. La pantalla tiene
+    dos forms: uno para cambiar la fecha (re-renderiza con el conteo nuevo) y
+    otro que confirma la fecha ya revisada, que viaja en un hidden. Así no hay
+    forma de confirmar una fecha distinta de la que generó el aviso.
+
+    Dar de baja también pide confirmación (corta el acceso y saca al alumno
+    del padrón del lector). Reactivar y generar códigos van directo: lo
+    primero se deshace con una baja, y lo segundo es idempotente.
     """
+
+    template_name = "alumnos/lote_confirmar.html"
 
     def get(self, request, *args, **kwargs):
         return redirect("alumnos:listado")
 
-    post = get
+    def post(self, request, *args, **kwargs):
+        self.filtros = lote.filtros_seguros(request.POST.get("filtros", ""))
+        datos = request.POST.copy()
+        # El POST de la barra no trae `fecha`: se propone hoy. Una `fecha`
+        # presente pero vacía sí es un error (la borró el usuario).
+        if datos.get("accion") == LoteForm.FIJAR_FECHA and "fecha" not in datos:
+            datos["fecha"] = timezone.localdate().isoformat()
+        form = LoteForm(datos)
+        form.is_valid()
+        for campo in ("accion", "ids"):
+            if campo in form.errors:
+                return self._volver(error=form.errors[campo][0])
+        accion = form.cleaned_data["accion"]
+        ids = form.cleaned_data["ids"]
+
+        # El tope se cuenta sobre lo que es de este gimnasio: ids ajenos o
+        # inexistentes se descartan en silencio y solo se informa cuántos.
+        encontrados = list(
+            Alumno.objects.for_gimnasio(self.gimnasio)
+            .filter(pk__in=ids)
+            .values_list("pk", flat=True)
+        )
+        self.no_encontrados = len(ids) - len(encontrados)
+        if not encontrados:
+            return self._volver(error="No se encontró ninguno de los alumnos seleccionados.")
+        tope = (
+            lote.MAX_LOTE_FECHA
+            if accion == LoteForm.FIJAR_FECHA
+            else lote.MAX_LOTE_ESTADO
+        )
+        if accion != LoteForm.GENERAR_CODIGOS and len(encontrados) > tope:
+            return self._volver(
+                error=(
+                    f"Seleccionaste {len(encontrados)} alumnos y el máximo para "
+                    f"esta acción es {tope}. Filtrá el listado y hacelo por partes."
+                )
+            )
+
+        manejar = {
+            LoteForm.FIJAR_FECHA: self._fijar_fecha,
+            LoteForm.DAR_DE_BAJA: self._dar_de_baja,
+            LoteForm.REACTIVAR: self._reactivar,
+            LoteForm.GENERAR_CODIGOS: self._generar_codigos,
+        }[accion]
+        return manejar(form, encontrados)
+
+    # -- Acciones ---------------------------------------------------------
+
+    def _fijar_fecha(self, form, ids):
+        from pagos.acceso import nace_bloqueada
+
+        # Con error de rango, `cleaned_data` ya no trae la fecha.
+        fecha = form.cleaned_data.get("fecha")
+        if fecha is None and "fecha" not in form.errors:
+            form.add_error("fecha", "Elegí la fecha de inicio.")
+        if fecha is not None and form.cleaned_data.get("confirmado"):
+            cambiados, salteados = lote.fijar_fecha_inicio(self.gimnasio, ids, fecha)
+            texto = (
+                f"Fecha fijada a {cambiados} alumno{'s' if cambiados != 1 else ''} "
+                f"({fecha:%d/%m/%Y})."
+            )
+            if salteados:
+                texto += (
+                    f" {len(salteados)} se saltearon porque ya tienen cuotas: "
+                    f"{lote.nombres(salteados)}."
+                )
+            nivel = messages.success if cambiados else messages.warning
+            return self._volver(texto, nivel=nivel)
+
+        cambian, saltean = lote.separar_por_cuotas(self.gimnasio, ids)
+        hoy = timezone.localdate()
+        # La regla es la del bloqueo real y depende solo de la fecha, no del
+        # alumno: o nacen bloqueados todos los activos que cambian, o ninguno.
+        # Los inactivos no cuentan: el cron no les emite cuotas.
+        bloqueados = 0
+        if fecha is not None and nace_bloqueada(self.gimnasio, fecha, hoy):
+            bloqueados = sum(1 for a in cambian if a.estado == Alumno.Estado.ACTIVO)
+        return self._confirmar(
+            form,
+            ids,
+            fecha=fecha,
+            cambian=cambian,
+            saltean=saltean,
+            nombres_cambian=lote.nombres(cambian),
+            nombres_saltean=lote.nombres(saltean),
+            bloqueados=bloqueados,
+        )
+
+    def _dar_de_baja(self, form, ids):
+        if form.cleaned_data.get("confirmado"):
+            cambiados = lote.cambiar_estado(self.gimnasio, ids, Alumno.Estado.INACTIVO)
+            if not cambiados:
+                return self._volver("Ninguno cambió: ya estaban dados de baja.", nivel=messages.info)
+            return self._volver(
+                f"{len(cambiados)} dado{'s' if len(cambiados) != 1 else ''} de baja: "
+                f"{lote.nombres(cambiados)}."
+            )
+        alumnos = list(Alumno.objects.for_gimnasio(self.gimnasio).filter(pk__in=ids))
+        cambian = [a for a in alumnos if a.estado != Alumno.Estado.INACTIVO]
+        ya_estaban = [a for a in alumnos if a.estado == Alumno.Estado.INACTIVO]
+        return self._confirmar(
+            form,
+            ids,
+            cambian=cambian,
+            ya_estaban=ya_estaban,
+            nombres_cambian=lote.nombres(cambian),
+            nombres_ya_estaban=lote.nombres(ya_estaban),
+        )
+
+    def _reactivar(self, form, ids):
+        cambiados = lote.cambiar_estado(self.gimnasio, ids, Alumno.Estado.ACTIVO)
+        if not cambiados:
+            return self._volver("Ninguno cambió: ya estaban activos.", nivel=messages.info)
+        texto = (
+            f"{len(cambiados)} reactivado{'s' if len(cambiados) != 1 else ''}: "
+            f"{lote.nombres(cambiados)}."
+        )
+        # El importado sin ancla vuelve sin ancla (la señal no lo toca): hay
+        # que decirlo, o se reactiva creyendo que se le empieza a cobrar.
+        sin_fecha = [a for a in cambiados if a.fecha_inicio_ciclo is None]
+        if sin_fecha:
+            texto += (
+                f" {len(sin_fecha)} siguen sin fecha de inicio: no se les cobra "
+                "hasta que se la cargues."
+            )
+        return self._volver(texto)
+
+    def _generar_codigos(self, form, ids):
+        from ingreso.services import generar_credenciales_en_bloque
+
+        creadas = generar_credenciales_en_bloque(self.gimnasio, alumno_ids=ids)
+        texto = f"Se generaron {creadas} código{'s' if creadas != 1 else ''} de ingreso."
+        if creadas < len(ids):
+            texto += " Los demás ya tenían uno o están dados de baja."
+        return self._volver(texto)
+
+    # -- Salidas ----------------------------------------------------------
+
+    def _url_listado(self):
+        url = reverse("alumnos:listado")
+        return f"{url}?{self.filtros}" if self.filtros else url
+
+    def _volver(self, texto=None, *, error=None, nivel=messages.success):
+        if error:
+            messages.error(self.request, error)
+        elif texto:
+            nivel(self.request, texto)
+        no_encontrados = getattr(self, "no_encontrados", 0)
+        if no_encontrados and not error:
+            messages.warning(
+                self.request,
+                f"{no_encontrados} no se "
+                f"{'encontró' if no_encontrados == 1 else 'encontraron'} "
+                "(no son de tu gimnasio o ya no existen).",
+            )
+        return redirect(self._url_listado())
+
+    def _confirmar(self, form, ids, **contexto):
+        contexto.update(
+            form=form,
+            accion=form.cleaned_data["accion"],
+            ids_csv=",".join(str(pk) for pk in ids),
+            filtros=self.filtros,
+            url_listado=self._url_listado(),
+            no_encontrados=self.no_encontrados,
+            tolerancia=self.gimnasio.dias_tolerancia_pago,
+        )
+        return render(self.request, self.template_name, contexto)
 
 
 class AccesoListView(StaffRequiredMixin, TenantScopedMixin, ListView):

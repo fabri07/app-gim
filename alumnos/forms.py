@@ -11,6 +11,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from core.forms import TenantScopedModelForm
 from alumnos import identidad
+from alumnos.ciclo import rango_inicio_ciclo
 from alumnos.models import Alumno
 
 
@@ -149,3 +150,64 @@ class CrearAccesoForm(forms.Form):
         except DjangoValidationError as exc:
             self.add_error("identificador", exc.messages)
         return datos
+
+
+class LoteForm(forms.Form):
+    """Una acción en lote del listado de alumnos.
+
+    Los ids viajan en UN campo separado por comas y no como un checkbox con
+    `name` por fila: con cientos de filas se pasaba
+    `DATA_UPLOAD_MAX_NUMBER_FIELDS`, y bajo `hx-boost` ese 400 es un click
+    mudo. Que pertenezcan al gimnasio lo revalida la vista contra la base; acá
+    solo se valida la forma.
+
+    `fecha` no es obligatoria en el form porque solo la usa «fijar fecha»; la
+    vista la exige para esa acción. El rango sale de `alumnos/ciclo.py`, la
+    misma fuente que el importador.
+    """
+
+    FIJAR_FECHA = "fijar_fecha"
+    DAR_DE_BAJA = "dar_de_baja"
+    REACTIVAR = "reactivar"
+    GENERAR_CODIGOS = "generar_codigos"
+    ACCIONES = [
+        (FIJAR_FECHA, "Fijar fecha de inicio"),
+        (DAR_DE_BAJA, "Dar de baja"),
+        (REACTIVAR, "Reactivar"),
+        (GENERAR_CODIGOS, "Generar códigos de ingreso"),
+    ]
+
+    accion = forms.ChoiceField(choices=ACCIONES)
+    ids = forms.CharField(
+        error_messages={"required": "No seleccionaste ningún alumno."},
+    )
+    fecha = forms.DateField(
+        required=False,
+        label="Fecha de inicio del ciclo",
+        help_text="Desde ese día se les empieza a cobrar la cuota.",
+        widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+    )
+    confirmado = forms.BooleanField(required=False)
+    filtros = forms.CharField(required=False)
+
+    def clean_ids(self):
+        crudos = [parte.strip() for parte in self.cleaned_data["ids"].split(",")]
+        crudos = [parte for parte in crudos if parte]
+        if not crudos:
+            raise forms.ValidationError("No seleccionaste ningún alumno.")
+        if not all(parte.isdigit() for parte in crudos):
+            raise forms.ValidationError("La selección de alumnos no es válida.")
+        # `dict.fromkeys` deduplica conservando el orden.
+        return list(dict.fromkeys(int(parte) for parte in crudos))
+
+    def clean_fecha(self):
+        fecha = self.cleaned_data.get("fecha")
+        if fecha is None:
+            return None
+        desde, hasta = rango_inicio_ciclo(timezone.localdate())
+        if not desde <= fecha <= hasta:
+            raise forms.ValidationError(
+                f"La fecha tiene que estar entre el {desde:%d/%m/%Y} y el "
+                f"{hasta:%d/%m/%Y}."
+            )
+        return fecha
