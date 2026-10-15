@@ -4797,6 +4797,40 @@ class IndicadoresTemporalesTests(TestCase):
         self.assertEqual(septiembre["bajas"], 1)
         self.assertEqual(septiembre["neto"], 1)
 
+    def test_un_alumno_importado_no_cuenta_como_alta_en_el_grafico(self):
+        """Importar el padrón no es crecimiento: sin esto, el día de la carga
+        el gráfico mostraría cientos de altas en un solo mes."""
+        from alumnos.models import Alumno
+
+        self._alumno("Ana", creado=date(2026, 9, 2))
+        importado = self._alumno("Beto", creado=date(2026, 9, 3))
+        Alumno.objects.filter(pk=importado.pk).update(importado=True)
+
+        filas = analitica.altas_y_bajas_por_mes(
+            self.gimnasio, meses=2, hoy=self.hoy
+        )
+        septiembre = [f for f in filas if f["etiqueta"] == "sep 26"][0]
+        self.assertEqual(septiembre["altas"], 1)
+
+    def test_la_baja_de_un_importado_si_cuenta(self):
+        """Solo el alta se excluye: una baja posterior pasa por `save()` real
+        y es un hecho del gimnasio como cualquier otro."""
+        from alumnos.models import Alumno
+
+        alumno = self._alumno("Ana", creado=date(2026, 7, 1))
+        Alumno.objects.filter(pk=alumno.pk).update(importado=True)
+        alumno.refresh_from_db()
+        alumno.estado = Alumno.Estado.INACTIVO
+        alumno.save()
+        Alumno.objects.filter(pk=alumno.pk).update(fecha_baja=date(2026, 9, 10))
+
+        filas = analitica.altas_y_bajas_por_mes(
+            self.gimnasio, meses=3, hoy=self.hoy
+        )
+        por_mes = {f["etiqueta"]: f for f in filas}
+        self.assertEqual(por_mes["jul 26"]["altas"], 0)
+        self.assertEqual(por_mes["sep 26"]["bajas"], 1)
+
     def test_no_mezcla_alumnos_de_otro_gimnasio(self):
         self._alumno("Ajeno", creado=date(2026, 9, 1), gimnasio=self.otro)
 
@@ -4865,6 +4899,21 @@ class IndicadoresTemporalesTests(TestCase):
         self.assertEqual(datos["altas_del_mes"], 1)
         self.assertEqual(datos["altas_mes_anterior"], 1)
         self.assertEqual(datos["altas_diferencia"], 0)
+
+    def test_un_alumno_importado_no_suma_a_las_altas_del_mes(self):
+        from alumnos.models import Alumno
+
+        self._alumno("Ana", creado=date(2026, 9, 3))
+        importado = self._alumno("Beto", creado=date(2026, 9, 4))
+        previo = self._alumno("Caro", creado=date(2026, 8, 5))
+        Alumno.objects.filter(pk__in=[importado.pk, previo.pk]).update(
+            importado=True
+        )
+
+        datos = analitica.indicadores_del_momento(self.gimnasio, hoy=self.hoy)
+
+        self.assertEqual(datos["altas_del_mes"], 1)
+        self.assertEqual(datos["altas_mes_anterior"], 0)
 
     def test_cobranza_sin_cuotas_emitidas_no_es_cero_por_ciento(self):
         """"0% cobrado" en un mes sin cuotas emitidas es alarmante y falso."""

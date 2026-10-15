@@ -18,6 +18,7 @@ class Importacion(TenantOwnedModel):
     class Tipo(models.TextChoices):
         PLANTILLAS = 'plantillas', 'Plantillas de rutina'
         BIBLIOTECA = 'biblioteca', 'Biblioteca de ejercicios'
+        ALUMNOS = 'alumnos', 'Alumnos'
 
     class Estado(models.TextChoices):
         EN_REVISION = 'en_revision', 'Pendiente de revisión'

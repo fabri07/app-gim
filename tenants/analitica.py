@@ -382,7 +382,7 @@ def altas_y_bajas_por_mes(gimnasio, *, meses=_MESES_DE_HISTORIAL, hoy=None):
     base = Alumno.objects.for_gimnasio(gimnasio)
     altas = {
         fila["mes"].date() if hasattr(fila["mes"], "date") else fila["mes"]: fila["total"]
-        for fila in base.filter(creado__date__gte=desde)
+        for fila in base.filter(creado__date__gte=desde, importado=False)
         .annotate(mes=TruncMonth("creado"))
         .values("mes")
         .annotate(total=Count("id"))
@@ -541,8 +541,10 @@ def indicadores_del_momento(gimnasio, *, hoy=None):
     reservas = Reserva.objects.for_gimnasio(gimnasio)
     alumnos = Alumno.objects.for_gimnasio(gimnasio)
 
-    altas_mes = alumnos.filter(creado__date__gte=inicio_mes).count()
-    altas_mes_anterior = alumnos.filter(
+    # Los importados no son altas: cargar el padrón de un día no es crecimiento.
+    altas = alumnos.filter(importado=False)
+    altas_mes = altas.filter(creado__date__gte=inicio_mes).count()
+    altas_mes_anterior = altas.filter(
         creado__date__gte=inicio_mes_anterior, creado__date__lt=inicio_mes
     ).count()
 

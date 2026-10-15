@@ -70,9 +70,19 @@ class Alumno(TenantOwnedModel):
         "Inicio del ciclo de pago",
         null=True,
         blank=True,
-        help_text="Día a partir del cual se cuentan los ciclos de cobro. Se "
-        "completa solo con la fecha de la primera rutina asignada; corregilo "
-        "solo si el alumno empezó a entrenar otro día.",
+        help_text="Día a partir del cual se cuentan los ciclos de cobro. Si el "
+        "alumno vino de una importación y todavía no la tiene, no se le emite "
+        "ninguna cuota hasta que se la fijes. Se completa sola con la primera "
+        "rutina si el alumno todavía no tiene cuotas.",
+    )
+    # Marca de los alumnos que entraron por el importador de Excel. Se crean
+    # con `bulk_create`, o sea sin señales, así que este flag existe solo para
+    # que importar el padrón no infle las ALTAS de la analítica (las bajas sí
+    # cuentan: una baja posterior pasa por `save()` real).
+    importado = models.BooleanField(
+        default=False,
+        editable=False,
+        help_text="Entró por el importador de Excel; no cuenta como alta del mes.",
     )
     # Ficha de inscripción ampliada (cargada por el staff el día del alta):
     # todos blank=True a propósito -- no todo alumno cuenta todo el detalle
