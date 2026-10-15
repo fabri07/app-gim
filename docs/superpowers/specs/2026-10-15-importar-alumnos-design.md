@@ -141,12 +141,17 @@ a observaciones).
 - **Booleanos** (`actividad_fisica_previa`, `tiene_*`): verdadero = sí, si, s,
   x, 1, true, verdadero, yes, y, ✓; falso = no, n, 0, false, falso, vacío, «-».
   Texto que empieza con «si/sí» + resto («Sí, asma») → verdadero y el resto va
-  al `*_detalle` si está vacío (aviso). **Negativos → falso, sin detalle y sin
-  aviso**: «ninguna», «ninguno», «n/a», «na», «—», y todo texto que empiece con
-  «no » o «ningun» («No tiene», «No posee», «Ninguna conocida»). Es la regla de
-  «no inventar»: una columna «Discapacidad» llena de «Ninguna» es el formato más
-  común de una ficha real, y volverla un sí con «Ninguna» de detalle inventaría
-  un dato de salud. En `tiene_*`, un texto que no es ni negativo ni afirmativo
+  al `*_detalle` si está vacío (aviso). **Negativos conocidos → falso, sin
+  detalle y sin aviso**: «ninguna», «ninguno», «n/a», «na», «—», «-» y una
+  lista cerrada de frases enteras («No tiene», «No posee», «No presenta», «No
+  refiere», «No padece», «Ninguna conocida», «Ningún problema», «Nada»…). Es la
+  regla de «no inventar»: una columna «Discapacidad» llena de «Ninguna» es el
+  formato más común de una ficha real, y volverla un sí con «Ninguna» de detalle
+  inventaría un dato de salud. **Cualquier otro texto que empiece con «no» o
+  «ningún»** («No ve bien», «No camina sin ayuda», «Ninguna salvo asma») →
+  falso, **con aviso, y el texto original va a observaciones**: no se inventa
+  un sí y tampoco se pierde el dato. Un detalle que es un negativo conocido
+  («No tiene») tampoco marca `tiene_*` como sí. En `tiene_*`, un texto que no es ni negativo ni afirmativo
   («Sordera», «Motriz») → verdadero y el texto va al `*_detalle` (aviso): cubre
   una sola columna «Discapacidad» con texto libre. En `actividad_fisica_previa`, texto no
   entendido → falso + aviso + observaciones; «Sí, fútbol» → verdadero y el resto

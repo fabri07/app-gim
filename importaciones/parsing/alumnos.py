@@ -342,21 +342,50 @@ _RE_SI_Y_RESTO = re.compile(r"^s[ií](?!\w)[\s,:;.\-–]*(.*)$", re.IGNORECASE)
 # Detalles que dicen «no hay nada»: no infieren `tiene_* = True`.
 _DETALLE_VACIO = {"", "no", "ninguna", "ninguno", "-", "n", "n/a", "na"}
 
+# Frases ENTERAS (normalizadas, sin la puntuación final) que en una ficha dicen
+# «no hay nada». Es una lista cerrada a propósito: un prefijo como «no …» o
+# «no tiene …» también abarca «No ve bien», «No camina sin ayuda» o «No tiene
+# la pierna derecha», que son justamente el dato de salud.
+_NEGATIVOS_CONOCIDOS = {
+    "ningun", "ninguna", "ninguno", "nada",
+    "ningun problema", "ninguna conocida", "ninguno conocido",
+    "no tiene", "no posee", "no presenta", "no refiere", "no padece",
+    "no sufre", "no tengo", "no aplica", "no corresponde",
+    "no tiene ninguna", "no tiene ninguno", "no posee ninguna",
+    "no presenta ninguna", "no refiere ninguna",
+    "no, ninguna", "no, ninguno", "no ninguna", "no ninguno",
+}
+# Un texto que empieza negando pero no es un negativo conocido: no se sabe qué
+# niega («No ve bien» es una discapacidad). Ni sí ni no: aviso y observaciones.
+_RE_EMPIEZA_NEGANDO = re.compile(r"^(no|ningun[oa]?)\b")
+
 
 def _es_negativo(norm):
-    """«Ninguna», «N/A», «No tiene», «No posee», «Ninguna conocida»…: dicen que
-    NO hay nada. Nunca pueden volverse un sí con el texto como detalle: eso
-    sería inventar un dato de salud."""
+    """«Ninguna», «N/A», «No tiene», «No posee», «Ninguna conocida», «—»…:
+    dicen que NO hay nada. Nunca pueden volverse un sí con el texto como
+    detalle: eso sería inventar un dato de salud. Solo valores y frases
+    conocidas: otro texto que empiece con «no» NO es negativo (ver
+    `empieza_negando`)."""
     return (
         norm in _FALSO or norm in _DETALLE_VACIO
-        or norm.startswith("no ") or norm.startswith("ningun")
+        or norm.rstrip(" .;,!") in _NEGATIVOS_CONOCIDOS
     )
+
+
+def empieza_negando(texto):
+    """¿Empieza con «no»/«ningún» sin ser un negativo conocido? («No ve
+    bien», «Ninguna salvo asma».) No se le puede decir sí (inventaría el dato)
+    ni no sin más (perdería el texto): queda en «no» con aviso y el texto va a
+    observaciones."""
+    norm = normalizar_texto(texto)
+    return not _es_negativo(norm) and bool(_RE_EMPIEZA_NEGANDO.match(norm))
 
 
 def leer_booleano(valor):
     """`(True | False | None, resto)`. `None` = texto que no es ni afirmativo ni
-    negativo. «Sí, asma» -> `(True, "asma")`: el resto es lo que sobra después
-    del sí. Los negativos («Ninguna», «No tiene», «—»…) dan `False`."""
+    negativo (incluye «No ve bien»: ver `empieza_negando`). «Sí, asma» ->
+    `(True, "asma")`: el resto es lo que sobra después del sí. Los negativos
+    conocidos («Ninguna», «No tiene», «—»…) dan `False`."""
     if isinstance(valor, bool):
         return valor, ""
     texto = _texto(valor)
@@ -372,8 +401,10 @@ def leer_booleano(valor):
 
 
 def detalle_informa(detalle):
-    """¿El detalle dice algo (no es «ninguna», «-», vacío…)?"""
-    return normalizar_texto(detalle) not in _DETALLE_VACIO
+    """¿El detalle dice algo (no es «ninguna», «no tiene», «-», vacío…)?
+    Usa los mismos negativos que `leer_booleano`: un detalle «No tiene» no
+    puede marcar `tiene_*` como sí."""
+    return not _es_negativo(normalizar_texto(detalle))
 
 
 # ----------------------------------------------------------------- sexo ----
@@ -484,7 +515,15 @@ def _par_tiene_detalle(v, campo_tiene, campo_detalle, avisos, no_cargados):
 
     if not tiene_vacio:
         valor, resto = leer_booleano(crudo)
-        if valor is None:
+        if valor is None and empieza_negando(_texto(crudo)):
+            # «No ve bien»: ni un sí inventado ni un no que pierde el texto.
+            avisos.append(
+                f"No entendí «{_texto(crudo)}» en {etiqueta.lower()}: lo dejé "
+                "en «no» y lo copié a observaciones"
+            )
+            no_cargados.append(f"{etiqueta} «{_texto(crudo)}»")
+            resto = ""
+        elif valor is None:
             # Una sola columna «Discapacidad» con texto libre.
             tiene, resto = True, _texto(crudo)
         else:

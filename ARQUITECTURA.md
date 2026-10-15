@@ -2448,9 +2448,16 @@ detecta además email, teléfono y largos que el lector no ve.
   spec** («otro texto no entendido en `tiene_*` → verdadero»): ganó el
   principio rector, y la spec se corrigió en el mismo fix. Lo fijan
   `tests_alumnos_parsing` `test_negativos_en_tiene_no_inventan_datos_de_salud`
-  y `test_texto_libre_que_no_es_negativo_sigue_siendo_si`. Costo aceptado: un
-  texto que empieza con «no » pero afirma («No ve bien») también da falso (ver
-  `ISSUES.md [2026-10-15]`).
+  y `test_texto_libre_que_no_es_negativo_sigue_siendo_si`. **Los negativos son
+  una lista cerrada** (`_FALSO`, `_DETALLE_VACIO` y `_NEGATIVOS_CONOCIDOS`:
+  «no tiene», «no posee», «no presenta», «no refiere», «ninguna conocida»,
+  «ningún problema», «nada»…, como frases enteras), nunca un prefijo: «No ve
+  bien» o «No camina sin ayuda» SON el dato de salud. Un texto que empieza con
+  «no»/«ningún» y no está en la lista (`empieza_negando`) queda en falso **con
+  aviso y el texto original en `no_cargados`** (o sea, en observaciones): ni un
+  sí inventado ni un no que pierde el dato. `detalle_informa` usa los mismos
+  negativos, así que un detalle «No tiene» no marca `tiene_*`. Lo fija
+  `test_un_texto_que_empieza_con_no_queda_en_no_con_aviso_y_no_se_pierde`.
 - **La «M» de sexo es ambigua y se decide mirando la columna entera**: si hay F
   y no H, M = masculino; si hay H y no F, M = femenino; con ambas o ninguna →
   vacío + aviso. La fila de ejemplo no cuenta para esa decisión, o su «M» le

@@ -763,6 +763,54 @@ class RondaDeArreglos1Tests(SimpleTestCase):
                     self.assertEqual(fila.avisos, [])
                     self.assertEqual(fila.no_cargados, [])
 
+    def test_otros_negativos_conocidos_tampoco_avisan(self):
+        for valor in ("No presenta", "No refiere.", "Ningún problema", "no, ninguna", "Nada"):
+            with self.subTest(valor=valor):
+                fila = una_fila(("Nombre", "Apellido", "Discapacidad"), ("Ana", "Gómez", valor))
+                self.assertFalse(fila.datos["tiene_discapacidad"])
+                self.assertEqual(fila.datos["discapacidad_detalle"], "")
+                self.assertEqual((fila.avisos, fila.no_cargados), ([], []))
+
+    def test_un_texto_que_empieza_con_no_queda_en_no_con_aviso_y_no_se_pierde(self):
+        """«No ve bien» ES el dato de salud: antes quedaba en falso sin aviso y
+        el texto se perdía. Ni un sí inventado ni un no mudo: «no», aviso, y el
+        texto original a observaciones."""
+        for campo, clave, valor in (
+            ("Discapacidad", "tiene_discapacidad", "No ve bien"),
+            ("Discapacidad", "tiene_discapacidad", "No camina sin ayuda"),
+            ("Enfermedad crónica", "tiene_enfermedad_cronica", "Ninguna salvo asma"),
+        ):
+            with self.subTest(valor=valor):
+                fila = una_fila(("Nombre", "Apellido", campo), ("Ana", "Gómez", valor))
+                self.assertFalse(fila.datos[clave])
+                self.assertEqual(fila.datos[clave.replace("tiene_", "") + "_detalle"], "")
+                self.assertEqual(len(fila.avisos), 1)
+                self.assertIn(valor, fila.avisos[0])
+                self.assertEqual(len(fila.no_cargados), 1)
+                self.assertIn(f"«{valor}»", fila.no_cargados[0])
+
+    def test_actividad_que_empieza_con_no_tambien_avisa(self):
+        fila = una_fila(
+            ("Nombre", "Apellido", "Actividad física previa"),
+            ("Ana", "Gómez", "No desde la pandemia"),
+        )
+        self.assertFalse(fila.datos["actividad_fisica_previa"])
+        self.assertTrue(fila.avisos)
+        self.assertEqual(len(fila.no_cargados), 1)
+
+    def test_una_palabra_que_empieza_con_no_no_es_un_no(self):
+        # «Nota…» o «Nódulo…» no niegan nada: `\b` en el regex.
+        self.assertFalse(lector.empieza_negando("Nódulo tiroideo"))
+        fila = una_fila(("Nombre", "Apellido", "Enfermedad crónica"), ("Ana", "Gómez", "Nódulo tiroideo"))
+        self.assertTrue(fila.datos["tiene_enfermedad_cronica"])
+
+    def test_un_detalle_negativo_no_marca_tiene_como_si(self):
+        fila = una_fila(
+            ("Nombre", "Apellido", "Detalle discapacidad"), ("Ana", "Gómez", "No tiene")
+        )
+        self.assertFalse(fila.datos["tiene_discapacidad"])
+        self.assertEqual(fila.avisos, [])
+
     def test_texto_libre_que_no_es_negativo_sigue_siendo_si(self):
         fila = una_fila(("Nombre", "Apellido", "Discapacidad"), ("Ana", "Gómez", "Motriz"))
         self.assertTrue(fila.datos["tiene_discapacidad"])
