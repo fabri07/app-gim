@@ -677,6 +677,28 @@ class IdentidadTests(SimpleTestCase):
                 with self.assertRaises(ValidationError):
                     identidad.normalizar_telefono(entrada)
 
+    def test_clave_telefono_unifica_las_formas_de_escribir_el_mismo_numero(self):
+        esperada = identidad.clave_telefono("+54 9 11 2233-4455")
+        self.assertEqual(esperada, "1122334455")
+        for entrada in [
+            "11 2233-4455",
+            "011 15 2233-4455",
+            "0054 11 2233 4455",
+            "1122334455",
+        ]:
+            with self.subTest(entrada=entrada):
+                self.assertEqual(identidad.clave_telefono(entrada), esperada)
+
+    def test_clave_telefono_extranjero_se_compara_por_sus_digitos(self):
+        """No levanta como `normalizar_telefono`: la clave solo sirve para
+        detectar duplicados, y un número de afuera igual puede repetirse."""
+        self.assertEqual(identidad.clave_telefono("+1 415 555 0100"), "14155550100")
+
+    def test_clave_telefono_sin_datos_suficientes_es_none(self):
+        for entrada in ["", None, "no-es-un-telefono", "12345", "+"]:
+            with self.subTest(entrada=entrada):
+                self.assertIsNone(identidad.clave_telefono(entrada))
+
     def test_normalizar_identificador_despacha_por_tipo(self):
         self.assertEqual(
             identidad.normalizar_identificador(identidad.TIPO_EMAIL, "A@B.com"),
