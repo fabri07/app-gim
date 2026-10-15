@@ -553,8 +553,10 @@ def construir_ejemplo_alumnos():
         "Actividad física previa, Tiene discapacidad y Tiene enfermedad crónica: Sí o No.",
         "Un dato que no se entienda queda vacío y se copia a Observaciones para que no se pierda.",
         "",
-        "Duplicados: un alumno se considera repetido si coincide su email o teléfono Y su nombre, "
-        "o si no trae ni email ni teléfono y coincide el nombre. Los repetidos no se crean ni se modifican.",
+        "Duplicados: si coincide el email o teléfono Y el nombre con un alumno que ya existe, "
+        "no se crea (queda en «Ya existe»). Lo mismo si la fila no trae email ni teléfono y el nombre coincide.",
+        "Si comparte el teléfono o el email pero el nombre es distinto (por ejemplo padres e hijos), "
+        "sí se crea, con un aviso para que lo revises.",
         "Los alumnos importados entran sin acceso a la app: el acceso se les da después, uno por uno.",
         "Se acepta .xlsx y también .csv (separado por comas o punto y coma).",
         "",

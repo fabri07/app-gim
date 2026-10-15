@@ -14,6 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import FormView, View
 
 from alumnos.ciclo import DIAS_MAX_INICIO_FUTURO, DIAS_MAX_INICIO_PASADO
+from alumnos.models import Alumno
 from core.mixins import TenantScopedMixin
 from ejercicios.models import CategoriaEjercicio
 from importaciones.alumnos import (
@@ -598,6 +599,14 @@ class PreviewBibliotecaView(StaffRequiredMixin, TenantScopedMixin, View):
 
 class DescartarImportacionView(StaffRequiredMixin, TenantScopedMixin, View):
     def post(self, request, *args, **kwargs):
+        # ALUMNOS: sin filtro de estado, como el preview. Un doble click en
+        # «Descartar» no puede dar un 404 mudo bajo `hx-boost`.
+        alumnos = Importacion.objects.for_gimnasio(self.gimnasio).filter(
+            pk=kwargs["pk"], tipo=Importacion.Tipo.ALUMNOS
+        ).first()
+        if alumnos is not None and alumnos.estado != Importacion.Estado.EN_REVISION:
+            messages.info(request, "Esta importación ya se procesó.")
+            return redirect("importaciones:alumnos_subir")
         importacion = get_object_or_404(
             Importacion.objects.for_gimnasio(self.gimnasio),
             pk=kwargs["pk"], estado=Importacion.Estado.EN_REVISION,
@@ -659,6 +668,23 @@ class SubirAlumnosView(StaffRequiredMixin, TenantScopedMixin, FormView):
         return redirect("importaciones:alumnos_preview", pk=importacion.pk)
 
 
+# Cómo se llama cada dato en la línea «qué columna se tomó para cada dato».
+ETIQUETAS_CAMPOS_ALUMNO = {
+    "nombre_completo": "Nombre y apellido", "nombre": "Nombre",
+    "apellido": "Apellido", "email": "Email", "telefono": "Teléfono",
+    "fecha_nacimiento": "Fecha de nacimiento", "inicio_ciclo": "Inicio del ciclo",
+    "estado": "Estado", "sexo": "Sexo",
+    "frecuencia_actividad_previa": "Frecuencia de actividad",
+    "actividad_fisica_previa": "Actividad física previa",
+    "deportes_practica": "Deportes que practica",
+    "discapacidad_detalle": "Detalle de discapacidad",
+    "tiene_discapacidad": "Tiene discapacidad",
+    "enfermedad_cronica_detalle": "Detalle de enfermedad crónica",
+    "tiene_enfermedad_cronica": "Tiene enfermedad crónica",
+    "observaciones": "Observaciones",
+}
+
+
 def _fecha_legible(iso):
     """`aaaa-mm-dd` -> `dd/mm/aaaa`; vacío si no hay fecha."""
     return date.fromisoformat(iso).strftime("%d/%m/%Y") if iso else ""
@@ -666,9 +692,10 @@ def _fecha_legible(iso):
 
 @method_decorator(never_cache, name="dispatch")
 class PreviewAlumnosView(StaffRequiredMixin, TenantScopedMixin, View):
-    """Preview y confirmación de la importación de alumnos. `never_cache`: la
-    pantalla muestra datos de salud de personas y no debe quedar en el
-    historial del navegador."""
+    """Preview y confirmación de la importación de alumnos. La pantalla muestra
+    datos de salud: `never_cache` saca la respuesta del caché HTTP y
+    `hx-history="false"` (en el template) evita que htmx guarde el `<body>` en
+    `localStorage`. No cubre el bfcache: el formulario sale del boost."""
 
     template_name = "importaciones/alumnos_preview.html"
 
@@ -691,13 +718,22 @@ class PreviewAlumnosView(StaffRequiredMixin, TenantScopedMixin, View):
                 **fila,
                 "nacimiento": _fecha_legible(fila["datos"].get("fecha_nacimiento")),
                 "inicio_ciclo": _fecha_legible(fila["datos"].get("fecha_inicio_ciclo")),
+                "sexo": dict(Alumno.Sexo.choices).get(fila["datos"].get("sexo"), ""),
+                "estado": dict(Alumno.Estado.choices).get(
+                    fila["datos"].get("estado") or Alumno.Estado.ACTIVO, ""
+                ),
             }
             for fila in resultado["a_crear"]
+        ]
+        detectadas = [
+            (ETIQUETAS_CAMPOS_ALUMNO.get(campo, campo), encabezado)
+            for campo, encabezado in resultado.get("columnas_detectadas", {}).items()
         ]
         return render(request, self.template_name, {
             "importacion": importacion,
             "resultado": resultado,
             "a_crear": a_crear,
+            "columnas_detectadas": detectadas,
         })
 
     def get(self, request, *args, **kwargs):

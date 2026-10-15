@@ -732,13 +732,44 @@ class EjemploAlumnosTests(BaseAlumnosTests):
         wb = openpyxl.load_workbook(io.BytesIO(r.content))
         self.assertEqual(wb.sheetnames, ["Alumnos", "Cómo llenarlo"])
 
-    def test_cada_encabezado_esta_en_los_alias_de_su_campo(self):
-        ws = self._libro()["Alumnos"]
-        encabezados = [c.value for c in ws[1]]
-        self.assertEqual(len(encabezados), 16)
-        todos = {normalizar_texto(a) for alias in ALIAS_ALUMNOS.values() for a in alias}
-        for encabezado in encabezados:
-            self.assertIn(normalizar_texto(encabezado), todos, encabezado)
+    def test_cada_encabezado_se_detecta_como_su_campo(self):
+        esperado = {
+            "Nombre": "nombre", "Apellido": "apellido", "Email": "email",
+            "Teléfono": "telefono", "Fecha de nacimiento": "fecha_nacimiento",
+            "Sexo": "sexo", "Estado": "estado", "Inicio del ciclo": "inicio_ciclo",
+            "Actividad física previa": "actividad_fisica_previa",
+            "Frecuencia de actividad": "frecuencia_actividad_previa",
+            "Deportes que practica": "deportes_practica",
+            "Tiene discapacidad": "tiene_discapacidad",
+            "Detalle discapacidad": "discapacidad_detalle",
+            "Tiene enfermedad crónica": "tiene_enfermedad_cronica",
+            "Detalle enfermedad crónica": "enfermedad_cronica_detalle",
+            "Observaciones": "observaciones",
+        }
+        encabezados = [c.value for c in self._libro()["Alumnos"][1]]
+        self.assertEqual(sorted(encabezados), sorted(esperado))
+        buffer = io.BytesIO()
+        self._libro().save(buffer)
+        importacion = previsualizar_importacion_alumnos(
+            gimnasio=self.gimnasio,
+            archivo=SimpleUploadedFile("e.xlsx", buffer.getvalue()),
+            usuario=self.usuario,
+        )
+        detectadas = importacion.resultado["columnas_detectadas"]
+        self.assertEqual({v: k for k, v in detectadas.items()}, esperado)
+
+    def test_los_textos_de_duplicados_dicen_las_tres_reglas(self):
+        ayuda = self._libro()["Cómo llenarlo"]
+        hoja = "\n".join(str(c.value) for fila in ayuda.iter_rows() for c in fila if c.value)
+        Perfil.objects.create(usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+        pantalla = self.client.get(reverse("importaciones:alumnos_subir")).content.decode()
+        import re
+        for texto in (hoja, pantalla):
+            texto = " ".join(re.sub(r"<[^>]+>", "", texto).split())
+            self.assertRegex(texto, r"(?i)email o teléfono y (el )?(mismo )?nombre")
+            self.assertIn("no trae email ni teléfono", texto)
+            self.assertRegex(texto, r"padres e hijos\), sí se crea")
 
     def test_dos_filas_de_ejemplo_una_con_inicio_y_otra_sin(self):
         ws = self._libro()["Alumnos"]
@@ -895,11 +926,54 @@ class PreviewAlumnosViewTests(VistasAlumnosBase):
             resp, 'href="%s" hx-boost="false"' % reverse("alumnos:detalle", args=[existente.pk])
         )
 
-    def test_descartadas_y_boton_se_deshabilita(self):
+    def _boton_confirmar(self, resp):
+        import re
+        return re.search(r'<button[^>]*id="boton-confirmar"[^>]*>', resp.content.decode()).group(0)
+
+    def test_sin_filas_a_crear_el_boton_viene_deshabilitado(self):
         imp = self._importacion([("Juan", "", "", "")])
         resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
         self.assertContains(resp, "Falta el apellido")
-        self.assertContains(resp, "disabled")
+        self.assertIn("disabled", self._boton_confirmar(resp))
+
+    def test_con_filas_a_crear_el_boton_no_viene_deshabilitado(self):
+        imp = self._importacion([("Juan", "Pérez", "", "")])
+        resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertNotIn("disabled", self._boton_confirmar(resp))
+
+    def test_el_contenedor_no_entra_al_historial_de_htmx(self):
+        imp = self._importacion()
+        resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertContains(resp, 'class="contenido--ancho" hx-history="false"')
+
+    def test_nacen_vencidas_concuerda_en_singular_y_plural(self):
+        imp = self._importacion()
+        for n, frase in ((1, "1 alumno va a nacer"), (2, "2 alumnos van a nacer")):
+            r = imp.resultado
+            r["nacen_vencidas"] = n
+            Importacion.objects.filter(pk=imp.pk).update(resultado=r)
+            resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+            self.assertContains(resp, frase)
+
+    def test_muestra_sexo_estado_contacto_y_columnas_detectadas(self):
+        imp = previsualizar_importacion_alumnos(
+            gimnasio=self.gimnasio,
+            archivo=_archivo(
+                [("Ana", "Gómez", "ana@x.com", "1155550000", "F", "Baja"),
+                 ("Luis", "Díaz", "", "", "M", "")],
+                ("Nombre", "Apellido", "Email", "Celular", "Sexo", "Estado"),
+            ),
+            usuario=self.usuario,
+        )
+        resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertContains(resp, "Femenino")
+        self.assertContains(resp, "Masculino")
+        self.assertContains(resp, "Inactivo")
+        self.assertContains(resp, "ana@x.com")
+        self.assertContains(resp, "1155550000")
+        self.assertContains(resp, "Teléfono ← «Celular»")
+        self.assertContains(resp, "Se leyeron 2 filas")
+        self.assertNotContains(resp, "telefono ←")
 
     def test_preview_de_otro_gimnasio_404(self):
         otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
@@ -988,3 +1062,31 @@ class BotonEnElListadoTests(VistasAlumnosBase):
         r = self.client.get(reverse("alumnos:listado"))
         self.assertContains(r, reverse("importaciones:alumnos_subir"))
         self.assertContains(r, "Importar desde Excel")
+
+
+class DescartarDobleClickTests(VistasAlumnosBase):
+    def test_doble_post_de_alumnos_redirige_con_mensaje(self):
+        imp = self._importacion()
+        url = reverse("importaciones:alumnos_descartar", args=[imp.pk])
+        self.client.post(url)
+        r = self.client.post(url)
+        self.assertRedirects(r, reverse("importaciones:alumnos_subir"), fetch_redirect_response=False)
+        self.assertIn("Esta importación ya se procesó.", [str(m) for m in r.wsgi_request._messages])
+
+    def test_plantillas_y_biblioteca_siguen_dando_404_si_ya_no_estan_en_revision(self):
+        for tipo, nombre in (
+            (Importacion.Tipo.BIBLIOTECA, "biblioteca_descartar"),
+            (Importacion.Tipo.PLANTILLAS, "plantillas_descartar"),
+        ):
+            imp = Importacion.objects.create(
+                gimnasio=self.gimnasio, tipo=tipo, resultado={},
+                estado=Importacion.Estado.DESCARTADA, creado_por=self.usuario,
+            )
+            r = self.client.post(reverse(f"importaciones:{nombre}", args=[imp.pk]))
+            self.assertEqual(r.status_code, 404, tipo)
+
+    def test_el_boton_de_descartar_se_deshabilita_al_enviar(self):
+        imp = self._importacion()
+        resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertContains(resp, 'id="boton-descartar"')
+        self.assertContains(resp, 'getElementById("importacion-descartar").addEventListener("submit"')

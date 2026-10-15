@@ -35,8 +35,13 @@
         {{ dias_pasado }} días atrás a {{ dias_futuro }} días adelante. Sin
         ella, el alumno queda <strong>sin fecha de inicio</strong> y no paga
         hasta que se la fijes desde el listado.</li>
-      <li>Si ya hay un alumno con el mismo email o teléfono y el mismo nombre,
-        no se vuelve a crear: se lista como «Ya existe».</li>
+      <li>Si ya hay un alumno con el <strong>mismo email o teléfono y el
+        mismo nombre</strong>, no se vuelve a crear: se lista como «Ya
+        existe». Lo mismo si la fila no trae email ni teléfono y el nombre
+        coincide.</li>
+      <li>Si comparte el teléfono o el email pero el <strong>nombre es
+        distinto</strong> (por ejemplo padres e hijos), sí se crea, con un
+        aviso para que lo revises.</li>
       <li>Un dato que no se entienda no frena la importación: queda vacío y se
         copia a Observaciones para que no se pierda.</li>
     </ul>

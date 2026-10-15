@@ -3,19 +3,29 @@
 {% block main_class %}contenido--ancho{% endblock %}
 
 {% block content %}
-<div class="contenido--ancho">
+{% comment %}
+  `hx-history="false"`: htmx 2 guarda el `<body>` en `localStorage` antes de
+  cada navegación boosteada, y esta pantalla muestra datos de salud en la
+  computadora del mostrador. Ver `acceso_credenciales.html`.
+{% endcomment %}
+<div class="contenido--ancho" hx-history="false">
   <h1>Revisar antes de confirmar</h1>
   <p class="texto-suave">
     Se van a crear <strong>{{ a_crear|length }}</strong> alumno{{ a_crear|length|pluralize }}.
     {% if resultado.ya_existen %}Ya existían: {{ resultado.ya_existen|length }} (no se vuelven a crear).{% endif %}
     {% if resultado.filas_invalidas %}Filas descartadas: {{ resultado.filas_invalidas|length }}.{% endif %}
   </p>
+  <p class="texto-suave" id="columnas-detectadas">
+    Se leyeron {{ resultado.total_filas_leidas }} fila{{ resultado.total_filas_leidas|pluralize }} con datos.
+    Columnas tomadas:
+    {% for etiqueta, encabezado in columnas_detectadas %}{{ etiqueta }} ← «{{ encabezado }}»{% if not forloop.last %}; {% endif %}{% endfor %}.
+  </p>
 
   {% if resultado.nacen_vencidas %}
     <div class="tarjeta aviso-urgente">
       <h2>Cuotas vencidas desde el primer día</h2>
       <p>
-        {{ resultado.nacen_vencidas }} alumno{{ resultado.nacen_vencidas|pluralize }} van a nacer con la cuota vencida
+        {{ resultado.nacen_vencidas }} alumno{{ resultado.nacen_vencidas|pluralize }} {{ resultado.nacen_vencidas|pluralize:'va,van' }} a nacer con la cuota vencida
         y se les pausa el acceso esta noche. Si no es lo que querés, corregí la
         columna «Inicio del ciclo» y volvé a subir el archivo.
       </p>
@@ -43,7 +53,7 @@
         <thead>
           <tr>
             <th>Fila</th><th>Alumno</th><th>Email</th><th>Teléfono</th>
-            <th>Nacimiento</th><th>Estado</th><th>Inicio del ciclo</th><th>Avisos</th>
+            <th>Nacimiento</th><th>Sexo</th><th>Estado</th><th>Inicio del ciclo</th><th>Avisos</th>
           </tr>
         </thead>
         <tbody>
@@ -54,7 +64,8 @@
               <td>{{ fila.datos.email|default:"—" }}</td>
               <td>{{ fila.datos.telefono|default:"—" }}</td>
               <td>{{ fila.nacimiento|default:"—" }}</td>
-              <td>{% if fila.datos.estado == "inactivo" %}Inactivo{% else %}Activo{% endif %}</td>
+              <td>{{ fila.sexo|default:"—" }}</td>
+              <td>{{ fila.estado }}</td>
               <td>{% if fila.inicio_ciclo %}{{ fila.inicio_ciclo }}{% else %}<span class="texto-suave">Sin fecha</span>{% endif %}</td>
               <td>
                 {% for aviso in fila.avisos %}<p class="texto-suave">{{ aviso }}</p>{% empty %}—{% endfor %}
@@ -122,13 +133,17 @@
   <div class="acciones-formulario">
     <button type="submit" form="importacion-confirmar" class="boton" id="boton-confirmar"
             {% if not a_crear %}disabled{% endif %}>Confirmar importación</button>
-    <button type="submit" form="importacion-descartar" class="boton-quitar">Descartar</button>
+    <button type="submit" form="importacion-descartar" class="boton-quitar" id="boton-descartar">Descartar</button>
   </div>
   <script>
     document.getElementById("importacion-confirmar").addEventListener("submit", function () {
       var boton = document.getElementById("boton-confirmar");
       // Diferido: deshabilitarlo en el mismo tick lo saca del envío.
       setTimeout(function () { boton.disabled = true; boton.textContent = "Importando…"; }, 0);
+    });
+    document.getElementById("importacion-descartar").addEventListener("submit", function () {
+      var boton = document.getElementById("boton-descartar");
+      setTimeout(function () { boton.disabled = true; }, 0);
     });
   </script>
 </div>
