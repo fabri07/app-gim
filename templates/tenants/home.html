@@ -59,6 +59,17 @@
     </div>
   {% endif %}
 
+  {% if alumnos_activos_sin_inicio_count %}
+    <div class="tarjeta aviso-urgente">
+      <h2>Alumnos sin fecha de inicio</h2>
+      <p class="texto-suave">
+        {{ alumnos_activos_sin_inicio_count }} alumno{{ alumnos_activos_sin_inicio_count|pluralize }} activo{{ alumnos_activos_sin_inicio_count|pluralize }}
+        no tiene{{ alumnos_activos_sin_inicio_count|pluralize:",n" }} fecha de inicio del ciclo de pago: hasta que se la fijes no se le{{ alumnos_activos_sin_inicio_count|pluralize:",s" }} genera ninguna cuota.
+      </p>
+      <p><a class="boton-secundario" href="{% url 'alumnos:listado' %}?sin_fecha=1&amp;estado=activo">Ver alumnos sin fecha</a></p>
+    </div>
+  {% endif %}
+
   <div class="dashboard-grid">
     <div class="metrica">
       <span class="metrica__valor">{{ alumnos_activos_count }}</span>

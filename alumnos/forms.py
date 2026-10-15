@@ -11,7 +11,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from core.forms import TenantScopedModelForm
 from alumnos import identidad
-from alumnos.ciclo import rango_inicio_ciclo
+from alumnos.ciclo import DIAS_MAX_INICIO_FUTURO, rango_inicio_ciclo
 from alumnos.models import Alumno
 
 
@@ -93,27 +93,38 @@ class AlumnoForm(TenantScopedModelForm):
         return datos
 
     def clean_fecha_inicio_ciclo(self):
-        """El ancla no puede ser futura.
+        """El ancla puede ser futura solo hasta `DIAS_MAX_INICIO_FUTURO` días, y
+        solo si el alumno todavía no tiene cuotas.
 
-        `pagos.ciclo_vigente` no emite nada mientras el ancla no llegue, así
-        que una fecha futura tipeada por error apaga la facturación de ese
-        alumno, en silencio y hasta esa fecha.
+        `pagos.ciclo_vigente` no emite nada mientras el ancla no llegue: una
+        fecha futura tipeada por error apaga la facturación de ese alumno, en
+        silencio y hasta esa fecha. Se permite adelantarla para el alumno
+        nuevo o el importado sin cuotas (arranca el mes que viene); con
+        cuotas emitidas, moverla a futuro solapa o deja huecos de cobro.
         """
         fecha = self.cleaned_data["fecha_inicio_ciclo"]
+        hoy = timezone.localdate()
         # El valor que YA está guardado pasa siempre, aunque sea futuro: la
         # señal `anclar_ciclo_a_la_primera_rutina` escribe legítimamente un
         # ancla futura cuando el plan se carga con anticipación (caso
         # soportado a propósito). Sin esta excepción, hasta que llegara ese
         # día NINGÚN guardado de la ficha -- corregir un teléfono, cargar la
         # ficha de inscripción -- pasaba la validación, por un valor que el
-        # staff no tipeó. Lo que se rechaza es que el staff la MUEVA a futuro.
-        if fecha > timezone.localdate() and fecha != self.instance.fecha_inicio_ciclo:
+        # staff no tipeó. Lo que se rechaza es que el staff la MUEVA.
+        if fecha <= hoy or fecha == self.instance.fecha_inicio_ciclo:
+            return fecha
+        _, tope = rango_inicio_ciclo(hoy)
+        if fecha > tope:
+            raise forms.ValidationError(
+                f"El inicio del ciclo de pago no puede estar a más de "
+                f"{DIAS_MAX_INICIO_FUTURO} días."
+            )
+        if self.instance.pk and self.instance.pagos.exists():
             raise forms.ValidationError(
                 "El inicio del ciclo de pago no puede ser una fecha futura: "
-                "hasta ese día no se le emitiría ninguna cuota."
+                "este alumno ya tiene cuotas emitidas."
             )
         return fecha
-
 
 
 class CrearAccesoForm(forms.Form):

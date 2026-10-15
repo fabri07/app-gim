@@ -1002,6 +1002,70 @@ class HomeViewStaffFechaLocalTests(TestCase):
         self.assertEqual(response.context["alumnos_con_rutina_count"], 0)
 
 
+class AvisoAlumnosSinFechaDeInicioTests(TestCase):
+    """Los importados nacen sin `fecha_inicio_ciclo` y el cron no les emite
+    cuotas: el panel tiene que decirlo, o nadie se entera."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        staff = User.objects.create_user("staff-sf", password="clave-123456")
+        Perfil.objects.create(
+            usuario=staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.force_login(staff)
+
+    def _alumno(self, nombre, gimnasio=None, estado="activo", sin_fecha=True):
+        from alumnos.models import Alumno
+
+        a = Alumno.objects.create(
+            gimnasio=gimnasio or self.gimnasio, nombre=nombre, apellido="X",
+            estado=estado,
+        )
+        if sin_fecha:
+            Alumno.objects.filter(pk=a.pk).update(fecha_inicio_ciclo=None)
+        return a
+
+    def test_sin_alumnos_sin_fecha_no_hay_aviso(self):
+        self._alumno("Con fecha", sin_fecha=False)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.context["alumnos_activos_sin_inicio_count"], 0)
+        self.assertNotContains(response, "Ver alumnos sin fecha")
+
+    def test_cuenta_solo_activos_del_gimnasio_sin_fecha(self):
+        otro = Gimnasio.objects.create(nombre="O", slug="o")
+        self._alumno("Uno")
+        self._alumno("Dos")
+        self._alumno("De baja", estado="inactivo")
+        self._alumno("Ajeno", gimnasio=otro)
+        self._alumno("Con fecha", sin_fecha=False)
+
+        response = self.client.get(reverse("home"))
+
+        self.assertEqual(response.context["alumnos_activos_sin_inicio_count"], 2)
+        self.assertContains(response, "?sin_fecha=1&amp;estado=activo")
+        self.assertContains(response, "Ver alumnos sin fecha")
+
+    def test_el_conteo_es_una_query_aunque_crezca_el_padron(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        def queries():
+            with CaptureQueriesContext(connection) as ctx:
+                self.client.get(reverse("home"))
+            return len(ctx)
+
+        self._alumno("Uno")
+        queries()  # calienta cachés (la primera carga cuesta de más)
+        antes = queries()
+        for i in range(10):
+            self._alumno(f"N{i}")
+        despues = queries()
+
+        self.assertEqual(antes, despues)
+
+
 class HomeViewAlumnoTests(TestCase):
     """Portal del alumno (Fase 3): rutina activa, cuota del mes, novedades.
 

@@ -1138,10 +1138,97 @@ class AnclaFuturaEnLaFichaTests(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors)
 
-    def test_moverla_a_otra_fecha_futura_sigue_rechazado(self):
+    def test_moverla_a_otra_fecha_futura_con_cuotas_sigue_rechazado(self):
+        # Sin cuotas la regla nueva (Task 11) la deja mover hasta 60 días; con
+        # cuotas emitidas, moverla a futuro solapa o deja huecos de cobro.
+        crear_cuota_mensual(
+            gimnasio=self.gimnasio, alumno=self.alumno, mes=1, anio=2026, monto=100
+        )
         otro_futuro = self.futuro + datetime.timedelta(days=1)
 
         form = self._form(fecha_inicio_ciclo=otro_futuro.isoformat())
+
+        self.assertIn("fecha_inicio_ciclo", form.errors)
+
+
+class InicioDelCicloImportadoTests(TestCase):
+    """Los alumnos importados desde un Excel nacen SIN `fecha_inicio_ciclo`:
+    la ficha lo dice, y el form acepta una fecha futura de hasta 60 días si
+    todavía no tienen cuotas (se la fija el staff, no la app)."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.staff = User.objects.create_user("staff-ic", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz"
+        )
+        Alumno.objects.filter(pk=self.alumno.pk).update(fecha_inicio_ciclo=None)
+        self.alumno.refresh_from_db()
+        self.hoy = timezone.localdate()
+
+    def _form(self, fecha, alumno=None):
+        from alumnos.forms import AlumnoForm
+
+        return AlumnoForm(
+            {
+                "nombre": "Ana",
+                "apellido": "Paz",
+                "estado": Alumno.Estado.ACTIVO,
+                "fecha_inicio_ciclo": fecha.isoformat(),
+            },
+            instance=alumno or self.alumno,
+            gimnasio=self.gimnasio,
+        )
+
+    def test_ficha_sin_fecha_lo_dice_y_linkea_a_editar(self):
+        self.client.force_login(self.staff)
+
+        response = self.client.get(reverse("alumnos:detalle", args=[self.alumno.pk]))
+
+        self.assertContains(response, "Sin fecha de inicio")
+        self.assertContains(response, reverse("alumnos:editar", args=[self.alumno.pk]))
+
+    def test_ficha_con_fecha_la_muestra(self):
+        Alumno.objects.filter(pk=self.alumno.pk).update(
+            fecha_inicio_ciclo=datetime.date(2026, 3, 5)
+        )
+        self.client.force_login(self.staff)
+
+        response = self.client.get(reverse("alumnos:detalle", args=[self.alumno.pk]))
+
+        self.assertContains(response, "Inicio del ciclo de pago: 05/03/2026")
+        self.assertNotContains(response, "Sin fecha de inicio")
+
+    def test_fecha_futura_de_30_dias_sin_cuotas_es_valida(self):
+        form = self._form(self.hoy + datetime.timedelta(days=30))
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_fecha_futura_de_61_dias_es_invalida(self):
+        form = self._form(self.hoy + datetime.timedelta(days=61))
+
+        self.assertIn("fecha_inicio_ciclo", form.errors)
+
+    def test_fecha_futura_con_cuotas_emitidas_es_invalida(self):
+        crear_cuota_mensual(
+            gimnasio=self.gimnasio, alumno=self.alumno, mes=1, anio=2026, monto=100
+        )
+
+        form = self._form(self.hoy + datetime.timedelta(days=30))
+
+        self.assertIn("fecha_inicio_ciclo", form.errors)
+
+    def test_sigue_obligatoria(self):
+        from alumnos.forms import AlumnoForm
+
+        form = AlumnoForm(
+            {"nombre": "Ana", "apellido": "Paz", "estado": Alumno.Estado.ACTIVO},
+            instance=self.alumno,
+            gimnasio=self.gimnasio,
+        )
 
         self.assertIn("fecha_inicio_ciclo", form.errors)
 

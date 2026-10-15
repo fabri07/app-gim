@@ -25,6 +25,17 @@
     <p>Email: {{ alumno.email|default:"—" }}</p>
     <p>Teléfono: {{ alumno.telefono|default:"—" }}</p>
     <p>Fecha de nacimiento: {{ alumno.fecha_nacimiento|default:"—" }}</p>
+    {% if alumno.fecha_inicio_ciclo %}
+      <p>Inicio del ciclo de pago: {{ alumno.fecha_inicio_ciclo|date:"d/m/Y" }}</p>
+    {% else %}
+      <p>
+        <span class="badge badge--riesgo">Sin fecha de inicio</span>
+        <span class="texto-suave">
+          No se le cobra hasta que se la fijes.
+          <a href="{% url 'alumnos:editar' alumno.pk %}">Fijar fecha</a>
+        </span>
+      </p>
+    {% endif %}
     {% if alumno.observaciones %}<p>Observaciones: {{ alumno.observaciones }}</p>{% endif %}
 
     <form method="post" action="{% url 'alumnos:activar' alumno.pk %}">

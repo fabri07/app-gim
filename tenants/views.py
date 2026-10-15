@@ -226,6 +226,12 @@ class HomeView(LoginRequiredMixin, TemplateView):
             .distinct()
             .count(),
             "alumnos_bloqueados_count": acceso.contar_bloqueados(gimnasio, hoy=hoy),
+            # Los alumnos importados desde un Excel nacen sin fecha de inicio
+            # del ciclo y el cron no les emite cuotas hasta que el staff se la
+            # fija. Una sola query agregada: sin aviso nadie se entera.
+            "alumnos_activos_sin_inicio_count": Alumno.objects.for_gimnasio(gimnasio)
+            .filter(estado=Alumno.Estado.ACTIVO, fecha_inicio_ciclo__isnull=True)
+            .count(),
             "cuotas_vigentes": Cuota.objects.for_gimnasio(gimnasio)
             .filter(periodo_inicio__lte=hoy, periodo_fin__gte=hoy)
             .exclude(estado=Cuota.Estado.ANULADO)
