@@ -191,12 +191,23 @@ fecha** (ficha, lote o la primera rutina, si todavía no tiene cuotas). Las
 pantallas lo dicen: la ficha muestra el badge «Sin fecha de inicio» con un link
 a «Fijar fecha», el listado tiene el filtro `sin_fecha` y el dashboard una
 tarjeta `.aviso-urgente` con el conteo de activos sin fecha
-(`alumnos_activos_sin_inicio_count`, una query). `AlumnoForm` sigue exigiendo la
-fecha en la ficha, pero acepta una futura **hasta `DIAS_MAX_INICIO_FUTURO` (60)
-días si el alumno no tiene cuotas**; con cuotas, mover el ancla a futuro sigue
-rechazado (apaga la facturación y solapa períodos). El rango válido,
+(`alumnos_activos_sin_inicio_count`, una query). El rango válido,
 `[hoy − 27, hoy + 60]`, vive en un solo lugar, `alumnos/ciclo.py::rango_inicio_ciclo`
-(Django-free), y lo comparten el lector del archivo, el lote y el form.
+(Django-free). **El lector del archivo y el lote lo aplican siempre**; el lote
+además no le toca el ancla a quien ya tiene cuotas. **`AlumnoForm` lo aplica
+solo al alumno SIN cuotas** (alta nueva o importado al que nunca se le cobró),
+con un error que explica que una fecha más vieja haría nacer la primera cuota
+vencida. **Con cuotas, la ficha conserva su regla de siempre**: hacia atrás se
+puede corregir sin piso (arreglar un ancla mal puesta), a futuro no (solapa o
+deja huecos de cobro), y el tope de 60 días vale igual. En los dos casos el
+valor YA guardado pasa siempre (la señal de la primera rutina escribe anclas
+futuras, y un alumno de hace meses tiene una vieja), y `pagos.exists()` solo se
+consulta si la fecha sale de `[hoy − 27, hoy]`. Al importado sin ancla la ficha
+le muestra arriba del campo, y como error de obligatorio, que vino de una
+importación y que no ponga hoy si no corresponde (`forms.AVISO_SIN_INICIO`).
+Si la fecha elegida (alta o edición, alumno activo, fecha cambiada) hace que la
+cuota de esta noche ya pase la tolerancia (`pagos.acceso.nace_bloqueada`), la
+vista lo avisa con un `messages.warning` y guarda igual: la fecha es válida.
 
 ### Bloqueo de acceso por falta de pago (`pagos/acceso.py`)
 
@@ -2459,11 +2470,18 @@ detecta además email, teléfono y largos que el lector no ve.
   (`identidad.clave_telefono`: `+54…`, sin el 9 de celular, 10 dígitos
   nacionales; solo para comparar, `normalizar_telefono` del login no se toca) y
   de nombre (tokens ordenados, no depende de dónde se cortó entre nombre y
-  apellido). Es duplicado si coincide contacto **y** nombre, o si la fila no
-  trae contacto y el nombre coincide. **La excepción son las familias: contacto
-  igual con nombre distinto se crea con aviso** (padres e hijos comparten
-  celular), y nombre igual con contacto distinto también. Nunca se actualiza a
-  un existente. Dentro del archivo gana la primera aparición.
+  apellido). Es duplicado si coincide contacto **y** nombre, o si el nombre
+  coincide y **a alguno de los dos lados le falta contacto**: la fila no trae
+  email ni teléfono, o el alumno de la base (o la fila anterior del archivo) no
+  tiene ninguno. El segundo lado es el gimnasio que cargó a mano solo el nombre
+  y después importa el padrón con celulares: comparado por contacto daba
+  distinto, la persona quedaba duplicada y se le cobraba dos veces. Cada
+  identidad del índice guarda `tiene_contacto` (en la base, email o teléfono
+  no vacío; en el archivo, `trae_contacto`). **La excepción son las familias,
+  con contacto en los dos lados: contacto igual con nombre distinto se crea con
+  aviso** (padres e hijos comparten celular), y nombre igual con contacto
+  distinto también. Nunca se actualiza a un existente. Dentro del archivo gana
+  la primera aparición.
 - **`trae_contacto` se mide ANTES de validar y viaja en el JSON.** Un homónimo
   con email inválido o teléfono ilegible *tiene* contacto en el archivo aunque
   el valor limpio quede vacío; si se midiera después, el preview lo prometía

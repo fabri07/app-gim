@@ -26,7 +26,7 @@
       <h2>Cuotas vencidas desde el primer día</h2>
       <p>
         {{ resultado.nacen_vencidas }} alumno{{ resultado.nacen_vencidas|pluralize }} {{ resultado.nacen_vencidas|pluralize:'va,van' }} a nacer con la cuota vencida
-        y se les pausa el acceso esta noche. Si no es lo que querés, corregí la
+        y se le{{ resultado.nacen_vencidas|pluralize }} pausa el acceso esta noche. Si no es lo que querés, corregí la
         columna «Inicio del ciclo» y volvé a subir el archivo.
       </p>
     </div>

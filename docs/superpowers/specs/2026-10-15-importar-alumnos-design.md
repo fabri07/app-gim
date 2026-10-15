@@ -26,8 +26,8 @@ carga de a un alumno. Se agregan tres cosas:
   se nombran en el mensaje (mover el ancla con cuotas solapa períodos).
 - Rango de fecha de inicio (lote, ficha de un alumno sin cuotas y columna del
   archivo): **[hoy − 27, hoy + 60]**.
-- Duplicados al importar: por email o teléfono; sin ninguno de los dos, por
-  nombre (ver regla exacta abajo).
+- Duplicados al importar: por email o teléfono; si a la fila o al alumno ya
+  cargado le falta contacto, por nombre (ver regla exacta abajo).
 - La importación de alumnos está **bloqueada en la cuenta demo** (`es_demo`):
   es compartida y un padrón real con datos de salud quedaría a la vista de
   otros prospectos hasta 6 h.
@@ -216,11 +216,16 @@ activos e inactivos):
   depende de dónde se cortó entre nombre y apellido).
 
 **Regla:** una fila es duplicado si (coincide email o teléfono **y** el nombre)
-o (la fila no tiene email ni teléfono **y** el nombre coincide). Contacto igual
-con nombre distinto → se crea, con aviso «Comparte teléfono/email con Pérez,
-Juan» (padres e hijos comparten celular). Nombre igual con contacto distinto
-→ se crea, con aviso «Hay un alumno con el mismo nombre (…): revisá que no sea
-el mismo». Dentro del archivo, misma regla; gana la primera aparición. Los
+o (el nombre coincide **y** a alguno de los dos lados le falta contacto: la fila
+no tiene email ni teléfono, o el alumno ya cargado —o la fila anterior del
+archivo— no tiene ninguno de los dos). El segundo lado es el gimnasio que cargó
+a mano solo el nombre y después importa el padrón con contactos: sin esa regla
+la persona quedaba duplicada y se le cobraba dos veces. Con contacto en los dos
+lados, contacto igual con nombre distinto → se crea, con aviso «Comparte
+teléfono/email con Pérez, Juan» (padres e hijos comparten celular), y nombre
+igual con contacto distinto → se crea, con aviso «Hay un alumno con el mismo
+nombre (…): revisá que no sea el mismo». Dentro del archivo, misma regla; gana
+la primera aparición. Los
 duplicados se listan («Ya existe», con link a la ficha si es de la base) y no
 se crean ni se actualizan.
 

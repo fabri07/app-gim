@@ -248,9 +248,11 @@ class AlumnoLoteView(StaffRequiredMixin, TenantScopedMixin, View):
         # que decirlo, o se reactiva creyendo que se le empieza a cobrar.
         sin_fecha = [a for a in cambiados if a.fecha_inicio_ciclo is None]
         if sin_fecha:
+            uno = len(sin_fecha) == 1
             texto += (
-                f" {len(sin_fecha)} siguen sin fecha de inicio: no se les cobra "
-                "hasta que se la cargues."
+                f" {len(sin_fecha)} {'sigue' if uno else 'siguen'} sin fecha de "
+                f"inicio: no se {'le' if uno else 'les'} cobra hasta que se la "
+                "cargues."
             )
         return self._volver(texto)
 
@@ -318,6 +320,34 @@ class AccesoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         return super().get_queryset().select_related("perfil__usuario")
 
 
+AVISO_NACE_BLOQUEADA = (
+    "Con esta fecha la primera cuota ya pasó la tolerancia: el acceso se pausa "
+    "esta noche."
+)
+
+
+def _avisar_si_nace_bloqueada(request, form, alumno):
+    """`messages.warning` si la fecha de inicio que el staff ACABA de elegir
+    hace que la cuota que emita el cron esta noche ya esté bloqueando.
+
+    No es un error de form: la fecha es válida (está en el rango) y puede ser
+    exactamente lo que se quiere -- el alumno empezó hace dos semanas y no
+    pagó. Pero el staff tiene que enterarse ANTES de que el alumno llame
+    porque no puede ver su rutina. Solo para activos (un inactivo no recibe
+    cuotas) y solo si la fecha cambió: guardar el teléfono de un alumno con un
+    ancla vieja no tiene nada que avisar. Misma regla que el preview del
+    importador y el lote (`pagos.acceso.nace_bloqueada`), sin queries.
+    """
+    from pagos.acceso import nace_bloqueada
+
+    if "fecha_inicio_ciclo" not in form.changed_data:
+        return
+    if alumno.estado != Alumno.Estado.ACTIVO:
+        return
+    if nace_bloqueada(alumno.gimnasio, alumno.fecha_inicio_ciclo, timezone.localdate()):
+        messages.warning(request, AVISO_NACE_BLOQUEADA)
+
+
 class AlumnoCreateView(StaffRequiredMixin, TenantScopedMixin, CreateView):
     model = Alumno
     form_class = AlumnoForm
@@ -326,6 +356,7 @@ class AlumnoCreateView(StaffRequiredMixin, TenantScopedMixin, CreateView):
     def form_valid(self, form):
         response = super().form_valid(form)
         messages.success(self.request, "Alumno creado correctamente.")
+        _avisar_si_nace_bloqueada(self.request, form, self.object)
         return response
 
     def get_success_url(self):
@@ -340,6 +371,7 @@ class AlumnoUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
     def form_valid(self, form):
         response = super().form_valid(form)
         messages.success(self.request, "Alumno actualizado correctamente.")
+        _avisar_si_nace_bloqueada(self.request, form, self.object)
         return response
 
     def get_success_url(self):

@@ -262,6 +262,8 @@ class ErroresDeArchivoTests(BaseAlumnosTests):
         with mock.patch.object(
             modulo, "parsear_archivo_alumnos",
             side_effect=lambda a, hoy: real(io.BytesIO(archivo.read()), hoy=hoy),
+        ), self.assertLogs(
+            "importaciones.alumnos", level="ERROR"
         ), self.assertRaises(ImportacionInvalida):
             previsualizar_importacion_alumnos(
                 gimnasio=self.gimnasio, archivo=archivo, usuario=self.usuario
@@ -367,6 +369,40 @@ class DuplicadosTests(BaseAlumnosTests):
         ])
         self.assertEqual(len(r["a_crear"]), 2)
         self.assertEqual(r["a_crear"][1]["avisos"], ["Comparte teléfono con Pérez, Juan"])
+
+    # «Sin contacto ⇒ comparar por nombre» mira LOS DOS lados. El caso real:
+    # el gimnasio cargó a mano solo el nombre y después importa el padrón con
+    # celulares; crearlo de nuevo duplica a la persona y le cobra dos veces.
+    def test_existente_sin_contacto_y_fila_con_contacto_es_duplicado(self):
+        existente = self._alumno("Juan", "Pérez")
+        r = self._previsualizar([("Juan", "Pérez", "juan@x.com", "1155551234")])
+        self.assertEqual(r["a_crear"], [])
+        self.assertEqual(r["ya_existen"][0]["alumno_id"], existente.pk)
+
+    def test_existente_sin_contacto_y_otro_nombre_se_crea(self):
+        self._alumno("Juan", "Pérez")
+        r = self._previsualizar([("Pedro", "Pérez", "pedro@x.com", "")])
+        self.assertEqual(r["ya_existen"], [])
+        self.assertEqual(len(r["a_crear"]), 1)
+
+    def test_dentro_del_archivo_primera_sin_contacto_segunda_con_contacto(self):
+        r = self._previsualizar([
+            ("Juan", "Pérez", "", ""),
+            ("Juan", "Pérez", "juan@x.com", ""),
+        ])
+        self.assertEqual(len(r["a_crear"]), 1)
+        self.assertEqual(r["ya_existen"][0]["origen"], "archivo")
+        self.assertIn("fila 2", r["ya_existen"][0]["motivo"])
+
+    def test_con_contacto_en_los_dos_lados_sigue_haciendo_falta_el_contacto(self):
+        # Que un lado sin contacto cuente por nombre no tiene que tragarse al
+        # homónimo con OTRO contacto, aunque además exista uno sin contacto
+        # con otro nombre: la regla de los dos lados con contacto no cambia.
+        self._alumno("Juan", "Pérez", email="juan@x.com")
+        self._alumno("Pedro", "Pérez")
+        r = self._previsualizar([("Juan", "Pérez", "otro@x.com", "")])
+        self.assertEqual(r["ya_existen"], [])
+        self.assertEqual(len(r["a_crear"]), 1)
 
 
 class NacenVencidasTests(BaseAlumnosTests):
@@ -500,6 +536,17 @@ class ConfirmarTests(BaseAlumnosTests):
         self.assertTrue(a.importado)
         self.assertEqual(resumen["creados"], 1)
         self.assertEqual(resumen["sin_fecha_inicio"], 1)
+
+    def test_existente_cargado_despues_del_preview_sin_contacto_no_se_duplica(self):
+        """La confirmación re-evalúa contra la base con la MISMA regla: si
+        entre el preview y el confirmar alguien cargó a mano a «Juan Pérez»
+        solo con el nombre, la fila con contacto no lo duplica."""
+        imp = self._importacion([("Juan", "Pérez", "juan@x.com", "1155551234")])
+        self.assertEqual(len(imp.resultado["a_crear"]), 1)
+        self._alumno("Juan", "Pérez")
+        resumen = self._confirmar(imp)
+        self.assertEqual(resumen["creados"], 0)
+        self.assertEqual(Alumno.objects.filter(gimnasio=self.gimnasio).count(), 1)
 
     def test_respeta_columnas_ancla_y_estado_del_archivo(self):
         hoy = timezone.localdate()
@@ -768,7 +815,9 @@ class EjemploAlumnosTests(BaseAlumnosTests):
         for texto in (hoja, pantalla):
             texto = " ".join(re.sub(r"<[^>]+>", "", texto).split())
             self.assertRegex(texto, r"(?i)email o teléfono y (el )?(mismo )?nombre")
-            self.assertIn("no trae email ni teléfono", texto)
+            # La regla de «sin contacto» mira LOS DOS lados: la fila y el
+            # alumno ya cargado (el que se cargó a mano solo con el nombre).
+            self.assertIn("a la fila o al alumno ya cargado le falta el email y el teléfono", texto)
             self.assertRegex(texto, r"padres e hijos\), sí se crea")
 
     def test_dos_filas_de_ejemplo_una_con_inicio_y_otra_sin(self):
@@ -831,6 +880,16 @@ class SubirAlumnosViewTests(VistasAlumnosBase):
         self.assertContains(r, 'enctype="multipart/form-data" hx-boost="false"')
         self.assertContains(r, "27 días")
         self.assertContains(r, ".csv")
+
+    def test_no_promete_sin_cobro_si_el_archivo_trae_inicio_del_ciclo(self):
+        """Con la columna «Inicio del ciclo» el alumno SÍ se cobra: la pantalla
+        no puede decir «sin cobro» sin condición."""
+        import re
+
+        r = self.client.get(reverse("importaciones:alumnos_subir"))
+        texto = " ".join(re.sub(r"<[^>]+>", "", r.content.decode()).split())
+        self.assertNotIn("sin cobro", texto)
+        self.assertIn("Con ella, se le empieza a cobrar desde esa fecha.", texto)
 
     def test_subir_redirige_al_preview(self):
         r = self._subir([("Juan", "Pérez", "", "")])
@@ -948,12 +1007,15 @@ class PreviewAlumnosViewTests(VistasAlumnosBase):
 
     def test_nacen_vencidas_concuerda_en_singular_y_plural(self):
         imp = self._importacion()
-        for n, frase in ((1, "1 alumno va a nacer"), (2, "2 alumnos van a nacer")):
+        for n, frase in (
+            (1, "1 alumno va a nacer con la cuota vencida y se le pausa el acceso"),
+            (2, "2 alumnos van a nacer con la cuota vencida y se les pausa el acceso"),
+        ):
             r = imp.resultado
             r["nacen_vencidas"] = n
             Importacion.objects.filter(pk=imp.pk).update(resultado=r)
             resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
-            self.assertContains(resp, frase)
+            self.assertIn(frase, " ".join(resp.content.decode().split()))
 
     def test_muestra_sexo_estado_contacto_y_columnas_detectadas(self):
         imp = previsualizar_importacion_alumnos(

@@ -125,12 +125,18 @@ class _ClavesDeAlumnos:
                     "email": email, "telefono": telefono,
                 }),
                 nombre=nombre, apellido=apellido, origen="base", alumno_id=pk,
+                tiene_contacto=bool((email or "").strip() or (telefono or "").strip()),
             )
 
-    def agregar(self, claves, *, nombre, apellido, origen, alumno_id=None, fila=None):
+    def agregar(self, claves, *, nombre, apellido, origen, tiene_contacto,
+                alumno_id=None, fila=None):
+        # `tiene_contacto` es lo que la identidad TRAÍA (en la base, el email o
+        # el teléfono guardado; en el archivo, `trae_contacto`), no si tiene
+        # claves: decide si su nombre solo alcanza para reconocerla.
         identidad = {
             "claves": claves, "nombre": nombre, "apellido": apellido,
             "origen": origen, "alumno_id": alumno_id, "fila": fila,
+            "tiene_contacto": tiene_contacto,
         }
         if claves["email"]:
             self._por_email.setdefault(claves["email"], []).append(identidad)
@@ -142,10 +148,17 @@ class _ClavesDeAlumnos:
         """`(duplicado, avisos)`. `duplicado` es la identidad repetida o `None`;
         `avisos` solo importa cuando la fila se crea.
 
-        Duplicado: (comparte email o teléfono Y el nombre) o (la fila no trae
-        ni email ni teléfono Y el nombre coincide). Contacto igual con otro
-        nombre (padres e hijos comparten celular) y nombre igual con otro
-        contacto se crean, con un aviso."""
+        Duplicado: (comparte email o teléfono Y el nombre) o (el nombre
+        coincide y A ALGUNO DE LOS DOS LADOS le falta contacto: la fila no trae
+        ni email ni teléfono, o la identidad existente -- de la base o de una
+        fila anterior del archivo -- no tiene ninguno). Contacto igual con otro
+        nombre (padres e hijos comparten celular) y nombre igual con OTRO
+        contacto se crean, con un aviso.
+
+        El lado «existente sin contacto» es el gimnasio que cargó a mano solo
+        el nombre y después importa el padrón completo: compararlo por
+        contacto da distinto siempre, y crearlo de nuevo duplica a la persona
+        y le cobra dos veces."""
         por_contacto = []
         for email_o_tel, indice, que in (
             (claves["email"], self._por_email, "email"),
@@ -162,6 +175,9 @@ class _ClavesDeAlumnos:
         if trae_contacto:
             for identidad, _ in por_contacto:
                 if identidad["claves"]["nombre"] == claves["nombre"]:
+                    return identidad, []
+            for identidad in por_nombre:
+                if not identidad["tiene_contacto"]:
                     return identidad, []
         elif por_nombre:
             return por_nombre[0], []
@@ -334,7 +350,7 @@ def previsualizar_importacion_alumnos(*, gimnasio, archivo, usuario):
             _componer_observaciones(datos, avisos, no_cargados)
             indice.agregar(
                 claves, nombre=datos["nombre"], apellido=datos["apellido"],
-                origen="archivo", fila=fila.fila_excel,
+                origen="archivo", fila=fila.fila_excel, tiene_contacto=trae_contacto,
             )
             # La misma regla del bloqueo, no una copia (ver `pagos.acceso`).
             # Un inactivo no cuenta: el cron no le emite cuotas, no bloquea.
@@ -439,7 +455,7 @@ def confirmar_importacion_alumnos(*, importacion, gimnasio):
                 continue
             indice.agregar(
                 claves, nombre=datos["nombre"], apellido=datos["apellido"],
-                origen="archivo", fila=fila["fila_excel"],
+                origen="archivo", fila=fila["fila_excel"], tiene_contacto=trae_contacto,
             )
             for campo in _FECHAS:
                 datos[campo] = date.fromisoformat(datos[campo]) if datos.get(campo) else None
@@ -554,7 +570,8 @@ def construir_ejemplo_alumnos():
         "Un dato que no se entienda queda vacío y se copia a Observaciones para que no se pierda.",
         "",
         "Duplicados: si coincide el email o teléfono Y el nombre con un alumno que ya existe, "
-        "no se crea (queda en «Ya existe»). Lo mismo si la fila no trae email ni teléfono y el nombre coincide.",
+        "no se crea (queda en «Ya existe»). Lo mismo si el nombre coincide y a la fila o al alumno ya cargado "
+        "le falta el email y el teléfono (por ejemplo, alumnos cargados a mano solo con el nombre).",
         "Si comparte el teléfono o el email pero el nombre es distinto (por ejemplo padres e hijos), "
         "sí se crea, con un aviso para que lo revises.",
         "Los alumnos importados entran sin acceso a la app: el acceso se les da después, uno por uno.",

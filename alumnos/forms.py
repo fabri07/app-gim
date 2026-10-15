@@ -14,6 +14,11 @@ from alumnos import identidad
 from alumnos.ciclo import DIAS_MAX_INICIO_FUTURO, rango_inicio_ciclo
 from alumnos.models import Alumno
 
+AVISO_SIN_INICIO = (
+    "Este alumno vino de una importación y todavía no tiene fecha de inicio: "
+    "elegí desde qué día se le cobra (no pongas hoy si no corresponde)."
+)
+
 
 class AlumnoForm(TenantScopedModelForm):
     class Meta:
@@ -65,6 +70,19 @@ class AlumnoForm(TenantScopedModelForm):
         # medias.
         self.fields["fecha_inicio_ciclo"].required = True
 
+        # Un alumno importado nace SIN ancla, y la ficha la exige para guardar
+        # cualquier otro dato. Sin explicarlo, el staff que solo quería
+        # corregir un teléfono pone «hoy» para sacarse el error de encima, y
+        # eso le factura desde hoy a alguien que quizá empezó hace semanas. El
+        # aviso va arriba del campo (`aviso_sin_inicio`, lo pinta
+        # `alumno_form.html`) y el error de obligatorio dice lo mismo.
+        self.aviso_sin_inicio = ""
+        if self.instance.pk and self.instance.fecha_inicio_ciclo is None:
+            self.aviso_sin_inicio = AVISO_SIN_INICIO
+            self.fields["fecha_inicio_ciclo"].error_messages["required"] = (
+                AVISO_SIN_INICIO
+            )
+
     def clean(self):
         """Estampa el sexo cuando el gimnasio lo define por sí mismo.
 
@@ -93,33 +111,52 @@ class AlumnoForm(TenantScopedModelForm):
         return datos
 
     def clean_fecha_inicio_ciclo(self):
-        """El ancla puede ser futura solo hasta `DIAS_MAX_INICIO_FUTURO` días, y
-        solo si el alumno todavía no tiene cuotas.
+        """Qué fechas de inicio acepta la ficha. Dos reglas, según el alumno
+        tenga cuotas o no:
 
-        `pagos.ciclo_vigente` no emite nada mientras el ancla no llegue: una
-        fecha futura tipeada por error apaga la facturación de ese alumno, en
-        silencio y hasta esa fecha. Se permite adelantarla para el alumno
-        nuevo o el importado sin cuotas (arranca el mes que viene); con
-        cuotas emitidas, moverla a futuro solapa o deja huecos de cobro.
+        - **Sin cuotas** (alta nueva o importado al que nunca se le cobró): la
+          fecha tiene que caer en `rango_inicio_ciclo(hoy)`, el mismo
+          `[hoy − 27, hoy + 60]` del importador y del lote. Más vieja, la
+          primera cuota que emita el cron nace vencida; más adelante, se le
+          apaga la facturación hasta esa fecha.
+        - **Con cuotas**: hacia atrás se puede corregir sin piso (el ancla ya
+          generó cobros y corregirla es justamente arreglar uno mal anclado);
+          a futuro NO, porque solapa o deja huecos de cobro.
+
+        `pagos.exists()` se consulta solo si la fecha sale de `[hoy − 27, hoy]`,
+        que es lo único donde las dos reglas difieren: guardar la ficha con una
+        fecha normal no cuesta ninguna query de más.
         """
         fecha = self.cleaned_data["fecha_inicio_ciclo"]
         hoy = timezone.localdate()
-        # El valor que YA está guardado pasa siempre, aunque sea futuro: la
-        # señal `anclar_ciclo_a_la_primera_rutina` escribe legítimamente un
-        # ancla futura cuando el plan se carga con anticipación (caso
-        # soportado a propósito). Sin esta excepción, hasta que llegara ese
-        # día NINGÚN guardado de la ficha -- corregir un teléfono, cargar la
-        # ficha de inscripción -- pasaba la validación, por un valor que el
-        # staff no tipeó. Lo que se rechaza es que el staff la MUEVA.
-        if fecha <= hoy or fecha == self.instance.fecha_inicio_ciclo:
+        # El valor que YA está guardado pasa siempre, aunque sea futuro o más
+        # viejo que el piso: la señal `anclar_ciclo_a_la_primera_rutina`
+        # escribe legítimamente un ancla futura cuando el plan se carga con
+        # anticipación, y un alumno de hace meses tiene un ancla vieja. Sin
+        # esta excepción, NINGÚN guardado de la ficha -- corregir un
+        # teléfono, cargar la ficha de inscripción -- pasaba la validación, por
+        # un valor que el staff no tipeó. Lo que se valida es que la MUEVA.
+        if fecha == self.instance.fecha_inicio_ciclo:
             return fecha
-        _, tope = rango_inicio_ciclo(hoy)
+        desde, tope = rango_inicio_ciclo(hoy)
         if fecha > tope:
             raise forms.ValidationError(
                 f"El inicio del ciclo de pago no puede estar a más de "
                 f"{DIAS_MAX_INICIO_FUTURO} días."
             )
-        if self.instance.pk and self.instance.pagos.exists():
+        if desde <= fecha <= hoy:
+            return fecha
+        tiene_cuotas = bool(self.instance.pk) and self.instance.pagos.exists()
+        if fecha < desde:
+            if tiene_cuotas:
+                return fecha
+            raise forms.ValidationError(
+                f"Para un alumno que todavía no tiene cuotas, la fecha tiene que "
+                f"estar entre el {desde.day}/{desde.month} y el "
+                f"{tope.day}/{tope.month}: una fecha más vieja haría nacer la "
+                f"primera cuota vencida."
+            )
+        if tiene_cuotas:
             raise forms.ValidationError(
                 "El inicio del ciclo de pago no puede ser una fecha futura: "
                 "este alumno ya tiene cuotas emitidas."

@@ -24,7 +24,7 @@
 
   {% if activos_sin_inicio %}
     <p class="aviso-urgente">
-      {{ activos_sin_inicio }} alumno{{ activos_sin_inicio|pluralize:"s" }} activo{{ activos_sin_inicio|pluralize:"s" }} sin fecha de inicio: no se les cobra.
+      {{ activos_sin_inicio }} alumno{{ activos_sin_inicio|pluralize:"s" }} activo{{ activos_sin_inicio|pluralize:"s" }} sin fecha de inicio: no se le{{ activos_sin_inicio|pluralize:"s" }} cobra.
       <a href="{% url 'alumnos:listado' %}?sin_fecha=1&amp;estado=activo">Ver cuáles</a>
     </p>
   {% endif %}

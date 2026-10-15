@@ -28,17 +28,19 @@
     </p>
     <ul class="texto-suave">
       <li>Los alumnos entran <strong>activos</strong> (salvo que la columna
-        <em>Estado</em> diga otra cosa), <strong>sin cobro</strong> y
-        <strong>sin acceso a la app</strong>: el acceso se lo das después.</li>
+        <em>Estado</em> diga otra cosa) y <strong>sin acceso a la app</strong>:
+        el acceso se lo das después.</li>
       <li>Las fechas van como <strong>dd/mm/aaaa</strong>.</li>
       <li>La columna <em>Inicio del ciclo</em> es opcional y acepta fechas de
         {{ dias_pasado }} días atrás a {{ dias_futuro }} días adelante. Sin
         ella, el alumno queda <strong>sin fecha de inicio</strong> y no paga
-        hasta que se la fijes desde el listado.</li>
+        hasta que se la fijes desde el listado. Con ella, se le empieza a
+        cobrar desde esa fecha.</li>
       <li>Si ya hay un alumno con el <strong>mismo email o teléfono y el
         mismo nombre</strong>, no se vuelve a crear: se lista como «Ya
-        existe». Lo mismo si la fila no trae email ni teléfono y el nombre
-        coincide.</li>
+        existe». Lo mismo si el nombre coincide y a la fila o al alumno ya
+        cargado le falta el email y el teléfono (por ejemplo, alumnos que
+        cargaste a mano solo con el nombre).</li>
       <li>Si comparte el teléfono o el email pero el <strong>nombre es
         distinto</strong> (por ejemplo padres e hijos), sí se crea, con un
         aviso para que lo revises.</li>

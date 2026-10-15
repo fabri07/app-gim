@@ -214,7 +214,7 @@ class AlumnoViewsTests(TestCase):
             "telefono": "",
             "fecha_nacimiento": "",
             "estado": Alumno.Estado.ACTIVO,
-                "fecha_inicio_ciclo": "2026-01-05",
+                "fecha_inicio_ciclo": timezone.localdate().isoformat(),
             "observaciones": "",
         }
         response = self.client.post(reverse("alumnos:crear"), datos)
@@ -258,7 +258,7 @@ class AlumnoViewsTests(TestCase):
             "telefono": "",
             "fecha_nacimiento": "",
             "estado": Alumno.Estado.ACTIVO,
-                "fecha_inicio_ciclo": "2026-01-05",
+                "fecha_inicio_ciclo": timezone.localdate().isoformat(),
             "sexo": Alumno.Sexo.FEMENINO,
             "actividad_fisica_previa": "on",
             "frecuencia_actividad_previa": Alumno.FrecuenciaActividad.VARIAS_POR_SEMANA,
@@ -292,7 +292,7 @@ class AlumnoViewsTests(TestCase):
             "telefono": "",
             "fecha_nacimiento": "",
             "estado": Alumno.Estado.ACTIVO,
-                "fecha_inicio_ciclo": "2026-01-05",
+                "fecha_inicio_ciclo": timezone.localdate().isoformat(),
             "sexo": "no-es-una-opcion",
             "observaciones": "",
         }
@@ -1383,7 +1383,7 @@ class EspejoEstadoAccesoTests(TestCase):
                 "nombre": "Juan",
                 "apellido": "Pérez",
                 "estado": Alumno.Estado.INACTIVO,
-                "fecha_inicio_ciclo": "2026-01-05",
+                "fecha_inicio_ciclo": timezone.localdate().isoformat(),
                 "actividad_fisica_previa": False,
                 "tiene_discapacidad": False,
                 "tiene_enfermedad_cronica": False,
@@ -1411,7 +1411,7 @@ class EspejoEstadoAccesoTests(TestCase):
                 "nombre": "Juan",
                 "apellido": "Pérez",
                 "estado": Alumno.Estado.ACTIVO,
-                "fecha_inicio_ciclo": "2026-01-05",
+                "fecha_inicio_ciclo": timezone.localdate().isoformat(),
                 "actividad_fisica_previa": False,
                 "tiene_discapacidad": False,
                 "tiene_enfermedad_cronica": False,
@@ -1608,3 +1608,267 @@ class FechaBajaTests(TestCase):
             estado=Alumno.Estado.INACTIVO,
         )
         self.assertEqual(alumno.fecha_baja, timezone.localdate())
+
+
+class PisoDeFechaEnLaFichaTests(TestCase):
+    """La ficha aplica el piso `hoy − 27` al alumno SIN cuotas, igual que el
+    importador y el lote: una fecha más vieja haría nacer la primera cuota
+    vencida. Con cuotas, corregir hacia atrás sigue permitido (es justamente
+    arreglar un ancla mal puesta), y el valor ya guardado pasa siempre."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.hoy = timezone.localdate()
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz"
+        )
+
+    def _form(self, fecha, instance=None, **extra):
+        from alumnos.forms import AlumnoForm
+
+        datos = {
+            "nombre": "Ana",
+            "apellido": "Paz",
+            "estado": Alumno.Estado.ACTIVO,
+            "fecha_inicio_ciclo": fecha.isoformat(),
+        }
+        datos.update(extra)
+        return AlumnoForm(datos, instance=instance, gimnasio=self.gimnasio)
+
+    def test_alta_con_fecha_de_hace_28_dias_se_rechaza_y_explica_por_que(self):
+        form = self._form(self.hoy - datetime.timedelta(days=28))
+
+        self.assertIn("fecha_inicio_ciclo", form.errors)
+        error = form.errors["fecha_inicio_ciclo"][0]
+        desde = self.hoy - datetime.timedelta(days=27)
+        hasta = self.hoy + datetime.timedelta(days=60)
+        self.assertEqual(
+            error,
+            "Para un alumno que todavía no tiene cuotas, la fecha tiene que "
+            f"estar entre el {desde.day}/{desde.month} y el "
+            f"{hasta.day}/{hasta.month}: una fecha más vieja haría nacer la "
+            "primera cuota vencida.",
+        )
+
+    def test_alta_con_fecha_de_hace_27_dias_es_valida(self):
+        form = self._form(self.hoy - datetime.timedelta(days=27))
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_edicion_sin_cuotas_moviendola_atras_del_piso_se_rechaza(self):
+        form = self._form(self.hoy - datetime.timedelta(days=40), instance=self.alumno)
+
+        self.assertIn("fecha_inicio_ciclo", form.errors)
+
+    def test_con_cuotas_corregir_hacia_atras_sigue_permitido(self):
+        crear_cuota_mensual(
+            gimnasio=self.gimnasio, alumno=self.alumno, mes=1, anio=2026, monto=100
+        )
+
+        form = self._form(self.hoy - datetime.timedelta(days=200), instance=self.alumno)
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_el_valor_ya_guardado_pasa_aunque_sea_mas_viejo_que_el_piso(self):
+        viejo = self.hoy - datetime.timedelta(days=200)
+        Alumno.objects.filter(pk=self.alumno.pk).update(fecha_inicio_ciclo=viejo)
+        self.alumno.refresh_from_db()
+
+        form = self._form(viejo, instance=self.alumno, telefono="1122334455")
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_una_fecha_dentro_del_rango_no_consulta_las_cuotas(self):
+        form = self._form(self.hoy - datetime.timedelta(days=5), instance=self.alumno)
+
+        with CaptureQueriesContext(connection) as consultas:
+            self.assertTrue(form.is_valid(), form.errors)
+
+        self.assertFalse(
+            [q for q in consultas.captured_queries if "pagos_cuota" in q["sql"]]
+        )
+
+
+class AvisoNaceBloqueadaEnLaFichaTests(TestCase):
+    """Una fecha válida puede igual hacer que la cuota de esta noche ya pase la
+    tolerancia: la ficha lo avisa al guardar, sin rechazar."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.hoy = timezone.localdate()
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            dias_tolerancia_pago=10,
+            fecha_activacion_bloqueo=self.hoy - datetime.timedelta(days=400),
+        )
+        self.staff = User.objects.create_user("staff-nb", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.force_login(self.staff)
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz"
+        )
+        Alumno.objects.filter(pk=self.alumno.pk).update(fecha_inicio_ciclo=None)
+
+    def _guardar(self, dias_atras, estado=Alumno.Estado.ACTIVO):
+        return self.client.post(
+            reverse("alumnos:editar", args=[self.alumno.pk]),
+            {
+                "nombre": "Ana",
+                "apellido": "Paz",
+                "estado": estado,
+                "fecha_inicio_ciclo": (
+                    self.hoy - datetime.timedelta(days=dias_atras)
+                ).isoformat(),
+            },
+            follow=True,
+        )
+
+    def _avisos(self, respuesta):
+        return [
+            str(m) for m in respuesta.context["messages"] if m.level_tag == "warning"
+        ]
+
+    def test_fecha_que_nace_bloqueada_avisa(self):
+        from alumnos.views import AVISO_NACE_BLOQUEADA
+
+        respuesta = self._guardar(20)
+
+        self.assertEqual(self._avisos(respuesta), [AVISO_NACE_BLOQUEADA])
+        self.alumno.refresh_from_db()
+        self.assertEqual(
+            self.alumno.fecha_inicio_ciclo, self.hoy - datetime.timedelta(days=20)
+        )
+
+    def test_fecha_dentro_de_la_tolerancia_no_avisa(self):
+        self.assertEqual(self._avisos(self._guardar(5)), [])
+
+    def test_un_inactivo_no_avisa(self):
+        self.assertEqual(
+            self._avisos(self._guardar(20, estado=Alumno.Estado.INACTIVO)), []
+        )
+
+    def test_guardar_sin_mover_la_fecha_no_avisa(self):
+        Alumno.objects.filter(pk=self.alumno.pk).update(
+            fecha_inicio_ciclo=self.hoy - datetime.timedelta(days=20)
+        )
+
+        self.assertEqual(self._avisos(self._guardar(20)), [])
+
+    def test_el_alta_tambien_avisa(self):
+        from alumnos.views import AVISO_NACE_BLOQUEADA
+
+        respuesta = self.client.post(
+            reverse("alumnos:crear"),
+            {
+                "nombre": "Beto",
+                "apellido": "Gil",
+                "estado": Alumno.Estado.ACTIVO,
+                "fecha_inicio_ciclo": (
+                    self.hoy - datetime.timedelta(days=20)
+                ).isoformat(),
+            },
+            follow=True,
+        )
+
+        self.assertEqual(self._avisos(respuesta), [AVISO_NACE_BLOQUEADA])
+
+
+class AvisoImportadoSinInicioEnLaFichaTests(TestCase):
+    """Al importado sin ancla la ficha le exige la fecha para guardar
+    cualquier dato: lo explica arriba del campo y en el error, para que no se
+    ponga «hoy» por reflejo."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.staff = User.objects.create_user("staff-si", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.force_login(self.staff)
+        self.alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Paz"
+        )
+
+    def test_sin_fecha_guardada_muestra_el_aviso_y_el_error_dice_lo_mismo(self):
+        from alumnos.forms import AVISO_SIN_INICIO
+
+        Alumno.objects.filter(pk=self.alumno.pk).update(fecha_inicio_ciclo=None)
+        url = reverse("alumnos:editar", args=[self.alumno.pk])
+
+        self.assertContains(self.client.get(url), AVISO_SIN_INICIO)
+        respuesta = self.client.post(
+            url, {"nombre": "Ana", "apellido": "Paz", "estado": Alumno.Estado.ACTIVO}
+        )
+        self.assertEqual(
+            respuesta.context["form"].errors["fecha_inicio_ciclo"], [AVISO_SIN_INICIO]
+        )
+
+    def test_con_fecha_guardada_no_muestra_el_aviso(self):
+        from alumnos.forms import AVISO_SIN_INICIO
+
+        respuesta = self.client.get(reverse("alumnos:editar", args=[self.alumno.pk]))
+
+        self.assertNotContains(respuesta, AVISO_SIN_INICIO)
+
+    def test_el_alta_no_muestra_el_aviso(self):
+        from alumnos.forms import AVISO_SIN_INICIO
+
+        self.assertNotContains(self.client.get(reverse("alumnos:crear")), AVISO_SIN_INICIO)
+
+
+class PluralesSinFechaDeInicioTests(TestCase):
+    """«1 alumno … no se le cobra», «2 alumnos … no se les cobra»."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.staff = User.objects.create_user("staff-pl", password="clave-larga-123")
+        Perfil.objects.create(
+            usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.force_login(self.staff)
+
+    def _sin_fecha(self, cuantos, estado=Alumno.Estado.ACTIVO):
+        alumnos = [
+            Alumno.objects.create(
+                gimnasio=self.gimnasio, nombre=f"N{i}", apellido=f"A{i}", estado=estado
+            )
+            for i in range(cuantos)
+        ]
+        Alumno.objects.filter(pk__in=[a.pk for a in alumnos]).update(
+            fecha_inicio_ciclo=None
+        )
+        return alumnos
+
+    def _texto(self, respuesta):
+        return " ".join(respuesta.content.decode().split())
+
+    def test_listado_con_uno(self):
+        self._sin_fecha(1)
+        texto = self._texto(self.client.get(reverse("alumnos:listado")))
+        self.assertIn("1 alumno activo sin fecha de inicio: no se le cobra.", texto)
+
+    def test_listado_con_dos(self):
+        self._sin_fecha(2)
+        texto = self._texto(self.client.get(reverse("alumnos:listado")))
+        self.assertIn("2 alumnos activos sin fecha de inicio: no se les cobra.", texto)
+
+    def _reactivar(self, alumnos):
+        return self.client.post(
+            reverse("alumnos:lote"),
+            {"accion": "reactivar", "ids": ",".join(str(a.pk) for a in alumnos)},
+            follow=True,
+        )
+
+    def _mensajes(self, respuesta):
+        return " ".join(str(m) for m in respuesta.context["messages"])
+
+    def test_reactivar_uno_sin_fecha(self):
+        alumnos = self._sin_fecha(1, estado=Alumno.Estado.INACTIVO)
+        texto = self._mensajes(self._reactivar(alumnos))
+        self.assertIn("1 sigue sin fecha de inicio: no se le cobra", texto)
+
+    def test_reactivar_dos_sin_fecha(self):
+        alumnos = self._sin_fecha(2, estado=Alumno.Estado.INACTIVO)
+        texto = self._mensajes(self._reactivar(alumnos))
+        self.assertIn("2 siguen sin fecha de inicio: no se les cobra", texto)

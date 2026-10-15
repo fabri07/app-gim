@@ -1,9 +1,11 @@
 """Rango válido de la fecha de inicio del ciclo de cobro de un alumno.
 
 Django-free a propósito (ni imports de django ni de modelos): lo comparten el
-lector del archivo de importación, la acción en lote y `AlumnoForm`, y los tres
-tienen que aceptar exactamente las mismas fechas. Es la única fuente de
-`[hoy - 27, hoy + 60]`; `hoy` lo pasa siempre quien llama.
+lector del archivo de importación, la acción en lote y `AlumnoForm`. El lector y
+el lote lo aplican siempre; `AlumnoForm` solo al alumno sin cuotas (con cuotas
+conserva su regla: atrás sin piso, futuro no) y deja pasar el valor ya
+guardado. Es la única fuente de `[hoy - 27, hoy + 60]`; `hoy` lo pasa siempre
+quien llama.
 """
 
 from datetime import timedelta
