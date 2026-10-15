@@ -124,6 +124,8 @@ tocar un área, leé su sección** (`grep -n '^## ' ARQUITECTURA.md` da el
 | Login, accesos de alumnos, suplantación, Google, reset | Portal del alumno y acceso · Accesos, revocación y suplantación · Login por gimnasio… · Login con Google · "Olvidé mi contraseña" |
 | Turnos, reservas, Google Calendar | Turnos, reservas y Google Calendar |
 | Categorías de ejercicio, importador Excel/PDF | Categorías de ejercicio por gimnasio · Importador de Excel (Proyecto 2) |
+| Importar alumnos desde Excel/CSV, «Sin fecha de inicio» | Importador de Excel (Proyecto 2) → «Importar alumnos» · Apps de dominio → `pagos` |
+| Acciones en lote del listado de alumnos (fijar fecha, baja, reactivar, códigos) | Acciones en lote del listado de alumnos |
 | CSS, Tailwind, paletas, tipografía, htmx | UI y white-label (Fase 4) |
 | Portada `/`, `/solicitar/`, landing `g/<slug>/`, privacidad | Sitio público y embudo de solicitudes · Landing pública · Política de privacidad… |
 | PWA, push, cron de recordatorios | PWA instalable + Web Push |
@@ -145,6 +147,10 @@ El porqué de cada una está en `ARQUITECTURA.md`; acá va solo la regla.
   devuelva un secreto lleva `hx-boost="false"`. Datos por-request van DENTRO
   de `<body>`, nunca como atributo de `<body>`. Un 4xx bajo boost es un click
   mudo: los carteles responden 200.
+- **Un alumno importado sin ancla no se cobra ni se bloquea**: `fecha_inicio_ciclo = None` es
+  un estado legítimo («Sin fecha de inicio»). Mover el ancla de un alumno con cuotas está
+  prohibido también en lote (el `UPDATE` lleva `~Exists(Cuota…)`), y baja/reactivación en
+  lote van con `save(update_fields=...)` por alumno, nunca `update()`.
 - **Fechas del dominio con `timezone.localdate()`**, nunca
   `timezone.now().date()` (UTC-3). Tests de esto: reloj congelado, fecha lejana.
 - **Nada de N+1**: el costo en queries depende del catálogo, nunca de la

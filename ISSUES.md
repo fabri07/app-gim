@@ -20,6 +20,36 @@ del log.
 
 ---
 
+## [2026-10-15] Importar alumnos desde Excel/CSV y acciones en lote: riesgos aceptados y deuda conocida
+**Estado:** aceptado (riesgo asumido a propósito); una verificación pendiente contra Postgres
+**Impacto:** el staff carga el padrón desde un `.xlsx`/`.csv` (`importaciones:alumnos_subir`) y opera sobre varios alumnos a la vez desde el listado (`alumnos:lote`). Los importados nacen con `Alumno.importado=True` y, salvo que el archivo traiga «Inicio del ciclo», sin `fecha_inicio_ciclo`: no se les emite ninguna cuota ni se los bloquea hasta que el staff les fija la fecha. Diseño en `ARQUITECTURA.md` («Importar alumnos» y «Acciones en lote del listado de alumnos»).
+**Resolución / próximo paso:**
+
+*Pendiente de verificar antes de dar la feature por cerrada*
+- **`select_for_update(of=("self",))` de `alumnos/lote.py::cambiar_estado` no se probó contra Postgres.** SQLite lo ignora, y toda la suite corre en SQLite. En Postgres `of=("self",)` es lo que evita el error de `FOR UPDATE` sobre el lado nullable de un outer join (`perfil` es nullable). Probar una baja y una reactivación en lote contra la base de Neon (o un Postgres local) antes de mergear. Mismo tipo de trampa que `select_for_update()` siendo no-op en SQLite.
+- Tampoco está medido en Render el tiempo de una baja de 200 alumnos (la spec estima ~1,2 s con el worker único). Si pasa de unos pocos segundos, bajar `MAX_LOTE_ESTADO`.
+
+*Riesgos aceptados de la spec*
+- **Fechas en texto siempre día primero** (`d/m/aaaa`). Un archivo con mes primero (`03/25/1990`) da «fecha inexistente» o, peor, una fecha válida pero distinta (`03/04`). Mitigación: el preview muestra cómo quedó cada fecha.
+- **Una importación EN_REVISION abandonada guarda el archivo y el JSON con datos de salud** (discapacidad, enfermedad crónica) hasta que alguien la confirme o la descarte; igual que los otros importadores. La purga de importaciones viejas sigue pendiente.
+- **La primera rutina ancla el ciclo de un importado sin fecha** (`anclar_ciclo_a_la_primera_rutina`, solo si todavía no tiene cuotas). Es el comportamiento estándar y se dice en el `help_text` y en la confirmación del lote, pero un staff que asigna una rutina por costumbre empieza a cobrarle a ese alumno sin haberlo decidido.
+- **Buscador y duplicados comparan el teléfono tal como se guardó** (o por `clave_telefono`, que ignora el formato); el buscador del listado no.
+- **Datos opcionales ilegibles terminan en `observaciones`** en una línea («Datos del archivo que no se pudieron cargar: …»), no en un campo estructurado. Es la contracara de «no perder en silencio».
+- **Sin paginación del listado**: deuda si un gimnasio pasa de ~1500 alumnos (el lote y los checkboxes viven en una sola página).
+- **Worker único**: ver arriba; una baja de 200 alumnos bloquea el worker ~1,2 s (estimado).
+- **Un inactivo importado tiene `fecha_baja` vacía** (la fecha real se desconoce) y no aparece en el gráfico de bajas. Si después se reactiva y se vuelve a dar de baja, ahí sí se estampa.
+- **CSV con otra codificación** (UTF-16) se rechaza con la instrucción de guardarlo como `.xlsx` o CSV UTF-8, en vez de adivinarla.
+- **Homónimo con email roto**: nombre igual y contacto presente pero ilegible se crea con aviso en vez de descartarse (elegido a propósito: perder a una persona distinta es peor que un duplicado visible). Un homónimo real con email mal escrito termina duplicado.
+- **Corrección de una regla de la spec**: en `tiene_*` los negativos («Ninguna», «No tiene», «N/A») dan falso sin detalle, no «verdadero con detalle». La spec ya está corregida; ver `ARQUITECTURA.md`.
+
+*Minor diferidos (deuda conocida, ninguno bloquea)*
+- **Lectura y valores** (`importaciones/parsing/alumnos.py`): `clave_telefono` aplica la rama del 15 a números extranjeros de 12 dígitos (colisión teórica) y duplica parcialmente la lógica 0/15/54 de `normalizar_telefono` sin un test que las compare. «Estado civil»/«Activo desde» se detectan como `estado` por prefijo. No se toleran «Masc.»/«F.», «una vez a la semana», «2 o 3 veces», «dd/mm/aaaa 00:00» ni el alias «fecha nac». El prefijo «no » en `tiene_*` hace que «No ve bien»/«No camina sin ayuda» den falso sin aviso, y «Nada» queda verdadero con detalle «Nada»; «No» con detalle «Asma» queda contradictorio sin aviso. Un CSV con un título sin separadores hace caer al sniffer en «,». `observaciones` usa `str()` y no `_texto`. `DemasiadasFilas` recorre todo `max_row` antes de levantar y `load_workbook` no usa `read_only` (medir con un archivo grande en el worker único). El test de sincronía con el modelo no cubre los sinónimos de frecuencia. `advertencias_columnas` muestra nombres internos de campo.
+- **Servicio** (`importaciones/alumnos.py`): una fila con contacto contra un existente del mismo nombre sin contacto se crea con aviso (hueco de la regla); `ya_existen` no conserva los avisos/`no_cargados` de la fila descartada; el centinela «ayer» equivale a 400 días; un comentario del módulo (alrededor de la línea 66) es incorrecto y un email de más de 254 caracteres da «no es válido» en vez de «largo»; el orden de imports no sigue el resto del repo; `.get()` de una `Importacion` inexistente levanta `DoesNotExist` (la vista ya resuelve con 404 filtrado).
+- **Señal de reactivar**: la rama `ciclo is None` de `_reanclar_ciclo_al_reactivar` quedó inalcanzable tras el corte por `None`/futuro.
+- **Listado y lote**: `.lote-acciones` sin estilos propios, `<th>` vacío sin `sr-only`, `aria-live` dentro de un `hidden`; `filtros_qs` acepta valores inválidos; la confirmación no muestra por adelantado el umbral de tolerancia (solo el conteo tras elegir fecha); un POST armado a mano con `confirmado=1` y sin fecha ejecuta con hoy sin pantalla; los botones deshabilitados quedan en el snapshot de htmx al volver con «atrás» (queda para la QA manual en navegador).
+- **Ficha y panel**: la ficha no avisa que un ancla futura no factura hasta esa fecha, y el badge «Sin fecha de inicio» de la ficha es rojo (`badge--riesgo`) mientras que el del panel es ámbar.
+- **Tests que faltan o son flojos**: cuota `ANULADA` que saltea y que bloquea mover el ancla a futuro, QR dado de baja por lote, fecha vacía que deja `None`, importado inactivo con ancla vieja sin cuotas, `test_la_baja_de_un_importado_si_cuenta` pisa `fecha_baja` con `update()` en vez de probar la señal, `test_lote_exige_staff` solo prueba el anónimo, los ids del lote se verifican por strings del HTML, `test_dos_emails_en_una_celda` y `test_fila_de_ejemplo` no afirman aviso/observaciones, el test de `seek` es enrevesado.
+
 ## [2026-10-11] Precios: lista tachada, anual a 10 meses y tramos automáticos en la portada
 **Estado:** aceptado (riesgo asumido a propósito)
 **Impacto:** la portada muestra en cada tramo un precio de lista tachado

@@ -157,6 +157,16 @@ ahora a la sección homónima de ESTE archivo.
     Django calcula los dos valores y los tira, y así estuvo el botón de
     baja/alta (el único camino de UI) un release entero.
 
+  - **Un ancla `None` o futura no se re-ancla al reactivar** (2026-10-15).
+    `_reanclar_ciclo_al_reactivar` corta antes de llamar a `ciclo_vigente` si
+    `fecha_inicio_ciclo is None or > hoy`. Con `None` (el alumno importado sin
+    «Inicio del ciclo») `ciclo_vigente` devuelve `None` y la rama de abajo
+    estampaba hoy: reactivar a un importado lo ponía a recibir cuotas esa misma
+    noche. Con ancla futura pasaba lo mismo y además adelantaba el cobro (afecta
+    también a los alumnos que la señal de la primera rutina dejó anclados a
+    futuro). Lo fijan `pagos.tests` `test_reactivar_con_ancla_none_no_la_inventa`
+    y `test_reactivar_con_ancla_futura_no_la_adelanta`.
+
   - El campo es **obligatorio en `AlumnoForm`** aunque sea `blank=True` en el
     modelo: vaciarlo desde la ficha dejaría al alumno sin recibir ninguna
     cuota, en silencio y para siempre. Y no acepta que el staff la MUEVA a una
@@ -169,6 +179,24 @@ ahora a la sección homónima de ESTE archivo.
     día.
 
 
+
+**«Sin fecha de inicio» es un estado legítimo, no un dato roto** (2026-10-15).
+El importador de alumnos crea las fichas con `fecha_inicio_ciclo = None` salvo
+que el archivo traiga la columna «Inicio del ciclo»: la fecha en que se importa
+NO es el día en que el alumno empezó a entrenar, y anclar ahí le facturaría a
+todo el padrón de golpe. Sin ancla, `generar_pagos_pendientes` lo saltea (filtra
+`fecha_inicio_ciclo__isnull=False`) y `bloqueo_de` nunca lo bloquea: **un alumno
+importado sin ancla no se cobra ni se bloquea hasta que el staff le fija la
+fecha** (ficha, lote o la primera rutina, si todavía no tiene cuotas). Las
+pantallas lo dicen: la ficha muestra el badge «Sin fecha de inicio» con un link
+a «Fijar fecha», el listado tiene el filtro `sin_fecha` y el dashboard una
+tarjeta `.aviso-urgente` con el conteo de activos sin fecha
+(`alumnos_activos_sin_inicio_count`, una query). `AlumnoForm` sigue exigiendo la
+fecha en la ficha, pero acepta una futura **hasta `DIAS_MAX_INICIO_FUTURO` (60)
+días si el alumno no tiene cuotas**; con cuotas, mover el ancla a futuro sigue
+rechazado (apaga la facturación y solapa períodos). El rango válido,
+`[hoy − 27, hoy + 60]`, vive en un solo lugar, `alumnos/ciclo.py::rango_inicio_ciclo`
+(Django-free), y lo comparten el lector del archivo, el lote y el form.
 
 ### Bloqueo de acceso por falta de pago (`pagos/acceso.py`)
 
@@ -213,6 +241,17 @@ turnos. `pagos/acceso.py` es el ÚNICO lugar donde vive esa regla —
   `DIAS_AVISO_PAGO` días, y el cuerpo dice cuántos días QUEDAN. Medirlo desde
   el arranque mandaba el push el día 1 («vence el 28») y, por el dedup por
   cuota, nada cerca del vencimiento real.
+
+- **`nace_bloqueada(gimnasio, fecha_inicio_ciclo, hoy)`** (2026-10-15) responde
+  «¿la cuota que el cron emitiría HOY con esta ancla nace bloqueando el
+  acceso?». Es pura y está construida sobre las mismas piezas que `bloqueo_de`
+  (`_umbral`, `tolerancia_efectiva`, `ciclo_vigente`): no es una copia de la
+  regla. Se evalúa sobre el `periodo_inicio` REAL que emite `ciclo_vigente` (con
+  un ancla de hace más de un ciclo, la cuota vigente arranca en el ciclo
+  corriente) y con `<=`, igual que el bloqueo. La usan el preview del importador
+  (`nacen_vencidas`) y la confirmación de «fijar fecha» en lote. Su primera
+  versión comparaba con `<` y un test fijaba el error; el borde exacto lo cubre
+  `NacenVencidasTests.test_borde_exacto_cuenta`.
 
 - **Qué se bloquea**: el portal reemplaza la tarjeta de rutina por la del
   bloqueo, `RutinaMiDiaDetailView` renderiza `rutinas/bloqueado.html` **con
@@ -2364,6 +2403,134 @@ plan original).
   «Ejercicios a resolver»): el error por fila queda al final de cientos de
   filas y el POST vuelve al tope, así que solo eso parecía «no hace nada».
 
+### Importar alumnos (2026-10-15)
+
+Un gimnasio que llega con su padrón en una planilla (cientos de fichas) lo
+cargaba de a uno. `importaciones:alumnos_subir`/`alumnos_preview` (botón
+«Importar desde Excel» en el listado de alumnos, no en el nav) calcan el flujo
+de biblioteca —subir → previsualizar → confirmar— sobre `.xlsx` y `.csv`. Spec
+en `docs/superpowers/specs/2026-10-15-importar-alumnos-design.md`, plan en
+`docs/superpowers/plans/2026-10-15-importar-alumnos.md`. Piezas:
+`importaciones/parsing/alumnos.py` (lector Django-free),
+`importaciones/alumnos.py` (preview, confirmación, descarte y el ejemplo),
+`Importacion.Tipo.ALUMNOS` y `Alumno.importado`. Las acciones sobre los
+alumnos ya cargados tienen sección propia: «Acciones en lote del listado de
+alumnos».
+
+**La regla que ordena todo: no inventar ni perder en silencio.** Un dato
+opcional ilegible o que no entra deja el campo vacío (o en su default), la fila
+lleva un aviso y el texto original se agrega a `observaciones` en UNA línea
+(`Datos del archivo que no se pudieron cargar: Sexo «X»; …`). Una fila se
+descarta solo si falta nombre o apellido (y no se puede partir), si superan
+`max_length` (120) o si es la fila de ejemplo (`MARCA_FILA_EJEMPLO`, chequeada
+antes de agregar nada a observaciones). **Quien escribe esa línea es un solo
+lugar, `_componer_observaciones` de `importaciones/alumnos.py`**: el lector
+devuelve `no_cargados` por fila y no toca observaciones, porque el servicio
+detecta además email, teléfono y largos que el lector no ve.
+
+- **Los negativos de salud no son un «sí».** Una columna «Discapacidad» llena de
+  «Ninguna»/«No tiene»/«N/A»/«-» es el formato más común de una ficha real:
+  tomarla como «sí, con detalle “Ninguna”» habría inventado un dato de salud
+  para cada alumno. En `tiene_*` un negativo da falso sin detalle ni aviso, y
+  un texto que no es ni negativo ni afirmativo («Sordera») da verdadero con el
+  texto como detalle y aviso. **Esto corrige la redacción original de la
+  spec** («otro texto no entendido en `tiene_*` → verdadero»): ganó el
+  principio rector, y la spec se corrigió en el mismo fix. Lo fijan
+  `tests_alumnos_parsing` `test_negativos_en_tiene_no_inventan_datos_de_salud`
+  y `test_texto_libre_que_no_es_negativo_sigue_siendo_si`. Costo aceptado: un
+  texto que empieza con «no » pero afirma («No ve bien») también da falso (ver
+  `ISSUES.md [2026-10-15]`).
+- **La «M» de sexo es ambigua y se decide mirando la columna entera**: si hay F
+  y no H, M = masculino; si hay H y no F, M = femenino; con ambas o ninguna →
+  vacío + aviso. La fila de ejemplo no cuenta para esa decisión, o su «M» le
+  cambiaría el sexo a alumnos reales.
+- **Nombre completo contra nombre/apellido**: gana el nombre completo cuando
+  matcheó EXACTO y nombre/apellido solo por prefijo («Alumno | Nombre del
+  tutor»); la columna que no se usa queda en `columnas_ignoradas`. El orden de
+  `ALIAS_ALUMNOS` importa (`detectar_columnas` resuelve el prefijo en ese
+  orden), y «Fecha de alta» **no** es alias de «Inicio del ciclo»: es el día que
+  se anotó, quizá hace años.
+- **«Inicio del ciclo» y «Estado» son columnas opcionales.** Una fecha fuera de
+  `[hoy − 27, hoy + 60]` o un estado ilegible → vacío/ACTIVO con aviso y texto a
+  observaciones. `hoy` lo pasa quien llama (`timezone.localdate()`); el lector
+  no lo calcula.
+- **Duplicados** (`_ClavesDeAlumnos`, UNA query sobre el gimnasio, activos e
+  inactivos): clave de email en minúsculas, de teléfono
+  (`identidad.clave_telefono`: `+54…`, sin el 9 de celular, 10 dígitos
+  nacionales; solo para comparar, `normalizar_telefono` del login no se toca) y
+  de nombre (tokens ordenados, no depende de dónde se cortó entre nombre y
+  apellido). Es duplicado si coincide contacto **y** nombre, o si la fila no
+  trae contacto y el nombre coincide. **La excepción son las familias: contacto
+  igual con nombre distinto se crea con aviso** (padres e hijos comparten
+  celular), y nombre igual con contacto distinto también. Nunca se actualiza a
+  un existente. Dentro del archivo gana la primera aparición.
+- **`trae_contacto` se mide ANTES de validar y viaja en el JSON.** Un homónimo
+  con email inválido o teléfono ilegible *tiene* contacto en el archivo aunque
+  el valor limpio quede vacío; si se midiera después, el preview lo prometía
+  como «a crear» y la confirmación lo salteaba como duplicado de un nombre
+  igual: pérdida silenciosa de una persona distinta. La confirmación lee
+  `fila.get("trae_contacto", <fallback por claves>)` (una `Importacion`
+  EN_REVISION anterior al deploy no tiene la clave). Fijan
+  `ConfirmarContactoInvalidoTests` (cada caso exige que se creen tantos como
+  prometió el preview) y
+  `DuplicadosTests.test_homonimo_con_email_invalido_se_crea_con_aviso`. Preview y
+  confirmación comparten `_ClavesDeAlumnos.evaluar`: **no dupliques la regla**.
+- **Por qué `bulk_create`, y qué completa a mano.** Mismo criterio que
+  `confirmar_importacion_biblioteca`: el costo en queries depende del
+  catálogo, no de las filas (hay test de escala, 20 vs 200). Pero `bulk_create`
+  no corre `pre_save` ni señales, así que **el servicio hace a mano lo que haría
+  el alta**: `importado=True`, `fecha_baja=None` (un inactivo importado no tiene
+  fecha de baja real y no aparece en el gráfico de bajas), sexo implícito si el
+  gimnasio no es mixto y vino vacío, y **el ancla tal cual viene del archivo**,
+  sin que el `pre_save` la estampe en hoy. No crea `User`/`Perfil`: el acceso se
+  da después, uno por uno.
+- **`Alumno.importado` existe solo para la analítica.** Las ALTAS (el gráfico y
+  «Altas del mes», que cuentan por `creado`) excluyen `importado=True`: cargar el
+  padrón de un día no es crecimiento. Las bajas cuentan igual (una baja
+  posterior pasa por `save()` real). Lo fijan `tenants.tests`
+  `test_un_alumno_importado_no_cuenta_como_alta_en_el_grafico` y
+  `test_un_alumno_importado_no_suma_a_las_altas_del_mes`.
+- **`nacen_vencidas`**: cuántas filas ACTIVAS a crear nacerían con el acceso
+  pausado esa noche (`pagos.acceso.nace_bloqueada`); los inactivos no cuentan
+  porque nunca bloquean. El preview lo avisa en ámbar.
+- **La cuenta demo no puede importar alumnos** (`gimnasio.es_demo` →
+  `ImportacionInvalida` antes de leer el archivo, `test_cuenta_demo_se_rechaza_antes_de_leer`):
+  es compartida y un padrón real con datos de salud quedaría a la vista de
+  otros prospectos hasta 6 h. De paso, una observación igual a `"[demo]"`
+  (`tenants.demo.MARCA`) se reescribe `"[demo] (importado)"` con aviso, porque
+  `sembrar_demo --borrar` borra por esa marca exacta y se llevaría a un alumno
+  real.
+- **Topes y CSV.** `MAX_FILAS_ALUMNOS = 1000` (más → rechazo entero, no se
+  trunca), 200 filas vacías seguidas cortan la lectura con aviso (cubre un
+  `max_row` inflado) y 5 MB de archivo (`SubirAlumnosForm`). `libro_desde_csv`
+  arma un `openpyxl.Workbook` en memoria —el mismo adaptador que
+  `parsing/pdf.py`— y reusa `leer_hoja_alumnos`: UTF-8 con BOM y, si no, cp1252;
+  separador por `csv.Sniffer`; UTF-16 u otra codificación → «Guardalo como .xlsx
+  o como CSV UTF-8».
+- **`Importacion.resultado` (tipo ALUMNOS)** lleva `a_crear`, `ya_existen`,
+  `filas_invalidas`, `avisos_lectura` (avisos de la lectura ENTERA, p. ej. «Dejé
+  de leer en la fila X»: el preview tiene que mostrarlos), `nacen_vencidas` y
+  `total_filas_leidas`. Las fechas van como texto ISO (un `date` en un
+  `JSONField` da `TypeError`) y las claves de `datos` se filtran contra
+  `CAMPOS_IMPORTABLES` antes de `Alumno(**datos)`. Al confirmar o descartar
+  queda achicado a `{"version": 1, "resumen": {…}}` y el archivo se vacía en la
+  misma transacción y se borra en `transaction.on_commit` con `try/except` +
+  log: si el storage falla queda un objeto huérfano, nunca un link roto ni un
+  500 (el test del archivo borrado verifica contra el storage, no contra el
+  campo: sin eso seguía verde aunque se quitara el `on_commit`).
+- **Lo que se ve y lo que se repite.** `alumnos_preview.html` lleva
+  `hx-history="false"` (datos de salud en el `localStorage` del mostrador, mismo
+  patrón que las pantallas con secretos) y la vista es `never_cache`. Confirmar
+  y descartar toleran el doble click: una importación ya procesada redirige con
+  un `messages.info` en vez de dar 404 (solo para ALUMNOS; plantillas y
+  biblioteca conservan el 404). `_leer` rebobina el archivo con `seek(0)` y, si
+  falla, **levanta** en vez de guardar uno truncado.
+- **`plantillas/ejemplo.xlsx` tiene su gemelo**: `importaciones:alumnos_ejemplo`
+  genera al vuelo la hoja «Alumnos» (dos filas con `MARCA_FILA_EJEMPLO`, una con
+  «Inicio del ciclo» vacío y otra con `hoy−3`) y «Cómo llenarlo», con el rango
+  sacado de `alumnos/ciclo.py` y los alias de `ALIAS_ALUMNOS`. Nunca como
+  binario versionado, por el mismo motivo.
+
 ### Planes en PDF (2026-09-07)
 
 `SubirPlantillasForm` acepta `.pdf` además de `.xlsx` (la biblioteca sigue
@@ -2438,6 +2605,77 @@ plantilla.
   `_pdf_con_texto` en `importaciones/tests.py`. Helvetica no tiene `•`: las
   viñetas de los fixtures van con `-`, y `multi_cell` necesita
   `new_x="LMARGIN", new_y="NEXT"` o la segunda línea no tiene espacio.
+
+## Acciones en lote del listado de alumnos (2026-10-15)
+
+El listado de alumnos tiene buscador (`q`), filtros `estado` y `sin_fecha`,
+selección múltiple y una barra con cuatro acciones: **fijar fecha de inicio,
+dar de baja, reactivar y generar códigos de ingreso**. Nació junto con el
+importador de alumnos (ver su subsección en «Importador de Excel»): un padrón
+importado sin fecha de inicio se arregla acá. La lógica vive en
+`alumnos/lote.py` (topes, `separar_por_cuotas`, `fijar_fecha_inicio`,
+`cambiar_estado`, `nombres`, `filtros_seguros`), el form es `LoteForm` y la
+vista única es `alumnos:lote` (`AlumnoLoteView`, solo POST; un GET redirige al
+listado). Pantalla de confirmación: `alumnos/lote_confirmar.html`.
+
+- **Los ids viajan en UN campo oculto separado por comas** (`LoteForm.ids`), no
+  como un checkbox con `name` por fila: con cientos de filas se supera
+  `DATA_UPLOAD_MAX_NUMBER_FIELDS` y bajo `hx-boost` el 400 es un click mudo. El
+  campo se sincroniza al tildar y no solo en el `submit`: bajo `hx-boost` htmx
+  puede serializar el form antes de que corra un listener de `submit`, y el lote
+  salía con ids vacío. **Siempre se revalidan** con
+  `Alumno.objects.for_gimnasio(g).filter(pk__in=ids)`: un id ajeno se descarta y
+  se informa («1 no se encontró»), y el tope cuenta solo los ids propios.
+- **Ningún error de usuario devuelve 4xx**: redirect con `messages` o render 200
+  de la confirmación con el error debajo del campo. `filtros` (para volver al
+  listado filtrado) se re-valida con `parse_qsl`: solo claves permitidas,
+  primera aparición, re-codificado con `urlencode`, así un `//evil.com` no es
+  un open redirect.
+- **Fijar fecha** (`MAX_LOTE_FECHA = 1000`) va en dos pasos y la fecha se ve
+  siempre antes de ejecutar: el POST de la barra renderiza la confirmación (fecha
+  propuesta = hoy, quiénes cambian, quiénes se saltean, y a cuántos activos
+  `nace_bloqueada` les pausaría el acceso esa noche); un form recalcula con la
+  fecha que se tipee y el de «confirmar» lleva esa fecha ya revisada en un
+  hidden, así no se confirma una fecha distinta de la que generó el aviso. Se
+  valida contra `rango_inicio_ciclo(timezone.localdate())`: el test del reloj
+  congelado a las 23:30 locales **falla con `timezone.now().date()`** (la primera
+  versión del test pasaba con el bug, porque el `now` parcheado conservaba el
+  tzinfo local; hubo que pasarlo a UTC como lo devuelve `timezone.now()`).
+- **Los alumnos que ya tienen cuotas se saltean y se nombran** (hasta 10 + «y N
+  más»), incluida una `ANULADA`: mover el ancla con cuotas emitidas solapa
+  períodos y vuelve a cobrar días ya cobrados, y el `unique_together` no lo
+  impide (solo prohíbe dos cuotas con el MISMO arranque). Se ejecuta con UN
+  `UPDATE` con `~Exists(Cuota…)` —que además cierra la carrera con el cron— y
+  `modificado` explícito (`update()` no dispara `auto_now`).
+  `anclar_ciclo_a_la_primera_rutina` sigue anclando en la fecha de la primera
+  rutina a un alumno sin cuotas: comportamiento estándar, dicho en el
+  `help_text` y en la confirmación.
+- **Baja y reactivación (`MAX_LOTE_ESTADO = 200`) NUNCA con
+  `QuerySet.update()`**: `save(update_fields=["estado", "fecha_baja",
+  "fecha_inicio_ciclo", "modificado"])` por alumno, como
+  `AlumnoToggleEstadoView`, para que corran `registrar_fecha_de_baja` y
+  `sincronizar_acceso_con_estado` (que corta `User.is_active`). Un `update()`
+  dejaría al dado de baja entrando a la app y sin `fecha_baja`. Va en un
+  `atomic` con `select_for_update(of=("self",))`,
+  `select_related("perfil__usuario")` (sin él la escala se dispara: lo fija
+  `BajaTests.test_escala_a_lo_sumo_3_queries_por_alumno`, verificado por
+  mutación) y `.exclude(estado=destino)`, así un doble POST no re-estampa
+  `fecha_baja`. El `of=("self",)` hace falta en Postgres porque `perfil` es
+  nullable y cae del lado nullable de un outer join; **SQLite lo ignora y no
+  está probado contra Postgres** (`ISSUES.md [2026-10-15]`). `cambiar_estado`
+  devuelve la **lista** de alumnos que cambiaron y no un entero: el mensaje
+  necesita los nombres.
+- **La baja pide confirmación y la reactivación no.** La baja avisa que pierden
+  el acceso a la app y que su QR y su cara salen del padrón del lector (al
+  reactivar hay que volver a enrolar la cara, ver «Control de ingreso»).
+  Reactivar es directo y su mensaje cuenta cuántos siguen sin fecha de inicio:
+  reactivar un ancla `None` no la inventa (ver «Apps de dominio» → `pagos`).
+- **Generar códigos** es directo y sin tope (es un solo `bulk_create`), vía
+  `ingreso.services.generar_credenciales_en_bloque(g, alumno_ids=ids)`; sin ids
+  se comporta como siempre. Solo para activos.
+- **Costo por el worker único**: una baja de 200 alumnos tarda del orden de
+  1,2 s (estimado en la spec, no medido en Render). Es el motivo del tope de
+  200, y de que fijar fecha —un solo `UPDATE`— pueda llegar a 1000.
 
 ## UI y white-label (Fase 4)
 
