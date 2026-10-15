@@ -919,7 +919,19 @@ class SubirAlumnosViewTests(VistasAlumnosBase):
         r = self.client.post(reverse("importaciones:alumnos_subir"), {"archivo": grande})
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "config-error")
+        self.assertContains(r, "más de 2 MB")
         self.assertFalse(Importacion.objects.exists())
+
+    def test_el_tope_de_tamano_es_2_mb(self):
+        # 1000 filas con las 16 columnas llenas pesan ~76 KB: 2 MB sobra, y 5
+        # dejaban pasar un xlsx de ~72.000 filas (22 s y ~570 MB en el worker).
+        self.assertEqual(MAX_BYTES_ARCHIVO_ALUMNOS, 2 * 1024 * 1024)
+
+    def test_demasiadas_filas_dice_mas_de_n(self):
+        filas = [(f"N{i}", f"A{i}", "", "") for i in range(1001)]
+        r = self._subir(filas)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "más de 1000 filas con datos")
 
     def test_acepta_csv(self):
         csv_ = SimpleUploadedFile("a.csv", "Nombre,Apellido\nJuan,Pérez\n".encode("utf-8"))

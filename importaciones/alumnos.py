@@ -260,8 +260,8 @@ def _leer(archivo, hoy):
         )
     except DemasiadasFilas as error:
         raise ImportacionInvalida(
-            f"El archivo tiene {error.filas} filas con datos y el máximo por "
-            f"archivo es {error.maximo}. Dividilo en partes y subí cada una por "
+            f"El archivo tiene más de {error.maximo} filas con datos, que es el "
+            "máximo por archivo. Dividilo en partes y subí cada una por "
             "separado."
         )
     except ERRORES_ARCHIVO_INVALIDO:

@@ -187,10 +187,22 @@ a observaciones).
 ### Topes
 
 `MAX_FILAS_ALUMNOS = 1000` filas con datos: más → rechazo del archivo entero
-(«dividilo en partes»), no se trunca. 200 filas vacías seguidas → se deja de
-leer con aviso «Dejé de leer en la fila X» (cubre un `max_row` inflado).
-Tamaño máximo de archivo `MAX_BYTES_ARCHIVO_ALUMNOS = 5 MB` (validado en el
-form).
+(«el archivo tiene más de 1000 filas con datos… dividilo en partes»), no se
+trunca. El lector levanta apenas pasa el tope, sin recorrer el resto. 200
+filas vacías seguidas → se deja de leer con aviso «Dejé de leer en la fila X»
+(cubre un `max_row` inflado). Tamaño máximo de archivo
+`MAX_BYTES_ARCHIVO_ALUMNOS = 2 MB` (validado en el form; 1000 filas con las 16
+columnas llenas pesan ~76 KB).
+
+Con un solo worker de gunicorn, cargar entero un xlsx de miles de filas para
+después rechazarlo es el riesgo (medido: 5 MB y ~72.000 filas, 22 s y ~570 MB).
+Por eso, antes de la carga completa, `verificar_filas_xlsx` abre el archivo en
+`read_only`: si `max_row` no pasa de `MAX_FILAS_ALUMNOS × 3 + 15` no hace nada;
+si lo pasa o es `None` (sin dimensión declarada), cuenta en streaming las filas
+con datos (con el mismo corte de 200 vacías) y rechaza recién al pasar
+`MAX_FILAS_ALUMNOS + 15`. Nunca rechaza solo por `max_row`: una dimensión
+inflada por formato no son alumnos. El CSV aplica el mismo tope mientras arma
+el libro.
 
 ### CSV
 

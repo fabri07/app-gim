@@ -47,6 +47,7 @@ from importaciones.parsing.alumnos import (  # noqa: F401  (re-export)
     HojaAlumnos,
     leer_hoja_alumnos,
     libro_desde_csv,
+    verificar_filas_xlsx,
 )
 from importaciones.parsing.tabular import leer_hoja_biblioteca, leer_hoja_larga
 
@@ -98,5 +99,6 @@ def parsear_archivo_alumnos(archivo, *, hoy):
     if (getattr(archivo, "name", "") or "").lower().endswith(".csv"):
         wb = libro_desde_csv(archivo)
     else:
+        verificar_filas_xlsx(archivo)
         wb = openpyxl.load_workbook(archivo, data_only=True)
     return leer_hoja_alumnos(wb[wb.sheetnames[0]], hoy=hoy)

@@ -541,19 +541,56 @@ class EncabezadosTests(SimpleTestCase):
 
 
 class TopesTests(SimpleTestCase):
-    def test_mas_del_tope_levanta_con_el_numero_de_filas(self):
+    def test_mas_del_tope_levanta_y_dice_mas_de_n(self):
         filas = [("Nombre", "Apellido")] + [
             (f"N{i}", f"A{i}") for i in range(MAX_FILAS_ALUMNOS + 1)
         ]
         with self.assertRaises(DemasiadasFilas) as ctx:
             leer(*filas)
-        self.assertEqual(ctx.exception.filas, MAX_FILAS_ALUMNOS + 1)
+        self.assertEqual(ctx.exception.maximo, MAX_FILAS_ALUMNOS)
+        self.assertIn(f"más de {MAX_FILAS_ALUMNOS}", str(ctx.exception))
+
+    def test_levanta_apenas_pasa_el_tope_sin_recorrer_el_resto(self):
+        """Con 5.000 filas de datos, el lector no puede leer las 5.000 para
+        rechazar después: corta en la fila `MAX_FILAS_ALUMNOS + 1`."""
+        from unittest import mock
+
+        filas = [("Nombre", "Apellido")] + [(f"N{i}", f"A{i}") for i in range(5000)]
+        ws = hoja(*filas)
+        leidas = set()
+        real = lector._valor_celda
+
+        def contar(ws_, fila, columna, merges):
+            leidas.add(fila)
+            return real(ws_, fila, columna, merges)
+
+        with mock.patch.object(lector, "_valor_celda", side_effect=contar), \
+                self.assertRaises(DemasiadasFilas):
+            leer_hoja_alumnos(ws, hoy=HOY)
+        self.assertLessEqual(max(leidas), MAX_FILAS_ALUMNOS + 2)
 
     def test_justo_el_tope_pasa(self):
         filas = [("Nombre", "Apellido")] + [
             (f"N{i}", f"A{i}") for i in range(MAX_FILAS_ALUMNOS)
         ]
         self.assertEqual(len(leer(*filas).filas), MAX_FILAS_ALUMNOS)
+
+    def test_csv_con_demasiadas_filas_se_rechaza_sin_armar_el_libro_entero(self):
+        texto = "Nombre,Apellido\n" + "".join(f"N{i},A{i}\n" for i in range(5000))
+        archivo = io.BytesIO(texto.encode("utf-8"))
+        archivo.name = "a.csv"
+        with self.assertRaises(DemasiadasFilas):
+            libro_desde_csv(archivo)
+
+    def test_csv_justo_en_el_tope_se_arma(self):
+        texto = "Nombre,Apellido\n" + "".join(
+            f"N{i},A{i}\n" for i in range(MAX_FILAS_ALUMNOS)
+        )
+        archivo = io.BytesIO(texto.encode("utf-8"))
+        archivo.name = "a.csv"
+        self.assertEqual(
+            len(parsear_archivo_alumnos(archivo, hoy=HOY).filas), MAX_FILAS_ALUMNOS
+        )
 
     def test_doscientas_vacias_seguidas_cortan_con_aviso(self):
         filas = [("Nombre", "Apellido"), ("Ana", "Gómez")]
@@ -797,3 +834,102 @@ class RondaDeArreglos1Tests(SimpleTestCase):
         )
         self.assertEqual(resultado.filas[0].datos["sexo"], "")
         self.assertEqual(resultado.filas[0].no_cargados, ["Sexo «M»"])
+
+
+def _xlsx(filas, *, dimension="auto"):
+    """Bytes de un xlsx con `filas`. `dimension`: "auto" (la que escribe
+    openpyxl), None (sin <dimension>, como algunos generadores) o un rango
+    («A1:B1048576», la dimensión inflada de una hoja con formato hasta el
+    final)."""
+    import re
+    import zipfile
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for fila in filas:
+        ws.append(list(fila))
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    if dimension == "auto":
+        return buffer.getvalue()
+    reemplazo = b"" if dimension is None else f'<dimension ref="{dimension}"/>'.encode()
+    salida = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(buffer.getvalue())) as zin, \
+            zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            datos = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                datos = re.sub(rb"<dimension[^>]*/>", reemplazo, datos)
+            zout.writestr(item, datos)
+    return salida.getvalue()
+
+
+def _archivo_xlsx(filas, **kw):
+    archivo = io.BytesIO(_xlsx(filas, **kw))
+    archivo.name = "a.xlsx"
+    return archivo
+
+
+class VerificarFilasXlsxTests(SimpleTestCase):
+    """La pasada `read_only` previa: un xlsx enorme se rechaza ANTES de la
+    carga completa, que es lo que costaba ~50 s y ~800 MB con el worker
+    único."""
+
+    ENC = ("Nombre", "Apellido")
+
+    def _filas(self, n):
+        return [self.ENC] + [(f"N{i}", f"A{i}") for i in range(n)]
+
+    def _parsear_sin_carga_completa(self, archivo):
+        """Parsea fallando si se intenta la carga completa (no `read_only`)."""
+        from unittest import mock
+
+        real = openpyxl.load_workbook
+
+        def solo_read_only(*a, **kw):
+            if not kw.get("read_only"):
+                raise AssertionError("cargó el libro entero")
+            return real(*a, **kw)
+
+        with mock.patch.object(parsing.openpyxl, "load_workbook", side_effect=solo_read_only):
+            return parsear_archivo_alumnos(archivo, hoy=HOY)
+
+    def test_muchas_filas_se_rechaza_sin_cargar_el_libro(self):
+        filas = self._filas(lector.TOPE_MAX_ROW_SIN_VERIFICAR + 100)
+        with self.assertRaises(DemasiadasFilas):
+            self._parsear_sin_carga_completa(_archivo_xlsx(filas))
+
+    def test_sin_dimension_tambien_se_rechaza_sin_cargar_el_libro(self):
+        filas = self._filas(MAX_FILAS_ALUMNOS + 100)
+        with self.assertRaises(DemasiadasFilas):
+            self._parsear_sin_carga_completa(_archivo_xlsx(filas, dimension=None))
+
+    def test_sin_dimension_y_pocas_filas_se_lee(self):
+        resultado = parsear_archivo_alumnos(
+            _archivo_xlsx(self._filas(10), dimension=None), hoy=HOY
+        )
+        self.assertEqual(len(resultado.filas), 10)
+
+    def test_dimension_inflada_con_pocas_filas_se_lee(self):
+        """`max_row` de un millón por formato aplicado hasta el final no son
+        alumnos: no se rechaza por la dimensión."""
+        archivo = _archivo_xlsx(self._filas(10), dimension="A1:B1048576")
+        resultado = parsear_archivo_alumnos(archivo, hoy=HOY)
+        self.assertEqual(len(resultado.filas), 10)
+
+    def test_justo_el_tope_con_max_row_alto_se_lee(self):
+        # Filas en blanco intercaladas inflan `max_row` sin sumar alumnos.
+        filas = [self.ENC]
+        for i in range(MAX_FILAS_ALUMNOS):
+            filas += [(f"N{i}", f"A{i}"), (None, None), (None, None), (None, None)]
+        resultado = parsear_archivo_alumnos(_archivo_xlsx(filas), hoy=HOY)
+        self.assertEqual(len(resultado.filas), MAX_FILAS_ALUMNOS)
+
+    def test_deja_el_archivo_rebobinado(self):
+        archivo = _archivo_xlsx(self._filas(lector.TOPE_MAX_ROW_SIN_VERIFICAR + 100))
+        with self.assertRaises(DemasiadasFilas):
+            lector.verificar_filas_xlsx(archivo)
+        self.assertEqual(archivo.tell(), 0)
+        archivo = _archivo_xlsx(self._filas(5))
+        lector.verificar_filas_xlsx(archivo)
+        self.assertEqual(archivo.tell(), 0)

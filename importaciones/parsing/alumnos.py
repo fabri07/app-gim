@@ -31,6 +31,7 @@ from alumnos.ciclo import rango_inicio_ciclo
 from importaciones.parsing.comun import (
     ColumnaRequeridaFaltante,
     FilaInvalida,
+    FILAS_BUSQUEDA_ENCABEZADO,
     _fila_vacia,
     _mapa_merges,
     _valor_celda,
@@ -41,6 +42,19 @@ from importaciones.parsing.comun import (
 
 MAX_FILAS_ALUMNOS = 1000
 FILAS_VACIAS_PARA_CORTAR = 200
+
+# Más filas no vacías que esto en el archivo y no puede haber menos de
+# `MAX_FILAS_ALUMNOS` alumnos: las únicas filas con datos que no son alumnos
+# son las de arriba del encabezado (a lo sumo `FILAS_BUSQUEDA_ENCABEZADO`).
+TOPE_FILAS_CON_DATOS = MAX_FILAS_ALUMNOS + FILAS_BUSQUEDA_ENCABEZADO
+
+# Hasta este `max_row` la carga completa del xlsx es barata (medido el
+# 2026-10-15: 3.000 filas de 16 columnas, 0,75 s y ~24 MB), así que no hace
+# falta ninguna pasada previa: el lector rechaza solo. Por encima, se cuenta
+# en modo `read_only` antes de cargar. El ×3 deja lugar a filas en
+# blanco intercaladas y a filas con formato sin datos, que inflan `max_row`
+# sin ser alumnos.
+TOPE_MAX_ROW_SIN_VERIFICAR = MAX_FILAS_ALUMNOS * 3 + FILAS_BUSQUEDA_ENCABEZADO
 MARCA_FILA_EJEMPLO = "Fila de ejemplo: borrala antes de subir"
 
 # El orden importa: `detectar_columnas` resuelve el prefijo en este orden.
@@ -119,15 +133,61 @@ class ArchivoCSVIlegible(Exception):
 
 
 class DemasiadasFilas(Exception):
-    """Más de `MAX_FILAS_ALUMNOS` filas con datos: se rechaza, no se trunca."""
+    """Más de `MAX_FILAS_ALUMNOS` filas con datos: se rechaza, no se trunca.
 
-    def __init__(self, filas):
-        self.filas = filas
+    No lleva el total: se levanta apenas se pasa el tope, sin recorrer el
+    resto del archivo (un xlsx de 5 MB tardaba ~50 s y ~800 MB en llegar al
+    final con el único worker de gunicorn). El mensaje dice «más de N»."""
+
+    def __init__(self):
         self.maximo = MAX_FILAS_ALUMNOS
         super().__init__(
-            f"El archivo tiene {filas} filas con datos y el máximo es "
-            f"{MAX_FILAS_ALUMNOS}"
+            f"El archivo tiene más de {MAX_FILAS_ALUMNOS} filas con datos"
         )
+
+
+def verificar_filas_xlsx(archivo):
+    """Rechaza con `DemasiadasFilas` un xlsx con demasiadas filas ANTES de la
+    carga completa, que es lo que cuesta memoria y tiempo. Deja el archivo
+    rebobinado.
+
+    Primero mira `max_row` de la primera hoja en modo `read_only` (lee la
+    dimensión declarada, casi gratis). Si no pasa de
+    `TOPE_MAX_ROW_SIN_VERIFICAR`, no hay nada que verificar. Si la pasa, o si
+    es `None` (el archivo no declara dimensión), NO se rechaza por eso: una
+    dimensión inflada (formato aplicado hasta la fila un millón) no son
+    alumnos, y sin dimensión no hay dato. En los dos casos se cuentan las
+    filas con datos en streaming, con la misma regla de corte que el lector
+    (200 vacías seguidas), y se rechaza recién al pasar
+    `TOPE_FILAS_CON_DATOS`. El streaming de `read_only` no arma el libro en
+    memoria y corta temprano. Medido el 2026-10-15 con un xlsx de 1,8 MB y
+    26.000 filas: con dimensión, 0,25 s y ~1 MB; sin dimensión costaba 8,9 s
+    y ~200 MB hasta que el lector cortaba, y con el conteo previo 2,3 s y
+    ~3 MB (casi todo es openpyxl recorriendo la hoja al abrirla en
+    `read_only` buscando la dimensión que no está).
+    """
+    try:
+        wb = openpyxl.load_workbook(archivo, read_only=True, data_only=True)
+        try:
+            ws = wb[wb.sheetnames[0]]
+            max_row = ws.max_row
+            if max_row is not None and max_row <= TOPE_MAX_ROW_SIN_VERIFICAR:
+                return
+            con_datos = vacias_seguidas = 0
+            for fila in ws.iter_rows(values_only=True):
+                if _fila_vacia(list(fila)):
+                    vacias_seguidas += 1
+                    if con_datos and vacias_seguidas >= FILAS_VACIAS_PARA_CORTAR:
+                        return
+                    continue
+                vacias_seguidas = 0
+                con_datos += 1
+                if con_datos > TOPE_FILAS_CON_DATOS:
+                    raise DemasiadasFilas()
+        finally:
+            wb.close()
+    finally:
+        archivo.seek(0)
 
 
 @dataclass(frozen=True)
@@ -626,9 +686,10 @@ def leer_hoja_alumnos(ws, *, hoy):
             continue
         vacias_seguidas = 0
         leidas.append((fila_idx, {c: valores[i] for c, i in campos.items()}))
-
-    if len(leidas) > MAX_FILAS_ALUMNOS:
-        raise DemasiadasFilas(len(leidas))
+        # Adentro del loop: con un `max_row` de 150.000 no tiene sentido
+        # recorrer el resto para después rechazar igual.
+        if len(leidas) > MAX_FILAS_ALUMNOS:
+            raise DemasiadasFilas()
 
     # La fila del ejemplo no cuenta: su «F» no puede decidir qué es la «M» de
     # los alumnos reales.
@@ -704,7 +765,15 @@ def libro_desde_csv(archivo):
 
     wb = openpyxl.Workbook()
     ws = wb.active
+    con_datos = 0
     for fila in csv.reader(io.StringIO(texto, newline=""), delimiter=separador):
+        # Mismo tope que `verificar_filas_xlsx`: armar en memoria un libro de
+        # decenas de miles de filas solo para rechazarlo después es justo el
+        # costo que se quiere evitar con el worker único.
+        if any(celda.strip() for celda in fila):
+            con_datos += 1
+            if con_datos > TOPE_FILAS_CON_DATOS:
+                raise DemasiadasFilas()
         # openpyxl rechaza los caracteres de control al escribir la celda.
         ws.append([_ILEGALES.sub("", celda) for celda in fila])
     return wb

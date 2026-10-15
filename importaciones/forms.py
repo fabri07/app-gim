@@ -38,7 +38,13 @@ class SubirBibliotecaForm(SubirArchivoForm):
     )
 
 
-MAX_BYTES_ARCHIVO_ALUMNOS = 5 * 1024 * 1024
+# 2 MB y no 5: el tope real lo pone `MAX_FILAS_ALUMNOS` (1000), y medido el
+# 2026-10-15 un xlsx de 1000 filas con las 16 columnas del ejemplo llenas pesa
+# 76 KB (78.262 bytes), así que 2 MB es ~26 veces lo que hace falta. Con 5 MB
+# entraba un xlsx de ~72.000 filas, cuya carga completa costaba 22 s y ~570 MB
+# en el worker único antes de rechazarlo (ver `parsing/alumnos.py::
+# verificar_filas_xlsx`, la segunda barrera).
+MAX_BYTES_ARCHIVO_ALUMNOS = 2 * 1024 * 1024
 
 
 class SubirAlumnosForm(SubirArchivoForm):
@@ -52,7 +58,7 @@ class SubirAlumnosForm(SubirArchivoForm):
         archivo = self.cleaned_data["archivo"]
         if archivo.size > MAX_BYTES_ARCHIVO_ALUMNOS:
             raise forms.ValidationError(
-                "El archivo pesa más de 5 MB. Dividilo en partes y subí cada una por separado."
+                "El archivo pesa más de 2 MB. Dividilo en partes y subí cada una por separado."
             )
         return archivo
 

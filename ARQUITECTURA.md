@@ -2519,8 +2519,16 @@ detecta además email, teléfono y largos que el lector no ve.
   `sembrar_demo --borrar` borra por esa marca exacta y se llevaría a un alumno
   real.
 - **Topes y CSV.** `MAX_FILAS_ALUMNOS = 1000` (más → rechazo entero, no se
-  trunca), 200 filas vacías seguidas cortan la lectura con aviso (cubre un
-  `max_row` inflado) y 5 MB de archivo (`SubirAlumnosForm`). `libro_desde_csv`
+  trunca; el lector levanta apenas pasa el tope y el mensaje dice «más de
+  1000»), 200 filas vacías seguidas cortan la lectura con aviso (cubre un
+  `max_row` inflado) y 2 MB de archivo (`SubirAlumnosForm`; 1000 filas llenas
+  pesan ~76 KB). **Con el worker único, cargar un xlsx entero para rechazarlo
+  es el riesgo** (5 MB y ~72.000 filas: 22 s y ~570 MB). Antes de la carga,
+  `parsing/alumnos.py::verificar_filas_xlsx` abre el archivo en `read_only`: con
+  `max_row ≤ 3015` no hace nada; por encima, o sin dimensión (`None`), cuenta
+  en streaming las filas con datos y rechaza al pasar 1015. **Nunca rechaza
+  solo por `max_row`**: una dimensión inflada por formato no son alumnos.
+  `libro_desde_csv` corta con el mismo tope mientras arma el libro. `libro_desde_csv`
   arma un `openpyxl.Workbook` en memoria —el mismo adaptador que
   `parsing/pdf.py`— y reusa `leer_hoja_alumnos`: UTF-8 con BOM y, si no, cp1252;
   separador por `csv.Sniffer`; UTF-16 u otra codificación → «Guardalo como .xlsx
