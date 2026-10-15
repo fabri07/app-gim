@@ -34,8 +34,10 @@ las pantallas)::
 
 import logging
 from dataclasses import asdict
+from datetime import date
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils import timezone
 
 from alumnos.identidad import clave_telefono, normalizar_email
@@ -51,6 +53,7 @@ from importaciones.parsing.comun import FILAS_BUSQUEDA_ENCABEZADO, normalizar_te
 from pagos.acceso import nace_bloqueada
 from importaciones.services import ERRORES_ARCHIVO_INVALIDO, ImportacionInvalida
 from tenants.demo import MARCA as MARCA_DEMO
+from tenants.models import Gimnasio
 
 logger = logging.getLogger(__name__)
 
@@ -331,7 +334,8 @@ def previsualizar_importacion_alumnos(*, gimnasio, archivo, usuario):
                 origen="archivo", fila=fila.fila_excel,
             )
             # La misma regla del bloqueo, no una copia (ver `pagos.acceso`).
-            if nace_bloqueada(gimnasio, datos.get("fecha_inicio_ciclo"), hoy):
+            # Un inactivo no cuenta: el cron no le emite cuotas, no bloquea.
+            if datos.get("estado") != Alumno.Estado.INACTIVO and nace_bloqueada(gimnasio, datos.get("fecha_inicio_ciclo"), hoy):
                 nacen_vencidas += 1
             a_crear.append({
                 "fila_excel": fila.fila_excel,
@@ -360,3 +364,100 @@ def previsualizar_importacion_alumnos(*, gimnasio, archivo, usuario):
         resultado=resultado,
         creado_por=usuario,
     )
+
+
+def confirmar_importacion_alumnos(*, importacion, gimnasio):
+    """Crea los alumnos de una `Importacion` ALUMNOS EN_REVISION.
+
+    Devuelve el resumen ``{"creados", "ya_existian", "descartadas",
+    "salteados_al_confirmar", "sin_fecha_inicio"}``. Las primeras cuatro claves
+    son las que se persisten en `resultado["resumen"]`; `sin_fecha_inicio`
+    (creados sin `fecha_inicio_ciclo`, que no reciben cuotas hasta que el staff
+    la cargue) solo viaja en el valor devuelto, para el mensaje y el redirect
+    de la vista. Levanta `ImportacionInvalida` si la importación es de otro
+    gimnasio, no es de alumnos o ya no está EN_REVISION.
+
+    Los duplicados se recalculan contra la base de ESTE momento (el preview
+    puede tener horas): las filas que ahora repiten a alguien se saltean y se
+    cuentan en `salteados_al_confirmar`. Se toma un lock sobre la fila del
+    `Gimnasio` ANTES de recargar las claves, para que dos importaciones
+    paralelas del mismo gimnasio no se vean como inexistentes entre sí.
+
+    El archivo se borra en `on_commit` y el campo `archivo` se vacía en la
+    misma transacción: así ni un fallo del storage deja un link roto en la
+    pantalla (a lo sumo queda un objeto huérfano, que se loguea)."""
+    with transaction.atomic():
+        importacion = Importacion.objects.select_for_update().get(pk=importacion.pk)
+        if importacion.gimnasio_id != gimnasio.id:
+            raise ImportacionInvalida("Esta importación no pertenece a tu gimnasio.")
+        if importacion.tipo != Importacion.Tipo.ALUMNOS:
+            raise ImportacionInvalida("Esta importación no es de alumnos.")
+        if importacion.estado != Importacion.Estado.EN_REVISION:
+            raise ImportacionInvalida("Esta importación ya fue procesada.")
+
+        # Serializa importaciones paralelas del mismo gimnasio. Se relee la
+        # fila: la tolerancia y el tipo de público son los de este instante.
+        gimnasio = Gimnasio.objects.select_for_update().get(pk=gimnasio.pk)
+        resultado = importacion.resultado
+        indice = _ClavesDeAlumnos(gimnasio)
+        sexo_implicito = None if gimnasio.tiene_publico_mixto else gimnasio.sexo_implicito()
+
+        nuevos, salteados, sin_fecha_inicio = [], 0, 0
+        for fila in resultado["a_crear"]:
+            datos = {c: v for c, v in fila["datos"].items() if c in CAMPOS_IMPORTABLES}
+            claves = claves_de(datos)
+            # Misma regla que el preview: con contacto en el archivo el nombre
+            # solo no alcanza para decir que es la misma persona.
+            repetido, _ = indice.evaluar(
+                claves, trae_contacto=bool(claves["email"] or claves["telefono"])
+            )
+            if repetido is not None:
+                salteados += 1
+                continue
+            indice.agregar(
+                claves, nombre=datos["nombre"], apellido=datos["apellido"],
+                origen="archivo", fila=fila["fila_excel"],
+            )
+            for campo in _FECHAS:
+                datos[campo] = date.fromisoformat(datos[campo]) if datos.get(campo) else None
+            datos["estado"] = datos.get("estado") or Alumno.Estado.ACTIVO
+            if sexo_implicito and not datos.get("sexo"):
+                datos["sexo"] = sexo_implicito
+            if datos["fecha_inicio_ciclo"] is None:
+                sin_fecha_inicio += 1
+            nuevos.append(Alumno(
+                gimnasio=gimnasio, importado=True, fecha_baja=None, **datos
+            ))
+
+        # `bulk_create` no pasa por `save()` ni por `pre_save`: por eso el
+        # estado y `fecha_baja` se fijan acá y el ancla queda como vino.
+        Alumno.objects.bulk_create(nuevos, batch_size=500)
+
+        resumen = {
+            "creados": len(nuevos),
+            "ya_existian": len(resultado.get("ya_existen", [])),
+            "descartadas": len(resultado.get("filas_invalidas", [])),
+            "salteados_al_confirmar": salteados,
+        }
+        archivo = importacion.archivo
+        importacion.estado = Importacion.Estado.CONFIRMADA
+        importacion.confirmado_en = timezone.now()
+        importacion.resultado = {"version": VERSION_RESULTADO, "resumen": resumen}
+        importacion.archivo = ""
+        importacion.save(
+            update_fields=["estado", "confirmado_en", "resultado", "archivo", "modificado"]
+        )
+
+        def borrar_archivo():
+            try:
+                archivo.delete(save=False)
+            except Exception:
+                logger.warning(
+                    "No se pudo borrar el archivo de la importación %s", importacion.pk,
+                    exc_info=True,
+                )
+
+        if archivo:
+            transaction.on_commit(borrar_archivo)
+
+    return {**resumen, "sin_fecha_inicio": sin_fecha_inicio}

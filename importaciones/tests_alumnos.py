@@ -7,6 +7,7 @@ del archivo, `nacen_vencidas`, el JSON y el costo en queries.
 
 import io
 from datetime import timedelta
+from unittest import mock
 
 import openpyxl
 from django.contrib.auth.models import User
@@ -20,6 +21,7 @@ from alumnos.models import Alumno
 from importaciones.alumnos import (
     CAMPOS_IMPORTABLES,
     claves_de,
+    confirmar_importacion_alumnos,
     previsualizar_importacion_alumnos,
 )
 from importaciones.models import Importacion
@@ -413,6 +415,17 @@ class NacenVencidasTests(BaseAlumnosTests):
         self._tolerancia(0)
         self.assertEqual(self._con_inicio(-5)["nacen_vencidas"], 0)
 
+    def test_un_inactivo_no_cuenta(self):
+        # El cron no le emite cuotas a un inactivo: nunca bloquea.
+        self._tolerancia(10)
+        hoy = timezone.localdate()
+        r = self._previsualizar(
+            [("Juan", "Pérez", "", "", hoy - timedelta(days=20), "Inactivo"),
+             ("Ana", "Gómez", "", "", hoy - timedelta(days=20), "Activo")],
+            encabezados=ENCABEZADOS + ("Inicio del ciclo", "Estado"),
+        )
+        self.assertEqual(r["nacen_vencidas"], 1)
+
 
 class NaceBloqueadaTests(TestCase):
     def test_usa_el_periodo_real_del_cron_no_el_ancla(self):
@@ -459,3 +472,183 @@ class EscalaTests(BaseAlumnosTests):
             self._alumno(f"Ex{i}", f"Ist{i}", email=f"e{i}@x.com")
         muchos = self._queries(filas)
         self.assertLessEqual(abs(muchos - pocos), 2)
+
+
+class ConfirmarTests(BaseAlumnosTests):
+    def _importacion(self, filas, encabezados=ENCABEZADOS, gimnasio=None):
+        return previsualizar_importacion_alumnos(
+            gimnasio=gimnasio or self.gimnasio,
+            archivo=_archivo(filas, encabezados),
+            usuario=self.usuario,
+        )
+
+    def _confirmar(self, importacion, gimnasio=None):
+        with self.captureOnCommitCallbacks(execute=True):
+            return confirmar_importacion_alumnos(
+                importacion=importacion, gimnasio=gimnasio or self.gimnasio
+            )
+
+    def test_crea_activos_sin_ancla_ni_baja_y_marcados_importados(self):
+        imp = self._importacion([("Juan", "Pérez", "J@x.com", "11 5555-1234")])
+        resumen = self._confirmar(imp)
+        a = Alumno.objects.get(gimnasio=self.gimnasio)
+        self.assertEqual((a.nombre, a.apellido, a.email), ("Juan", "Pérez", "j@x.com"))
+        self.assertEqual(a.estado, Alumno.Estado.ACTIVO)
+        self.assertIsNone(a.fecha_inicio_ciclo)
+        self.assertIsNone(a.fecha_baja)
+        self.assertTrue(a.importado)
+        self.assertEqual(resumen["creados"], 1)
+        self.assertEqual(resumen["sin_fecha_inicio"], 1)
+
+    def test_respeta_columnas_ancla_y_estado_del_archivo(self):
+        hoy = timezone.localdate()
+        ancla = hoy - timedelta(days=3)
+        imp = self._importacion(
+            [("Juan", "Pérez", "", "", ancla, "Inactivo", "1990-05-03")],
+            encabezados=ENCABEZADOS + ("Inicio del ciclo", "Estado", "Fecha de nacimiento"),
+        )
+        resumen = self._confirmar(imp)
+        a = Alumno.objects.get(gimnasio=self.gimnasio)
+        self.assertEqual(a.fecha_inicio_ciclo, ancla)
+        self.assertEqual(a.estado, Alumno.Estado.INACTIVO)
+        self.assertEqual(a.fecha_nacimiento.isoformat(), "1990-05-03")
+        self.assertIsNone(a.fecha_baja)
+        self.assertEqual(resumen["sin_fecha_inicio"], 0)
+
+    def test_un_inactivo_importado_no_cuenta_en_bajas_del_mes(self):
+        from tenants.analitica import altas_y_bajas_por_mes
+
+        imp = self._importacion(
+            [("Juan", "Pérez", "", "", "Inactivo")],
+            encabezados=ENCABEZADOS + ("Estado",),
+        )
+        self._confirmar(imp)
+        filas = altas_y_bajas_por_mes(self.gimnasio, hoy=timezone.localdate())
+        self.assertEqual(sum(f["bajas"] for f in filas), 0)
+        self.assertEqual(sum(f["altas"] for f in filas), 0)
+
+    def test_sin_ancla_el_cron_no_emite_cuotas_ni_bloquea(self):
+        from pagos.acceso import bloqueo_de
+        from pagos.models import Cuota, generar_pagos_pendientes
+
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            dias_tolerancia_pago=0,
+            fecha_activacion_bloqueo=timezone.localdate() - timedelta(days=400),
+        )
+        self.gimnasio.refresh_from_db()
+        self._confirmar(self._importacion([("Juan", "Pérez", "", "")]))
+        hoy = timezone.localdate()
+        generar_pagos_pendientes(hoy)
+        self.assertEqual(Cuota.objects.filter(gimnasio=self.gimnasio).count(), 0)
+        a = Alumno.objects.get(gimnasio=self.gimnasio)
+        self.assertIsNone(bloqueo_de(a, hoy=hoy))
+
+    def test_gimnasio_no_mixto_completa_el_sexo(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(tipo_publico="mujeres")
+        self.gimnasio.refresh_from_db()
+        self._confirmar(self._importacion([("Ana", "Gómez", "", "")]))
+        a = Alumno.objects.get(gimnasio=self.gimnasio)
+        self.assertEqual(a.sexo, self.gimnasio.sexo_implicito())
+        self.assertTrue(a.sexo)
+
+    def test_gimnasio_mixto_deja_el_sexo_vacio(self):
+        self._confirmar(self._importacion([("Ana", "Gómez", "", "")]))
+        self.assertEqual(Alumno.objects.get(gimnasio=self.gimnasio).sexo, "")
+
+    def test_segunda_confirmacion_levanta(self):
+        imp = self._importacion([("Juan", "Pérez", "", "")])
+        self._confirmar(imp)
+        with self.assertRaisesMessage(ImportacionInvalida, "Esta importación ya fue procesada."):
+            confirmar_importacion_alumnos(importacion=imp, gimnasio=self.gimnasio)
+        self.assertEqual(Alumno.objects.filter(gimnasio=self.gimnasio).count(), 1)
+
+    def test_importacion_de_otro_gimnasio_se_rechaza(self):
+        otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        imp = self._importacion([("Juan", "Pérez", "", "")], gimnasio=otro)
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_alumnos(importacion=imp, gimnasio=self.gimnasio)
+        self.assertEqual(Alumno.objects.count(), 0)
+
+    def test_importacion_de_otro_tipo_se_rechaza(self):
+        imp = self._importacion([("Juan", "Pérez", "", "")])
+        Importacion.objects.filter(pk=imp.pk).update(tipo=Importacion.Tipo.BIBLIOTECA)
+        imp.refresh_from_db()
+        with self.assertRaises(ImportacionInvalida):
+            confirmar_importacion_alumnos(importacion=imp, gimnasio=self.gimnasio)
+
+    def test_alumno_creado_entre_preview_y_confirmar_se_saltea(self):
+        imp = self._importacion([
+            ("Juan", "Pérez", "j@x.com", ""), ("Ana", "Gómez", "a@x.com", ""),
+        ])
+        self._alumno("Juan", "Pérez", email="j@x.com")
+        resumen = self._confirmar(imp)
+        self.assertEqual(resumen["creados"], 1)
+        self.assertEqual(resumen["salteados_al_confirmar"], 1)
+        self.assertEqual(Alumno.objects.filter(gimnasio=self.gimnasio).count(), 2)
+
+    def test_resumen_cuenta_ya_existian_y_descartadas(self):
+        self._alumno("Juan", "Pérez", email="j@x.com")
+        imp = self._importacion([
+            ("Juan", "Pérez", "j@x.com", ""), ("Ana", "Gómez", "", ""),
+            ("", "SinNombre", "", ""),
+        ])
+        r = imp.resultado
+        resumen = self._confirmar(imp)
+        self.assertEqual(resumen["ya_existian"], len(r["ya_existen"]))
+        self.assertEqual(resumen["descartadas"], len(r["filas_invalidas"]))
+        self.assertEqual(resumen["creados"], 1)
+        self.assertEqual(resumen["salteados_al_confirmar"], 0)
+
+    def test_resultado_achicado_estado_y_archivo_borrado(self):
+        imp = self._importacion([("Juan", "Pérez", "", "")])
+        self.assertTrue(imp.archivo.name)
+        self._confirmar(imp)
+        imp.refresh_from_db()
+        self.assertEqual(imp.estado, Importacion.Estado.CONFIRMADA)
+        self.assertIsNotNone(imp.confirmado_en)
+        self.assertEqual(set(imp.resultado), {"version", "resumen"})
+        self.assertEqual(
+            set(imp.resultado["resumen"]),
+            {"creados", "ya_existian", "descartadas", "salteados_al_confirmar"},
+        )
+        self.assertFalse(imp.archivo)
+
+    def test_falla_del_storage_no_propaga(self):
+        imp = self._importacion([("Juan", "Pérez", "", "")])
+        with mock.patch(
+            "django.db.models.fields.files.FieldFile.delete",
+            side_effect=OSError("storage caído"),
+        ), self.assertLogs("importaciones.alumnos", level="WARNING"):
+            self._confirmar(imp)
+        imp.refresh_from_db()
+        self.assertEqual(imp.estado, Importacion.Estado.CONFIRMADA)
+        self.assertEqual(Alumno.objects.filter(gimnasio=self.gimnasio).count(), 1)
+
+    def test_no_se_duplican_entre_si_al_confirmar(self):
+        imp = self._importacion([("Juan", "Pérez", "", ""), ("Ana", "Gómez", "", "")])
+        # Se fuerza una fila repetida en el JSON (como si el preview fuera viejo).
+        r = imp.resultado
+        r["a_crear"].append(dict(r["a_crear"][0], fila_excel=99))
+        Importacion.objects.filter(pk=imp.pk).update(resultado=r)
+        imp.refresh_from_db()
+        resumen = self._confirmar(imp)
+        self.assertEqual(resumen["creados"], 2)
+        self.assertEqual(resumen["salteados_al_confirmar"], 1)
+
+    def test_costo_no_crece_con_las_filas(self):
+        def confirmar(filas):
+            imp = self._importacion(filas)
+            with CaptureQueriesContext(connection) as consultas:
+                with self.captureOnCommitCallbacks(execute=True):
+                    confirmar_importacion_alumnos(importacion=imp, gimnasio=self.gimnasio)
+            return len(consultas)
+
+        def filas(n, desde=0):
+            return [
+                (f"Nom{i}", f"Ape{i}", f"a{i}@x.com", f"11555{i:05d}")
+                for i in range(desde, desde + n)
+            ]
+
+        chico = confirmar(filas(20))
+        grande = confirmar(filas(200, 1000))
+        self.assertLessEqual(grande, chico + 5)
