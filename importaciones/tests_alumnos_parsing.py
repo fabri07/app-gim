@@ -710,3 +710,90 @@ class SincroniaConElModeloTests(SimpleTestCase):
         campos = {f.name for f in Alumno._meta.get_fields()}
         fila = una_fila(("Nombre", "Apellido"), ("Ana", "Gómez"))
         self.assertLessEqual(set(fila.datos), campos)
+
+
+class RondaDeArreglos1Tests(SimpleTestCase):
+    def test_negativos_en_tiene_no_inventan_datos_de_salud(self):
+        for campo in ("Discapacidad", "Enfermedad crónica"):
+            for valor in ("Ninguna", "ninguno", "No tiene", "No posee", "N/A", "—", "-",
+                          "Ninguna conocida"):
+                with self.subTest(campo=campo, valor=valor):
+                    fila = una_fila(("Nombre", "Apellido", campo), ("Ana", "Gómez", valor))
+                    d = fila.datos
+                    self.assertFalse(d["tiene_discapacidad"] or d["tiene_enfermedad_cronica"])
+                    self.assertEqual(d["discapacidad_detalle"], "")
+                    self.assertEqual(d["enfermedad_cronica_detalle"], "")
+                    self.assertEqual(fila.avisos, [])
+                    self.assertEqual(fila.no_cargados, [])
+
+    def test_texto_libre_que_no_es_negativo_sigue_siendo_si(self):
+        fila = una_fila(("Nombre", "Apellido", "Discapacidad"), ("Ana", "Gómez", "Motriz"))
+        self.assertTrue(fila.datos["tiene_discapacidad"])
+        self.assertEqual(fila.datos["discapacidad_detalle"], "Motriz")
+
+    def test_lo_que_va_a_no_cargados_lleva_aviso_con_detalle_ya_cargado(self):
+        for valor in ("Sí, visual", "Motriz"):
+            with self.subTest(valor=valor):
+                fila = una_fila(
+                    ("Nombre", "Apellido", "Discapacidad", "Detalle discapacidad"),
+                    ("Ana", "Gómez", valor, "Sordera"),
+                )
+                self.assertEqual(len(fila.no_cargados), 1)
+                self.assertTrue(fila.avisos)
+
+    def test_si_futbol_pasa_a_deportes_con_aviso(self):
+        fila = una_fila(
+            ("Nombre", "Apellido", "Actividad física previa"), ("Ana", "Gómez", "Sí, fútbol")
+        )
+        self.assertTrue(fila.datos["actividad_fisica_previa"])
+        self.assertEqual(fila.datos["deportes_practica"], "fútbol")
+        self.assertTrue(fila.avisos)
+        self.assertEqual(fila.no_cargados, [])
+
+    def test_si_futbol_con_deportes_ya_cargados_va_a_no_cargados_con_aviso(self):
+        fila = una_fila(
+            ("Nombre", "Apellido", "Actividad física previa", "Deportes"),
+            ("Ana", "Gómez", "Sí, fútbol", "natación"),
+        )
+        self.assertEqual(fila.datos["deportes_practica"], "natación")
+        self.assertEqual(len(fila.no_cargados), 1)
+        self.assertTrue(fila.avisos)
+
+    def test_nombre_completo_por_prefijo_no_se_pierde_en_silencio(self):
+        resultado = leer(
+            ("Nombre", "Apellido", "Alumno N°"), ("Ana", "Gómez", 17)
+        )
+        self.assertNotIn("nombre_completo", resultado.columnas_detectadas)
+        self.assertEqual(resultado.columnas_ignoradas, ["Alumno N°"])
+
+    def test_alumno_exacto_le_gana_a_nombre_y_apellido_del_tutor(self):
+        resultado = leer(
+            ("Alumno", "Nombre del tutor", "Apellido del tutor"),
+            ("Juan Pérez", "Marta", "López"),
+        )
+        d = resultado.filas[0].datos
+        self.assertEqual((d["nombre"], d["apellido"]), ("Juan", "Pérez"))
+        self.assertEqual(
+            resultado.columnas_ignoradas, ["Nombre del tutor", "Apellido del tutor"]
+        )
+
+    def test_alumno_y_apellido_importa_al_alumno_partido(self):
+        resultado = leer(("Alumno", "Apellido"), ("Juan Pérez", "Pérez"))
+        self.assertEqual(len(resultado.filas), 1)
+        d = resultado.filas[0].datos
+        self.assertEqual((d["nombre"], d["apellido"]), ("Juan", "Pérez"))
+
+    def test_nombre_y_apellido_exactos_siguen_igual(self):
+        resultado = leer(("Nombre", "Apellido", "Alumno"), ("Juan", "Pérez", "Otro Nombre"))
+        d = resultado.filas[0].datos
+        self.assertEqual((d["nombre"], d["apellido"]), ("Juan", "Pérez"))
+        self.assertEqual(resultado.filas[0].avisos, [])
+
+    def test_la_fila_del_ejemplo_no_decide_la_convencion_de_la_m(self):
+        resultado = leer(
+            ("Nombre", "Apellido", "Sexo", "Observaciones"),
+            ("Ana", "Ejemplo", "F", MARCA_FILA_EJEMPLO),
+            ("Juan", "Pérez", "M", None),
+        )
+        self.assertEqual(resultado.filas[0].datos["sexo"], "")
+        self.assertEqual(resultado.filas[0].no_cargados, ["Sexo «M»"])

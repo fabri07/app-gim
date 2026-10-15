@@ -277,22 +277,33 @@ def leer_estado(valor):
 # ------------------------------------------------------------ booleanos ----
 
 _VERDADERO = {"si", "s", "x", "1", "true", "verdadero", "yes", "y", "✓"}
-_FALSO = {"no", "n", "0", "false", "falso", "", "-"}
+_FALSO = {"no", "n", "0", "false", "falso", "", "-", "—", "–"}
 _RE_SI_Y_RESTO = re.compile(r"^s[ií](?!\w)[\s,:;.\-–]*(.*)$", re.IGNORECASE)
 # Detalles que dicen «no hay nada»: no infieren `tiene_* = True`.
 _DETALLE_VACIO = {"", "no", "ninguna", "ninguno", "-", "n", "n/a", "na"}
 
 
+def _es_negativo(norm):
+    """«Ninguna», «N/A», «No tiene», «No posee», «Ninguna conocida»…: dicen que
+    NO hay nada. Nunca pueden volverse un sí con el texto como detalle: eso
+    sería inventar un dato de salud."""
+    return (
+        norm in _FALSO or norm in _DETALLE_VACIO
+        or norm.startswith("no ") or norm.startswith("ningun")
+    )
+
+
 def leer_booleano(valor):
-    """`(True | False | None, resto)`. `None` = texto no entendido. «Sí, asma»
-    -> `(True, "asma")`: el resto es lo que sobra después del sí."""
+    """`(True | False | None, resto)`. `None` = texto que no es ni afirmativo ni
+    negativo. «Sí, asma» -> `(True, "asma")`: el resto es lo que sobra después
+    del sí. Los negativos («Ninguna», «No tiene», «—»…) dan `False`."""
     if isinstance(valor, bool):
         return valor, ""
     texto = _texto(valor)
     norm = normalizar_texto(texto)
     if norm in _VERDADERO:
         return True, ""
-    if norm in _FALSO:
+    if _es_negativo(norm):
         return False, ""
     m = _RE_SI_Y_RESTO.match(texto)
     if m:
@@ -420,6 +431,10 @@ def _par_tiene_detalle(v, campo_tiene, campo_detalle, avisos, no_cargados):
             tiene = valor
         if resto:
             if detalle:
+                avisos.append(
+                    f"No pude pasar «{resto}» al detalle de {etiqueta.lower()}: "
+                    "ya tenía uno cargado"
+                )
                 no_cargados.append(f"{etiqueta} «{_texto(crudo)}»")
             else:
                 detalle = resto
@@ -485,6 +500,7 @@ def _construir_fila(fila_idx, v, *, modo_nombre, apellido_primero, m_significa, 
     if aviso:
         _no_leido("frecuencia_actividad_previa", aviso)
 
+    deportes = _texto(v.get("deportes_practica"))
     crudo = v.get("actividad_fisica_previa")
     actividad_vacia = _texto(crudo) == ""
     actividad = False
@@ -497,7 +513,13 @@ def _construir_fila(fila_idx, v, *, modo_nombre, apellido_primero, m_significa, 
             )
         else:
             actividad = valor
-            if resto:
+            if resto and not deportes:
+                deportes = resto
+                avisos.append(f"Pasé «{resto}» a los deportes que practica")
+            elif resto:
+                avisos.append(
+                    f"No pude pasar «{resto}» a los deportes: ya tenían algo cargado"
+                )
                 no_cargados.append(
                     f"{ETIQUETAS['actividad_fisica_previa']} «{_texto(crudo)}»"
                 )
@@ -525,7 +547,7 @@ def _construir_fila(fila_idx, v, *, modo_nombre, apellido_primero, m_significa, 
         "fecha_inicio_ciclo": inicio,
         "actividad_fisica_previa": actividad,
         "frecuencia_actividad_previa": frecuencia,
-        "deportes_practica": _texto(v.get("deportes_practica")),
+        "deportes_practica": deportes,
         "tiene_discapacidad": tiene_disc,
         "discapacidad_detalle": detalle_disc,
         "tiene_enfermedad_cronica": tiene_enf,
@@ -559,8 +581,22 @@ def leer_hoja_alumnos(ws, *, hoy):
     se lista; nunca invalida la hoja."""
     encabezado = _encabezado_de_alumnos(ws)
     campos = dict(encabezado.campos)
-    if "nombre" in campos and "apellido" in campos:
+
+    def exacto(campo):
+        return normalizar_texto(encabezado.valores[campos[campo]]) in ALIAS_ALUMNOS[campo]
+
+    separado = "nombre" in campos and "apellido" in campos
+    # Una columna de nombre completo EXACTA le gana a un nombre/apellido
+    # detectados solo por prefijo («Alumno» contra «Nombre del tutor»).
+    if separado and "nombre_completo" in campos and exacto("nombre_completo") and not (
+        exacto("nombre") and exacto("apellido")
+    ):
+        separado = False
+    if separado:
         modo_nombre = "separado"
+        # Un nombre completo detectado por prefijo («Alumno N°») no se usa:
+        # que figure como columna ignorada y no como detectada.
+        campos.pop("nombre_completo", None)
     else:
         modo_nombre = "completo"
         if "nombre_completo" not in campos:
@@ -594,7 +630,12 @@ def leer_hoja_alumnos(ws, *, hoy):
     if len(leidas) > MAX_FILAS_ALUMNOS:
         raise DemasiadasFilas(len(leidas))
 
-    m_significa = convencion_sexo(v.get("sexo") for _, v in leidas)
+    # La fila del ejemplo no cuenta: su «F» no puede decidir qué es la «M» de
+    # los alumnos reales.
+    m_significa = convencion_sexo(
+        v.get("sexo") for _, v in leidas
+        if str(v.get("observaciones") or "").strip() != MARCA_FILA_EJEMPLO
+    )
 
     filas, invalidas = [], []
     for fila_idx, v in leidas:

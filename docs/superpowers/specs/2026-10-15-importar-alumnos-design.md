@@ -141,10 +141,21 @@ a observaciones).
 - **Booleanos** (`actividad_fisica_previa`, `tiene_*`): verdadero = sí, si, s,
   x, 1, true, verdadero, yes, y, ✓; falso = no, n, 0, false, falso, vacío, «-».
   Texto que empieza con «si/sí» + resto («Sí, asma») → verdadero y el resto va
-  al `*_detalle` si está vacío (aviso). En `tiene_*`, otro texto no entendido →
-  verdadero y el texto va al `*_detalle` (aviso): cubre una sola columna
-  «Discapacidad» con texto libre. En `actividad_fisica_previa`, texto no
-  entendido → falso + aviso + observaciones.
+  al `*_detalle` si está vacío (aviso). **Negativos → falso, sin detalle y sin
+  aviso**: «ninguna», «ninguno», «n/a», «na», «—», y todo texto que empiece con
+  «no » o «ningun» («No tiene», «No posee», «Ninguna conocida»). Es la regla de
+  «no inventar»: una columna «Discapacidad» llena de «Ninguna» es el formato más
+  común de una ficha real, y volverla un sí con «Ninguna» de detalle inventaría
+  un dato de salud. En `tiene_*`, un texto que no es ni negativo ni afirmativo
+  («Sordera», «Motriz») → verdadero y el texto va al `*_detalle` (aviso): cubre
+  una sola columna «Discapacidad» con texto libre. En `actividad_fisica_previa`, texto no
+  entendido → falso + aviso + observaciones; «Sí, fútbol» → verdadero y el resto
+  pasa a `deportes_practica` si está vacío (aviso).
+- **Todo lo que va a observaciones lleva aviso.** Y si hay columnas de nombre
+  completo y de nombre/apellido, gana el nombre completo cuando matcheó EXACTO y
+  nombre/apellido solo por prefijo («Alumno | Nombre del tutor»); la columna
+  que no se usa queda en `columnas_ignoradas`. La «M» de sexo se decide sin
+  contar la fila del ejemplo.
 - **Implícitos** (con aviso): `*_detalle` con texto que no sea
   no/ninguna/ninguno/-/n/a/na y `tiene_*` vacío o sin columna → `tiene_* =
   True`. `frecuencia_actividad_previa` con valor y `actividad_fisica_previa`
