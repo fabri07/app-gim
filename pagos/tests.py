@@ -1579,6 +1579,45 @@ class AnclaDelCicloTests(TestCase):
         alumno.refresh_from_db()
         self.assertEqual(alumno.fecha_inicio_ciclo, hoy)
 
+    def test_reactivar_con_ancla_none_no_la_inventa(self):
+        """Un alumno importado sin fecha de inicio no tiene ancla a propósito:
+        reactivarlo no puede ponerlo a recibir cuotas por su cuenta. Se usa el
+        botón real, que es el camino de UI."""
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gomez",
+            estado=Alumno.Estado.INACTIVO,
+        )
+        # El alta estampa el ancla; el importador la deja vacía con un UPDATE.
+        Alumno.objects.filter(pk=alumno.pk).update(fecha_inicio_ciclo=None)
+        staff = User.objects.create_user("staff-ancla", password="clave-123456")
+        Perfil.objects.create(
+            usuario=staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF
+        )
+        self.client.force_login(staff)
+
+        respuesta = self.client.post(reverse("alumnos:activar", args=[alumno.pk]))
+
+        self.assertEqual(respuesta.status_code, 302)
+        alumno.refresh_from_db()
+        self.assertEqual(alumno.estado, Alumno.Estado.ACTIVO)
+        self.assertIsNone(alumno.fecha_inicio_ciclo)
+
+    def test_reactivar_con_ancla_futura_no_la_adelanta(self):
+        """Si el ciclo todavía no arrancó, re-anclar a hoy adelantaría el
+        cobro."""
+        futura = timezone.localdate() + timedelta(days=10)
+        alumno = Alumno.objects.create(
+            gimnasio=self.gimnasio, nombre="Ana", apellido="Gomez",
+            fecha_inicio_ciclo=futura,
+        )
+        alumno.estado = Alumno.Estado.INACTIVO
+        alumno.save()
+        alumno.estado = Alumno.Estado.ACTIVO
+        alumno.save()
+
+        alumno.refresh_from_db()
+        self.assertEqual(alumno.fecha_inicio_ciclo, futura)
+
     def test_una_baja_y_alta_el_mismo_dia_no_regala_dias(self):
         """Re-anclar siempre le regalaría hasta 27 días de cuota al que se dio
         de baja por error y volvió en el acto."""

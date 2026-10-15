@@ -153,6 +153,13 @@ def _reanclar_ciclo_al_reactivar(instance):
     ANTES de hoy. Re-anclar siempre le regalaría hasta 27 días de cuota al que
     se dio de baja por error y volvió el mismo día.
 
+    **No toca un ancla `None` ni una futura.** `None` es el alumno importado
+    sin fecha de inicio: todavía no empezó a entrenar, así que reactivarlo no
+    puede ponerlo a recibir cuotas (el staff carga la fecha cuando arranca).
+    Futura es un ciclo que todavía no arrancó: re-anclar a hoy adelantaría el
+    cobro. En los dos casos `ciclo_vigente` devuelve `None` y sin este corte
+    caería en la rama de abajo y estamparía hoy.
+
     Va en el `pre_save` que ya detecta la transición para que el valor viaje
     en el mismo UPDATE que `fecha_baja = None`, mismo argumento que el
     docstring de `registrar_fecha_de_baja`.
@@ -163,6 +170,8 @@ def _reanclar_ciclo_al_reactivar(instance):
     from pagos.models import ciclo_vigente
 
     hoy = timezone.localdate()
+    if instance.fecha_inicio_ciclo is None or instance.fecha_inicio_ciclo > hoy:
+        return
     ciclo = ciclo_vigente(instance.fecha_inicio_ciclo, hoy)
     if ciclo is None or ciclo[0] < hoy:
         instance.fecha_inicio_ciclo = hoy
