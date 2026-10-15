@@ -21,7 +21,18 @@
     </div>
   </div>
 
+  {% if activos_sin_inicio %}
+    <p class="aviso-urgente">
+      {{ activos_sin_inicio }} alumno{{ activos_sin_inicio|pluralize:"s" }} activo{{ activos_sin_inicio|pluralize:"s" }} sin fecha de inicio: no se les cobra.
+      <a href="{% url 'alumnos:listado' %}?sin_fecha=1&amp;estado=activo">Ver cuáles</a>
+    </p>
+  {% endif %}
+
   <form method="get" class="filtros">
+    <div>
+      <label for="q">Buscar</label>
+      <input type="text" name="q" id="q" value="{{ q_actual }}" placeholder="Nombre, email o teléfono...">
+    </div>
     <div>
       <label for="estado">Estado</label>
       <select name="estado" id="estado" onchange="this.form.submit()">
@@ -30,23 +41,55 @@
         <option value="inactivo" {% if estado_actual == "inactivo" %}selected{% endif %}>Inactivos</option>
       </select>
     </div>
+    <div>
+      <label for="sin_fecha">
+        <input type="checkbox" name="sin_fecha" id="sin_fecha" value="1" class="w-auto mb-0" {% if sin_fecha %}checked{% endif %} onchange="this.form.submit()">
+        Sin fecha de inicio
+      </label>
+    </div>
     <button type="submit" class="boton-secundario">Filtrar</button>
   </form>
 
-  {% if estado_actual %}
+  {% if estado_actual or sin_fecha or q_actual %}
     <p class="texto-suave">
-      Mostrando solo: <strong>{{ estado_actual }}</strong>
-      &middot; <a href="{% url 'alumnos:listado' %}">quitar filtro</a>
+      {% if estado_actual %}Estado: <strong>{{ estado_actual }}</strong>{% endif %}
+      {% if sin_fecha %}&middot; <strong>Sin fecha de inicio</strong>{% endif %}
+      {% if q_actual %}&middot; Búsqueda: <strong>{{ q_actual }}</strong>{% endif %}
+      &middot; <a href="{% url 'alumnos:listado' %}">quitar filtros</a>
     </p>
   {% endif %}
+
+  {% comment %}
+    Barra de selección múltiple. Los checkboxes de las filas NO llevan `name`
+    (con cientos de alumnos superarían DATA_UPLOAD_MAX_NUMBER_FIELDS y bajo
+    hx-boost el 400 es un click mudo): el JS junta los ids en el hidden `ids`
+    al enviar. Va `hidden` hasta que corre el JS, porque sin él los botones no
+    tendrían qué enviar. Es un form aparte del de la tabla (no hay forms
+    anidados; los checkboxes viven fuera de él).
+  {% endcomment %}
+  <form method="post" action="{% url 'alumnos:lote' %}" id="lote-form">
+    {% csrf_token %}
+    <input type="hidden" name="ids" value="">
+    <input type="hidden" name="filtros" value="{{ filtros_qs }}">
+    <div class="lote-acciones" hidden>
+      <button type="button" class="boton-secundario" id="lote-todos">Seleccionar todos (visibles)</button>
+      <span class="texto-suave" id="lote-conteo" aria-live="polite"></span>
+      <button type="submit" class="boton-secundario" name="accion" value="fijar_fecha">Fijar fecha de inicio</button>
+      <button type="submit" class="boton-secundario" name="accion" value="dar_de_baja">Dar de baja</button>
+      <button type="submit" class="boton-secundario" name="accion" value="reactivar">Reactivar</button>
+      <button type="submit" class="boton-secundario" name="accion" value="generar_codigos">Generar códigos de ingreso</button>
+    </div>
+  </form>
 
   <div class="tabla-scroll">
     <table class="tabla">
       <thead>
         <tr>
+          <th></th>
           <th>Nombre</th>
           <th>Apellido</th>
           <th>Estado</th>
+          <th>Inicio del ciclo</th>
           <th>Contacto</th>
           <th></th>
         </tr>
@@ -54,6 +97,7 @@
       <tbody>
         {% for a in alumnos %}
           <tr>
+            <td><input type="checkbox" class="js-lote w-auto mb-0" data-id="{{ a.pk }}" aria-label="Seleccionar a {{ a.nombre }} {{ a.apellido }}"></td>
             <td>{{ a.nombre }}</td>
             <td>{{ a.apellido }}</td>
             <td>
@@ -64,6 +108,13 @@
               {% endif %}
               {% if a.pk in alumnos_por_vencer %}
                 <span class="badge badge--urgente">Plan por vencer</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if a.fecha_inicio_ciclo %}
+                {{ a.fecha_inicio_ciclo|date:"d/m/Y" }}
+              {% else %}
+                <span class="badge badge--urgente">Sin fecha de inicio</span>
               {% endif %}
             </td>
             <td>
@@ -82,11 +133,50 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="5" class="texto-suave">No hay alumnos cargados todavía.</td>
+            <td colspan="7" class="texto-suave">No hay alumnos cargados todavía.</td>
           </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+
+<script>
+  // Selección múltiple. El contador arranca desde los :checked porque htmx
+  // restaura el <body> del historial con los tildes puestos. Todos los
+  // listeners cuelgan de elementos de esta página (nada en `document`), así
+  // que una navegación boosteada que re-ejecuta el script no los duplica: el
+  // DOM viejo ya no existe.
+  (function () {
+    var form = document.getElementById("lote-form");
+    if (!form) { return; }
+    var barra = form.querySelector(".lote-acciones");
+    var conteo = document.getElementById("lote-conteo");
+    var todos = document.getElementById("lote-todos");
+    var ids = form.querySelector('input[name="ids"]');
+    var checks = document.querySelectorAll(".js-lote");
+
+    function tildados() {
+      return Array.prototype.filter.call(checks, function (c) { return c.checked; });
+    }
+    function actualizar() {
+      var n = tildados().length;
+      conteo.textContent = n ? n + " seleccionado" + (n === 1 ? "" : "s") : "";
+      form.querySelectorAll('button[name="accion"]').forEach(function (b) { b.disabled = n === 0; });
+    }
+    checks.forEach(function (c) { c.addEventListener("change", actualizar); });
+    todos.addEventListener("click", function () {
+      var faltan = Array.prototype.some.call(checks, function (c) { return !c.checked; });
+      checks.forEach(function (c) { c.checked = faltan; });
+      actualizar();
+    });
+    form.addEventListener("submit", function (e) {
+      var marcados = tildados();
+      if (!marcados.length) { e.preventDefault(); return; }
+      ids.value = marcados.map(function (c) { return c.dataset.id; }).join(",");
+    });
+    barra.hidden = false;
+    actualizar();
+  })();
+</script>
 {% endblock %}

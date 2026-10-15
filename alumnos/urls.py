@@ -11,6 +11,7 @@ from alumnos.views import (
     AlumnoCreateView,
     AlumnoDeleteView,
     AlumnoDetailView,
+    AlumnoLoteView,
     AlumnoListView,
     AlumnoToggleEstadoView,
     AlumnoUpdateView,
@@ -26,6 +27,7 @@ urlpatterns = [
     # Las rutas literales van antes de las que capturan un parámetro. Con
     # `<int:pk>` no hay conflicto real ("accesos" no es un entero), pero el
     # orden evita el problema si algún día se agrega un `<slug:...>`.
+    path("lote/", AlumnoLoteView.as_view(), name="lote"),
     path("accesos/", AccesoListView.as_view(), name="accesos"),
     path("<int:pk>/", AlumnoDetailView.as_view(), name="detalle"),
     path("<int:pk>/editar/", AlumnoUpdateView.as_view(), name="editar"),

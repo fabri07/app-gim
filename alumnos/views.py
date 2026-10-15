@@ -19,8 +19,10 @@ get_object`).
 
 from django.contrib import messages
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils.http import urlencode
 from django.utils.cache import add_never_cache_headers
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -37,6 +39,16 @@ from alumnos.forms import AlumnoForm, CrearAccesoForm
 from alumnos.models import Alumno
 
 
+# Topes de las acciones en lote (los usa el listado para avisar y la vista
+# del lote para rechazar). Fijar fecha es un solo UPDATE; baja y reactivación
+# guardan alumno por alumno (señales), por eso el tope es menor.
+MAX_LOTE_FECHA = 1000
+MAX_LOTE_ESTADO = 200
+
+# Únicas claves del listado que viajan al volver de una acción en lote.
+FILTROS_LISTADO = ("q", "estado", "sin_fecha")
+
+
 class AlumnoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
     model = Alumno
     template_name = "alumnos/alumno_list.html"
@@ -47,6 +59,20 @@ class AlumnoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         self.estado_actual = self.request.GET.get("estado", "")
         if self.estado_actual in (Alumno.Estado.ACTIVO, Alumno.Estado.INACTIVO):
             queryset = queryset.filter(estado=self.estado_actual)
+        self.q = self.request.GET.get("q", "").strip()
+        # Cada palabra tiene que aparecer en alguno de los cuatro campos (AND
+        # entre palabras, OR entre campos): "juan pérez" encuentra a Pérez,
+        # Juan sin importar el orden.
+        for palabra in self.q.split():
+            queryset = queryset.filter(
+                Q(nombre__icontains=palabra)
+                | Q(apellido__icontains=palabra)
+                | Q(email__icontains=palabra)
+                | Q(telefono__icontains=palabra)
+            )
+        self.sin_fecha = self.request.GET.get("sin_fecha") == "1"
+        if self.sin_fecha:
+            queryset = queryset.filter(fecha_inicio_ciclo__isnull=True)
         return queryset
 
     def get_context_data(self, **kwargs):
@@ -54,6 +80,24 @@ class AlumnoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
 
         context = super().get_context_data(**kwargs)
         context["estado_actual"] = self.estado_actual
+        context["q_actual"] = self.q
+        context["sin_fecha"] = self.sin_fecha
+        # Se cuenta sobre TODO el gimnasio, no sobre lo filtrado: el aviso
+        # habla del padrón, y no tiene que cambiar al buscar.
+        context["activos_sin_inicio"] = (
+            Alumno.objects.for_gimnasio(self.gimnasio)
+            .filter(estado=Alumno.Estado.ACTIVO, fecha_inicio_ciclo__isnull=True)
+            .count()
+        )
+        context["filtros_qs"] = urlencode(
+            {
+                clave: valor
+                for clave in FILTROS_LISTADO
+                if (valor := self.request.GET.get(clave, "").strip())
+            }
+        )
+        context["max_lote_fecha"] = MAX_LOTE_FECHA
+        context["max_lote_estado"] = MAX_LOTE_ESTADO
         # Un set de ids y no una consulta por fila: el template marca al
         # alumno con `a.pk in alumnos_por_vencer`, que en Django es una
         # búsqueda en memoria. Con una property en el modelo serían dos
@@ -63,6 +107,18 @@ class AlumnoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
             for rutina in RutinaAsignada.por_vencer_de(gimnasio=self.gimnasio)
         }
         return context
+
+
+class AlumnoLoteView(StaffRequiredMixin, TenantScopedMixin, View):
+    """Acciones en lote del listado (la Task 10 las implementa).
+
+    Por ahora no hace nada: GET y POST vuelven al listado.
+    """
+
+    def get(self, request, *args, **kwargs):
+        return redirect("alumnos:listado")
+
+    post = get
 
 
 class AccesoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
