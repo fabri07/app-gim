@@ -25,7 +25,8 @@ las pantallas)::
      "advertencias_columnas": [...],
      "avisos_lectura": [...],   # avisos de la lectura entera ("Dejé de leer...")
      "a_crear": [{"fila_excel", "datos": {...fechas ISO...}, "avisos": [...],
-                  "claves": {"email", "telefono", "nombre"}}],
+                  "claves": {"email", "telefono", "nombre"},
+                  "trae_contacto": bool}],
      "ya_existen": [{"fila_excel", "nombre", "apellido", "origen": "base" |
                      "archivo", "alumno_id": pk | None, "motivo"}],
      "filas_invalidas": [{"fila_excel", "motivo"}],
@@ -342,6 +343,9 @@ def previsualizar_importacion_alumnos(*, gimnasio, archivo, usuario):
                 "datos": _a_json(datos),
                 "avisos": avisos,
                 "claves": claves,
+                # Lo que traía el archivo ANTES de validar: al confirmar los
+                # datos ya están limpios y un email inválido ya no se ve.
+                "trae_contacto": trae_contacto,
             })
 
     resultado = {
@@ -408,9 +412,11 @@ def confirmar_importacion_alumnos(*, importacion, gimnasio):
             claves = claves_de(datos)
             # Misma regla que el preview: con contacto en el archivo el nombre
             # solo no alcanza para decir que es la misma persona.
-            repetido, _ = indice.evaluar(
-                claves, trae_contacto=bool(claves["email"] or claves["telefono"])
+            # `.get`: una importación EN_REVISION anterior no guardó la clave.
+            trae_contacto = fila.get(
+                "trae_contacto", bool(claves["email"] or claves["telefono"])
             )
+            repetido, _ = indice.evaluar(claves, trae_contacto=trae_contacto)
             if repetido is not None:
                 salteados += 1
                 continue

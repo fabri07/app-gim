@@ -11,6 +11,7 @@ from unittest import mock
 
 import openpyxl
 from django.contrib.auth.models import User
+from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.test import TestCase
@@ -601,7 +602,9 @@ class ConfirmarTests(BaseAlumnosTests):
 
     def test_resultado_achicado_estado_y_archivo_borrado(self):
         imp = self._importacion([("Juan", "Pérez", "", "")])
-        self.assertTrue(imp.archivo.name)
+        nombre = imp.archivo.name
+        self.assertTrue(nombre)
+        self.assertTrue(default_storage.exists(nombre))
         self._confirmar(imp)
         imp.refresh_from_db()
         self.assertEqual(imp.estado, Importacion.Estado.CONFIRMADA)
@@ -612,6 +615,7 @@ class ConfirmarTests(BaseAlumnosTests):
             {"creados", "ya_existian", "descartadas", "salteados_al_confirmar"},
         )
         self.assertFalse(imp.archivo)
+        self.assertFalse(default_storage.exists(nombre))
 
     def test_falla_del_storage_no_propaga(self):
         imp = self._importacion([("Juan", "Pérez", "", "")])
@@ -652,3 +656,53 @@ class ConfirmarTests(BaseAlumnosTests):
         chico = confirmar(filas(20))
         grande = confirmar(filas(200, 1000))
         self.assertLessEqual(grande, chico + 5)
+
+
+class ConfirmarContactoInvalidoTests(BaseAlumnosTests):
+    """Un homónimo con contacto inválido se crea en el preview; al confirmar
+    tiene que seguir creándose (el contacto se mide ANTES de validar)."""
+
+    def _importar(self, filas):
+        imp = previsualizar_importacion_alumnos(
+            gimnasio=self.gimnasio, archivo=_archivo(filas), usuario=self.usuario
+        )
+        prometidos = len(imp.resultado["a_crear"])
+        with self.captureOnCommitCallbacks(execute=True):
+            resumen = confirmar_importacion_alumnos(
+                importacion=imp, gimnasio=self.gimnasio
+            )
+        return prometidos, resumen
+
+    def test_email_invalido_con_homonimo_en_la_base(self):
+        self._alumno("Juan", "Pérez", email="j@x.com")
+        prometidos, resumen = self._importar([("Juan", "Pérez", "no-es-email", "")])
+        self.assertEqual((prometidos, resumen["creados"]), (1, 1))
+        self.assertEqual(resumen["salteados_al_confirmar"], 0)
+
+    def test_telefono_ilegible_con_homonimo_en_la_base(self):
+        self._alumno("Juan", "Pérez", email="j@x.com")
+        prometidos, resumen = self._importar([("Juan", "Pérez", "", "abc")])
+        self.assertEqual((prometidos, resumen["creados"]), (1, 1))
+
+    def test_dos_homonimos_con_contacto_invalido_en_el_archivo(self):
+        prometidos, resumen = self._importar([
+            ("Juan", "Pérez", "no-es-email", ""), ("Juan", "Pérez", "", "abc"),
+        ])
+        self.assertEqual((prometidos, resumen["creados"]), (2, 2))
+
+    def test_importacion_vieja_sin_trae_contacto_sigue_confirmando(self):
+        imp = previsualizar_importacion_alumnos(
+            gimnasio=self.gimnasio,
+            archivo=_archivo([("Juan", "Pérez", "j@x.com", "")]),
+            usuario=self.usuario,
+        )
+        r = imp.resultado
+        for fila in r["a_crear"]:
+            del fila["trae_contacto"]
+        Importacion.objects.filter(pk=imp.pk).update(resultado=r)
+        imp.refresh_from_db()
+        with self.captureOnCommitCallbacks(execute=True):
+            resumen = confirmar_importacion_alumnos(
+                importacion=imp, gimnasio=self.gimnasio
+            )
+        self.assertEqual(resumen["creados"], 1)
