@@ -706,3 +706,285 @@ class ConfirmarContactoInvalidoTests(BaseAlumnosTests):
                 importacion=imp, gimnasio=self.gimnasio
             )
         self.assertEqual(resumen["creados"], 1)
+
+
+# --- Task 7: archivo de ejemplo ---------------------------------------------
+
+from django.urls import reverse  # noqa: E402
+
+from importaciones.alumnos import construir_ejemplo_alumnos  # noqa: E402
+from importaciones.parsing.alumnos import ALIAS_ALUMNOS  # noqa: E402
+from importaciones.parsing.comun import normalizar_texto  # noqa: E402
+from tenants.models import Perfil  # noqa: E402
+
+
+class EjemploAlumnosTests(BaseAlumnosTests):
+    def _libro(self):
+        return construir_ejemplo_alumnos()
+
+    def test_la_vista_responde_el_xlsx(self):
+        Perfil.objects.create(usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+        r = self.client.get(reverse("importaciones:alumnos_ejemplo"))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("spreadsheetml", r["Content-Type"])
+        self.assertIn("ejemplo-alumnos.xlsx", r["Content-Disposition"])
+        wb = openpyxl.load_workbook(io.BytesIO(r.content))
+        self.assertEqual(wb.sheetnames, ["Alumnos", "Cómo llenarlo"])
+
+    def test_cada_encabezado_esta_en_los_alias_de_su_campo(self):
+        ws = self._libro()["Alumnos"]
+        encabezados = [c.value for c in ws[1]]
+        self.assertEqual(len(encabezados), 16)
+        todos = {normalizar_texto(a) for alias in ALIAS_ALUMNOS.values() for a in alias}
+        for encabezado in encabezados:
+            self.assertIn(normalizar_texto(encabezado), todos, encabezado)
+
+    def test_dos_filas_de_ejemplo_una_con_inicio_y_otra_sin(self):
+        ws = self._libro()["Alumnos"]
+        self.assertEqual(ws.max_row, 3)
+        col = [c.value for c in ws[1]].index("Inicio del ciclo") + 1
+        valores = [ws.cell(row=f, column=col).value for f in (2, 3)]
+        self.assertEqual(sum(1 for v in valores if not v), 1)
+
+    def test_el_ejemplo_pasa_por_el_importador(self):
+        buffer = io.BytesIO()
+        self._libro().save(buffer)
+        archivo = SimpleUploadedFile("ejemplo.xlsx", buffer.getvalue())
+        importacion = previsualizar_importacion_alumnos(
+            gimnasio=self.gimnasio, archivo=archivo, usuario=self.usuario
+        )
+        r = importacion.resultado
+        self.assertEqual(len(r["a_crear"]), 0)
+        self.assertEqual(len(r["filas_invalidas"]), 2)
+        self.assertTrue(all("ejemplo" in f["motivo"].lower() for f in r["filas_invalidas"]))
+        self.assertEqual(len(r["columnas_detectadas"]), 16)
+        self.assertEqual(r["columnas_ignoradas"], [])
+
+    def test_la_ayuda_dice_el_rango_y_acepta_csv(self):
+        ayuda = self._libro()["Cómo llenarlo"]
+        texto = "\n".join(str(c.value) for fila in ayuda.iter_rows() for c in fila if c.value)
+        self.assertIn("27 días", texto)
+        self.assertIn("60", texto)
+        self.assertIn(".csv", texto)
+        self.assertIn("dd/mm/aaaa", texto)
+
+
+# --- Task 8: vistas -----------------------------------------------------------
+
+from importaciones.forms import MAX_BYTES_ARCHIVO_ALUMNOS  # noqa: E402
+
+
+class VistasAlumnosBase(BaseAlumnosTests):
+    def setUp(self):
+        super().setUp()
+        Perfil.objects.create(usuario=self.usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.login(username="staff", password="clave12345")
+
+    def _subir(self, filas, encabezados=ENCABEZADOS):
+        return self.client.post(
+            reverse("importaciones:alumnos_subir"),
+            {"archivo": _archivo(filas, encabezados)},
+        )
+
+    def _importacion(self, filas=(("Juan", "Pérez", "", ""),)):
+        return previsualizar_importacion_alumnos(
+            gimnasio=self.gimnasio, archivo=_archivo(filas), usuario=self.usuario
+        )
+
+
+class SubirAlumnosViewTests(VistasAlumnosBase):
+    def test_get_explica_el_formato_y_linkea_el_ejemplo_sin_boost(self):
+        r = self.client.get(reverse("importaciones:alumnos_subir"))
+        self.assertContains(r, 'href="%s" hx-boost="false"' % reverse("importaciones:alumnos_ejemplo"))
+        self.assertContains(r, 'enctype="multipart/form-data" hx-boost="false"')
+        self.assertContains(r, "27 días")
+        self.assertContains(r, ".csv")
+
+    def test_subir_redirige_al_preview(self):
+        r = self._subir([("Juan", "Pérez", "", "")])
+        imp = Importacion.objects.get(tipo=Importacion.Tipo.ALUMNOS)
+        self.assertRedirects(
+            r, reverse("importaciones:alumnos_preview", args=[imp.pk]), fetch_redirect_response=False
+        )
+
+    def test_archivo_invalido_da_200_con_error_visible(self):
+        r = self.client.post(
+            reverse("importaciones:alumnos_subir"),
+            {"archivo": SimpleUploadedFile("x.xlsx", b"no es un excel")},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "config-error")
+
+    def test_extension_no_permitida(self):
+        r = self.client.post(
+            reverse("importaciones:alumnos_subir"),
+            {"archivo": SimpleUploadedFile("x.pdf", b"%PDF")},
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "config-error")
+
+    def test_archivo_demasiado_grande_es_error_de_campo(self):
+        grande = SimpleUploadedFile("x.csv", b"a" * (MAX_BYTES_ARCHIVO_ALUMNOS + 1))
+        r = self.client.post(reverse("importaciones:alumnos_subir"), {"archivo": grande})
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "config-error")
+        self.assertFalse(Importacion.objects.exists())
+
+    def test_acepta_csv(self):
+        csv_ = SimpleUploadedFile("a.csv", "Nombre,Apellido\nJuan,Pérez\n".encode("utf-8"))
+        r = self.client.post(reverse("importaciones:alumnos_subir"), {"archivo": csv_})
+        self.assertEqual(r.status_code, 302)
+
+    def test_demo_bloqueada(self):
+        self.gimnasio.es_demo = True
+        self.gimnasio.save()
+        r = self.client.get(reverse("importaciones:alumnos_subir"))
+        self.assertContains(r, "En la cuenta de prueba no se importan alumnos")
+        self.assertContains(r, reverse("importaciones:alumnos_ejemplo"))
+        r = self._subir([("Juan", "Pérez", "", "")])
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "cuenta de prueba")
+        self.assertFalse(Importacion.objects.exists())
+
+    def test_alumno_recibe_403(self):
+        imp = self._importacion()
+        otro = User.objects.create_user(username="al", password="clave12345")
+        Perfil.objects.create(usuario=otro, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
+        self.client.login(username="al", password="clave12345")
+        self.assertEqual(self.client.get(reverse("importaciones:alumnos_subir")).status_code, 403)
+        self.assertEqual(
+            self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk])).status_code, 403
+        )
+
+
+class PreviewAlumnosViewTests(VistasAlumnosBase):
+    def test_muestra_fechas_dd_mm_aaaa_y_avisos(self):
+        hoy = timezone.localdate()
+        inicio = hoy + timedelta(days=3)
+        imp = self._importacion([("Juan", "Pérez", "", "")])
+        r = imp.resultado
+        r["a_crear"][0]["datos"]["fecha_nacimiento"] = "1990-05-03"
+        r["a_crear"][0]["datos"]["fecha_inicio_ciclo"] = inicio.isoformat()
+        r["a_crear"][0]["avisos"] = ["Aviso de prueba"]
+        r["avisos_lectura"] = ["Dejé de leer en la fila 9"]
+        r["columnas_ignoradas"] = ["Plan"]
+        Importacion.objects.filter(pk=imp.pk).update(resultado=r)
+        resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertContains(resp, "03/05/1990")
+        self.assertContains(resp, inicio.strftime("%d/%m/%Y"))
+        self.assertNotContains(resp, "1990-05-03")
+        self.assertContains(resp, "Aviso de prueba")
+        self.assertContains(resp, "Dejé de leer en la fila 9")
+        self.assertContains(resp, "Plan")
+        self.assertIn("no-store", resp["Cache-Control"])
+
+    def test_aviso_de_nacen_vencidas(self):
+        imp = self._importacion()
+        r = imp.resultado
+        r["nacen_vencidas"] = 3
+        Importacion.objects.filter(pk=imp.pk).update(resultado=r)
+        resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertContains(resp, "3 alumnos van a nacer con la cuota vencida")
+
+    def test_ya_existe_linkea_a_la_ficha_sin_boost(self):
+        existente = self._alumno("Ana", "Gómez", email="a@x.com")
+        imp = self._importacion([("Ana", "Gómez", "a@x.com", "")])
+        resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertContains(
+            resp, 'href="%s" hx-boost="false"' % reverse("alumnos:detalle", args=[existente.pk])
+        )
+
+    def test_descartadas_y_boton_se_deshabilita(self):
+        imp = self._importacion([("Juan", "", "", "")])
+        resp = self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertContains(resp, "Falta el apellido")
+        self.assertContains(resp, "disabled")
+
+    def test_preview_de_otro_gimnasio_404(self):
+        otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        imp = previsualizar_importacion_alumnos(
+            gimnasio=otro, archivo=_archivo([("Juan", "Pérez", "", "")]), usuario=self.usuario
+        )
+        self.assertEqual(
+            self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk])).status_code, 404
+        )
+
+    def test_preview_de_otro_tipo_404(self):
+        imp = self._importacion()
+        Importacion.objects.filter(pk=imp.pk).update(tipo=Importacion.Tipo.BIBLIOTECA)
+        self.assertEqual(
+            self.client.get(reverse("importaciones:alumnos_preview", args=[imp.pk])).status_code, 404
+        )
+
+    def test_post_confirma_y_redirige_al_listado(self):
+        imp = self._importacion([("Juan", "Pérez", "", "")])
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.post(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertEqual(Alumno.objects.count(), 1)
+        self.assertRedirects(
+            r, reverse("alumnos:listado") + "?sin_fecha=1", fetch_redirect_response=False
+        )
+        textos = [str(m) for m in r.wsgi_request._messages]
+        self.assertTrue(any("1 alumno" in t for t in textos))
+        self.assertTrue(any("sin fecha de inicio" in t and "Fijar fecha de inicio" in t for t in textos))
+
+    def test_post_sin_alumnos_sin_fecha_va_al_listado_pelado(self):
+        inicio = timezone.localdate().strftime("%d/%m/%Y")
+        imp = previsualizar_importacion_alumnos(
+            gimnasio=self.gimnasio,
+            archivo=_archivo([("Juan", "Pérez", inicio)], ("Nombre", "Apellido", "Inicio del ciclo")),
+            usuario=self.usuario,
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.post(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertRedirects(r, reverse("alumnos:listado"), fetch_redirect_response=False)
+
+    def test_post_sobre_ya_confirmada_redirige_con_mensaje(self):
+        imp = self._importacion()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        for metodo in (self.client.post, self.client.get):
+            r = metodo(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+            self.assertRedirects(r, reverse("alumnos:listado"), fetch_redirect_response=False)
+            self.assertIn("Esta importación ya se procesó.", [str(m) for m in r.wsgi_request._messages])
+        self.assertEqual(Alumno.objects.count(), 1)
+
+    def test_importacion_invalida_en_el_post_da_200_con_mensaje(self):
+        imp = self._importacion()
+        with mock.patch(
+            "importaciones.views.confirmar_importacion_alumnos",
+            side_effect=ImportacionInvalida("Algo falló"),
+        ):
+            r = self.client.post(reverse("importaciones:alumnos_preview", args=[imp.pk]))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Algo falló")
+
+
+class DescartarAlumnosTests(VistasAlumnosBase):
+    def test_descartar_redirige_a_subir_y_achica_el_resultado(self):
+        imp = self._importacion()
+        archivo = imp.archivo.name
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.post(reverse("importaciones:alumnos_descartar", args=[imp.pk]))
+        self.assertRedirects(r, reverse("importaciones:alumnos_subir"), fetch_redirect_response=False)
+        imp.refresh_from_db()
+        self.assertEqual(imp.estado, Importacion.Estado.DESCARTADA)
+        self.assertEqual(set(imp.resultado), {"version", "resumen"})
+        self.assertEqual(imp.resultado["resumen"]["creados"], 0)
+        self.assertFalse(imp.archivo)
+        self.assertFalse(default_storage.exists(archivo))
+
+    def test_descartar_otra_importacion_404(self):
+        imp = self._importacion()
+        otro = Gimnasio.objects.create(nombre="Otro", slug="otro")
+        Importacion.objects.filter(pk=imp.pk).update(gimnasio=otro)
+        r = self.client.post(reverse("importaciones:alumnos_descartar", args=[imp.pk]))
+        self.assertEqual(r.status_code, 404)
+
+
+class BotonEnElListadoTests(VistasAlumnosBase):
+    def test_el_listado_muestra_el_boton(self):
+        r = self.client.get(reverse("alumnos:listado"))
+        self.assertContains(r, reverse("importaciones:alumnos_subir"))
+        self.assertContains(r, "Importar desde Excel")

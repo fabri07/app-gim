@@ -38,6 +38,25 @@ class SubirBibliotecaForm(SubirArchivoForm):
     )
 
 
+MAX_BYTES_ARCHIVO_ALUMNOS = 5 * 1024 * 1024
+
+
+class SubirAlumnosForm(SubirArchivoForm):
+    archivo = forms.FileField(
+        label="Archivo",
+        validators=[FileExtensionValidator(allowed_extensions=["xlsx", "csv"])],
+        widget=forms.ClearableFileInput(attrs={"accept": ".xlsx,.csv"}),
+    )
+
+    def clean_archivo(self):
+        archivo = self.cleaned_data["archivo"]
+        if archivo.size > MAX_BYTES_ARCHIVO_ALUMNOS:
+            raise forms.ValidationError(
+                "El archivo pesa más de 5 MB. Dividilo en partes y subí cada una por separado."
+            )
+        return archivo
+
+
 class HojaMetadataForm(forms.Form):
     nombre_hoja = forms.CharField(widget=forms.HiddenInput)
     incluir = forms.BooleanField(required=False, initial=True)

@@ -35,12 +35,13 @@ las pantallas)::
 
 import logging
 from dataclasses import asdict
-from datetime import date
+from datetime import date, timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from alumnos.ciclo import DIAS_MAX_INICIO_FUTURO, DIAS_MAX_INICIO_PASADO
 from alumnos.identidad import clave_telefono, normalizar_email
 from alumnos.models import Alumno
 from importaciones.models import Importacion
@@ -50,6 +51,7 @@ from importaciones.parsing import (
     DemasiadasFilas,
     parsear_archivo_alumnos,
 )
+from importaciones.parsing.alumnos import ALIAS_ALUMNOS, MARCA_FILA_EJEMPLO
 from importaciones.parsing.comun import FILAS_BUSQUEDA_ENCABEZADO, normalizar_texto
 from pagos.acceso import nace_bloqueada
 from importaciones.services import ERRORES_ARCHIVO_INVALIDO, ImportacionInvalida
@@ -370,6 +372,21 @@ def previsualizar_importacion_alumnos(*, gimnasio, archivo, usuario):
     )
 
 
+def _borrar_archivo_al_commit(archivo, pk):
+    """Borra el archivo subido DESPUÉS del commit. Un fallo del storage se
+    loguea y no da 500: a lo sumo queda un objeto huérfano."""
+    def borrar():
+        try:
+            archivo.delete(save=False)
+        except Exception:
+            logger.warning(
+                "No se pudo borrar el archivo de la importación %s", pk, exc_info=True
+            )
+
+    if archivo:
+        transaction.on_commit(borrar)
+
+
 def confirmar_importacion_alumnos(*, importacion, gimnasio):
     """Crea los alumnos de una `Importacion` ALUMNOS EN_REVISION.
 
@@ -453,17 +470,97 @@ def confirmar_importacion_alumnos(*, importacion, gimnasio):
         importacion.save(
             update_fields=["estado", "confirmado_en", "resultado", "archivo", "modificado"]
         )
-
-        def borrar_archivo():
-            try:
-                archivo.delete(save=False)
-            except Exception:
-                logger.warning(
-                    "No se pudo borrar el archivo de la importación %s", importacion.pk,
-                    exc_info=True,
-                )
-
-        if archivo:
-            transaction.on_commit(borrar_archivo)
+        _borrar_archivo_al_commit(archivo, importacion.pk)
 
     return {**resumen, "sin_fecha_inicio": sin_fecha_inicio}
+
+
+def descartar_importacion_alumnos(*, importacion, gimnasio):
+    """Descarta una importación ALUMNOS EN_REVISION: tras descartar no puede
+    quedar guardado el padrón (trae datos de salud), así que `resultado` se
+    achica igual que al confirmar -- con `creados=0` -- y el archivo se borra.
+    Levanta `ImportacionInvalida` si ya no está EN_REVISION."""
+    with transaction.atomic():
+        importacion = Importacion.objects.select_for_update().get(pk=importacion.pk)
+        if importacion.gimnasio_id != gimnasio.id:
+            raise ImportacionInvalida("Esta importación no pertenece a tu gimnasio.")
+        if importacion.estado != Importacion.Estado.EN_REVISION:
+            raise ImportacionInvalida("Esta importación ya fue procesada.")
+        resultado = importacion.resultado
+        archivo = importacion.archivo
+        importacion.estado = Importacion.Estado.DESCARTADA
+        importacion.resultado = {
+            "version": VERSION_RESULTADO,
+            "resumen": {
+                "creados": 0,
+                "ya_existian": len(resultado.get("ya_existen", [])),
+                "descartadas": len(resultado.get("filas_invalidas", [])),
+                "salteados_al_confirmar": 0,
+            },
+        }
+        importacion.archivo = ""
+        importacion.save(update_fields=["estado", "resultado", "archivo", "modificado"])
+        _borrar_archivo_al_commit(archivo, importacion.pk)
+
+
+ENCABEZADOS_EJEMPLO = [
+    "Nombre", "Apellido", "Email", "Teléfono", "Fecha de nacimiento", "Sexo",
+    "Estado", "Inicio del ciclo", "Actividad física previa",
+    "Frecuencia de actividad", "Deportes que practica", "Tiene discapacidad",
+    "Detalle discapacidad", "Tiene enfermedad crónica",
+    "Detalle enfermedad crónica", "Observaciones",
+]
+
+
+def construir_ejemplo_alumnos():
+    """Un `.xlsx` de ejemplo, listo para llenar, generado al vuelo (nunca un
+    binario versionado: se desincronizaría del parser). Las dos filas llevan
+    `MARCA_FILA_EJEMPLO`, así que si el staff las deja el importador las
+    descarta. La fecha de «Inicio del ciclo» sale de hoy, para que el ejemplo
+    no envejezca fuera del rango aceptado."""
+    from openpyxl import Workbook
+
+    hoy = timezone.localdate()
+    inicio = (hoy - timedelta(days=3)).strftime("%d/%m/%Y")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Alumnos"
+    ws.append(ENCABEZADOS_EJEMPLO)
+    ws.append([
+        "Lucía", "Fernández", "lucia@ejemplo.com", "11 5555-1234", "14/03/1992",
+        "Femenino", "", "", "Sí", "Varias veces por semana", "Natación", "No",
+        "", "No", "", MARCA_FILA_EJEMPLO,
+    ])
+    ws.append([
+        "Martín", "Gómez", "", "11 4444-9876", "02/11/1985", "Masculino",
+        "Activo", inicio, "Sí", "Ocasional", "Fútbol", "No", "", "Sí",
+        "Asma", MARCA_FILA_EJEMPLO,
+    ])
+
+    ayuda = wb.create_sheet("Cómo llenarlo")
+    for linea in [
+        "Obligatorio: el nombre y el apellido del alumno, en dos columnas, o el nombre completo en una sola.",
+        "Todo lo demás es opcional. Las filas de ejemplo de la hoja «Alumnos» se descartan solas: borralas o pisalas.",
+        "Los títulos no tienen que estar en la primera fila: podés dejar un título arriba.",
+        "",
+        "Fechas: escribilas como dd/mm/aaaa (día primero), por ejemplo 14/03/1992.",
+        f"Inicio del ciclo: es el día desde el que se le cobra. Se acepta de {DIAS_MAX_INICIO_PASADO} días atrás a {DIAS_MAX_INICIO_FUTURO} días adelante. "
+        "Sin esa columna, o con la celda vacía, el alumno no paga hasta que le fijes la fecha desde el listado.",
+        "Estado: Activo o Inactivo (también Alta/Baja). Vacío = activo.",
+        "Sexo: Masculino, Femenino o Prefiere no decir.",
+        "Frecuencia de actividad: Diaria, Varias veces por semana, Una vez por semana u Ocasional.",
+        "Actividad física previa, Tiene discapacidad y Tiene enfermedad crónica: Sí o No.",
+        "Un dato que no se entienda queda vacío y se copia a Observaciones para que no se pierda.",
+        "",
+        "Duplicados: un alumno se considera repetido si coincide su email o teléfono Y su nombre, "
+        "o si no trae ni email ni teléfono y coincide el nombre. Los repetidos no se crean ni se modifican.",
+        "Los alumnos importados entran sin acceso a la app: el acceso se les da después, uno por uno.",
+        "Se acepta .xlsx y también .csv (separado por comas o punto y coma).",
+        "",
+        "También se entienden estos nombres de columna:",
+    ]:
+        ayuda.append([linea])
+    for campo, alias in ALIAS_ALUMNOS.items():
+        ayuda.append([campo, ", ".join(alias)])
+    return wb

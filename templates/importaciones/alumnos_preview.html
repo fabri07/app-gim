@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+{% block title %}Revisar alumnos · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <h1>Revisar antes de confirmar</h1>
+  <p class="texto-suave">
+    Se van a crear <strong>{{ a_crear|length }}</strong> alumno{{ a_crear|length|pluralize }}.
+    {% if resultado.ya_existen %}Ya existían: {{ resultado.ya_existen|length }} (no se vuelven a crear).{% endif %}
+    {% if resultado.filas_invalidas %}Filas descartadas: {{ resultado.filas_invalidas|length }}.{% endif %}
+  </p>
+
+  {% if resultado.nacen_vencidas %}
+    <div class="tarjeta aviso-urgente">
+      <h2>Cuotas vencidas desde el primer día</h2>
+      <p>
+        {{ resultado.nacen_vencidas }} alumno{{ resultado.nacen_vencidas|pluralize }} van a nacer con la cuota vencida
+        y se les pausa el acceso esta noche. Si no es lo que querés, corregí la
+        columna «Inicio del ciclo» y volvé a subir el archivo.
+      </p>
+    </div>
+  {% endif %}
+
+  {% if resultado.advertencias_columnas or resultado.avisos_lectura or resultado.columnas_ignoradas %}
+    <div class="tarjeta aviso-urgente">
+      <h2>Revisá cómo se leyó el archivo</h2>
+      {% for advertencia in resultado.advertencias_columnas %}<p>{{ advertencia }}</p>{% endfor %}
+      {% for aviso in resultado.avisos_lectura %}<p>{{ aviso }}</p>{% endfor %}
+      {% if resultado.columnas_ignoradas %}
+        <p>
+          Estas columnas no se importan:
+          {% for nombre in resultado.columnas_ignoradas %}<span class="badge badge--neutro">{{ nombre }}</span> {% endfor %}
+        </p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if a_crear %}
+    <h2>Alumnos a crear</h2>
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Fila</th><th>Alumno</th><th>Email</th><th>Teléfono</th>
+            <th>Nacimiento</th><th>Estado</th><th>Inicio del ciclo</th><th>Avisos</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for fila in a_crear %}
+            <tr>
+              <td>{{ fila.fila_excel }}</td>
+              <td>{{ fila.datos.apellido }}, {{ fila.datos.nombre }}</td>
+              <td>{{ fila.datos.email|default:"—" }}</td>
+              <td>{{ fila.datos.telefono|default:"—" }}</td>
+              <td>{{ fila.nacimiento|default:"—" }}</td>
+              <td>{% if fila.datos.estado == "inactivo" %}Inactivo{% else %}Activo{% endif %}</td>
+              <td>{% if fila.inicio_ciclo %}{{ fila.inicio_ciclo }}{% else %}<span class="texto-suave">Sin fecha</span>{% endif %}</td>
+              <td>
+                {% for aviso in fila.avisos %}<p class="texto-suave">{{ aviso }}</p>{% empty %}—{% endfor %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  {% if resultado.ya_existen %}
+    <div class="tarjeta">
+      <h2>Ya existen</h2>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Fila</th><th>Alumno</th><th>Motivo</th></tr></thead>
+          <tbody>
+            {% for fila in resultado.ya_existen %}
+              <tr>
+                <td>{{ fila.fila_excel }}</td>
+                <td>
+                  {{ fila.apellido }}, {{ fila.nombre }}
+                  {% if fila.alumno_id %}
+                    <a href="{% url 'alumnos:detalle' fila.alumno_id %}" hx-boost="false">Ver ficha</a>
+                  {% endif %}
+                </td>
+                <td>{{ fila.motivo }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if resultado.filas_invalidas %}
+    <div class="tarjeta">
+      <h2>Filas descartadas</h2>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Fila</th><th>Motivo</th></tr></thead>
+          <tbody>
+            {% for fila in resultado.filas_invalidas %}
+              <tr><td>{{ fila.fila_excel }}</td><td>{{ fila.motivo }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+
+  <form method="post" hx-boost="false" id="importacion-confirmar">
+    {% csrf_token %}
+  </form>
+  <form method="post" action="{% url 'importaciones:alumnos_descartar' importacion.pk %}"
+        hx-boost="false" id="importacion-descartar">
+    {% csrf_token %}
+  </form>
+  {% comment %}
+    Mismo patrón que la biblioteca: los dos botones se enganchan a su form con
+    `form=`. Confirmar se deshabilita al enviar: con cientos de filas el POST
+    tarda y un segundo click lo repetiría.
+  {% endcomment %}
+  <div class="acciones-formulario">
+    <button type="submit" form="importacion-confirmar" class="boton" id="boton-confirmar"
+            {% if not a_crear %}disabled{% endif %}>Confirmar importación</button>
+    <button type="submit" form="importacion-descartar" class="boton-quitar">Descartar</button>
+  </div>
+  <script>
+    document.getElementById("importacion-confirmar").addEventListener("submit", function () {
+      var boton = document.getElementById("boton-confirmar");
+      // Diferido: deshabilitarlo en el mismo tick lo saca del envío.
+      setTimeout(function () { boton.disabled = true; boton.textContent = "Importando…"; }, 0);
+    });
+  </script>
+</div>
+{% endblock %}

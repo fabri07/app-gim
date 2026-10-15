@@ -3,18 +3,30 @@
 que delegan toda la lógica a `services.py`."""
 
 import json
+from datetime import date
 
 from django.contrib import messages
 from django.http import HttpResponse
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
+from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import FormView, View
 
+from alumnos.ciclo import DIAS_MAX_INICIO_FUTURO, DIAS_MAX_INICIO_PASADO
 from core.mixins import TenantScopedMixin
 from ejercicios.models import CategoriaEjercicio
+from importaciones.alumnos import (
+    confirmar_importacion_alumnos,
+    construir_ejemplo_alumnos,
+    descartar_importacion_alumnos,
+    previsualizar_importacion_alumnos,
+)
 from importaciones.forms import (
     HojaMetadataFormSet,
     ResolucionEjercicioFormSet,
     ResolucionesJSONForm,
+    SubirAlumnosForm,
     SubirBibliotecaForm,
     SubirPlantillasForm,
 )
@@ -590,9 +602,136 @@ class DescartarImportacionView(StaffRequiredMixin, TenantScopedMixin, View):
             Importacion.objects.for_gimnasio(self.gimnasio),
             pk=kwargs["pk"], estado=Importacion.Estado.EN_REVISION,
         )
+        if importacion.tipo == Importacion.Tipo.ALUMNOS:
+            # Achica `resultado` y borra el archivo: el padrón trae datos de
+            # salud y no puede quedar guardado después de descartar.
+            try:
+                descartar_importacion_alumnos(importacion=importacion, gimnasio=self.gimnasio)
+            except ImportacionInvalida as exc:
+                messages.error(request, str(exc))
+                return redirect("alumnos:listado")
+            messages.success(request, "Importación descartada.")
+            return redirect("importaciones:alumnos_subir")
         importacion.estado = Importacion.Estado.DESCARTADA
         importacion.save(update_fields=["estado"])
         messages.success(request, "Importación descartada.")
         if importacion.tipo == Importacion.Tipo.BIBLIOTECA:
             return redirect("importaciones:biblioteca_subir")
         return redirect("importaciones:plantillas_subir")
+
+
+class EjemploAlumnosView(StaffRequiredMixin, TenantScopedMixin, View):
+    """Descarga el `.xlsx` de ejemplo de alumnos, generado al vuelo. El link
+    lleva `hx-boost="false"`: htmx se traga la descarga."""
+
+    def get(self, request, *args, **kwargs):
+        respuesta = HttpResponse(
+            content_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        )
+        respuesta["Content-Disposition"] = 'attachment; filename="ejemplo-alumnos.xlsx"'
+        construir_ejemplo_alumnos().save(respuesta)
+        return respuesta
+
+
+class SubirAlumnosView(StaffRequiredMixin, TenantScopedMixin, FormView):
+    form_class = SubirAlumnosForm
+    template_name = "importaciones/alumnos_subir.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["es_demo"] = self.gimnasio.es_demo
+        context["dias_pasado"] = DIAS_MAX_INICIO_PASADO
+        context["dias_futuro"] = DIAS_MAX_INICIO_FUTURO
+        return context
+
+    def form_valid(self, form):
+        try:
+            importacion = previsualizar_importacion_alumnos(
+                gimnasio=self.gimnasio,
+                archivo=form.cleaned_data["archivo"],
+                usuario=self.request.user,
+            )
+        except ImportacionInvalida as exc:
+            form.add_error(None, str(exc))
+            return self.form_invalid(form)
+        return redirect("importaciones:alumnos_preview", pk=importacion.pk)
+
+
+def _fecha_legible(iso):
+    """`aaaa-mm-dd` -> `dd/mm/aaaa`; vacío si no hay fecha."""
+    return date.fromisoformat(iso).strftime("%d/%m/%Y") if iso else ""
+
+
+@method_decorator(never_cache, name="dispatch")
+class PreviewAlumnosView(StaffRequiredMixin, TenantScopedMixin, View):
+    """Preview y confirmación de la importación de alumnos. `never_cache`: la
+    pantalla muestra datos de salud de personas y no debe quedar en el
+    historial del navegador."""
+
+    template_name = "importaciones/alumnos_preview.html"
+
+    def get_importacion(self):
+        # Sin filtrar por estado: una ya procesada se explica con un mensaje y
+        # no con un 404 (bajo `hx-boost` un 404 es un click mudo).
+        return get_object_or_404(
+            Importacion.objects.for_gimnasio(self.gimnasio),
+            pk=self.kwargs["pk"], tipo=Importacion.Tipo.ALUMNOS,
+        )
+
+    def _ya_procesada(self, request):
+        messages.info(request, "Esta importación ya se procesó.")
+        return redirect("alumnos:listado")
+
+    def _render(self, request, importacion):
+        resultado = importacion.resultado
+        a_crear = [
+            {
+                **fila,
+                "nacimiento": _fecha_legible(fila["datos"].get("fecha_nacimiento")),
+                "inicio_ciclo": _fecha_legible(fila["datos"].get("fecha_inicio_ciclo")),
+            }
+            for fila in resultado["a_crear"]
+        ]
+        return render(request, self.template_name, {
+            "importacion": importacion,
+            "resultado": resultado,
+            "a_crear": a_crear,
+        })
+
+    def get(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        if importacion.estado != Importacion.Estado.EN_REVISION:
+            return self._ya_procesada(request)
+        return self._render(request, importacion)
+
+    def post(self, request, *args, **kwargs):
+        importacion = self.get_importacion()
+        if importacion.estado != Importacion.Estado.EN_REVISION:
+            return self._ya_procesada(request)
+        try:
+            resumen = confirmar_importacion_alumnos(
+                importacion=importacion, gimnasio=self.gimnasio
+            )
+        except ImportacionInvalida as exc:
+            # Otra pestaña pudo procesarla entre el chequeo y el lock: ya no
+            # tiene `a_crear` para dibujar.
+            importacion.refresh_from_db()
+            if importacion.estado != Importacion.Estado.EN_REVISION:
+                return self._ya_procesada(request)
+            messages.error(request, str(exc))
+            return self._render(request, importacion)
+
+        creados = resumen["creados"]
+        mensaje = f"Se importaron {creados} alumno{'' if creados == 1 else 's'}."
+        sin_fecha = resumen["sin_fecha_inicio"]
+        destino = redirect("alumnos:listado")
+        if sin_fecha:
+            mensaje += (
+                f" Quedaron {sin_fecha} sin fecha de inicio: no se les cobra hasta "
+                'que se la fijes. Seleccionalos en el listado y usá "Fijar fecha de inicio".'
+            )
+            destino = redirect(f"{reverse('alumnos:listado')}?sin_fecha=1")
+        messages.success(request, mensaje)
+        return destino

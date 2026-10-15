@@ -5,10 +5,13 @@ from django.urls import path
 
 from importaciones.views import (
     DescartarImportacionView,
+    EjemploAlumnosView,
     EjemploPlantillasView,
+    PreviewAlumnosView,
     PreviewBibliotecaView,
     PreviewPlantillasView,
     SeleccionHojasView,
+    SubirAlumnosView,
     SubirBibliotecaView,
     SubirPlantillasView,
 )
@@ -24,4 +27,8 @@ urlpatterns = [
     path("biblioteca/subir/", SubirBibliotecaView.as_view(), name="biblioteca_subir"),
     path("biblioteca/<int:pk>/preview/", PreviewBibliotecaView.as_view(), name="biblioteca_preview"),
     path("biblioteca/<int:pk>/descartar/", DescartarImportacionView.as_view(), name="biblioteca_descartar"),
+    path("alumnos/ejemplo.xlsx", EjemploAlumnosView.as_view(), name="alumnos_ejemplo"),
+    path("alumnos/subir/", SubirAlumnosView.as_view(), name="alumnos_subir"),
+    path("alumnos/<int:pk>/preview/", PreviewAlumnosView.as_view(), name="alumnos_preview"),
+    path("alumnos/<int:pk>/descartar/", DescartarImportacionView.as_view(), name="alumnos_descartar"),
 ]

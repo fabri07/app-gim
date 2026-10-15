@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Importar alumnos · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <h1>Importar alumnos</h1>
+  {% if es_demo %}
+    <div class="tarjeta aviso-urgente">
+      <p>
+        En la cuenta de prueba no se importan alumnos: es compartida con otros
+        gimnasios y lo que subas lo vería cualquiera que la use. Podés leer
+        cómo funciona y descargar el archivo de ejemplo.
+      </p>
+    </div>
+  {% endif %}
+  <div class="tarjeta">
+    <p class="texto-suave">
+      Subí tu padrón como <strong>.xlsx</strong> o <strong>.csv</strong>.
+      Antes de crear nada vas a ver cómo se leyó cada fila y podés descartar
+      todo.
+    </p>
+    <p class="texto-suave">
+      Lo único obligatorio es el <strong>nombre y el apellido</strong>, en dos
+      columnas o en una sola (<em>Nombre y apellido</em>). Lo demás es
+      opcional: email, teléfono, fecha de nacimiento, sexo, estado y los datos
+      de la ficha (actividad previa, discapacidad, enfermedad crónica,
+      observaciones).
+    </p>
+    <ul class="texto-suave">
+      <li>Los alumnos entran <strong>activos</strong> (salvo que la columna
+        <em>Estado</em> diga otra cosa), <strong>sin cobro</strong> y
+        <strong>sin acceso a la app</strong>: el acceso se lo das después.</li>
+      <li>Las fechas van como <strong>dd/mm/aaaa</strong>.</li>
+      <li>La columna <em>Inicio del ciclo</em> es opcional y acepta fechas de
+        {{ dias_pasado }} días atrás a {{ dias_futuro }} días adelante. Sin
+        ella, el alumno queda <strong>sin fecha de inicio</strong> y no paga
+        hasta que se la fijes desde el listado.</li>
+      <li>Si ya hay un alumno con el mismo email o teléfono y el mismo nombre,
+        no se vuelve a crear: se lista como «Ya existe».</li>
+      <li>Un dato que no se entienda no frena la importación: queda vacío y se
+        copia a Observaciones para que no se pierda.</li>
+    </ul>
+    <p class="texto-suave">
+      Si no sabés cómo armarlo,
+      <a href="{% url 'importaciones:alumnos_ejemplo' %}" hx-boost="false">descargá un archivo
+      de ejemplo</a> y llenalo con tus datos.
+    </p>
+    <form method="post" enctype="multipart/form-data" hx-boost="false">
+      {% csrf_token %}
+      {% for error in form.non_field_errors %}
+        <p class="config-error">{{ error }}</p>
+      {% endfor %}
+      {% include 'partials/campo_form.html' with campo=form.archivo %}
+      <button type="submit" class="boton">Subir y previsualizar</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
