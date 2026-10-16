@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 
 import openpyxl
+from openpyxl.cell.read_only import EmptyCell
 from openpyxl.utils.datetime import from_excel
 
 from alumnos.ciclo import rango_inicio_ciclo
@@ -146,6 +147,15 @@ class DemasiadasFilas(Exception):
         )
 
 
+class FormatoEnFilasVacias(Exception):
+    """El xlsx tiene formato (bordes, colores, fuente) aplicado a miles de filas
+    sin datos. Esas celdas existen en el archivo aunque estén vacías, y la carga
+    completa las arma TODAS en memoria: medido el 2026-10-16, 1,9 MB con
+    formato en 62.000 filas × 16 columnas = 7,3 s y +405 MB en el único worker.
+    Se rechaza con un pedido concreto (copiar solo los datos) en vez de
+    cargarlo."""
+
+
 def verificar_filas_xlsx(archivo):
     """Rechaza con `DemasiadasFilas` un xlsx con demasiadas filas ANTES de la
     carga completa, que es lo que cuesta memoria y tiempo. Deja el archivo
@@ -173,12 +183,24 @@ def verificar_filas_xlsx(archivo):
             max_row = ws.max_row
             if max_row is not None and max_row <= TOPE_MAX_ROW_SIN_VERIFICAR:
                 return
-            con_datos = vacias_seguidas = 0
-            for fila in ws.iter_rows(values_only=True):
-                if _fila_vacia(list(fila)):
+            con_datos = vacias_seguidas = presentes = 0
+            cortado = False
+            for fila in ws.iter_rows():
+                # Una fila que existe en el archivo (aunque sea solo con
+                # formato) cuesta memoria en la carga completa; las que
+                # openpyxl rellena para cubrir huecos (`EmptyCell`), no.
+                if any(not isinstance(c, EmptyCell) for c in fila):
+                    presentes += 1
+                    if presentes > TOPE_MAX_ROW_SIN_VERIFICAR:
+                        raise FormatoEnFilasVacias()
+                if cortado:
+                    continue
+                if _fila_vacia([c.value for c in fila]):
                     vacias_seguidas += 1
                     if con_datos and vacias_seguidas >= FILAS_VACIAS_PARA_CORTAR:
-                        return
+                        # El lector deja de leer acá, pero la carga completa
+                        # no: se sigue contando las filas que existen.
+                        cortado = True
                     continue
                 vacias_seguidas = 0
                 con_datos += 1
@@ -366,9 +388,10 @@ def _es_negativo(norm):
     detalle: eso sería inventar un dato de salud. Solo valores y frases
     conocidas: otro texto que empiece con «no» NO es negativo (ver
     `empieza_negando`)."""
+    norm = norm.rstrip(" .;,!")
     return (
         norm in _FALSO or norm in _DETALLE_VACIO
-        or norm.rstrip(" .;,!") in _NEGATIVOS_CONOCIDOS
+        or norm in _NEGATIVOS_CONOCIDOS
     )
 
 
@@ -414,34 +437,18 @@ _SEXO_FEMENINO = {"femenino", "mujer", "fem"}
 _SEXO_NO_DECIR = {"prefiere no decir", "no decir", "nd"}
 
 
-def convencion_sexo(valores):
-    """Qué significa la letra «M» en esta columna. Mirando la columna entera:
-    con «F» y sin «H», M = masculino; con «H» y sin «F», M = femenino (mujer);
-    con las dos o ninguna es ambigua (`None`)."""
-    letras = {normalizar_texto(_texto(v)) for v in valores}
-    hay_f, hay_h = "f" in letras, "h" in letras
-    if hay_f and not hay_h:
-        return "masculino"
-    if hay_h and not hay_f:
-        return "femenino"
-    return None
-
-
-def leer_sexo(valor, *, m_significa=None):
-    """`(sexo | "", aviso | None)`. `m_significa` sale de `convencion_sexo`."""
+def leer_sexo(valor):
+    """`(sexo | "", aviso | None)`. Las letras sueltas son las de siempre en
+    una ficha: «M» = masculino, «F» = femenino (también «H» = hombre)."""
     norm = normalizar_texto(_texto(valor))
     if norm == "":
         return "", None
-    if norm in _SEXO_MASCULINO or norm == "h":
+    if norm in _SEXO_MASCULINO or norm in ("m", "h", "v"):
         return "masculino", None
     if norm in _SEXO_FEMENINO or norm == "f":
         return "femenino", None
     if norm in _SEXO_NO_DECIR:
         return "no_decir", None
-    if norm == "m":
-        if m_significa:
-            return m_significa, None
-        return "", "«M» es ambigua (¿masculino o mujer?): dejé el sexo vacío"
     return "", "No entendí el sexo"
 
 
@@ -547,7 +554,7 @@ def _par_tiene_detalle(v, campo_tiene, campo_detalle, avisos, no_cargados):
     return tiene, detalle
 
 
-def _construir_fila(fila_idx, v, *, modo_nombre, apellido_primero, m_significa, hoy):
+def _construir_fila(fila_idx, v, *, modo_nombre, apellido_primero, hoy):
     """`FilaAlumno` o `FilaInvalida` para una fila ya leída (`v`: campo ->
     valor crudo)."""
     observaciones = str(v.get("observaciones") or "").strip()
@@ -591,7 +598,7 @@ def _construir_fila(fila_idx, v, *, modo_nombre, apellido_primero, m_significa, 
     if aviso:
         _no_leido("estado", aviso)
 
-    sexo, aviso = leer_sexo(v.get("sexo"), m_significa=m_significa)
+    sexo, aviso = leer_sexo(v.get("sexo"))
     if aviso:
         _no_leido("sexo", aviso)
 
@@ -730,18 +737,11 @@ def leer_hoja_alumnos(ws, *, hoy):
         if len(leidas) > MAX_FILAS_ALUMNOS:
             raise DemasiadasFilas()
 
-    # La fila del ejemplo no cuenta: su «F» no puede decidir qué es la «M» de
-    # los alumnos reales.
-    m_significa = convencion_sexo(
-        v.get("sexo") for _, v in leidas
-        if str(v.get("observaciones") or "").strip() != MARCA_FILA_EJEMPLO
-    )
-
     filas, invalidas = [], []
     for fila_idx, v in leidas:
         resultado = _construir_fila(
             fila_idx, v, modo_nombre=modo_nombre, apellido_primero=apellido_primero,
-            m_significa=m_significa, hoy=hoy,
+            hoy=hoy,
         )
         (invalidas if isinstance(resultado, FilaInvalida) else filas).append(resultado)
 

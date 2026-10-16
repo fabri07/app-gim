@@ -49,6 +49,7 @@ from importaciones.parsing import (
     ArchivoCSVIlegible,
     ColumnaRequeridaFaltante,
     DemasiadasFilas,
+    FormatoEnFilasVacias,
     parsear_archivo_alumnos,
 )
 from importaciones.parsing.alumnos import ALIAS_ALUMNOS, MARCA_FILA_EJEMPLO
@@ -263,6 +264,13 @@ def _leer(archivo, hoy):
             f"El archivo tiene más de {error.maximo} filas con datos, que es el "
             "máximo por archivo. Dividilo en partes y subí cada una por "
             "separado."
+        )
+    except FormatoEnFilasVacias:
+        raise ImportacionInvalida(
+            "El archivo tiene formato (bordes, colores o letra) aplicado a miles "
+            "de filas vacías y es demasiado pesado para leerlo. Seleccioná solo "
+            "las filas con datos, copialas a un archivo nuevo de Excel y subí "
+            "ese."
         )
     except ERRORES_ARCHIVO_INVALIDO:
         raise ImportacionInvalida(
@@ -564,7 +572,7 @@ def construir_ejemplo_alumnos():
         f"Inicio del ciclo: es el día desde el que se le cobra. Se acepta de {DIAS_MAX_INICIO_PASADO} días atrás a {DIAS_MAX_INICIO_FUTURO} días adelante. "
         "Sin esa columna, o con la celda vacía, el alumno no paga hasta que le fijes la fecha desde el listado.",
         "Estado: Activo o Inactivo (también Alta/Baja). Vacío = activo.",
-        "Sexo: Masculino, Femenino o Prefiere no decir.",
+        "Sexo: Masculino, Femenino o Prefiere no decir (también sirven M y F).",
         "Frecuencia de actividad: Diaria, Varias veces por semana, Una vez por semana u Ocasional.",
         "Actividad física previa, Tiene discapacidad y Tiene enfermedad crónica: Sí o No.",
         "Un dato que no se entienda queda vacío y se copia a Observaciones para que no se pierda.",

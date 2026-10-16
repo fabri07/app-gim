@@ -292,38 +292,28 @@ class SexoTests(SimpleTestCase):
             with self.subTest(valor=valor):
                 self.assertEqual(lector.leer_sexo(valor), (esperado, None))
 
-    def test_f_y_h(self):
-        self.assertEqual(lector.leer_sexo("F")[0], "femenino")
-        self.assertEqual(lector.leer_sexo("H")[0], "masculino")
+    def test_letras_sueltas(self):
+        """«M» es masculino y «F» femenino, siempre: es lo que quiere decir en
+        cualquier ficha. No se mira el resto de la columna."""
+        for valor, esperado in (
+            ("M", "masculino"), ("m", "masculino"), ("F", "femenino"),
+            ("f", "femenino"), ("H", "masculino"), ("V", "masculino"),
+        ):
+            with self.subTest(valor=valor):
+                self.assertEqual(lector.leer_sexo(valor), (esperado, None))
 
-    def test_convencion_f_m(self):
-        self.assertEqual(lector.convencion_sexo(["F", "M", "F"]), "masculino")
-
-    def test_convencion_h_m(self):
-        self.assertEqual(lector.convencion_sexo(["H", "M"]), "femenino")
-
-    def test_m_ambigua(self):
-        for columna in (["M", "M"], ["F", "H", "M"]):
-            with self.subTest(columna=columna):
-                self.assertIsNone(lector.convencion_sexo(columna))
-        sexo, aviso = lector.leer_sexo("M")
-        self.assertEqual(sexo, "")
-        self.assertTrue(aviso)
-
-    def test_la_convencion_se_decide_con_la_columna_entera(self):
+    def test_m_es_masculino_aunque_la_columna_traiga_h(self):
         resultado = leer(
             ("Nombre", "Apellido", "Sexo"),
             ("Ana", "Gómez", "F"),
             ("Juan", "Pérez", "M"),
+            ("Luis", "Díaz", "H"),
         )
         self.assertEqual(
-            [f.datos["sexo"] for f in resultado.filas], ["femenino", "masculino"]
+            [f.datos["sexo"] for f in resultado.filas],
+            ["femenino", "masculino", "masculino"],
         )
-
-    def test_m_sin_pistas_queda_vacia_y_se_anota(self):
-        fila = una_fila(("Nombre", "Apellido", "Sexo"), ("Juan", "Pérez", "M"))
-        self.assertEqual(fila.datos["sexo"], "")
-        self.assertEqual(fila.no_cargados, ["Sexo «M»"])
+        self.assertEqual([f.no_cargados for f in resultado.filas], [[], [], []])
 
     def test_x_queda_vacio_y_se_anota(self):
         fila = una_fila(("Nombre", "Apellido", "Sexo"), ("Juan", "Pérez", "X"))
@@ -700,7 +690,7 @@ class FachadaTests(SimpleTestCase):
     def test_exporta_lo_nuevo(self):
         for nombre in ("parsear_archivo_alumnos", "ALIAS_ALUMNOS", "leer_hoja_alumnos",
                        "libro_desde_csv", "MAX_FILAS_ALUMNOS", "MARCA_FILA_EJEMPLO",
-                       "ArchivoCSVIlegible", "DemasiadasFilas"):
+                       "ArchivoCSVIlegible", "DemasiadasFilas", "FormatoEnFilasVacias"):
             with self.subTest(nombre=nombre):
                 self.assertTrue(hasattr(parsing, nombre))
 
@@ -762,6 +752,16 @@ class RondaDeArreglos1Tests(SimpleTestCase):
                     self.assertEqual(d["enfermedad_cronica_detalle"], "")
                     self.assertEqual(fila.avisos, [])
                     self.assertEqual(fila.no_cargados, [])
+
+    def test_la_puntuacion_final_no_cambia_un_negativo(self):
+        """«N/A.» se leía como un sí con «N/A.» de detalle (dato de salud
+        inventado) y «No.» avisaba de más."""
+        for valor in ("No.", "N/A.", "n/a!", "Ninguna.", "No tiene,", "-."):
+            with self.subTest(valor=valor):
+                fila = una_fila(("Nombre", "Apellido", "Discapacidad"), ("Ana", "Gómez", valor))
+                self.assertFalse(fila.datos["tiene_discapacidad"])
+                self.assertEqual(fila.datos["discapacidad_detalle"], "")
+                self.assertEqual((fila.avisos, fila.no_cargados), ([], []))
 
     def test_otros_negativos_conocidos_tampoco_avisan(self):
         for valor in ("No presenta", "No refiere.", "Ningún problema", "no, ninguna", "Nada"):
@@ -874,15 +874,6 @@ class RondaDeArreglos1Tests(SimpleTestCase):
         self.assertEqual((d["nombre"], d["apellido"]), ("Juan", "Pérez"))
         self.assertEqual(resultado.filas[0].avisos, [])
 
-    def test_la_fila_del_ejemplo_no_decide_la_convencion_de_la_m(self):
-        resultado = leer(
-            ("Nombre", "Apellido", "Sexo", "Observaciones"),
-            ("Ana", "Ejemplo", "F", MARCA_FILA_EJEMPLO),
-            ("Juan", "Pérez", "M", None),
-        )
-        self.assertEqual(resultado.filas[0].datos["sexo"], "")
-        self.assertEqual(resultado.filas[0].no_cargados, ["Sexo «M»"])
-
 
 def _xlsx(filas, *, dimension="auto"):
     """Bytes de un xlsx con `filas`. `dimension`: "auto" (la que escribe
@@ -957,6 +948,39 @@ class VerificarFilasXlsxTests(SimpleTestCase):
             _archivo_xlsx(self._filas(10), dimension=None), hoy=HOY
         )
         self.assertEqual(len(resultado.filas), 10)
+
+    def _xlsx_con_formato_en_filas_vacias(self, n_vacias):
+        """Pocos alumnos y `n_vacias` filas sin datos pero con formato: esas
+        celdas existen en el archivo y la carga completa las arma todas."""
+        from openpyxl.styles import Font
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        for fila in self._filas(10):
+            ws.append(list(fila))
+        negrita = Font(bold=True)
+        for fila in range(12, 12 + n_vacias):
+            ws.cell(row=fila, column=1).font = negrita
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        buffer.name = "alumnos.xlsx"
+        return buffer
+
+    def test_formato_en_miles_de_filas_vacias_se_rechaza_sin_cargar_el_libro(self):
+        """Medido el 2026-10-16: 1,9 MB con formato en 62.000 filas costaba
+        7,3 s y +405 MB en la carga completa, después de que la pasada previa
+        lo dejara pasar por tener 10 alumnos."""
+        archivo = self._xlsx_con_formato_en_filas_vacias(
+            lector.TOPE_MAX_ROW_SIN_VERIFICAR + 50
+        )
+        with self.assertRaises(lector.FormatoEnFilasVacias):
+            self._parsear_sin_carga_completa(archivo)
+        self.assertEqual(archivo.tell(), 0)
+
+    def test_formato_en_algunas_filas_vacias_se_lee(self):
+        archivo = self._xlsx_con_formato_en_filas_vacias(500)
+        self.assertEqual(len(parsear_archivo_alumnos(archivo, hoy=HOY).filas), 10)
 
     def test_dimension_inflada_con_pocas_filas_se_lee(self):
         """`max_row` de un millón por formato aplicado hasta el final no son

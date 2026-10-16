@@ -159,17 +159,16 @@ a observaciones).
 - **Todo lo que va a observaciones lleva aviso.** Y si hay columnas de nombre
   completo y de nombre/apellido, gana el nombre completo cuando matcheó EXACTO y
   nombre/apellido solo por prefijo («Alumno | Nombre del tutor»); la columna
-  que no se usa queda en `columnas_ignoradas`. La «M» de sexo se decide sin
-  contar la fila del ejemplo.
+  que no se usa queda en `columnas_ignoradas`.
 - **Implícitos** (con aviso): `*_detalle` con texto que no sea
   no/ninguna/ninguno/-/n/a/na y `tiene_*` vacío o sin columna → `tiene_* =
   True`. `frecuencia_actividad_previa` con valor y `actividad_fisica_previa`
   vacío o sin columna → `actividad_fisica_previa = True`.
 - **Sexo**: masculino/hombre/varón/varon/masc → masculino; femenino/mujer/fem
   → femenino; «prefiere no decir»/«no decir»/nd → no_decir; «F» → femenino;
-  «H» → masculino. «M» se decide mirando la columna entera: si hay F y no H, M
-  = masculino; si hay H y no F, M = femenino (mujer); con las dos o ninguna, M
-  es ambigua → vacío + aviso. Otro valor → vacío + aviso + observaciones.
+  «M», «H» o «V» → masculino (corregido el 2026-10-16 a pedido del dueño del
+  producto: «M» es masculino siempre, no se mira el resto de la columna). Otro
+  valor → vacío + aviso + observaciones.
 - **Frecuencia**: etiquetas y valores de `Alumno.FrecuenciaActividad`;
   diario/todos los dias → diaria; varias/«2/3 veces por semana» →
   varias_por_semana; semanal/«una vez por semana»/«1 vez» → una_por_semana; a

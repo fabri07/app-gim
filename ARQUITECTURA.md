@@ -2458,10 +2458,10 @@ detecta además email, teléfono y largos que el lector no ve.
   sí inventado ni un no que pierde el dato. `detalle_informa` usa los mismos
   negativos, así que un detalle «No tiene» no marca `tiene_*`. Lo fija
   `test_un_texto_que_empieza_con_no_queda_en_no_con_aviso_y_no_se_pierde`.
-- **La «M» de sexo es ambigua y se decide mirando la columna entera**: si hay F
-  y no H, M = masculino; si hay H y no F, M = femenino; con ambas o ninguna →
-  vacío + aviso. La fila de ejemplo no cuenta para esa decisión, o su «M» le
-  cambiaría el sexo a alumnos reales.
+- **Sexo con una letra: «M» = masculino, «F» = femenino**, siempre (también
+  «H»/«V» = masculino). Hubo una versión que leía «M» como «mujer» si la
+  columna traía «H»; el dueño del producto la descartó el 2026-10-16: en una
+  ficha argentina «M» es masculino. Lo fija `test_m_es_masculino_aunque_la_columna_traiga_h`.
 - **Nombre completo contra nombre/apellido**: gana el nombre completo cuando
   matcheó EXACTO y nombre/apellido solo por prefijo («Alumno | Nombre del
   tutor»); la columna que no se usa queda en `columnas_ignoradas`. El orden de
@@ -2535,6 +2535,13 @@ detecta además email, teléfono y largos que el lector no ve.
   `max_row ≤ 3015` no hace nada; por encima, o sin dimensión (`None`), cuenta
   en streaming las filas con datos y rechaza al pasar 1015. **Nunca rechaza
   solo por `max_row`**: una dimensión inflada por formato no son alumnos.
+  Pero sí cuenta las filas que EXISTEN en el archivo (celdas con formato y sin
+  valor; las que openpyxl rellena por huecos son `EmptyCell` y no cuestan): más
+  de 3015 → `FormatoEnFilasVacias`, «copiá solo las filas con datos a un
+  archivo nuevo». Sin eso, 1,9 MB con formato en 62.000 filas pasaba la
+  pasada previa (10 alumnos) y la carga completa costaba 7,3 s y +405 MB;
+  ahora se rechaza en 0,3 s y +1,5 MB. La puntuación final («N/A.», «No.»)
+  no cambia un negativo de `tiene_*`.
   `libro_desde_csv` corta con el mismo tope mientras arma el libro. `libro_desde_csv`
   arma un `openpyxl.Workbook` en memoria —el mismo adaptador que
   `parsing/pdf.py`— y reusa `leer_hoja_alumnos`: UTF-8 con BOM y, si no, cp1252;

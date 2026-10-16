@@ -44,6 +44,7 @@ from importaciones.parsing.alumnos import (  # noqa: F401  (re-export)
     ArchivoCSVIlegible,
     DemasiadasFilas,
     FilaAlumno,
+    FormatoEnFilasVacias,
     HojaAlumnos,
     leer_hoja_alumnos,
     libro_desde_csv,

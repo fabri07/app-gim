@@ -933,6 +933,21 @@ class SubirAlumnosViewTests(VistasAlumnosBase):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "más de 1000 filas con datos")
 
+    def test_formato_en_miles_de_filas_vacias_pide_copiar_los_datos(self):
+        from unittest import mock
+
+        from importaciones.parsing import FormatoEnFilasVacias
+
+        with mock.patch(
+            "importaciones.alumnos.parsear_archivo_alumnos",
+            side_effect=FormatoEnFilasVacias(),
+        ):
+            r = self._subir([("Ana", "Gómez", "", "")])
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "miles de filas vacías")
+        self.assertContains(r, "copialas a un archivo nuevo")
+        self.assertFalse(Importacion.objects.exists())
+
     def test_acepta_csv(self):
         csv_ = SimpleUploadedFile("a.csv", "Nombre,Apellido\nJuan,Pérez\n".encode("utf-8"))
         r = self.client.post(reverse("importaciones:alumnos_subir"), {"archivo": csv_})
