@@ -11,12 +11,13 @@ Tres decisiones que sostienen todo el archivo (ver la spec):
    dentro de GETs; los avisos los manda el cron.
 """
 
+import logging
 from collections import namedtuple
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
-from django.db.models import F, Sum
+from django.db.models import Count, F, Q, Sum
 from django.utils import timezone
 
 from tienda.models import (
@@ -29,6 +30,8 @@ from tienda.models import (
     Variante,
     obtener_configuracion,
 )
+
+logger = logging.getLogger(__name__)
 
 MAX_UNIDADES_POR_ITEM = 20
 GRACIA_COMPROBANTE = timedelta(minutes=2)
@@ -201,6 +204,7 @@ def crear_pedido(*, gimnasio, alumno, carrito, suplantando, ahora=None):
     try:
         return _reservar_y_crear(gimnasio, alumno, carrito, variantes, config, ahora)
     except IntegrityError:
+        logger.warning("CHECK de stock violada al crear un pedido", exc_info=True)
         # Cinturón: la CHECK `stock >= 0` de la base. No debería pasar con el
         # UPDATE sin JOIN de abajo, pero un 500 en el checkout es lo peor.
         raise ErrorDeTienda("sin_stock", "uno de los productos")
@@ -311,21 +315,39 @@ def subir_comprobante(pedido, *, alumno, archivo, ahora=None):
     if pedido.medio != Pedido.Medio.TRANSFERENCIA or pedido.estado != _E.PENDIENTE_PAGO:
         raise ErrorDeTienda("estado_invalido")
     # Primero el archivo (red, fuera de cualquier lock), después la transición
-    # condicional. Si no entró, se borra el archivo: nada huérfano en R2.
+    # condicional. Si no entró, se borra el archivo NUEVO: nada huérfano en R2.
     pedido.comprobante.save(archivo.name, archivo, save=False)
     nombre = pedido.comprobante.name
-    tocadas = Pedido.objects.filter(
-        pk=pedido.pk,
-        estado=_E.PENDIENTE_PAGO,
-        reservado_hasta__gte=ahora - GRACIA_COMPROBANTE,
-    ).update(
-        estado=_E.EN_REVISION, comprobante=nombre,
-        comprobante_subido_en=ahora, modificado=ahora,
-    )
+    almacen = pedido.comprobante.storage
+    with transaction.atomic():
+        # Un pedido con el comprobante rechazado ya tiene archivo. Su nombre
+        # sale de la BASE con la fila bloqueada, no de la instancia del
+        # request, que puede ser vieja (dos subidas casi juntas).
+        anterior = (
+            Pedido.objects.select_for_update()
+            .values_list("comprobante", flat=True)
+            .get(pk=pedido.pk)
+        ) or ""
+        tocadas = Pedido.objects.filter(
+            pk=pedido.pk,
+            estado=_E.PENDIENTE_PAGO,
+            reservado_hasta__gte=ahora - GRACIA_COMPROBANTE,
+        ).update(
+            estado=_E.EN_REVISION, comprobante=nombre, comprobante_subido_en=ahora,
+            motivo="", modificado=ahora,
+        )
     if not tocadas:
-        pedido.comprobante.storage.delete(nombre)
+        almacen.delete(nombre)
         pedido.refresh_from_db()
+        # Otro proceso lo movió (el staff lo pagó, el alumno lo canceló): eso
+        # no es un plazo vencido. Sólo es vencido si sigue pendiente.
+        if pedido.estado != _E.PENDIENTE_PAGO:
+            raise ErrorDeTienda("estado_invalido")
         raise ErrorDeTienda("plazo_vencido")
+    if anterior and anterior != nombre:
+        # Recién ahora: si la transición no hubiera entrado, el viejo seguía
+        # siendo lo único que el staff tenía para revisar.
+        almacen.delete(anterior)
     pedido.refresh_from_db()
 
 
@@ -353,4 +375,176 @@ def reservado_por_variante(gimnasio):
         .values("variante_id")
         .annotate(n=Sum("cantidad"))
         .values_list("variante_id", "n")
+    )
+
+
+# --- Transiciones ----------------------------------------------------------
+
+
+def _transicionar(pedido, origen, ahora, **campos):
+    """UPDATE condicional sobre el estado. True si este proceso hizo la
+    transición (y por lo tanto le toca devolver el stock, si corresponde)."""
+    tocadas = Pedido.objects.filter(pk=pedido.pk, estado__in=origen).update(
+        modificado=ahora, **campos
+    )
+    if tocadas:
+        pedido.refresh_from_db()
+    return tocadas == 1
+
+
+def _validar_motivo(motivo):
+    if len(motivo) > MAX_LARGO_MOTIVO:
+        raise ErrorDeTienda("motivo_largo")
+
+
+def cancelar_por_alumno(pedido, *, alumno, ahora=None):
+    ahora = _ahora(ahora)
+    if pedido.alumno_id != alumno.pk:
+        raise ErrorDeTienda("no_es_tuyo")
+    with transaction.atomic():
+        if not _transicionar(pedido, [_E.PENDIENTE_PAGO], ahora, estado=_E.CANCELADO, motivo=""):
+            raise ErrorDeTienda("estado_invalido")
+        _devolver_stock([pedido.pk])
+
+
+def marcar_pagado(pedido, *, ahora=None):
+    """El staff confirma la plata: desde la revisión del comprobante, o
+    directo desde pendiente (pagó en el mostrador o transfirió sin subirlo)."""
+    ahora = _ahora(ahora)
+    if not _transicionar(
+        pedido, [_E.PENDIENTE_PAGO, _E.EN_REVISION], ahora, estado=_E.PAGADO, pagado_en=ahora
+    ):
+        raise ErrorDeTienda("estado_invalido")
+
+
+def rechazar_comprobante(pedido, *, motivo, ahora=None):
+    """El comprobante no sirve (borroso, otro monto): el pedido vuelve a
+    esperar el pago con un plazo nuevo y el stock SIGUE reservado. El archivo
+    viejo queda hasta que el alumno suba otro. Para cortar del todo está
+    `cancelar_por_staff`. Si no resube, vence como cualquier pendiente."""
+    ahora = _ahora(ahora)
+    _validar_motivo(motivo)
+    horas = obtener_configuracion(pedido.gimnasio).horas_reserva_transferencia
+    if not _transicionar(
+        pedido, [_E.EN_REVISION], ahora,
+        estado=_E.PENDIENTE_PAGO, motivo=motivo,
+        reservado_hasta=ahora + timedelta(hours=horas),
+    ):
+        raise ErrorDeTienda("estado_invalido")
+
+
+def entregar(pedido, *, ahora=None):
+    ahora = _ahora(ahora)
+    if not _transicionar(pedido, [_E.PAGADO], ahora, estado=_E.ENTREGADO, entregado_en=ahora):
+        raise ErrorDeTienda("estado_invalido")
+
+
+def cancelar_por_staff(pedido, *, motivo, ahora=None):
+    """Sin pagar → CANCELADO; pagado sin entregar → DEVUELTO (el staff le
+    devolvió la plata por fuera). Las dos devuelven el stock."""
+    ahora = _ahora(ahora)
+    _validar_motivo(motivo)
+    with transaction.atomic():
+        hecho = _transicionar(
+            pedido, [_E.PENDIENTE_PAGO, _E.EN_REVISION], ahora,
+            estado=_E.CANCELADO, motivo=motivo,
+        ) or _transicionar(pedido, [_E.PAGADO], ahora, estado=_E.DEVUELTO, motivo=motivo)
+        if not hecho:
+            raise ErrorDeTienda("estado_invalido")
+        _devolver_stock([pedido.pk])
+        # Si el alumno había pedido la cancelación, esto la resuelve: si no,
+        # queda contada para siempre en la tarjeta del panel.
+        Pedido.objects.filter(
+            pk=pedido.pk, cancelacion_pedida_en__isnull=False, cancelacion_resuelta_en__isnull=True
+        ).update(cancelacion_resuelta_en=ahora)
+    pedido.refresh_from_db()
+
+
+def puede_pedir_cancelacion(pedido, *, hoy=None):
+    """Ley 24.240 art. 34: 10 días corridos desde la entrega del bien o la
+    celebración del contrato, LO ÚLTIMO. Con retiro en el gimnasio: mientras
+    no lo retiró se puede siempre; retirado, hasta 10 días después del retiro
+    (en fecha argentina)."""
+    hoy = hoy or timezone.localdate()
+    if pedido.cancelacion_pedida_en is not None:
+        return False
+    if pedido.estado == _E.PAGADO:
+        return True
+    return (
+        pedido.estado == _E.ENTREGADO
+        and pedido.entregado_en is not None
+        and hoy <= timezone.localdate(pedido.entregado_en) + timedelta(days=DIAS_ARREPENTIMIENTO)
+    )
+
+
+def q_puede_pedir_cancelacion(*, hoy=None):
+    """`puede_pedir_cancelacion` como filtro de la base: localdate(entregado)
+    >= hoy - 10 equivale a entregado_en >= el inicio (en hora argentina) de
+    ese día. Lo fija `test_el_filtro_en_la_base_coincide_con_la_regla`."""
+    hoy = hoy or timezone.localdate()
+    desde = timezone.make_aware(
+        datetime.combine(hoy - timedelta(days=DIAS_ARREPENTIMIENTO), time.min)
+    )
+    return Q(cancelacion_pedida_en__isnull=True) & (
+        Q(estado=_E.PAGADO) | Q(estado=_E.ENTREGADO, entregado_en__gte=desde)
+    )
+
+
+def pedir_cancelacion(pedido, *, alumno, ahora=None):
+    ahora = _ahora(ahora)
+    if pedido.alumno_id != alumno.pk:
+        raise ErrorDeTienda("no_es_tuyo")
+    if not puede_pedir_cancelacion(pedido, hoy=timezone.localdate(ahora)):
+        raise ErrorDeTienda("fuera_de_plazo_arrepentimiento")
+    tocadas = Pedido.objects.filter(
+        pk=pedido.pk, estado__in=[_E.PAGADO, _E.ENTREGADO], cancelacion_pedida_en__isnull=True
+    ).update(cancelacion_pedida_en=ahora, modificado=ahora)
+    if not tocadas:
+        raise ErrorDeTienda("estado_invalido")
+    pedido.refresh_from_db()
+
+
+def resolver_cancelacion(pedido, *, aceptar, motivo="", ahora=None):
+    ahora = _ahora(ahora)
+    _validar_motivo(motivo)
+    base = Pedido.objects.filter(
+        pk=pedido.pk, cancelacion_pedida_en__isnull=False, cancelacion_resuelta_en__isnull=True
+    )
+    with transaction.atomic():
+        if not aceptar:
+            if not base.update(cancelacion_resuelta_en=ahora, motivo=motivo, modificado=ahora):
+                raise ErrorDeTienda("estado_invalido")
+        elif base.filter(estado=_E.PAGADO).update(
+            estado=_E.DEVUELTO, cancelacion_resuelta_en=ahora, motivo=motivo, modificado=ahora
+        ):
+            _devolver_stock([pedido.pk])
+        elif not base.filter(estado=_E.ENTREGADO).update(
+            estado=_E.DEVUELTO, cancelacion_resuelta_en=ahora, motivo=motivo, modificado=ahora
+        ):
+            raise ErrorDeTienda("estado_invalido")
+    pedido.refresh_from_db()
+
+
+# --- Ventas y contadores ---------------------------------------------------
+
+
+def tiene_ventas(producto):
+    return ItemPedido.objects.filter(variante__producto=producto).exists()
+
+
+#: Cancelación pedida por el alumno y todavía sin resolver. La comparten el
+#: contador del panel y el filtro del listado del staff.
+Q_CANCELACION_PENDIENTE = Q(
+    estado__in=[_E.PAGADO, _E.ENTREGADO],
+    cancelacion_pedida_en__isnull=False,
+    cancelacion_resuelta_en__isnull=True,
+)
+
+
+def contadores_panel(gimnasio):
+    return Pedido.objects.for_gimnasio(gimnasio).aggregate(
+        a_revisar=Count("pk", filter=Q(estado=_E.EN_REVISION)),
+        a_entregar=Count("pk", filter=Q(estado=_E.PAGADO)),
+        cancelaciones=Count("pk", filter=Q_CANCELACION_PENDIENTE),
+        vivos=Count("pk", filter=Q(estado__in=ESTADOS_QUE_RETIENEN)),
     )
