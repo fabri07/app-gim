@@ -77,6 +77,8 @@ class RecordatorioEnviado(TenantOwnedModel):
         TURNO_PROXIMO = "turno_proximo", "Turno próximo"
         RUTINA_INICIADA = "rutina_iniciada", "Rutina iniciada"
         ACCESO_BLOQUEADO = "acceso_bloqueado", "Acceso bloqueado"
+        PEDIDO_VENCIDO = "pedido_vencido", "Pedido de la tienda vencido"
+        PEDIDO_EN_REVISION = "pedido_revision", "Comprobante de la tienda sin revisar"
 
     tipo = models.CharField(max_length=20, choices=Tipo.choices)
     objeto_id = models.PositiveBigIntegerField()

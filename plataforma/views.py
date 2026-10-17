@@ -102,6 +102,9 @@ class GimnasioDetalleView(SuperadminRequiredMixin, DetailView):
         # distinto del contrario).
         context["actividad"] = actividad.activos_por_dia(self.object)
         context["ultimo_uso"] = actividad.ultimo_uso(self.object)
+        from tienda.services import contadores_panel
+
+        context["tienda_pedidos_vivos"] = contadores_panel(self.object)["vivos"]
         return context
 
 
@@ -425,6 +428,22 @@ class ExportacionToggleView(GimnasioDePlataformaMixin, View):
                 if habilitada
                 else f"{gimnasio.nombre} ya no puede exportar sus datos."
             ),
+        )
+        return redirect(self.get_success_url())
+
+
+class TiendaToggleView(GimnasioDePlataformaMixin, View):
+    """Prende y apaga el add-on de la tienda. POST-only y con `update()`, mismo
+    criterio que `ExportacionToggleView`: no toca `modificado`. Apagarlo no
+    cancela nada: el staff sigue cerrando los pedidos vivos."""
+
+    def post(self, request, *args, **kwargs):
+        gimnasio = self.get_gimnasio()
+        habilitada = not gimnasio.tienda_habilitada
+        Gimnasio.objects.filter(pk=gimnasio.pk).update(tienda_habilitada=habilitada)
+        messages.success(
+            request,
+            f"Tienda {'habilitada' if habilitada else 'deshabilitada'} para {gimnasio.nombre}.",
         )
         return redirect(self.get_success_url())
 

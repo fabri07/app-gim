@@ -293,3 +293,8 @@ Ajustes de la revisión adversarial de estos cambios:
 - La siembra de la demo descuenta del disponible lo que retienen sus pedidos.
 - La tarjeta de ventas redondea los montos como «Ingresos cobrados por mes» y aclara que el
   mes actual está en curso.
+
+## Decisiones de ejecución
+
+- **Dedup de avisos del cron (Tarea 8):** el recordatorio de 24 h («comprobante sin revisar») y el aviso de «vencido» se deduplican con `RecordatorioEnviado` (`PEDIDO_EN_REVISION`, `PEDIDO_VENCIDO`), como todos los recordatorios del proyecto, y no con el campo `Pedido.aviso_revision_en` que decía la sección anterior. El campo no se crea.
+- **«cancelacion_resuelta»:** las vistas mandan la misma clave al aceptar y al rechazar; `notificar_pedido_al_alumno` redacta distinto según `pedido.estado` (DEVUELTO = aceptada).

@@ -69,3 +69,15 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
           VAPID_ADMIN_EMAIL: ${{ secrets.VAPID_ADMIN_EMAIL }}
         run: python manage.py enviar_recordatorios
+      - name: Vencer pedidos de la tienda
+        # `!cancelled()` (y no `always()`, que corre también tras cancelar o
+        # timeout): que una falla de los recordatorios no deje pedidos
+        # reteniendo stock. Los avisos de este paso usan las mismas VAPID_*.
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_POOLED }}
+          DJANGO_DEBUG: "False"
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_ADMIN_EMAIL: ${{ secrets.VAPID_ADMIN_EMAIL }}
+        run: python manage.py vencer_pedidos

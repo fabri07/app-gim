@@ -13,8 +13,10 @@ import json
 import logging
 
 from django.conf import settings
+from django.template.defaultfilters import floatformat
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.formats import date_format
 
 from py_vapid import Vapid01
 from pywebpush import WebPushException, webpush
@@ -339,11 +341,94 @@ def notificar_turno_proximo(reserva) -> None:
     notificar_a_usuario(usuario, payload)
 
 
-def notificar_pedido_al_alumno(pedido, aviso) -> None:
-    """Completada en la Tarea 8 del plan de la tienda."""
-    return None
+_AVISOS_STAFF = {
+    "nuevo": ("Nuevo pedido en la tienda", "{alumno} hizo el pedido #{pk} por $ {total}.", "revisar"),
+    # `total` llega formateado con `floatformat(total, "2g")` (no «15000.00»).
+    "comprobante": ("Comprobante de la tienda", "{alumno} subió el comprobante del pedido #{pk}.", "revisar"),
+    "cancelacion": ("Pedido de cancelación", "{alumno} pidió cancelar el pedido #{pk}.", "cancelaciones"),
+    "revision_demorada": (
+        "Comprobante sin revisar",
+        "El comprobante del pedido #{pk} de {alumno} espera hace más de un día.",
+        "revisar",
+    ),
+}
+
+_AVISOS_ALUMNO = {
+    "confirmado": ("¡Pedido confirmado!", "Tu pedido #{pk} está pago: retiralo en el gimnasio."),
+    "rechazado": (
+        "Comprobante rechazado",
+        "El gimnasio rechazó el comprobante del pedido #{pk}. Subí otro antes del {plazo}.",
+    ),
+    "cancelado": ("Pedido cancelado", "El gimnasio canceló tu pedido #{pk}."),
+    "vencido": (
+        "Pedido vencido",
+        "Tu pedido #{pk} venció: terminó el plazo para pagarlo y los productos volvieron a la tienda.",
+    ),
+    # Las vistas mandan «cancelacion_resuelta» tanto al aceptar como al
+    # rechazar: `notificar_pedido_al_alumno` lo desdobla según `pedido.estado`.
+    "cancelacion_aceptada": (
+        "Cancelación aceptada",
+        "El gimnasio aceptó cancelar tu pedido #{pk}.",
+    ),
+    "cancelacion_rechazada": (
+        "Cancelación rechazada",
+        "El gimnasio no aceptó cancelar tu pedido #{pk}: el pedido sigue en pie.",
+    ),
+}
 
 
 def notificar_pedido_al_staff(pedido, aviso) -> None:
-    """Completada en la Tarea 8 del plan de la tienda."""
-    return None
+    titulo, cuerpo, filtro = _AVISOS_STAFF[aviso]
+    payload = {
+        "title": titulo,
+        "body": cuerpo.format(
+            alumno=pedido.alumno, pk=pedido.pk, total=floatformat(pedido.total, "2g")
+        ),
+        "url": f"{reverse('tienda:pedidos')}?filtro={filtro}",
+        "icon": _icono_url(pedido.gimnasio),
+    }
+    # `rol` explícito SIEMPRE: el default `None` le avisa también a los alumnos.
+    notificar_a_gimnasio(pedido.gimnasio, payload, rol=Perfil.Rol.STAFF)
+
+
+def notificar_pedido_vencido(pedido) -> bool:
+    """Lo llama sólo el cron. Perfil ANTES del dedup (mismo criterio que
+    `notificar_pago_por_vencer`): si no, un alumno sin acceso queda marcado
+    como avisado y no se entera nunca. Devuelve si se mandó."""
+    if pedido.alumno.perfil_id is None:
+        return False
+    if _ya_notificado(pedido.gimnasio, RecordatorioEnviado.Tipo.PEDIDO_VENCIDO, pedido.pk):
+        return False
+    notificar_pedido_al_alumno(pedido, "vencido")
+    return True
+
+
+def notificar_revision_demorada(pedido) -> bool:
+    """Una vez por pedido: el comprobante espera hace más de 24 h."""
+    if _ya_notificado(pedido.gimnasio, RecordatorioEnviado.Tipo.PEDIDO_EN_REVISION, pedido.pk):
+        return False
+    notificar_pedido_al_staff(pedido, "revision_demorada")
+    return True
+
+
+def notificar_pedido_al_alumno(pedido, aviso) -> None:
+    if pedido.alumno.perfil_id is None:
+        return
+    if aviso == "cancelacion_resuelta":
+        # Aceptar deja el pedido DEVUELTO; rechazar lo deja como estaba.
+        aviso = (
+            "cancelacion_aceptada"
+            if pedido.estado == pedido.Estado.DEVUELTO
+            else "cancelacion_rechazada"
+        )
+    titulo, cuerpo = _AVISOS_ALUMNO[aviso]
+    # `plazo` sólo lo usa «rechazado» (el plazo nuevo para subir otro); los
+    # demás textos lo ignoran. Hora argentina, no UTC.
+    plazo = date_format(timezone.localtime(pedido.reservado_hasta), "d/m H:i") if pedido.reservado_hasta else ""
+    payload = {
+        "title": titulo,
+        "body": cuerpo.format(pk=pedido.pk, plazo=plazo),
+        "url": reverse("tienda:mi_pedido", args=[pedido.pk]),
+        "icon": _icono_url(pedido.gimnasio),
+    }
+    notificar_a_usuario(pedido.alumno.perfil.usuario, payload)

@@ -16,6 +16,7 @@ from plataforma.views import (
     SolicitudListaView,
     SolicitudRechazarView,
     SolicitudReenviarInvitacionView,
+    TiendaToggleView,
 )
 
 app_name = "plataforma"
@@ -55,6 +56,11 @@ urlpatterns = [
         "gimnasios/<int:pk>/exportacion/",
         ExportacionToggleView.as_view(),
         name="exportacion_toggle",
+    ),
+    path(
+        "gimnasios/<int:pk>/tienda/",
+        TiendaToggleView.as_view(),
+        name="tienda_toggle",
     ),
     # Cola de solicitudes de acceso (leads). La lista va antes que el detalle
     # por el mismo criterio de "ruta más específica primero" del resto.

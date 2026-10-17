@@ -735,3 +735,34 @@ class MonitorConEstadoDeCuentaTests(TestCase):
         respuesta = self.client.get(reverse("plataforma:inicio"))
 
         self.assertContains(respuesta, "Suspendida")
+
+
+class TiendaToggleViewTests(TestCase):
+    def setUp(self):
+        self.gimnasio = _gimnasio()
+        self.superadmin = User.objects.create_superuser(
+            "dueno-producto", "dueno@example.com", CLAVE
+        )
+        self.client.force_login(self.superadmin)
+        self.url = reverse("plataforma:tienda_toggle", args=[self.gimnasio.pk])
+
+    def test_el_post_invierte_la_casilla_y_la_ficha_ofrece_el_boton(self):
+        self.client.post(self.url)
+        self.gimnasio.refresh_from_db()
+        self.assertTrue(self.gimnasio.tienda_habilitada)
+        ficha = self.client.get(
+            reverse("plataforma:gimnasio_detalle", args=[self.gimnasio.pk])
+        )
+        self.assertContains(ficha, "Deshabilitar tienda")
+        self.client.post(self.url)
+        self.gimnasio.refresh_from_db()
+        self.assertFalse(self.gimnasio.tienda_habilitada)
+
+    def test_no_toca_modificado(self):
+        antes = Gimnasio.objects.get(pk=self.gimnasio.pk).modificado
+        self.client.post(self.url)
+        self.assertEqual(Gimnasio.objects.get(pk=self.gimnasio.pk).modificado, antes)
+
+    def test_un_staff_de_gimnasio_recibe_403(self):
+        self.client.force_login(_staff(self.gimnasio, "duenio-gim"))
+        self.assertEqual(self.client.post(self.url).status_code, 403)

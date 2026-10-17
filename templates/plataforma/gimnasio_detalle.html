@@ -247,6 +247,10 @@
       <dt>Exportación de datos habilitada</dt>
       <dd>{% if gimnasio.exportacion_habilitada %}Sí{% else %}No{% endif %}</dd>
     </div>
+    <div>
+      <dt>Tienda habilitada</dt>
+      <dd>{{ gimnasio.tienda_habilitada|yesno:"Sí,No" }}</dd>
+    </div>
   </dl>
   <div class="acciones-lista">
     {% comment %}
@@ -261,7 +265,14 @@
         {% if gimnasio.exportacion_habilitada %}Deshabilitar exportación{% else %}Habilitar exportación{% endif %}
       </button>
     </form>
+    <form method="post" action="{% url 'plataforma:tienda_toggle' gimnasio.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="boton-secundario">
+        {% if gimnasio.tienda_habilitada %}Deshabilitar tienda{% else %}Habilitar tienda{% endif %}
+      </button>
+    </form>
   </div>
+  {% if tienda_pedidos_vivos %}<p class="texto-suave">{{ tienda_pedidos_vivos }} pedido{{ tienda_pedidos_vivos|pluralize }} de la tienda sin cerrar.</p>{% endif %}
   {% comment %}
     El caso en que se prende la exportación —un gimnasio que deja de pagar y
     pide sus datos— es justo el que puede estar suspendido, y ahí el botón de
