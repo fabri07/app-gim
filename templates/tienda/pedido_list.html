@@ -30,8 +30,8 @@
             <td>#{{ p.pk }}</td>
             <td>{{ p.alumno }}</td>
             <td>{% for i in p.items.all %}{{ i }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
-            <td><span class="tabular-nums">$ {{ p.total|floatformat:"2g" }}</span></td>
-            <td><span class="badge">{{ p.get_estado_display }}</span></td>
+            <td><span class="tabular-nums whitespace-nowrap">$ {{ p.total|floatformat:"2g" }}</span></td>
+            <td><span class="badge {{ p.badge_clase }}">{{ p.get_estado_display }}</span></td>
             <td><a href="{% url 'tienda:pedido_detalle' p.pk %}">Ver</a></td>
           </tr>
         {% empty %}

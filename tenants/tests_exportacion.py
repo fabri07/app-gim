@@ -146,6 +146,15 @@ class ContenidoDelZipTests(ExportacionBase):
                 )
         self.assertIn("LEEME.txt", zf.namelist())
 
+    def test_pedidos_exporta_los_plazos_y_la_cancelacion(self):
+        hoja = next(h for h in exportacion.HOJAS if h.nombre == "tienda_pedidos")
+        exportadas = [e for e, _ in hoja.columnas]
+        for columna in (
+            "reservado_hasta", "comprobante_subido_en",
+            "cancelacion_pedida_en", "cancelacion_resuelta_en",
+        ):
+            self.assertIn(columna, exportadas)
+
     def test_no_trae_nada_de_otro_gimnasio(self):
         _ensuciar_para_exportar(self.gimnasio, self.staff, marca="PROPIO")
         _ensuciar_para_exportar(self.otro, self.staff_otro, marca="AJENO")

@@ -3856,6 +3856,22 @@ class SembrarDemoTests(TestCase):
         self.assertEqual(Producto.objects.for_gimnasio(self.gimnasio).count(), productos)
         self.assertEqual(Variante.objects.filter(producto__gimnasio=self.gimnasio).count(), variantes)
 
+    def test_la_tienda_demo_trae_un_medio_de_cobro_sin_duplicar(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
+        self._sembrar(alumnos=4, meses=1)
+        self.assertEqual(MedioCobro.objects.for_gimnasio(self.gimnasio, ).filter(activo=True).count(), 1)
+        self._sembrar(alumnos=4, meses=1, confirmar=True)
+        self.assertEqual(MedioCobro.objects.for_gimnasio(self.gimnasio).count(), 1)
+
+    def test_la_tienda_demo_respeta_el_medio_de_cobro_que_ya_hay(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
+        MedioCobro.objects.create(gimnasio=self.gimnasio, alias="propio.alias")
+        self._sembrar(alumnos=4, meses=1)
+        self.assertEqual(
+            list(MedioCobro.objects.for_gimnasio(self.gimnasio).values_list("alias", flat=True)),
+            ["propio.alias"],
+        )
+
     def test_con_confirmar_siembra_igual(self):
         from alumnos.models import Alumno
 

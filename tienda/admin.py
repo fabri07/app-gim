@@ -34,6 +34,9 @@ class ItemPedidoInline(admin.TabularInline):
 class PedidoAdmin(admin.ModelAdmin):
     list_display = ("__str__", "gimnasio", "alumno", "estado", "total", "creado")
     list_filter = ("gimnasio", "estado")
+    # `estado` y `total` de sólo lectura: las transiciones van por `services`
+    # (UPDATE condicional + stock); editarlas acá desarma el stock reservado.
+    readonly_fields = ("estado", "total")
     raw_id_fields = ("alumno",)  # un select con los alumnos de TODA la plataforma no
     inlines = [ItemPedidoInline]
 

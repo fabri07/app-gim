@@ -333,8 +333,10 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "asistencia_semanal": analitica.asistencia_por_semana(gimnasio),
             "asistencia_diaria": analitica.asistencia_diaria(gimnasio),
             "ingresos_mensuales": analitica.ingresos_por_mes(gimnasio),
-            # Tienda (add-on): ventas por mes y lo más vendido. Sin tienda,
-            # ni una query (lo fija `test_sin_tienda_ni_tarjeta_ni_queries`).
+            # Tienda (add-on): ventas por mes y lo más vendido. Sin tienda no
+            # se llama a `panel_de_ventas` (lo fija
+            # `test_sin_tienda_no_calcula_la_tarjeta_de_ventas`; el contador
+            # de alertas del panel sí corre).
             "ventas_tienda": _ventas_tienda(gimnasio),
             "asistencia": analitica.asistencia_por_dia_y_hora(gimnasio),
             "rpe_por_ejercicio": analitica.rpe_por_ejercicio(gimnasio),

@@ -412,7 +412,8 @@ def marcar_pagado(pedido, *, ahora=None):
     directo desde pendiente (pagó en el mostrador o transfirió sin subirlo)."""
     ahora = _ahora(ahora)
     if not _transicionar(
-        pedido, [_E.PENDIENTE_PAGO, _E.EN_REVISION], ahora, estado=_E.PAGADO, pagado_en=ahora
+        pedido, [_E.PENDIENTE_PAGO, _E.EN_REVISION], ahora, estado=_E.PAGADO, pagado_en=ahora,
+        motivo="",  # un rechazo de comprobante viejo no es el motivo de nada ahora
     ):
         raise ErrorDeTienda("estado_invalido")
 
@@ -497,7 +498,7 @@ def pedir_cancelacion(pedido, *, alumno, ahora=None):
     if not puede_pedir_cancelacion(pedido, hoy=timezone.localdate(ahora)):
         raise ErrorDeTienda("fuera_de_plazo_arrepentimiento")
     tocadas = Pedido.objects.filter(
-        pk=pedido.pk, estado__in=[_E.PAGADO, _E.ENTREGADO], cancelacion_pedida_en__isnull=True
+        q_puede_pedir_cancelacion(hoy=timezone.localdate(ahora)), pk=pedido.pk
     ).update(cancelacion_pedida_en=ahora, modificado=ahora)
     if not tocadas:
         raise ErrorDeTienda("estado_invalido")
@@ -512,7 +513,9 @@ def resolver_cancelacion(pedido, *, aceptar, motivo="", ahora=None):
     )
     with transaction.atomic():
         if not aceptar:
-            if not base.update(cancelacion_resuelta_en=ahora, motivo=motivo, modificado=ahora):
+            # Un motivo vacío no pisa el que ya hubiera.
+            campos = {"motivo": motivo} if motivo else {}
+            if not base.update(cancelacion_resuelta_en=ahora, modificado=ahora, **campos):
                 raise ErrorDeTienda("estado_invalido")
         elif base.filter(estado=_E.PAGADO).update(
             estado=_E.DEVUELTO, cancelacion_resuelta_en=ahora, motivo=motivo, modificado=ahora

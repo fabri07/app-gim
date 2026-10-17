@@ -22,7 +22,7 @@
     <h1>Mis pedidos</h1>
     {% for p in pedidos %}
       <p class="mt-2">
-        <a href="{% url 'tienda:mi_pedido' p.pk %}">#{{ p.pk }}</a> · {{ p.creado|date:"d/m/Y" }} · $ {{ p.total|floatformat:"2g" }} · <span class="badge">{{ p.get_estado_display }}</span>
+        <a href="{% url 'tienda:mi_pedido' p.pk %}">#{{ p.pk }}</a> · {{ p.creado|date:"d/m/Y" }} · $ {{ p.total|floatformat:"2g" }} · <span class="badge {{ p.badge_clase }}">{{ p.get_estado_display }}</span>{% if p.cancelacion_pendiente %} <span class="badge badge--alerta">Cancelación pedida</span>{% endif %}
       </p>
     {% empty %}
       <p class="texto-suave">Todavía no hiciste pedidos.</p>

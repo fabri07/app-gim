@@ -5,7 +5,7 @@
 <div>
   <div class="acciones-lista">
     <h1>Pedido #{{ object.pk }}</h1>
-    <span class="badge">{{ object.get_estado_display }}</span>
+    <span class="badge {{ object.badge_clase }}">{{ object.get_estado_display }}</span>
     <a class="boton-secundario" href="{% url 'tienda:pedidos' %}">Volver a los pedidos</a>
   </div>
 
@@ -26,13 +26,13 @@
         {% for i in object.items.all %}
           <tr>
             <td>{{ i.nombre }}</td>
-            <td><span class="tabular-nums">$ {{ i.precio_unitario|floatformat:"2g" }}</span></td>
+            <td><span class="tabular-nums whitespace-nowrap">$ {{ i.precio_unitario|floatformat:"2g" }}</span></td>
             <td>{{ i.cantidad }}</td>
-            <td><span class="tabular-nums">$ {{ i.subtotal|floatformat:"2g" }}</span></td>
+            <td><span class="tabular-nums whitespace-nowrap">$ {{ i.subtotal|floatformat:"2g" }}</span></td>
           </tr>
         {% endfor %}
       </tbody>
-      <tfoot><tr><th colspan="3">Total</th><th><span class="tabular-nums">$ {{ object.total|floatformat:"2g" }}</span></th></tr></tfoot>
+      <tfoot><tr><th colspan="3">Total</th><th><span class="tabular-nums whitespace-nowrap">$ {{ object.total|floatformat:"2g" }}</span></th></tr></tfoot>
     </table>
   </div>
 

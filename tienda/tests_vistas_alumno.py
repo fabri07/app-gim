@@ -196,6 +196,87 @@ class ComprobanteVistaTests(_BaseAlumno):
         self.assertContains(r, "rechazó tu comprobante")
 
 
+    def test_aviso_de_rechazo_con_motivo_y_sin_archivo(self):
+        """Rechazado por el staff sin que el alumno haya subido nada (marcado
+        a mano): el aviso se ve igual si hay motivo."""
+        Pedido.objects.filter(pk=self.pedido.pk).update(motivo="Transferiste de menos")
+        r = self.client.get(reverse("tienda:mi_pedido", args=[self.pedido.pk]))
+        self.assertContains(r, "rechazó tu comprobante: Transferiste de menos")
+
+    def test_sin_archivo_ni_motivo_no_hay_aviso_de_rechazo(self):
+        r = self.client.get(reverse("tienda:mi_pedido", args=[self.pedido.pk]))
+        self.assertNotContains(r, "rechazó tu comprobante")
+
+    def test_la_cantidad_no_se_duplica_en_el_detalle(self):
+        self.pedido.items.update(cantidad=1)
+        r = self.client.get(reverse("tienda:mi_pedido", args=[self.pedido.pk]))
+        self.assertContains(r, "1 × Remera")
+        self.assertNotContains(r, "1 × 1 ×")
+
+
+class ArrepentimientoVisibleTests(_BaseAlumno):
+    def setUp(self):
+        super().setUp()
+        self.pedido = services.crear_pedido(
+            gimnasio=self.gimnasio, alumno=self.alumno,
+            carrito={self.variante.pk: 1}, suplantando=False,
+        )
+        services.marcar_pagado(self.pedido)
+        self.url = reverse("tienda:mi_pedido", args=[self.pedido.pk])
+
+    def test_la_cancelacion_pendiente_se_ve_al_recargar(self):
+        services.pedir_cancelacion(self.pedido, alumno=self.alumno)
+        r = self.client.get(self.url)
+        self.assertContains(r, f"Pediste la cancelación el")
+        self.assertContains(r, f"(pedido #{self.pedido.pk})")
+        self.assertContains(r, "El gimnasio te va a contactar")
+        self.assertNotContains(r, "Pedir cancelación")
+        lista = self.client.get(reverse("tienda:mis_pedidos"))
+        self.assertContains(lista, "Cancelación pedida")
+
+    def test_sin_pedirla_no_hay_aviso_ni_badge(self):
+        self.assertNotContains(self.client.get(self.url), "Pediste la cancelación")
+        self.assertNotContains(self.client.get(reverse("tienda:mis_pedidos")), "Cancelación pedida")
+
+    def test_la_cancelacion_rechazada_muestra_el_motivo(self):
+        services.pedir_cancelacion(self.pedido, alumno=self.alumno)
+        services.resolver_cancelacion(self.pedido, aceptar=False, motivo="Ya usaste el producto")
+        r = self.client.get(self.url)
+        self.assertContains(r, "El gimnasio no aceptó la cancelación: Ya usaste el producto")
+        self.assertNotContains(r, "Pediste la cancelación el")
+        self.assertNotContains(self.client.get(reverse("tienda:mis_pedidos")), "Cancelación pedida")
+
+    def test_rechazada_sin_motivo_no_deja_dos_puntos(self):
+        services.pedir_cancelacion(self.pedido, alumno=self.alumno)
+        services.resolver_cancelacion(self.pedido, aceptar=False)
+        r = self.client.get(self.url)
+        self.assertContains(r, "El gimnasio no aceptó la cancelación</p>")
+
+    def test_aceptada_no_dice_que_no_se_acepto(self):
+        services.pedir_cancelacion(self.pedido, alumno=self.alumno)
+        services.resolver_cancelacion(self.pedido, aceptar=True, motivo="Devuelto")
+        r = self.client.get(self.url)
+        self.assertNotContains(r, "no aceptó")
+        self.assertContains(r, "Devuelto")
+
+
+class CatalogoVarianteUnicaTests(_BaseAlumno):
+    def test_una_sola_variante_sin_nombre_va_en_un_hidden_sin_select(self):
+        creatina = Producto.objects.create(gimnasio=self.gimnasio, nombre="Creatina", precio=Decimal("21000"))
+        unica = Variante.objects.create(producto=creatina, nombre="", stock=10)
+        r = self.client.get(reverse("tienda:catalogo"))
+        self.assertContains(r, f'<input type="hidden" name="variante" value="{unica.pk}">', html=False)
+        self.assertNotContains(r, 'aria-label="Variante de Creatina"')
+        # El producto con talles sigue con su select.
+        self.assertContains(r, 'aria-label="Variante de Remera"')
+
+    def test_comprar_con_la_variante_unica_funciona(self):
+        creatina = Producto.objects.create(gimnasio=self.gimnasio, nombre="Creatina", precio=Decimal("21000"))
+        unica = Variante.objects.create(producto=creatina, nombre="", stock=10)
+        self.agregar(1, variante=unica)
+        self.assertContains(self.client.get(reverse("tienda:carrito")), "Creatina")
+
+
 class BotonDeArrepentimientoTests(_BaseAlumno):
     """Res. 424/2020: el «botón de arrepentimiento» tiene que estar a la
     vista, no escondido dentro de cada pedido."""

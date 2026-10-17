@@ -23,11 +23,18 @@
         {% csrf_token %}
         <input type="hidden" name="accion" value="agregar">
         <input type="hidden" name="volver" value="catalogo">
+        {% with unica=p.variante_unica %}
+        {% if unica %}
+          <input type="hidden" name="variante" value="{{ unica.pk }}">
+          {% if unica.stock > 0 and unica.stock <= umbral_pocas %}<p class="texto-suave">Quedan {{ unica.stock }}</p>{% endif %}
+        {% else %}
         <select name="variante" aria-label="Variante de {{ p.nombre }}">
           {% for v in p.variantes.all %}
             <option value="{{ v.pk }}" {% if v.stock == 0 %}disabled{% endif %}>{{ v.nombre }}{% if v.stock == 0 %} — Agotado{% elif v.stock <= umbral_pocas %} — Quedan {{ v.stock }}{% endif %}</option>
           {% endfor %}
         </select>
+        {% endif %}
+        {% endwith %}
         <input type="number" name="cantidad" min="1" max="20" value="1" aria-label="Cantidad">
         {% if not p.hay_stock %}<p class="texto-suave">Agotado</p>{% endif %}
         <button type="submit" class="boton w-full mt-2" {% if not p.hay_stock %}disabled{% endif %}>Agregar al carrito</button>

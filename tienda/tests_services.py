@@ -549,6 +549,23 @@ class CancelacionTests(_Base):
         services.resolver_cancelacion(pedido, aceptar=True, ahora=AHORA)
         self.assertEqual(self.stock(self.m), 2)
 
+    def test_rechazar_la_cancelacion_sin_motivo_no_pisa_el_que_habia(self):
+        pedido = self.comprar({self.m.pk: 1})
+        services.marcar_pagado(pedido, ahora=AHORA)
+        Pedido.objects.filter(pk=pedido.pk).update(motivo="Nota previa")
+        services.pedir_cancelacion(pedido, alumno=self.alumno, ahora=AHORA)
+        services.resolver_cancelacion(pedido, aceptar=False, motivo="", ahora=AHORA)
+        pedido.refresh_from_db()
+        self.assertEqual(pedido.motivo, "Nota previa")
+        self.assertIsNotNone(pedido.cancelacion_resuelta_en)
+
+    def test_marcar_pagado_limpia_el_motivo_de_un_rechazo_viejo(self):
+        pedido = self.comprar({self.m.pk: 1})
+        Pedido.objects.filter(pk=pedido.pk).update(motivo="No se lee")
+        services.marcar_pagado(pedido, ahora=AHORA)
+        pedido.refresh_from_db()
+        self.assertEqual(pedido.motivo, "")
+
     def test_cancelar_por_staff_cierra_la_cancelacion_pedida(self):
         pedido = self.comprar({self.m.pk: 1})
         services.marcar_pagado(pedido, ahora=AHORA)

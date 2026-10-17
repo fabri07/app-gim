@@ -521,11 +521,19 @@ def _sembrar_tienda(gimnasio, alumnos):
     `restaurar_demo`, el camino normal, vacía todo y no se ve afectado."""
     from django.db.models import F
 
+    from pagos.models import MedioCobro
     from tienda.models import (
         ESTADOS_QUE_RETIENEN, CategoriaProducto, ItemPedido, Pedido, Producto,
         Variante, obtener_configuracion,
     )
 
+    # Sin un medio de cobro el alumno ve «todavía no cargó sus datos de
+    # transferencia»: la demo tiene que mostrar el flujo completo.
+    if not MedioCobro.objects.for_gimnasio(gimnasio).filter(activo=True).exists():
+        MedioCobro.objects.create(
+            gimnasio=gimnasio, alias="gimnasio.demo.mp", titular="Gimnasio Demo",
+            entidad="Banco de ejemplo (demo)",
+        )
     config = obtener_configuracion(gimnasio)
     config.publicada = True
     config.instrucciones_retiro = "Retirás en recepción, de lunes a viernes de 8 a 21."

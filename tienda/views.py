@@ -261,6 +261,12 @@ class PedidoDetailView(TiendaStaffMixin, DetailView):
     model = Pedido
     template_name = "tienda/pedido_detalle.html"
 
+    def get(self, request, *args, **kwargs):
+        # Perezoso, igual que el listado: sin esto el detalle mostraría
+        # «Esperando el pago» sobre un pedido que ya venció.
+        services.vencer_pedidos(gimnasio=self.gimnasio)
+        return super().get(request, *args, **kwargs)
+
     def get_queryset(self):
         return super().get_queryset().select_related("alumno").prefetch_related("items")
 
@@ -415,6 +421,10 @@ class CatalogoView(TiendaAlumnoMixin, TemplateView):
             variantes = producto.variantes.all()  # prefetcheado: sin query
             if variantes:
                 producto.hay_stock = any(v.stock > 0 for v in variantes)
+                # Una sola variante activa y sin nombre: no hay nada que elegir.
+                producto.variante_unica = (
+                    variantes[0] if len(variantes) == 1 and not variantes[0].nombre else None
+                )
                 nombre = producto.categoria.nombre if producto.categoria else "Otros"
                 grupos.setdefault(nombre, []).append(producto)
         context["grupos"] = list(grupos.items())

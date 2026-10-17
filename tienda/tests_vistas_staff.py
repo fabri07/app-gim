@@ -315,6 +315,52 @@ class PedidosStaffTests(_BaseStaff):
         r = self.client.post(reverse("tienda:pedido_accion", args=[ajeno.pk]), {"accion": "pagado"})
         self.assertEqual(r.status_code, 404)
 
+    def test_detalle_vence_perezosamente_sin_push(self):
+        from django.utils import timezone
+        from datetime import timedelta
+
+        Pedido.objects.filter(pk=self.pedido.pk).update(
+            reservado_hasta=timezone.now() - timedelta(hours=1)
+        )
+        with patch("notificaciones.services.notificar_pedido_al_alumno") as aviso:
+            r = self.client.get(reverse("tienda:pedido_detalle", args=[self.pedido.pk]))
+        self.assertContains(r, "Vencido")
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.VENCIDO)
+        aviso.assert_not_called()
+
+    def _pagado_con_cancelacion_pedida(self):
+        services.marcar_pagado(self.pedido)
+        services.pedir_cancelacion(self.pedido, alumno=self.alumno)
+
+    def test_aceptar_cancelacion_devuelve_y_libera_el_stock(self):
+        self._pagado_con_cancelacion_pedida()
+        r = self.accion("aceptar_cancelacion", motivo="Devolvimos por transferencia")
+        self.assertContains(r, "Cancelación aceptada")
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.DEVUELTO)
+        self.assertIsNotNone(self.pedido.cancelacion_resuelta_en)
+        self.variante.refresh_from_db()
+        self.assertEqual(self.variante.stock, 5)
+
+    def test_rechazar_cancelacion_deja_el_pedido_y_el_stock(self):
+        self._pagado_con_cancelacion_pedida()
+        r = self.accion("rechazar_cancelacion", motivo="Ya lo usó")
+        self.assertContains(r, "Cancelación rechazada")
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PAGADO)
+        self.assertIsNotNone(self.pedido.cancelacion_resuelta_en)
+        self.assertEqual(self.pedido.motivo, "Ya lo usó")
+        self.variante.refresh_from_db()
+        self.assertEqual(self.variante.stock, 3)
+
+    def test_resolver_sin_cancelacion_pedida_es_cartel(self):
+        services.marcar_pagado(self.pedido)
+        r = self.accion("aceptar_cancelacion")
+        self.assertContains(r, "ya cambió de estado")
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PAGADO)
+
     def test_listado_vence_perezosamente(self):
         from django.utils import timezone
         from datetime import timedelta
@@ -419,3 +465,57 @@ class VentasEnPantallasTests(_BaseStaff):
         self.assertEqual(r.status_code, 200)
         self.assertNotContains(r, "Ventas de la tienda")
         self.assertNotContains(r, "ventas-tienda-data")
+
+
+class BadgesYPantallaTests(_BaseStaff):
+    def test_ningun_template_usa_badge_a_secas(self):
+        """`.badge` sin variante no tiene fondo ni color (ver `.badge--neutro`
+        en styles/input.css): se ve como texto suelto."""
+        import re
+        from pathlib import Path
+
+        from django.conf import settings
+
+        archivos = list((Path(settings.BASE_DIR) / "templates" / "tienda").glob("*.html"))
+        archivos.append(Path(settings.BASE_DIR) / "templates" / "base.html")
+        a_secas = re.compile(r'class="badge(?:\s*"|\s+(?!badge--|\{\{))')
+        malos = [
+            f"{a.name}: {m.group(0)}"
+            for a in archivos
+            for m in a_secas.finditer(a.read_text())
+        ]
+        self.assertEqual(malos, [])
+
+    def test_cada_estado_de_pedido_tiene_su_variante(self):
+        for estado in Pedido.Estado.values:
+            self.assertTrue(Pedido(estado=estado).badge_clase.startswith("badge--"), estado)
+
+    def test_estado_y_stock_con_su_color(self):
+        producto, variante = self.crear_producto(stock=0)
+        r = self.client.get(reverse("tienda:productos"))
+        self.assertContains(r, '<span class="badge badge--riesgo">Sin stock</span>')
+        Variante.objects.filter(pk=variante.pk).update(stock=1)
+        r = self.client.get(reverse("tienda:productos"))
+        self.assertContains(r, 'class="badge badge--alerta" data-stock-bajo')
+
+    def test_variante_sin_nombre_no_muestra_dos_puntos_sueltos(self):
+        producto = Producto.objects.create(gimnasio=self.gimnasio, nombre="Creatina", precio=Decimal("21000"))
+        Variante.objects.create(producto=producto, nombre="", stock=12)
+        r = self.client.get(reverse("tienda:productos"))
+        self.assertNotContains(r, ": \n")
+        html = r.content.decode()
+        fila = html[html.index("Creatina"):]
+        self.assertNotRegex(fila[:900], r"\s:\s*\n\s*<span class=\"tabular-nums\">12")
+
+    def test_el_ajuste_va_en_linea_y_los_montos_no_se_parten(self):
+        self.crear_producto()
+        r = self.client.get(reverse("tienda:productos"))
+        self.assertContains(r, 'class="flex items-center gap-2 mt-1"')
+        self.assertContains(r, "whitespace-nowrap")
+        alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="G")
+        _, variante = self.crear_producto()
+        pedido = services.crear_pedido(
+            gimnasio=self.gimnasio, alumno=alumno, carrito={variante.pk: 1}, suplantando=False
+        )
+        r = self.client.get(reverse("tienda:pedido_detalle", args=[pedido.pk]))
+        self.assertContains(r, 'class="tabular-nums whitespace-nowrap">$ 15.000,00')

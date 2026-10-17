@@ -252,7 +252,7 @@
       <a href="{% url 'pagos:listado' %}">Pagos</a>
       <a href="{% url 'turnos:agenda' %}">Turnos</a>
       <a href="{% url 'novedades:listado' %}">Novedades</a>
-      {% if user.perfil.gimnasio.puede_usar_tienda %}<a href="{% url 'tienda:productos' %}">Tienda{% if user.perfil.gimnasio.es_demo %} <span class="badge" data-adicional>Adicional</span>{% endif %}</a>{% endif %}
+      {% if user.perfil.gimnasio.puede_usar_tienda %}<a href="{% url 'tienda:productos' %}">Tienda{% if user.perfil.gimnasio.es_demo %} <span class="badge badge--neutro" data-adicional>Adicional</span>{% endif %}</a>{% endif %}
       <a href="{% url 'gimnasio_editar' %}">Mi gimnasio</a>
       {% if user.is_superuser %}<a href="{% url 'plataforma:inicio' %}">Plataforma</a>{% endif %}
     </nav>

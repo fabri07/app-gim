@@ -339,6 +339,10 @@ HOJAS = (
             ("medio", "medio"), ("estado", "estado"), ("total", "total"),
             ("comprobante_archivo", "comprobante"), ("pagado_en", "pagado_en"),
             ("entregado_en", "entregado_en"), ("motivo", "motivo"), ("creado", "creado"),
+            ("reservado_hasta", "reservado_hasta"),
+            ("comprobante_subido_en", "comprobante_subido_en"),
+            ("cancelacion_pedida_en", "cancelacion_pedida_en"),
+            ("cancelacion_resuelta_en", "cancelacion_resuelta_en"),
         ),
     ),
     Hoja(

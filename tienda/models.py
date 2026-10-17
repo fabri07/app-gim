@@ -10,8 +10,6 @@ reservada por un pedido ya no está en `stock`. Por eso el staff nunca escribe
 el stock en forma absoluta (ver `services.ajustar_stock`).
 """
 
-import uuid
-
 from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 from django.db import models
 from django.urls import reverse
@@ -187,10 +185,38 @@ class Pedido(TenantOwnedModel):
     def __str__(self):
         return f"Pedido #{self.pk}"
 
+    @property
+    def badge_clase(self):
+        """Variante de `.badge` para el estado (única fuente: la usan los
+        cuatro templates que muestran el estado de un pedido)."""
+        return _BADGE_POR_ESTADO[self.estado]
+
+    @property
+    def cancelacion_pendiente(self):
+        return self.cancelacion_pedida_en is not None and self.cancelacion_resuelta_en is None
+
+    @property
+    def cancelacion_rechazada(self):
+        return (
+            self.cancelacion_resuelta_en is not None
+            and self.estado != self.Estado.DEVUELTO
+        )
+
     def clean(self):
         if self.gimnasio_id:
             validar_gimnasio_de(self.gimnasio, alumno=self.alumno)
 
+
+_E = Pedido.Estado
+_BADGE_POR_ESTADO = {
+    _E.PENDIENTE_PAGO: "badge--alerta",
+    _E.EN_REVISION: "badge--alerta",
+    _E.PAGADO: "badge--ok",
+    _E.ENTREGADO: "badge--ok",
+    _E.VENCIDO: "badge--neutro",
+    _E.CANCELADO: "badge--neutro",
+    _E.DEVUELTO: "badge--neutro",
+}
 
 #: Estados cuyas unidades están descontadas de `Variante.stock`.
 ESTADOS_QUE_RETIENEN = (
