@@ -7,9 +7,9 @@ from tenants.models import Gimnasio, Perfil, RegistroSuplantacion
 class GimnasioAdmin(admin.ModelAdmin):
     list_display = (
         "nombre", "slug", "activo", "es_demo", "facturacion_exenta",
-        "exportacion_habilitada", "creado",
+        "exportacion_habilitada", "tienda_habilitada", "creado",
     )
-    list_filter = ("exportacion_habilitada", "facturacion_exenta")
+    list_filter = ("exportacion_habilitada", "tienda_habilitada", "facturacion_exenta")
     # `editable=False`: sin esto el admin directamente no lo muestra, y es el
     # dato que dice si el cliente ya bajó sus datos antes de destildar.
     readonly_fields = ("exportacion_ultima_descarga",)

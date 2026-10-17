@@ -4095,6 +4095,19 @@ class SembrarDemoAccesosTests(TestCase):
             Perfil.objects.filter(gimnasio=self.gimnasio).count(), 0
         )
 
+    def test_borrar_no_revienta_si_un_alumno_de_demo_tiene_un_pedido(self):
+        """`Pedido.alumno` es PROTECT: sin sacar los pedidos a mano,
+        `--borrar` levanta `ProtectedError`."""
+        from tienda.models import Pedido
+
+        self._sembrar(alumnos=2, meses=1)
+        alumno = Alumno.objects.for_gimnasio(self.gimnasio).filter(observaciones="[demo]").first()
+        Pedido.objects.create(gimnasio=self.gimnasio, alumno=alumno, total=1)
+
+        self._sembrar(borrar=True)
+
+        self.assertEqual(Pedido.objects.count(), 0)
+
     def test_borrar_no_toca_el_acceso_de_un_alumno_real(self):
         """El mismo resguardo que ya tenía `--borrar` sobre los alumnos, pero
         para los accesos: perder el login de un alumno que paga sería peor que
@@ -4325,6 +4338,32 @@ def _ensuciar(gimnasio, staff, marca="X"):
         gimnasio=gimnasio, dispositivo=dispositivo,
         resultado=EventoIngreso.Resultado.SIN_CREDENCIAL,
         momento=timezone.now(), detalle="…abc123",
+    )
+    # La tienda: el pedido protege a la variante (PROTECT) y al alumno, así
+    # que ejercita el orden de borrado de `vaciar_gimnasio` y `borrar_demo`.
+    from tienda.models import (
+        CategoriaProducto,
+        ConfiguracionTienda,
+        ItemPedido,
+        Pedido,
+        Producto,
+        Variante,
+    )
+
+    ConfiguracionTienda.objects.create(gimnasio=gimnasio)
+    categoria_tienda = CategoriaProducto.objects.create(gimnasio=gimnasio, nombre=f"Ropa {marca}")
+    producto = Producto.objects.create(
+        gimnasio=gimnasio, categoria=categoria_tienda,
+        nombre=f"Remera {marca}", precio=Decimal("15000"),
+    )
+    variante = Variante.objects.create(producto=producto, nombre="M", stock=5)
+    pedido = Pedido.objects.create(
+        gimnasio=gimnasio, alumno=alumno, total=Decimal("15000"),
+        reservado_hasta=timezone.now() + timedelta(hours=24),
+    )
+    ItemPedido.objects.create(
+        pedido=pedido, variante=variante, nombre=f"Remera {marca} · M",
+        precio_unitario=Decimal("15000"), cantidad=1,
     )
     return alumno
 

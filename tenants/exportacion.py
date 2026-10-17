@@ -297,6 +297,59 @@ HOJAS = (
             ("detalle", "detalle"),
         ),
     ),
+    Hoja(
+        "tienda_configuracion", "tienda.ConfiguracionTienda", "gimnasio",
+        "Configuración de la tienda (plazo para el comprobante, tope de pedidos).",
+        (
+            ("publicada", "publicada"),
+            ("horas_reserva_transferencia", "horas_reserva_transferencia"),
+            ("max_pedidos_activos", "max_pedidos_activos"),
+            ("instrucciones_retiro", "instrucciones_retiro"),
+        ),
+    ),
+    Hoja(
+        "tienda_categorias", "tienda.CategoriaProducto", "gimnasio",
+        "Categorías de la tienda.",
+        (("id", "id"), ("nombre", "nombre"), ("orden", "orden")),
+    ),
+    Hoja(
+        "tienda_productos", "tienda.Producto", "gimnasio",
+        "Productos de la tienda. `foto_archivo` es el nombre del archivo; las "
+        "fotos en sí no van en esta exportación.",
+        (
+            ("id", "id"), ("categoria_id", "categoria_id"), ("nombre", "nombre"),
+            ("descripcion", "descripcion"), ("precio", "precio"),
+            ("publicado", "publicado"), ("foto_archivo", "foto"), ("creado", "creado"),
+        ),
+    ),
+    Hoja(
+        "tienda_variantes", "tienda.Variante", "producto__gimnasio",
+        "Variantes (talle, color, sabor) de cada producto, con su stock disponible.",
+        (
+            ("id", "id"), ("producto_id", "producto_id"), ("nombre", "nombre"),
+            ("stock_disponible", "stock"), ("activa", "activa"),
+        ),
+    ),
+    Hoja(
+        "tienda_pedidos", "tienda.Pedido", "gimnasio",
+        "Pedidos de los alumnos. `comprobante_archivo` es el nombre del archivo subido.",
+        (
+            ("id", "id"), ("alumno_id", "alumno_id"),
+            ("alumno_apellido", "alumno__apellido"), ("alumno_nombre", "alumno__nombre"),
+            ("medio", "medio"), ("estado", "estado"), ("total", "total"),
+            ("comprobante_archivo", "comprobante"), ("pagado_en", "pagado_en"),
+            ("entregado_en", "entregado_en"), ("motivo", "motivo"), ("creado", "creado"),
+        ),
+    ),
+    Hoja(
+        "tienda_pedidos_items", "tienda.ItemPedido", "pedido__gimnasio",
+        "Qué se compró en cada pedido, con el precio de ese momento.",
+        (
+            ("id", "id"), ("pedido_id", "pedido_id"), ("variante_id", "variante_id"),
+            ("nombre", "nombre"), ("precio_unitario", "precio_unitario"),
+            ("cantidad", "cantidad"),
+        ),
+    ),
 )
 
 #: Modelos que NO se exportan, con el motivo que se le cuenta al gimnasio en el
@@ -480,7 +533,7 @@ def _leeme(gimnasio, conteos):
         "QUÉ NO SE INCLUYE",
         "",
         "  - Las contraseñas: no se guardan de forma legible en ningún lado.",
-        "  - Los archivos subidos (comprobantes de pago, logo): figura su nombre.",
+        "  - Los archivos subidos (comprobantes de pago, logo, fotos de productos): figura su nombre.",
     ]
     lineas += [f"  - {motivo[0].upper()}{motivo[1:]}." for motivo in EXCLUIDOS.values()]
     return "\r\n".join(lineas) + "\r\n"

@@ -516,6 +516,7 @@ def borrar_demo(*, gimnasio):
     from pagos.models import Cuota
     from rutinas.models import RutinaAsignada, RutinaAsignadaDiaCompletado
     from tenants.models import RegistroSuplantacion
+    from tienda.models import Pedido
     from turnos.models import Reserva
 
     with transaction.atomic():
@@ -536,6 +537,7 @@ def borrar_demo(*, gimnasio):
         # PROTECT en pagos y rutinas: hay que sacarlos antes que el alumno.
         RutinaAsignada.objects.filter(alumno__in=alumnos).delete()
         Cuota.objects.filter(alumno__in=alumnos).delete()
+        Pedido.objects.filter(alumno__in=alumnos).delete()
         Reserva.objects.filter(alumno__in=alumnos).delete()
         NovedadLeida.objects.filter(alumno__in=alumnos).delete()
         # `RegistroSuplantacion.alumno` es PROTECT: el rastro de auditoría no
@@ -614,7 +616,8 @@ def vaciar_gimnasio(*, gimnasio):
     El orden es el que imponen los `on_delete=PROTECT` del proyecto y no es
     reordenable: `Cuota`/`RutinaAsignada`/`RegistroSuplantacion` protegen a
     `Alumno`, `RutinaPlantillaItem` protege a `Ejercicio`, y `Ejercicio`
-    protege a `CategoriaEjercicio`.
+    protege a `CategoriaEjercicio`. `Pedido` protege a `Alumno` y, por sus
+    ítems, a `Variante`.
     """
     from django.contrib.auth import get_user_model
 
@@ -633,6 +636,7 @@ def vaciar_gimnasio(*, gimnasio):
     from pagos.models import Cuota, MedioCobro
     from rutinas.models import RutinaAsignada, RutinaPlantilla
     from tenants.models import Perfil, RegistroSuplantacion
+    from tienda.models import CategoriaProducto, ConfiguracionTienda, Pedido, Producto
     from turnos.models import (
         ConfiguracionTurnos,
         CupoExcepcion,
@@ -674,6 +678,10 @@ def vaciar_gimnasio(*, gimnasio):
         RegistroSuplantacion.objects.for_gimnasio(gimnasio).delete()
         RutinaAsignada.objects.for_gimnasio(gimnasio).delete()
         Cuota.objects.for_gimnasio(gimnasio).delete()
+        # PROTECT hacia `Alumno`. Los ítems caen en cascada con el pedido, y
+        # recién sin ítems se pueden borrar los productos (ItemPedido.variante
+        # es PROTECT).
+        Pedido.objects.for_gimnasio(gimnasio).delete()
 
         # Cascadean solos desde `Alumno`, pero se borran explícitamente para no
         # depender de por dónde entra la cascada: `Reserva` arrastra su
@@ -698,6 +706,10 @@ def vaciar_gimnasio(*, gimnasio):
         RutinaPlantilla.objects.for_gimnasio(gimnasio).delete()
         Ejercicio.objects.for_gimnasio(gimnasio).delete()
         CategoriaEjercicio.objects.for_gimnasio(gimnasio).delete()
+        # Producto arrastra sus variantes; va antes que la categoría por
+        # prolijidad (la FK es SET_NULL, no protege).
+        Producto.objects.for_gimnasio(gimnasio).delete()
+        CategoriaProducto.objects.for_gimnasio(gimnasio).delete()
 
         # Sin relaciones entrantes: cualquier orden sirve.
         Importacion.objects.for_gimnasio(gimnasio).delete()
@@ -706,6 +718,7 @@ def vaciar_gimnasio(*, gimnasio):
         HorarioAtencion.objects.for_gimnasio(gimnasio).delete()
         ConfiguracionTurnos.objects.for_gimnasio(gimnasio).delete()
         ConfiguracionIngreso.objects.for_gimnasio(gimnasio).delete()
+        ConfiguracionTienda.objects.for_gimnasio(gimnasio).delete()
 
         # Las que quedan son las del staff. Borrarlas es lo que evita el push
         # cruzado: `SuscripcionPush` cuelga del `User`, así que si dos dueños

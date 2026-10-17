@@ -91,7 +91,13 @@ INSTALLED_APPS = [
     #                 entero. La lee `suscripcion`, así que va antes de ella.
     #   suscripcion -> cobro online de la suscripción a la plataforma (Mercado
     #                  Pago). Lee `plataforma.facturacion` y nadie la lee a
-    #                  ella, así que va última de todas.
+    #                  ella, así que va antes de `tienda`.
+    #   tienda     -> add-on de venta de productos a los alumnos (Producto,
+    #                 Variante, Pedido). Lee `pagos.MedioCobro` (datos de
+    #                 transferencia) y, desde el Hito 2, el cliente de
+    #                 `suscripcion/mercadopago.py`, así que va después de las dos.
+    #                 `tenants.views`, `tenants.demo` y `plataforma.views` la leen
+    #                 con import tardío (dentro de la función).
     'core',
     'tenants',
     'ejercicios',
@@ -107,6 +113,7 @@ INSTALLED_APPS = [
     'solicitudes',
     'plataforma',
     'suscripcion',
+    'tienda',
 ]
 
 MIDDLEWARE = [

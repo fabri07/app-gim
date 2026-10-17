@@ -163,6 +163,8 @@ class ContenidoDelZipTests(ExportacionBase):
         self.assertEqual(len(_filas(zf, "para-importar/dias_entrenados.csv", ",")), 1)
         self.assertEqual(len(_filas(zf, "para-importar/novedades_lecturas.csv", ",")), 1)
         self.assertEqual(len(_filas(zf, "para-importar/plantillas_ejercicios.csv", ",")), 1)
+        self.assertEqual(len(_filas(zf, "para-importar/tienda_variantes.csv", ",")), 1)
+        self.assertEqual(len(_filas(zf, "para-importar/tienda_pedidos_items.csv", ",")), 1)
 
     def test_no_sale_ningun_secreto(self):
         alumno = _ensuciar_para_exportar(self.gimnasio, self.staff)

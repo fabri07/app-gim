@@ -173,6 +173,15 @@ class Gimnasio(TimeStampedModel):
         null=True, blank=True, editable=False,
         verbose_name="última exportación de datos",
     )
+    tienda_habilitada = models.BooleanField(
+        default=False,
+        verbose_name="tienda habilitada",
+        help_text=(
+            "Add-on pago: deja que el gimnasio venda productos a sus alumnos. "
+            "Lo prende el dueño del producto desde el panel de plataforma. La "
+            "cuenta de demostración la tiene siempre."
+        ),
+    )
     #: Desde qué día la PLATAFORMA le factura a este gimnasio (lo que el dueño
     #: del producto le cobra por usar la app, no lo que el gimnasio le cobra a
     #: sus alumnos). Mismo criterio que `es_demo`: gestión de plataforma, se
@@ -434,6 +443,12 @@ class Gimnasio(TimeStampedModel):
         demostración siempre (es lo que se muestra para vender), el resto solo
         con la casilla de `/admin/`. La consultan la vista y el template."""
         return self.es_demo or self.exportacion_habilitada
+
+    @property
+    def puede_usar_tienda(self):
+        """Único lugar donde vive la regla de quién tiene la tienda: la demo
+        siempre (es lo que se muestra para vender), el resto con el add-on."""
+        return self.es_demo or self.tienda_habilitada
 
     @property
     def facturacion_aplica(self):
