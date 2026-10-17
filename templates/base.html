@@ -239,7 +239,7 @@
   {% endblock %}
   {% comment %}
     `not cuenta_suspendida`: con la cuenta suspendida todas las secciones
-    terminan en el mismo cartel, así que una nav de nueve links es puro ruido
+    terminan en el mismo cartel, así que una nav de nueve o diez links es puro ruido
     -- y hace parecer que la app anda y que el usuario está haciendo algo mal.
     El botón ☰ de arriba queda igual: sin nav no despliega nada.
   {% endcomment %}
@@ -252,6 +252,7 @@
       <a href="{% url 'pagos:listado' %}">Pagos</a>
       <a href="{% url 'turnos:agenda' %}">Turnos</a>
       <a href="{% url 'novedades:listado' %}">Novedades</a>
+      {% if user.perfil.gimnasio.puede_usar_tienda %}<a href="{% url 'tienda:productos' %}">Tienda{% if user.perfil.gimnasio.es_demo %} <span class="badge" data-adicional>Adicional</span>{% endif %}</a>{% endif %}
       <a href="{% url 'gimnasio_editar' %}">Mi gimnasio</a>
       {% if user.is_superuser %}<a href="{% url 'plataforma:inicio' %}">Plataforma</a>{% endif %}
     </nav>

@@ -15,6 +15,10 @@ urlpatterns = [
     path("categorias/nueva/", views.CategoriaCreateView.as_view(), name="categoria_crear"),
     path("categorias/<int:pk>/editar/", views.CategoriaUpdateView.as_view(), name="categoria_editar"),
     path("categorias/<int:pk>/eliminar/", views.CategoriaBorrarView.as_view(), name="categoria_borrar"),
+    path("pedidos/", views.PedidoListView.as_view(), name="pedidos"),
+    path("pedidos/<int:pk>/", views.PedidoDetailView.as_view(), name="pedido_detalle"),
+    path("pedidos/<int:pk>/accion/", views.PedidoAccionView.as_view(), name="pedido_accion"),
+    path("configuracion/", views.ConfiguracionView.as_view(), name="configuracion"),
     # Foto pública (nombre único: `URLS_SIN_BLOQUEO` compara sin namespace)
     path("productos/<int:pk>/foto/", views.FotoProductoView.as_view(), name="tienda_foto_producto"),
 ]

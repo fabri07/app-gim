@@ -3,7 +3,7 @@ from django.forms import BaseInlineFormSet, inlineformset_factory
 
 from core.forms import TenantScopedModelForm
 from tienda.fotos import preparar_foto
-from tienda.models import CategoriaProducto, Producto, Variante
+from tienda.models import MAX_LARGO_MOTIVO, CategoriaProducto, ConfiguracionTienda, Producto, Variante
 
 
 class CategoriaProductoForm(TenantScopedModelForm):
@@ -109,3 +109,13 @@ class AjusteStockForm(forms.Form):
         label="Sumar o restar unidades",
         help_text="Ej.: 10 si llegaron 10; -1 si se rompió una.",
     )
+
+
+class ConfiguracionTiendaForm(TenantScopedModelForm):
+    class Meta:
+        model = ConfiguracionTienda
+        fields = ["publicada", "horas_reserva_transferencia", "max_pedidos_activos", "instrucciones_retiro"]
+
+
+class MotivoForm(forms.Form):
+    motivo = forms.CharField(max_length=MAX_LARGO_MOTIVO, required=False, label="Motivo")

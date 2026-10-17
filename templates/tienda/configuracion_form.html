@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Configuración de la tienda · App Gimnasios{% endblock %}
+
+{% block content %}
+<div>
+  <div class="acciones-lista">
+    <h1>Configuración de la tienda</h1>
+    <a class="boton-secundario" href="{% url 'tienda:productos' %}">Volver a la tienda</a>
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+    {% for campo in form %}{% include 'partials/campo_form.html' with campo=campo %}{% endfor %}
+    <button type="submit" class="boton">Guardar</button>
+  </form>
+
+  <div class="tarjeta">
+    <h2>Datos para la transferencia</h2>
+    {% if medios_cobro %}
+      <ul>
+        {% for m in medios_cobro %}<li>{{ m.alias }}{% if m.titular %} · {{ m.titular }}{% endif %}{% if m.entidad %} · {{ m.entidad }}{% endif %}</li>{% endfor %}
+      </ul>
+    {% else %}
+      <p class="texto-suave">Si no cargás ningún medio, el alumno no sabe a dónde transferir.</p>
+    {% endif %}
+    <p><a href="{% url 'pagos:medios_listado' %}">Administrar medios de cobro</a></p>
+  </div>
+</div>
+{% endblock %}

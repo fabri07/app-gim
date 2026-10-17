@@ -1,0 +1,97 @@
+{% extends 'base.html' %}
+{% block title %}Pedido #{{ object.pk }} · App Gimnasios{% endblock %}
+
+{% block content %}
+<div>
+  <div class="acciones-lista">
+    <h1>Pedido #{{ object.pk }}</h1>
+    <span class="badge">{{ object.get_estado_display }}</span>
+    <a class="boton-secundario" href="{% url 'tienda:pedidos' %}">Volver a los pedidos</a>
+  </div>
+
+  <div class="tarjeta">
+    <p><strong>Alumno:</strong> {{ object.alumno }}</p>
+    <p><strong>Hecho el:</strong> {{ object.creado|date:"d/m/Y H:i" }}</p>
+    {% if object.reservado_hasta and object.estado == 'pendiente_pago' %}<p class="texto-suave">Reservado hasta el {{ object.reservado_hasta|date:"d/m/Y H:i" }}.</p>{% endif %}
+    {% if object.motivo %}<p><strong>{% if object.estado == 'pendiente_pago' %}Rechazado{% else %}Motivo{% endif %}:</strong> {{ object.motivo }}</p>{% endif %}
+    {% if object.comprobante %}
+      <p><a href="{{ object.comprobante.url }}" hx-boost="false" target="_blank" rel="noopener">{% if object.estado == 'pendiente_pago' %}Ver comprobante rechazado{% else %}Ver comprobante{% endif %}</a></p>
+    {% endif %}
+  </div>
+
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead><tr><th>Ítem</th><th>Precio</th><th>Cantidad</th><th>Subtotal</th></tr></thead>
+      <tbody>
+        {% for i in object.items.all %}
+          <tr>
+            <td>{{ i.nombre }}</td>
+            <td><span class="tabular-nums">$ {{ i.precio_unitario|floatformat:"2g" }}</span></td>
+            <td>{{ i.cantidad }}</td>
+            <td><span class="tabular-nums">$ {{ i.subtotal|floatformat:"2g" }}</span></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot><tr><th colspan="3">Total</th><th><span class="tabular-nums">$ {{ object.total|floatformat:"2g" }}</span></th></tr></tfoot>
+    </table>
+  </div>
+
+  {% if cancelacion_pendiente %}
+    <div class="tarjeta aviso-urgente">
+      <h2>Cancelación pedida</h2>
+      <p>El alumno pidió la cancelación el {{ object.cancelacion_pedida_en|date:"d/m/Y H:i" }}: si aceptás, devolvele la plata por el mismo medio.</p>
+      <form method="post" action="{% url 'tienda:pedido_accion' object.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="accion" value="aceptar_cancelacion">
+        <label for="motivo-aceptar">Motivo</label>
+        <input type="text" name="motivo" id="motivo-aceptar" maxlength="300">
+        <button type="submit" class="boton">Aceptar cancelación</button>
+      </form>
+      <form method="post" action="{% url 'tienda:pedido_accion' object.pk %}">
+        {% csrf_token %}
+        <input type="hidden" name="accion" value="rechazar_cancelacion">
+        <label for="motivo-rechazo">Motivo</label>
+        <input type="text" name="motivo" id="motivo-rechazo" maxlength="300">
+        <button type="submit" class="boton-secundario">Rechazar cancelación</button>
+      </form>
+    </div>
+  {% endif %}
+
+  {% if object.estado == 'pendiente_pago' or object.estado == 'en_revision' %}
+    <form method="post" action="{% url 'tienda:pedido_accion' object.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="pagado">
+      <button type="submit" class="boton">Marcar pagado</button>
+    </form>
+  {% endif %}
+
+  {% if object.estado == 'en_revision' %}
+    <form method="post" action="{% url 'tienda:pedido_accion' object.pk %}" class="tarjeta">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="rechazar">
+      {% include 'partials/campo_form.html' with campo=form_motivo.motivo %}
+      <p class="texto-suave">El pedido vuelve a esperar el pago con un plazo nuevo y el stock sigue reservado. Para cortar del todo, usá «Cancelar pedido».</p>
+      <button type="submit" class="boton-secundario">Rechazar comprobante (pedir otro)</button>
+    </form>
+  {% endif %}
+
+  {% if object.estado == 'pagado' %}
+    <form method="post" action="{% url 'tienda:pedido_accion' object.pk %}">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="entregar">
+      <button type="submit" class="boton">Entregar</button>
+    </form>
+  {% endif %}
+
+  {% if object.estado == 'pendiente_pago' or object.estado == 'en_revision' or object.estado == 'pagado' %}
+    <form method="post" action="{% url 'tienda:pedido_accion' object.pk %}" class="tarjeta">
+      {% csrf_token %}
+      <input type="hidden" name="accion" value="cancelar">
+      <label for="motivo-cancelar">Motivo</label>
+      <input type="text" name="motivo" id="motivo-cancelar" maxlength="300">
+      <p class="texto-suave">Devuelve el stock a la tienda.</p>
+      <button type="submit" class="boton-secundario">Cancelar pedido</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

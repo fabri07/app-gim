@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Pedidos de la tienda · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Pedidos de la tienda</h1>
+    <a class="boton-secundario" href="{% url 'tienda:productos' %}">Productos</a>
+    <a class="boton-secundario" href="{% url 'tienda:configuracion' %}">Configuración</a>
+  </div>
+
+  <nav class="acciones-lista" aria-label="Filtrar pedidos">
+    <a class="{% if filtro == 'revisar' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=revisar">A revisar ({{ contadores.a_revisar }})</a>
+    <a class="{% if filtro == 'entregar' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=entregar">Para entregar ({{ contadores.a_entregar }})</a>
+    <a class="{% if filtro == 'cancelaciones' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=cancelaciones">Cancelaciones ({{ contadores.cancelaciones }})</a>
+    <a class="{% if filtro == 'todos' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=todos">Todos</a>
+  </nav>
+
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
+        <tr><th>Pedido</th><th>Alumno</th><th>Ítems</th><th>Total</th><th>Estado</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for p in object_list %}
+          <tr>
+            <td>#{{ p.pk }}</td>
+            <td>{{ p.alumno }}</td>
+            <td>{% for i in p.items.all %}{{ i }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+            <td><span class="tabular-nums">$ {{ p.total|floatformat:"2g" }}</span></td>
+            <td><span class="badge">{{ p.get_estado_display }}</span></td>
+            <td><a href="{% url 'tienda:pedido_detalle' p.pk %}">Ver</a></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="texto-suave">No hay pedidos en esta vista.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+    <nav class="acciones-lista" aria-label="Paginación">
+      {% if page_obj.has_previous %}<a href="?filtro={{ filtro }}&amp;page={{ page_obj.previous_page_number }}">Anterior</a>{% endif %}
+      <span class="texto-suave">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}<a href="?filtro={{ filtro }}&amp;page={{ page_obj.next_page_number }}">Siguiente</a>{% endif %}
+    </nav>
+  {% endif %}
+</div>
+{% endblock %}

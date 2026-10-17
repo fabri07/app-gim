@@ -14,7 +14,7 @@ from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views import View
-from django.views.generic import CreateView, ListView, UpdateView
+from django.views.generic import CreateView, DetailView, ListView, UpdateView
 
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
@@ -23,10 +23,19 @@ from tienda import services
 from tienda.forms import (
     AjusteStockForm,
     CategoriaProductoForm,
+    ConfiguracionTiendaForm,
+    MotivoForm,
     ProductoForm,
     VarianteFormSet,
 )
-from tienda.models import CategoriaProducto, ItemPedido, Producto, Variante
+from tienda.models import (
+    CategoriaProducto,
+    ItemPedido,
+    Pedido,
+    Producto,
+    Variante,
+    obtener_configuracion,
+)
 
 
 class TiendaHabilitadaMixin:
@@ -205,6 +214,128 @@ class VarianteAjustarView(TiendaStaffMixin, View):
             except services.ErrorDeTienda as error:
                 messages.error(request, error.mensaje)
         return redirect("tienda:productos")
+
+
+FILTROS_PEDIDOS = {
+    "revisar": Q(estado=Pedido.Estado.EN_REVISION),
+    "entregar": Q(estado=Pedido.Estado.PAGADO),
+    "cancelaciones": services.Q_CANCELACION_PENDIENTE,
+    "todos": Q(),
+}
+
+
+class PedidoListView(TiendaStaffMixin, ListView):
+    requiere_add_on = False
+    model = Pedido
+    template_name = "tienda/pedido_list.html"
+    paginate_by = 50
+
+    def get(self, request, *args, **kwargs):
+        services.vencer_pedidos(gimnasio=self.gimnasio)
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        self.filtro = self.request.GET.get("filtro", "revisar")
+        if self.filtro not in FILTROS_PEDIDOS:
+            self.filtro = "revisar"
+        return (
+            super().get_queryset()
+            .filter(FILTROS_PEDIDOS[self.filtro])
+            .select_related("alumno")
+            .prefetch_related("items")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["filtro"] = self.filtro
+        context["contadores"] = services.contadores_panel(self.gimnasio)
+        return context
+
+
+class PedidoDetailView(TiendaStaffMixin, DetailView):
+    requiere_add_on = False
+    model = Pedido
+    template_name = "tienda/pedido_detalle.html"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("alumno").prefetch_related("items")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["form_motivo"] = MotivoForm()
+        pedido = self.object
+        context["cancelacion_pendiente"] = (
+            pedido.estado in (Pedido.Estado.PAGADO, Pedido.Estado.ENTREGADO)
+            and pedido.cancelacion_pedida_en is not None
+            and pedido.cancelacion_resuelta_en is None
+        )
+        return context
+
+
+class PedidoAccionView(TiendaStaffMixin, View):
+    requiere_add_on = False
+
+    def post(self, request, pk):
+        pedido = get_object_or_404(Pedido.objects.for_gimnasio(self.gimnasio), pk=pk)
+        form = MotivoForm(request.POST)
+        motivo = form.cleaned_data["motivo"] if form.is_valid() else request.POST.get("motivo", "")
+        accion = request.POST.get("accion")
+        avisos = {
+            "pagado": ("Pago confirmado. Avisamos al alumno que puede retirar.", "confirmado"),
+            "rechazar": (
+                "Comprobante rechazado: el alumno puede subir otro y el stock sigue reservado.",
+                "rechazado",
+            ),
+            "entregar": ("Pedido entregado.", None),
+            "cancelar": ("Pedido cancelado; el stock volvió a la tienda.", "cancelado"),
+            "aceptar_cancelacion": ("Cancelación aceptada.", "cancelacion_resuelta"),
+            "rechazar_cancelacion": ("Cancelación rechazada.", "cancelacion_resuelta"),
+        }
+        try:
+            if accion == "pagado":
+                services.marcar_pagado(pedido)
+            elif accion == "rechazar":
+                services.rechazar_comprobante(pedido, motivo=motivo)
+            elif accion == "entregar":
+                services.entregar(pedido)
+            elif accion == "cancelar":
+                services.cancelar_por_staff(pedido, motivo=motivo)
+            elif accion == "aceptar_cancelacion":
+                services.resolver_cancelacion(pedido, aceptar=True, motivo=motivo)
+            elif accion == "rechazar_cancelacion":
+                services.resolver_cancelacion(pedido, aceptar=False, motivo=motivo)
+            else:
+                raise services.ErrorDeTienda("estado_invalido")
+        except services.ErrorDeTienda as error:
+            messages.error(request, error.mensaje)
+        else:
+            texto, aviso = avisos[accion]
+            messages.success(request, texto)
+            if aviso:
+                from notificaciones import services as avisos_push
+
+                transaction.on_commit(lambda: avisos_push.notificar_pedido_al_alumno(pedido, aviso))
+        return redirect("tienda:pedido_detalle", pk=pedido.pk)
+
+
+class ConfiguracionView(TiendaStaffMixin, UpdateView):
+    form_class = ConfiguracionTiendaForm
+    template_name = "tienda/configuracion_form.html"
+    success_url = reverse_lazy("tienda:configuracion")
+
+    def get_object(self, queryset=None):
+        return obtener_configuracion(self.gimnasio)
+
+    def get_context_data(self, **kwargs):
+        from pagos.models import MedioCobro
+
+        context = super().get_context_data(**kwargs)
+        context["medios_cobro"] = MedioCobro.objects.for_gimnasio(self.gimnasio).filter(activo=True)
+        return context
+
+    def form_valid(self, form):
+        messages.success(self.request, "Configuración guardada.")
+        return super().form_valid(form)
 
 
 class FotoProductoView(View):

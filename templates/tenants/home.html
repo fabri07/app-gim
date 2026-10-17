@@ -70,6 +70,17 @@
     </div>
   {% endif %}
 
+  {% if tienda_contadores %}
+    <div class="tarjeta aviso-urgente">
+      <h2>Pedidos de la tienda</h2>
+      <ul>
+        {% if tienda_contadores.a_revisar %}<li><a href="{% url 'tienda:pedidos' %}?filtro=revisar">{{ tienda_contadores.a_revisar }} comprobante{{ tienda_contadores.a_revisar|pluralize }} para revisar</a></li>{% endif %}
+        {% if tienda_contadores.a_entregar %}<li><a href="{% url 'tienda:pedidos' %}?filtro=entregar">{{ tienda_contadores.a_entregar }} pedido{{ tienda_contadores.a_entregar|pluralize }} para entregar</a></li>{% endif %}
+        {% if tienda_contadores.cancelaciones %}<li><a href="{% url 'tienda:pedidos' %}?filtro=cancelaciones">{{ tienda_contadores.cancelaciones }} pedido{{ tienda_contadores.cancelaciones|pluralize }} de cancelación</a></li>{% endif %}
+      </ul>
+    </div>
+  {% endif %}
+
   <div class="dashboard-grid">
     <div class="metrica">
       <span class="metrica__valor">{{ alumnos_activos_count }}</span>

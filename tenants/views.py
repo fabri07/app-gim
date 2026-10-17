@@ -38,6 +38,17 @@ from tenants.models import Gimnasio, Perfil, doodle_static_url
 logger = logging.getLogger(__name__)
 
 
+def _contadores_tienda(gimnasio):
+    from tienda.services import contadores_panel
+
+    contadores = contadores_panel(gimnasio)
+    if not gimnasio.puede_usar_tienda and not contadores["vivos"]:
+        return None
+    if not (contadores["a_revisar"] or contadores["a_entregar"] or contadores["cancelaciones"]):
+        return None
+    return contadores
+
+
 class HomeView(LoginRequiredMixin, TemplateView):
     """Página de inicio tras login.
 
@@ -232,6 +243,9 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "alumnos_activos_sin_inicio_count": Alumno.objects.for_gimnasio(gimnasio)
             .filter(estado=Alumno.Estado.ACTIVO, fecha_inicio_ciclo__isnull=True)
             .count(),
+            # Tienda (add-on): una sola query agregada. Con el add-on apagado
+            # pero pedidos vivos, la tarjeta sigue: el staff tiene que cerrarlos.
+            "tienda_contadores": _contadores_tienda(gimnasio),
             "cuotas_vigentes": Cuota.objects.for_gimnasio(gimnasio)
             .filter(periodo_inicio__lte=hoy, periodo_fin__gte=hoy)
             .exclude(estado=Cuota.Estado.ANULADO)

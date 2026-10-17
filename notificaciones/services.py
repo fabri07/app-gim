@@ -337,3 +337,8 @@ def notificar_turno_proximo(reserva) -> None:
         "icon": _icono_url(reserva.gimnasio),
     }
     notificar_a_usuario(usuario, payload)
+
+
+def notificar_pedido_al_alumno(pedido, aviso) -> None:
+    """Completada en la Tarea 8 del plan de la tienda."""
+    return None
