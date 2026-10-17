@@ -13,7 +13,7 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: código de Fases 0-6 completo en `main` y desplegado.** La app
+**Fase actual: código de Fases 0-6 completo en `main` y desplegado** (en la rama `worktree-tienda` está además la tienda, Hito 1: venta con transferencia, sin mergear todavía; ver `ARQUITECTURA.md` «Tienda del gimnasio»). La app
 vive en `https://www.tugimapp.com` (Render, free tier, dominio propio desde
 el 2026-08-19) y el bucket de
 Cloudflare R2 (`app-gim-media`) ya está creado y en uso — los pasos manuales
@@ -49,12 +49,13 @@ ya actualizados.
 2. La app es la fuente de verdad; nada de sync en vivo con Excel.
 3. Pagos simples: sin Mercado Pago ni integraciones financieras en el MVP.
    Los pendientes del mes se autogeneran por cron; el dueño confirma.
-   **Matiz desde el 2026-09-29 y el 2026-10-17:** Mercado Pago entró para que
-   el gimnasio le pague la suscripción a la plataforma (`suscripcion/`, ver
-   "Cobro online de la suscripción") y, desde el Hito 2 de la tienda, para que
-   el alumno le pague al gimnasio **sólo en la tienda** (`tienda/`, a la cuenta
-   MP del propio gimnasio). El cobro de cuotas (`pagos`) sigue sin MP: el
-   staff confirma. No leas esa entrada como una puerta abierta para las cuotas.
+   **Matiz desde el 2026-09-29:** Mercado Pago entró para que el gimnasio le
+   pague la suscripción a la plataforma (`suscripcion/`, ver "Cobro online de
+   la suscripción"). Para la tienda (`tienda/`) está **planeado** (Hito 2, a la
+   cuenta MP del propio gimnasio, sólo para ventas de la tienda) pero **no
+   está construido**: el Hito 1 cobra sólo por transferencia. El cobro de
+   cuotas (`pagos`) sigue sin MP: el staff confirma. No leas esa entrada como
+   una puerta abierta para las cuotas.
 4. Aislamiento por gimnasio desde el modelo de datos: ningún registro
    operativo existe sin `gimnasio`.
 5. Archivos de usuario (comprobantes, logos) van a Cloudflare R2, nunca al

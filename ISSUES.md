@@ -3125,3 +3125,7 @@ divergencia dev/prod ya anotada para `select_for_update()` (no-op en SQLite).
 
 Tests: `ImportacionBibliotecaLargosTests` (chequea el guard directo, no el
 error de la base — en SQLite ese error no existe).
+
+## [2026-10-17] Tienda: fotos y comprobantes reemplazados o borrados quedan huérfanos en R2
+
+Al reemplazar o borrar la foto de un producto, o borrar un pedido, el archivo anterior queda en R2 (igual que otros uploads de la plataforma). Aceptado: el costo de almacenamiento es despreciable y limpiar exige un barrido que hoy no existe.
