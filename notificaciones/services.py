@@ -359,6 +359,10 @@ _AVISOS_ALUMNO = {
         "Comprobante rechazado",
         "El gimnasio rechazó el comprobante del pedido #{pk}. Subí otro antes del {plazo}.",
     ),
+    "rechazado_sin_plazo": (
+        "Comprobante rechazado",
+        "El gimnasio rechazó el comprobante del pedido #{pk}. Subí otro desde tu pedido.",
+    ),
     "cancelado": ("Pedido cancelado", "El gimnasio canceló tu pedido #{pk}."),
     "vencido": (
         "Pedido vencido",
@@ -421,6 +425,8 @@ def notificar_pedido_al_alumno(pedido, aviso) -> None:
             if pedido.estado == pedido.Estado.DEVUELTO
             else "cancelacion_rechazada"
         )
+    if aviso == "rechazado" and not pedido.reservado_hasta:
+        aviso = "rechazado_sin_plazo"
     titulo, cuerpo = _AVISOS_ALUMNO[aviso]
     # `plazo` sólo lo usa «rechazado» (el plazo nuevo para subir otro); los
     # demás textos lo ignoran. Hora argentina, no UTC.

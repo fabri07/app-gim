@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
 from io import StringIO
 from unittest.mock import patch
@@ -49,6 +49,7 @@ class VencerPedidosComandoTests(TestCase):
             estado=Pedido.Estado.VENCIDO, modificado=timezone.now()
         )
         call_command("vencer_pedidos", stdout=StringIO())
+        push.assert_not_called()
         self.assertFalse(RecordatorioEnviado.objects.filter(
             tipo=RecordatorioEnviado.Tipo.PEDIDO_VENCIDO, objeto_id=p.pk).exists())
 
@@ -89,7 +90,7 @@ class AvisosAlAlumnoTests(TestCase):
         usuario = User.objects.create_user("alu", password="c-123456")
         perfil = Perfil.objects.create(usuario=usuario, gimnasio=gimnasio, rol=Perfil.Rol.ALUMNO)
         alumno = Alumno.objects.create(gimnasio=gimnasio, nombre="Ana", apellido="G", perfil=perfil)
-        plazo = timezone.make_aware(datetime(2026, 10, 21, 22, 30))  # 22/10 01:30 UTC
+        plazo = datetime(2026, 10, 22, 1, 30, tzinfo=dt_timezone.utc)  # 21/10 22:30 en Argentina
         pedido = Pedido.objects.create(gimnasio=gimnasio, alumno=alumno, total=1, reservado_hasta=plazo)
         notificar_pedido_al_alumno(pedido, "rechazado")
         self.assertIn("21/10 22:30", push.call_args.args[1]["body"])
@@ -121,3 +122,19 @@ class AvisosCancelacionResueltaTests(TestCase):
         self.assertIn("aceptó", aceptada)
         self.assertIn("no aceptó", rechazada)
         self.assertNotEqual(aceptada, rechazada)
+
+
+class RechazadoSinPlazoTests(TestCase):
+    @patch("notificaciones.services.notificar_a_usuario")
+    def test_sin_plazo_no_queda_un_antes_del_vacio(self, push):
+        from notificaciones.services import notificar_pedido_al_alumno
+
+        gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
+        usuario = User.objects.create_user("alu", password="c-123456")
+        perfil = Perfil.objects.create(usuario=usuario, gimnasio=gimnasio, rol=Perfil.Rol.ALUMNO)
+        alumno = Alumno.objects.create(gimnasio=gimnasio, nombre="Ana", apellido="G", perfil=perfil)
+        pedido = Pedido.objects.create(gimnasio=gimnasio, alumno=alumno, total=1)
+        notificar_pedido_al_alumno(pedido, "rechazado")
+        body = push.call_args.args[1]["body"]
+        self.assertNotIn("antes del", body)
+        self.assertIn("Subí otro", body)
