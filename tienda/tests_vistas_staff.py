@@ -411,7 +411,8 @@ class VentasEnPantallasTests(_BaseStaff):
         self.assertContains(r, "Ventas de la tienda")
         self.assertContains(r, 'id="ventas-tienda-data"')
 
-    def test_sin_tienda_ni_tarjeta_ni_queries(self):
+    def test_sin_tienda_no_calcula_la_tarjeta_de_ventas(self):
+        """Prueba sólo que `panel_de_ventas` no se llama (el contador de alertas sí corre)."""
         Gimnasio.objects.filter(pk=self.gimnasio.pk).update(tienda_habilitada=False)
         with patch("tienda.analitica.panel_de_ventas", side_effect=AssertionError("no se llama sin tienda")):
             r = self.client.get(reverse("home"))

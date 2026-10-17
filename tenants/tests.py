@@ -4718,6 +4718,9 @@ class RestaurarDemoTests(TestCase):
         productos = Producto.objects.for_gimnasio(self.demo)
         self.assertFalse(productos.filter(nombre="Producto del prospecto").exists())
         self.assertTrue(productos.filter(nombre="Proteína whey 1 kg").exists())
+        from tienda.models import Pedido
+
+        self.assertTrue(Pedido.objects.for_gimnasio(self.demo).exists())
 
     def test_devuelve_la_estetica_de_fabrica(self):
         """El prospecto también toca «Mi gimnasio»: le cambia el nombre, le

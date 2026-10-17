@@ -253,5 +253,5 @@ producto (ver "Control de ingreso"). El modo kiosco de esa feature sigue sin con
 
 Mercado Pago salió de esta lista el 2026-09-29, **acotado**: sólo para el cobro
 de la suscripción de la plataforma al gimnasio (ver "Cobro online de la
-suscripción") y la tienda (`tienda/`). Para el cobro del gimnasio a sus
+suscripción") y la tienda (`tienda/`; el MP de la tienda es el Hito 2 y todavía no está construido). Para el cobro del gimnasio a sus
 alumnos (`pagos`) sigue acá, igual que el débito automático en los dos casos.

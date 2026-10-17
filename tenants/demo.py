@@ -514,7 +514,11 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
 def _sembrar_tienda(gimnasio, alumnos):
     """Productos y pedidos de muestra para que el prospecto vea la tienda con
     vida. Sólo en la demo (en un gimnasio real `--confirmar` publicaría
-    productos inventados) y sin fotos (el workflow de restaurar no tiene R2)."""
+    productos inventados) y sin fotos (el workflow de restaurar no tiene R2).
+
+    Ojo: `sembrar_demo --borrar` y re-sembrar deriva el stock (`borrar_demo`
+    borra los pedidos sin devolver lo reservado y los productos sobreviven);
+    `restaurar_demo`, el camino normal, vacía todo y no se ve afectado."""
     from django.db.models import F
 
     from tienda.models import (
