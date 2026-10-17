@@ -141,8 +141,13 @@ class ComprobanteForm(forms.Form):
         if archivo.size > TAMANIO_MAXIMO_COMPROBANTE:
             raise forms.ValidationError("El archivo pesa más de 5 MB.")
         try:
-            _Image.open(archivo).verify()
+            imagen = _Image.open(archivo)
+            formato = imagen.format
+            imagen.verify()
         except Exception:
             raise forms.ValidationError("El archivo no es una imagen válida.")
+        # Un GIF/WebP renombrado .png pasa `verify()`: el formato real manda.
+        if formato not in ("JPEG", "PNG"):
+            raise forms.ValidationError("Subí una imagen JPG o PNG.")
         archivo.seek(0)
         return archivo

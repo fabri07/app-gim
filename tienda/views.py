@@ -538,6 +538,10 @@ class MiPedidoComprobanteView(_AccionSobreMiPedido):
                 messages.error(request, error)
             return redirect("tienda:mi_pedido", pk=pk)
         try:
+            if pedido.estado == Pedido.Estado.VENCIDO:
+                # `_cartel` ya venció lo atrasado: subir tarde siempre lo
+                # encuentra VENCIDO, y eso es un plazo vencido, no «cambió».
+                raise services.ErrorDeTienda("plazo_vencido")
             services.subir_comprobante(pedido, alumno=self.alumno, archivo=form.cleaned_data["comprobante"])
         except services.ErrorDeTienda as error:
             messages.error(request, error.mensaje)

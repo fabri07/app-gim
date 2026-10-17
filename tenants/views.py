@@ -176,7 +176,11 @@ class HomeView(LoginRequiredMixin, TemplateView):
         bloqueo = acceso.bloqueo_de(alumno, hoy=hoy)
 
         from tienda.models import ESTADOS_QUE_RETIENEN, Pedido
-        from tienda.services import tienda_visible_para_alumnos
+        from tienda.services import (
+            Q_CANCELACION_PENDIENTE,
+            q_puede_pedir_cancelacion,
+            tienda_visible_para_alumnos,
+        )
 
         tienda_visible = tienda_visible_para_alumnos(perfil.gimnasio)
         # Con la tienda apagada, el alumno con pedidos sin cerrar igual tiene
@@ -185,7 +189,14 @@ class HomeView(LoginRequiredMixin, TemplateView):
             False
             if tienda_visible
             else Pedido.objects.for_gimnasio(perfil.gimnasio)
-            .filter(alumno=alumno, estado__in=ESTADOS_QUE_RETIENEN)
+            .filter(
+                Q(alumno=alumno)
+                & (
+                    Q(estado__in=ESTADOS_QUE_RETIENEN)
+                    | q_puede_pedir_cancelacion()
+                    | Q_CANCELACION_PENDIENTE
+                )
+            )
             .exists()
         )
 

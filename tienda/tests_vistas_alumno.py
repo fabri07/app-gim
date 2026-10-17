@@ -113,6 +113,43 @@ class ComprobanteVistaTests(_BaseAlumno):
         self.pedido.refresh_from_db()
         self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
 
+    def test_subir_tarde_dice_que_el_plazo_vencio_y_libera_el_stock(self):
+        from django.core.files.storage import default_storage
+
+        Pedido.objects.filter(pk=self.pedido.pk).update(
+            reservado_hasta=timezone.now() - timedelta(days=1)
+        )
+        antes = set(default_storage.listdir("tienda/comprobantes/")[1]) if default_storage.exists("tienda/comprobantes/") else set()
+        r = self.client.post(
+            reverse("tienda:mi_pedido_comprobante", args=[self.pedido.pk]),
+            {"comprobante": SimpleUploadedFile("c.png", PNG, content_type="image/png")},
+            follow=True,
+        )
+        self.assertContains(r, "venció")
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.VENCIDO)
+        self.assertFalse(self.pedido.comprobante)
+        self.variante.refresh_from_db()
+        self.assertEqual(self.variante.stock, 2)  # liberado una sola vez
+        despues = set(default_storage.listdir("tienda/comprobantes/")[1]) if default_storage.exists("tienda/comprobantes/") else set()
+        self.assertEqual(antes, despues)
+
+    def test_un_gif_renombrado_png_se_rechaza(self):
+        from io import BytesIO
+
+        from PIL import Image
+
+        salida = BytesIO()
+        Image.new("RGB", (1, 1)).save(salida, "GIF")
+        r = self.client.post(
+            reverse("tienda:mi_pedido_comprobante", args=[self.pedido.pk]),
+            {"comprobante": SimpleUploadedFile("c.png", salida.getvalue(), content_type="image/png")},
+            follow=True,
+        )
+        self.assertContains(r, "JPG o PNG")
+        self.pedido.refresh_from_db()
+        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+
     def test_pedido_de_otro_alumno_404(self):
         otro = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Eva", apellido="R")
         ajeno = services.crear_pedido(gimnasio=self.gimnasio, alumno=otro,
@@ -206,6 +243,18 @@ class TiendaApagadaAlumnoTests(_BaseAlumno):
         r = self.client.get(reverse("home"))
         self.assertNotContains(r, catalogo)
         self.assertNotContains(r, reverse("tienda:mis_pedidos"))
+
+    def test_apagada_queda_el_link_con_un_entregado_dentro_del_plazo_de_arrepentimiento(self):
+        pedido = services.crear_pedido(gimnasio=self.gimnasio, alumno=self.alumno,
+                                       carrito={self.variante.pk: 1}, suplantando=False)
+        services.marcar_pagado(pedido)
+        Pedido.objects.filter(pk=pedido.pk).update(
+            estado=Pedido.Estado.ENTREGADO, entregado_en=timezone.now() - timedelta(days=2)
+        )
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(tienda_habilitada=False)
+        self.assertContains(self.client.get(reverse("home")), reverse("tienda:mis_pedidos"))
+        Pedido.objects.filter(pk=pedido.pk).update(entregado_en=timezone.now() - timedelta(days=30))
+        self.assertNotContains(self.client.get(reverse("home")), reverse("tienda:mis_pedidos"))
 
     def test_con_la_tienda_apagada_queda_el_link_a_mis_pedidos_si_hay_pedidos_vivos(self):
         services.crear_pedido(gimnasio=self.gimnasio, alumno=self.alumno,
