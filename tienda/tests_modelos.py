@@ -181,3 +181,39 @@ class TiendaNoSeAutohabilitaTests(TestCase):
 
         gimnasio.refresh_from_db()
         self.assertFalse(gimnasio.tienda_habilitada)
+
+
+class MigracionDeLaFotoUnicaTests(_Base):
+    """`tienda/0002` copia `Producto.foto` (columna que queda muerta, sin
+    vaciar) a la galería como la foto principal. Se llama a la función de la
+    migración con los modelos reales (molde: `rutinas/tests.py`, la de
+    `0011_cerrar_rutinas_activas_duplicadas`)."""
+
+    def _correr(self):
+        from importlib import import_module
+
+        from tienda.models import FotoProducto
+
+        # `import_module`: el módulo arranca con un dígito.
+        migracion = import_module("tienda.migrations.0002_fotoproducto")
+        modelos = {"Producto": Producto, "FotoProducto": FotoProducto}
+
+        class AppsFalso:
+            def get_model(self, app, modelo):
+                return modelos[modelo]
+
+        migracion.copiar_foto_a_la_galeria(AppsFalso(), None)
+
+    def test_copia_la_foto_como_principal_sin_vaciar_la_columna(self):
+        Producto.objects.filter(pk=self.producto.pk).update(foto="tienda/productos/abc123.jpg")
+        sin_foto = Producto.objects.create(gimnasio=self.otro, nombre="Remera", precio=Decimal("1"))
+
+        self._correr()
+
+        self.producto.refresh_from_db()
+        foto = self.producto.foto_principal
+        self.assertEqual(foto.imagen.name, "tienda/productos/abc123.jpg")
+        self.assertEqual(foto.posicion, 0)
+        self.assertEqual(self.producto.fotos.count(), 1)
+        self.assertEqual(self.producto.foto.name, "tienda/productos/abc123.jpg")
+        self.assertFalse(sin_foto.fotos.exists())

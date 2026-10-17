@@ -29,5 +29,9 @@ urlpatterns = [
     path("mis-pedidos/<int:pk>/cancelar/", views.MiPedidoCancelarView.as_view(), name="mi_pedido_cancelar"),
     path("mis-pedidos/<int:pk>/pedir-cancelacion/", views.MiPedidoPedirCancelacionView.as_view(), name="mi_pedido_pedir_cancelacion"),
     # Foto pública (nombre único: `URLS_SIN_BLOQUEO` compara sin namespace)
-    path("productos/<int:pk>/foto/", views.FotoProductoView.as_view(), name="tienda_foto_producto"),
+    path(
+        "productos/<int:pk>/fotos/<int:foto_pk>/",
+        views.FotoProductoView.as_view(),
+        name="tienda_foto_producto",
+    ),
 ]

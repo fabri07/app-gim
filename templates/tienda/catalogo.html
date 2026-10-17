@@ -15,7 +15,7 @@
   <h2>{{ nombre }}</h2>
   {% for p in productos %}
     <div class="tarjeta">
-      {% if p.foto %}<img src="{{ p.foto_url_cacheable }}" alt="" width="160" height="160" loading="lazy">{% endif %}
+      {% with f=p.foto_principal %}{% if f %}<img src="{{ f.url_cacheable }}" alt="" width="160" height="160" loading="lazy">{% endif %}{% endwith %}
       <h3>{{ p.nombre }}</h3>
       <p><strong>$ {{ p.precio|floatformat:"2g" }}</strong></p>
       {% if p.descripcion %}<p class="texto-suave">{{ p.descripcion }}</p>{% endif %}

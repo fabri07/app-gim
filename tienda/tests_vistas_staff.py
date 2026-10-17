@@ -11,7 +11,7 @@ from PIL import Image
 from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
 from tienda import services
-from tienda.models import CategoriaProducto, Pedido, Producto, Variante
+from tienda.models import CategoriaProducto, FotoProducto, Pedido, Producto, Variante
 
 
 def jpeg(ancho=1600, alto=1200):
@@ -52,7 +52,7 @@ def datos_producto(**extra):
 class ProductoFormTests(_BaseStaff):
     def test_crear_con_variantes_y_foto_reescalada(self):
         datos = datos_producto()
-        datos["foto"] = jpeg()
+        datos["fotos_nuevas"] = jpeg()
         r = self.client.post(reverse("tienda:producto_crear"), datos)
         self.assertRedirects(r, reverse("tienda:productos"))
         producto = Producto.objects.get(gimnasio=self.gimnasio, nombre="Proteína")
@@ -60,8 +60,11 @@ class ProductoFormTests(_BaseStaff):
             sorted(producto.variantes.values_list("nombre", "stock")),
             [("Chocolate", 4), ("Vainilla", 2)],
         )
-        with producto.foto.open("rb") as f:
+        foto = producto.foto_principal
+        with foto.imagen.open("rb") as f:
             self.assertLessEqual(max(Image.open(f).size), 1200)
+        # La columna vieja queda muerta: el form nuevo no la escribe.
+        self.assertFalse(producto.foto)
 
     def test_sin_ninguna_variante_es_error_visible(self):
         datos = datos_producto(**{"variantes-0-nombre": "", "variantes-0-stock_inicial": "",
@@ -188,11 +191,16 @@ class BorrarProductoTests(_BaseStaff):
 
 
 class FotoTests(_BaseStaff):
+    def crear_foto(self, producto, posicion=0):
+        foto = FotoProducto(producto=producto, posicion=posicion)
+        foto.imagen.save("f.jpg", jpeg(400, 400))
+        return foto
+
     def test_sirve_la_foto_cacheable_sin_cookie(self):
         producto, _ = self.crear_producto()
-        producto.foto.save("f.jpg", jpeg(400, 400))
+        foto = self.crear_foto(producto)
         self.client.logout()
-        r = self.client.get(producto.foto_url_cacheable)
+        r = self.client.get(foto.url_cacheable)
         self.assertEqual(r.status_code, 200)
         self.assertIn("immutable", r["Cache-Control"])
         self.assertNotIn("sessionid", r.cookies)
@@ -204,16 +212,219 @@ class FotoTests(_BaseStaff):
         from plataforma.models import ActividadDiaria
 
         producto, _ = self.crear_producto()
-        producto.foto.save("f.jpg", jpeg(400, 400))
-        r = self.client.get(producto.foto_url_cacheable)
+        foto = self.crear_foto(producto)
+        r = self.client.get(foto.url_cacheable)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(list(r.cookies.keys()), [])
         self.assertFalse(ActividadDiaria.objects.exists())
 
     def test_gimnasio_sin_tienda_404(self):
         producto, _ = self.crear_producto(gimnasio=Gimnasio.objects.create(nombre="C", slug="c"))
-        producto.foto.save("f.jpg", jpeg(400, 400))
-        self.assertEqual(self.client.get(producto.foto_url_cacheable).status_code, 404)
+        foto = self.crear_foto(producto)
+        self.assertEqual(self.client.get(foto.url_cacheable).status_code, 404)
+
+    def test_url_versionada_con_el_nombre_del_archivo(self):
+        producto, _ = self.crear_producto()
+        foto = self.crear_foto(producto)
+        nombre = foto.imagen.name.rsplit("/", 1)[-1]
+        self.assertEqual(
+            foto.url_cacheable,
+            reverse("tienda:tienda_foto_producto", args=[producto.pk, foto.pk]) + f"?v={nombre}",
+        )
+
+    def test_foto_de_otro_producto_404(self):
+        producto, _ = self.crear_producto()
+        otro_producto, _ = self.crear_producto()
+        foto = self.crear_foto(otro_producto)
+        url = reverse("tienda:tienda_foto_producto", args=[producto.pk, foto.pk])
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_foto_de_otro_gimnasio_404(self):
+        producto, _ = self.crear_producto()
+        ajeno, _ = self.crear_producto(gimnasio=self.otro)
+        foto = self.crear_foto(ajeno)
+        url = reverse("tienda:tienda_foto_producto", args=[producto.pk, foto.pk])
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+
+class GaleriaDeFotosTests(_BaseStaff):
+    """Hasta `MAX_FOTOS_POR_PRODUCTO` fotos por producto, cargadas desde el
+    mismo `ProductoForm` (sin un segundo formset)."""
+
+    def crear_con_fotos(self, cantidad):
+        producto, variante = self.crear_producto()
+        fotos = []
+        for i in range(cantidad):
+            foto = FotoProducto(producto=producto, posicion=i)
+            foto.imagen.save(f"f{i}.jpg", jpeg(400, 400))
+            fotos.append(foto)
+        return producto, variante, fotos
+
+    def datos_edicion(self, variante, **extra):
+        datos = {
+            "nombre": "Remera", "descripcion": "", "precio": "15000", "publicado": "on",
+            "orden": "0", "categoria": "",
+            "variantes-TOTAL_FORMS": "1", "variantes-INITIAL_FORMS": "1",
+            "variantes-MIN_NUM_FORMS": "1", "variantes-MAX_NUM_FORMS": "50",
+            "variantes-0-id": str(variante.pk), "variantes-0-nombre": "M",
+            "variantes-0-activa": "on",
+        }
+        datos.update(extra)
+        return datos
+
+    def editar(self, producto, datos):
+        return self.client.post(reverse("tienda:producto_editar", args=[producto.pk]), datos)
+
+    def test_subir_tres_de_una_vez(self):
+        r = self.client.post(
+            reverse("tienda:producto_crear"),
+            datos_producto(fotos_nuevas=[jpeg(), jpeg(), jpeg()]),
+        )
+        self.assertRedirects(r, reverse("tienda:productos"))
+        producto = Producto.objects.get(gimnasio=self.gimnasio, nombre="Proteína")
+        self.assertEqual(list(producto.fotos.values_list("posicion", flat=True)), [0, 1, 2])
+        self.assertEqual(producto.foto_principal, producto.fotos.first())
+
+    def test_seis_fotos_es_error_visible_y_no_guarda(self):
+        r = self.client.post(
+            reverse("tienda:producto_crear"),
+            datos_producto(fotos_nuevas=[jpeg(400, 400) for _ in range(6)]),
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Máximo 5 fotos por producto")
+        self.assertFalse(Producto.objects.filter(nombre="Proteína").exists())
+        self.assertFalse(FotoProducto.objects.exists())
+
+    def test_las_que_ya_tiene_cuentan_para_el_maximo(self):
+        producto, variante, fotos = self.crear_con_fotos(4)
+        r = self.editar(producto, self.datos_edicion(
+            variante, principal=str(fotos[0].pk), fotos_nuevas=[jpeg(400, 400), jpeg(400, 400)],
+        ))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Máximo 5 fotos por producto")
+        self.assertEqual(producto.fotos.count(), 4)
+        # Borrando una, entran las dos.
+        r = self.editar(producto, self.datos_edicion(
+            variante, principal=str(fotos[0].pk), borrar_fotos=[str(fotos[3].pk)],
+            fotos_nuevas=[jpeg(400, 400), jpeg(400, 400)],
+        ))
+        self.assertRedirects(r, reverse("tienda:productos"))
+        self.assertEqual(producto.fotos.count(), 5)
+
+    def test_nuevas_van_al_final(self):
+        producto, variante, fotos = self.crear_con_fotos(2)
+        self.editar(producto, self.datos_edicion(
+            variante, principal=str(fotos[0].pk), fotos_nuevas=[jpeg(400, 400)],
+        ))
+        nueva = producto.fotos.exclude(pk__in=[f.pk for f in fotos]).get()
+        self.assertEqual(list(producto.fotos.all()), [fotos[0], fotos[1], nueva])
+
+    def test_borrar_quita_la_fila_y_deja_el_archivo(self):
+        from django.core.files.storage import default_storage
+
+        producto, variante, fotos = self.crear_con_fotos(2)
+        nombre = fotos[1].imagen.name
+        r = self.editar(producto, self.datos_edicion(
+            variante, principal=str(fotos[0].pk), borrar_fotos=[str(fotos[1].pk)],
+        ))
+        self.assertRedirects(r, reverse("tienda:productos"))
+        self.assertEqual(list(producto.fotos.all()), [fotos[0]])
+        self.assertTrue(default_storage.exists(nombre))
+
+    def test_cambiar_la_principal_la_pone_primera_aunque_otra_este_en_cero(self):
+        producto, variante, fotos = self.crear_con_fotos(3)
+        r = self.editar(producto, self.datos_edicion(variante, principal=str(fotos[2].pk)))
+        self.assertRedirects(r, reverse("tienda:productos"))
+        self.assertEqual(producto.foto_principal, fotos[2])
+        self.assertEqual(
+            list(producto.fotos.values_list("pk", "posicion")),
+            [(fotos[2].pk, 0), (fotos[0].pk, 1), (fotos[1].pk, 2)],
+        )
+
+    def test_principal_marcada_para_borrar_es_error_visible(self):
+        producto, variante, fotos = self.crear_con_fotos(2)
+        r = self.editar(producto, self.datos_edicion(
+            variante, principal=str(fotos[0].pk), borrar_fotos=[str(fotos[0].pk)],
+        ))
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "La foto principal no se puede borrar")
+        self.assertEqual(producto.fotos.count(), 2)
+
+    def test_foto_de_otro_producto_no_es_opcion_valida(self):
+        producto, variante, fotos = self.crear_con_fotos(1)
+        otro, _, ajenas = self.crear_con_fotos(1)
+        r = self.editar(producto, self.datos_edicion(variante, borrar_fotos=[str(ajenas[0].pk)]))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("borrar_fotos", r.context["form"].errors)
+        self.assertTrue(FotoProducto.objects.filter(pk=ajenas[0].pk).exists())
+        r = self.editar(producto, self.datos_edicion(variante, principal=str(ajenas[0].pk)))
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("principal", r.context["form"].errors)
+        self.assertEqual(otro.foto_principal, ajenas[0])
+        self.assertEqual(producto.foto_principal, fotos[0])
+
+    def test_archivo_que_no_es_imagen_dice_cual_es(self):
+        roto = SimpleUploadedFile("roto.jpg", b"no soy una imagen", content_type="image/jpeg")
+        r = self.client.post(
+            reverse("tienda:producto_crear"), datos_producto(fotos_nuevas=[jpeg(), roto]),
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "roto.jpg")
+        self.assertFalse(Producto.objects.filter(nombre="Proteína").exists())
+
+    def test_cartel_si_otro_campo_rechaza_con_fotos_elegidas(self):
+        r = self.client.post(
+            reverse("tienda:producto_crear"), datos_producto(nombre="", fotos_nuevas=[jpeg()]),
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Las fotos no se guardaron: volvé a elegirlas")
+
+    def test_cartel_si_fallan_las_variantes_con_el_form_valido(self):
+        r = self.client.post(
+            reverse("tienda:producto_crear"),
+            datos_producto(fotos_nuevas=[jpeg()], **{"variantes-1-nombre": "Chocolate"}),
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "mismo nombre")
+        self.assertContains(r, "Las fotos no se guardaron: volvé a elegirlas")
+        self.assertFalse(FotoProducto.objects.exists())
+
+    def test_sin_fotos_elegidas_no_hay_cartel(self):
+        r = self.client.post(reverse("tienda:producto_crear"), datos_producto(nombre=""))
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, "Las fotos no se guardaron")
+
+    def test_el_form_no_va_por_boost_y_sube_varias(self):
+        r = self.client.get(reverse("tienda:producto_crear"))
+        self.assertContains(r, 'enctype="multipart/form-data"')
+        self.assertContains(r, 'hx-boost="false"')
+        self.assertRegex(r.content.decode(), r'<input[^>]*name="fotos_nuevas"[^>]*multiple')
+
+    def test_editar_muestra_las_fotos_con_la_principal_marcada(self):
+        producto, _, fotos = self.crear_con_fotos(2)
+        r = self.client.get(reverse("tienda:producto_editar", args=[producto.pk]))
+        self.assertContains(r, fotos[0].url_cacheable)
+        self.assertContains(r, fotos[1].url_cacheable)
+        html = r.content.decode()
+        self.assertRegex(html, rf'<input[^>]*name="principal"[^>]*value="{fotos[0].pk}"[^>]*checked')
+        self.assertNotRegex(html, rf'<input[^>]*name="principal"[^>]*value="{fotos[1].pk}"[^>]*checked')
+
+    def test_producto_creado_por_el_form_muestra_su_foto_en_la_lista_y_el_catalogo(self):
+        from tienda.models import obtener_configuracion
+
+        self.client.post(reverse("tienda:producto_crear"), datos_producto(fotos_nuevas=[jpeg()]))
+        producto = Producto.objects.get(gimnasio=self.gimnasio, nombre="Proteína")
+        url = producto.foto_principal.url_cacheable
+        self.assertContains(self.client.get(reverse("tienda:productos")), url)
+
+        config = obtener_configuracion(self.gimnasio)
+        config.publicada = True
+        config.save()
+        usuario = User.objects.create_user("alu", password="c-123456")
+        perfil = Perfil.objects.create(usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
+        Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="G", perfil=perfil)
+        self.client.force_login(usuario)
+        self.assertContains(self.client.get(reverse("tienda:catalogo")), url)
 
 
 class AccesoStaffTests(_BaseStaff):

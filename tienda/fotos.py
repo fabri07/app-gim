@@ -28,7 +28,11 @@ def preparar_foto(archivo):
         mensaje_tamanio="La foto pesa más de 8 MB.",
     )
     try:
-        imagen = ImageOps.exif_transpose(Image.open(archivo)).convert("RGB")
+        imagen = Image.open(archivo)
+        # Decodifica el JPEG a escala reducida (no-op en PNG): menos CPU en
+        # el worker de Render con fotos de celular de 12 MP.
+        imagen.draft("RGB", (2400, 2400))
+        imagen = ImageOps.exif_transpose(imagen).convert("RGB")
     except Exception:
         raise forms.ValidationError("El archivo no es una imagen válida.")
     imagen.thumbnail((LADO_MAXIMO, LADO_MAXIMO))

@@ -94,7 +94,10 @@ class Producto(TenantOwnedModel):
     precio = models.DecimalField(
         max_digits=10, decimal_places=2, validators=[MinValueValidator(0)]
     )
-    foto = models.ImageField(upload_to="tienda/productos/", blank=True)
+    #: MUERTA desde `tienda/0002`: se copió a `FotoProducto` (la galería) y
+    #: NO se vació, para que revertir el código alcance como vuelta atrás
+    #: (mismo criterio que `Cuota.mes`). Nadie la escribe. No leer de acá.
+    foto = models.ImageField(upload_to="tienda/productos/", blank=True, editable=False)
     publicado = models.BooleanField(
         default=True,
         help_text="Destildalo para sacarlo de la tienda sin perder su historial de ventas.",
@@ -114,14 +117,42 @@ class Producto(TenantOwnedModel):
             validar_gimnasio_de(self.gimnasio, categoria=self.categoria)
 
     @property
-    def foto_url_cacheable(self):
-        """URL de la foto que el navegador puede cachear para siempre (nunca
-        `foto.url`: en R2 sale firmada y distinta en cada render). La versión
-        es `modificado` en ms, mismo criterio que `Gimnasio._url_de_archivo`."""
-        if not self.foto:
-            return ""
-        version = int(self.modificado.timestamp() * 1000)
-        return f"{reverse('tienda:tienda_foto_producto', args=[self.pk])}?v={version}"
+    def foto_principal(self):
+        """La primera de la galería (orden `posicion`, `pk`), o `None`. Sale
+        del `prefetch_related("fotos")` de la vista: sin él, una query."""
+        return next(iter(self.fotos.all()), None)
+
+
+MAX_FOTOS_POR_PRODUCTO = 5
+
+
+class FotoProducto(models.Model):
+    """Hija de `Producto` como `Variante`: no es `TenantOwnedModel`, se acota
+    por la FK. Borrar la fila NO borra el archivo de R2 (como logos y
+    comprobantes). La de `posicion` más baja es la principal."""
+
+    producto = models.ForeignKey(Producto, on_delete=models.CASCADE, related_name="fotos")
+    imagen = models.ImageField(upload_to="tienda/productos/")
+    posicion = models.PositiveSmallIntegerField(default=0)
+    creado = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "foto"
+        verbose_name_plural = "fotos"
+        ordering = ["posicion", "pk"]
+
+    def __str__(self):
+        return f"Foto {self.posicion + 1} de {self.producto_id}"
+
+    @property
+    def url_cacheable(self):
+        """URL que el navegador cachea para siempre (nunca `imagen.url`: en R2
+        sale firmada y distinta en cada render). La versión es el nombre del
+        archivo (uuid de `preparar_foto`): una foto guardada nunca se
+        reemplaza, así que la respuesta `immutable` es inmutable de verdad."""
+        version = self.imagen.name.rsplit("/", 1)[-1]
+        url = reverse("tienda:tienda_foto_producto", args=[self.producto_id, self.pk])
+        return f"{url}?v={version}"
 
 
 class Variante(models.Model):

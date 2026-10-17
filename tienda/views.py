@@ -10,7 +10,7 @@ from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.db.models import Count, Q
-from django.http import Http404, HttpResponse
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views import View
@@ -33,6 +33,7 @@ from tienda.forms import (
 )
 from tienda.models import (
     CategoriaProducto,
+    FotoProducto,
     ItemPedido,
     Pedido,
     Producto,
@@ -113,7 +114,9 @@ class ProductoListView(TiendaStaffMixin, ListView):
     template_name = "tienda/producto_list.html"
 
     def get_queryset(self):
-        return super().get_queryset().select_related("categoria").prefetch_related("variantes")
+        return (
+            super().get_queryset().select_related("categoria").prefetch_related("variantes", "fotos")
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -150,6 +153,12 @@ class _ProductoFormMixin:
             if self.object
             else set()
         )
+        # El navegador nunca re-envía un `<input type=file>`: si la pantalla
+        # se redibuja tras un POST con fotos elegidas (falló el form o las
+        # variantes), hay que avisar que no se guardaron.
+        context["fotos_no_guardadas"] = self.request.method == "POST" and bool(
+            self.request.FILES.getlist("fotos_nuevas")
+        )
         return context
 
     def form_valid(self, form):
@@ -159,6 +168,7 @@ class _ProductoFormMixin:
             return self.render_to_response(self.get_context_data(form=form, formset=formset))
         with transaction.atomic():
             self.object = form.save()
+            form.guardar_fotos(self.object)
             formset.instance = self.object
             formset.save()
             # Las desactivadas en `_should_delete_form` (tenían ventas).
@@ -356,19 +366,18 @@ class FotoProductoView(View):
     el contenido en LocMem: son muchas fotos de hasta 1200 px por proceso, y
     con `immutable` el navegador ya no las vuelve a pedir."""
 
-    def get(self, request, pk):
-        producto = get_object_or_404(
-            Producto.objects.filter(
-                Q(gimnasio__es_demo=True) | Q(gimnasio__tienda_habilitada=True),
-                gimnasio__activo=True,
+    def get(self, request, pk, foto_pk):
+        foto = get_object_or_404(
+            FotoProducto.objects.filter(
+                Q(producto__gimnasio__es_demo=True) | Q(producto__gimnasio__tienda_habilitada=True),
+                producto__gimnasio__activo=True,
             ),
-            pk=pk,
+            pk=foto_pk,
+            producto_id=pk,
         )
-        if not producto.foto:
-            raise Http404
-        with producto.foto.open("rb") as archivo:
+        with foto.imagen.open("rb") as archivo:
             contenido = archivo.read()
-        tipo = mimetypes.guess_type(producto.foto.name)[0] or "image/jpeg"
+        tipo = mimetypes.guess_type(foto.imagen.name)[0] or "image/jpeg"
         respuesta = HttpResponse(contenido, content_type=tipo)
         respuesta["Cache-Control"] = "public, max-age=31536000, immutable"
         return respuesta
@@ -413,7 +422,9 @@ class CatalogoView(TiendaAlumnoMixin, TemplateView):
             Producto.objects.for_gimnasio(self.gimnasio)
             .filter(publicado=True)
             .select_related("categoria")
-            .prefetch_related(models.Prefetch("variantes", queryset=Variante.objects.filter(activa=True)))
+            .prefetch_related(
+                models.Prefetch("variantes", queryset=Variante.objects.filter(activa=True)), "fotos"
+            )
             .order_by("categoria__orden", "categoria__nombre", "orden", "nombre")
         )
         grupos = {}

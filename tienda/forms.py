@@ -1,11 +1,20 @@
 from django import forms
+from django.db.models import Max
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from PIL import Image as _Image
 
 from core.forms import TenantScopedModelForm
 from pagos.models import EXTENSIONES_COMPROBANTE_PERMITIDAS
 from tienda.fotos import preparar_foto
-from tienda.models import MAX_LARGO_MOTIVO, CategoriaProducto, ConfiguracionTienda, Producto, Variante
+from tienda.models import (
+    MAX_FOTOS_POR_PRODUCTO,
+    MAX_LARGO_MOTIVO,
+    CategoriaProducto,
+    ConfiguracionTienda,
+    FotoProducto,
+    Producto,
+    Variante,
+)
 
 
 class CategoriaProductoForm(TenantScopedModelForm):
@@ -27,17 +36,120 @@ class CategoriaProductoForm(TenantScopedModelForm):
         return nombre
 
 
+class MultipleFileInput(forms.ClearableFileInput):
+    """Receta de la documentación de Django 5.2 para elegir varios archivos."""
+
+    allow_multiple_selected = True
+
+
+class MultipleFileField(forms.FileField):
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("widget", MultipleFileInput())
+        super().__init__(*args, **kwargs)
+
+    def clean(self, data, initial=None):
+        limpiar_uno = super().clean
+        if isinstance(data, (list, tuple)):
+            return [limpiar_uno(d, initial) for d in data]
+        return [limpiar_uno(data, initial)]
+
+
 class ProductoForm(TenantScopedModelForm):
+    """La galería va en el mismo form (sin un segundo formset): tres campos
+    que no son del modelo, que `save()` ignora y guarda `guardar_fotos()`.
+    `borrar_fotos` y `principal` se acotan en `__init__` a las fotos de ESTE
+    producto: una foto de otro producto no es opción válida."""
+
+    CAMPOS_FOTOS = ("fotos_nuevas", "borrar_fotos", "principal")
+
+    fotos_nuevas = MultipleFileField(
+        required=False,
+        label="Agregar fotos",
+        help_text=(
+            f"Hasta {MAX_FOTOS_POR_PRODUCTO} fotos por producto, JPG o PNG. Podés elegir varias "
+            "de una vez. En un producto nuevo, la primera es la principal."
+        ),
+        widget=MultipleFileInput(attrs={"accept": "image/jpeg,image/png"}),
+    )
+    borrar_fotos = forms.ModelMultipleChoiceField(
+        queryset=FotoProducto.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label="Borrar",
+    )
+    principal = forms.ModelChoiceField(
+        queryset=FotoProducto.objects.none(),
+        required=False,
+        empty_label=None,
+        widget=forms.RadioSelect,
+        label="Principal",
+    )
+
     class Meta:
         model = Producto
-        fields = ["nombre", "categoria", "descripcion", "precio", "foto", "publicado", "orden"]
-        widgets = {"foto": forms.ClearableFileInput(attrs={"accept": "image/jpeg,image/png"})}
+        fields = ["nombre", "categoria", "descripcion", "precio", "publicado", "orden"]
 
-    def clean_foto(self):
-        foto = self.cleaned_data.get("foto")
-        if foto and hasattr(foto, "content_type"):  # recién subida, no la guardada
-            return preparar_foto(foto)
-        return foto
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # El related manager de un producto sin pk tira `ValueError`.
+        if self.instance.pk:
+            fotos = FotoProducto.objects.filter(producto=self.instance)
+            self.fields["borrar_fotos"].queryset = fotos
+            self.fields["principal"].queryset = fotos
+            self.fields["principal"].initial = fotos.values_list("pk", flat=True).first()
+
+    def campos_generales(self):
+        return [campo for campo in self if campo.name not in self.CAMPOS_FOTOS]
+
+    def clean_fotos_nuevas(self):
+        preparadas = []
+        for archivo in self.cleaned_data.get("fotos_nuevas") or []:
+            if archivo is None:
+                continue
+            try:
+                preparadas.append(preparar_foto(archivo))
+            except forms.ValidationError as error:
+                raise forms.ValidationError(f"{archivo.name}: {' '.join(error.messages)}")
+        return preparadas
+
+    def clean(self):
+        cleaned = super().clean()
+        existentes = self.fields["borrar_fotos"].queryset.count() if self.instance.pk else 0
+        borradas = cleaned.get("borrar_fotos") or []
+        nuevas = cleaned.get("fotos_nuevas") or []
+        if existentes - len(borradas) + len(nuevas) > MAX_FOTOS_POR_PRODUCTO:
+            self.add_error(
+                "fotos_nuevas",
+                f"Máximo {MAX_FOTOS_POR_PRODUCTO} fotos por producto: borrá alguna antes de agregar.",
+            )
+        principal = cleaned.get("principal")
+        if principal is not None and principal in borradas:
+            self.add_error(
+                "principal",
+                "La foto principal no se puede borrar: elegí otra como principal primero.",
+            )
+        return cleaned
+
+    def guardar_fotos(self, producto):
+        """Va dentro del `atomic()` de la vista, después de `save()`. Borra
+        sólo las filas (el archivo queda en R2), agrega las nuevas al final en
+        el orden elegido y, si hay principal, renumera: ella 0, el resto 1..n."""
+        borradas = self.cleaned_data.get("borrar_fotos") or []
+        if borradas:
+            FotoProducto.objects.filter(producto=producto, pk__in=[f.pk for f in borradas]).delete()
+        nuevas = self.cleaned_data.get("fotos_nuevas") or []
+        if nuevas:
+            ultima = producto.fotos.aggregate(m=Max("posicion"))["m"]
+            siguiente = 0 if ultima is None else ultima + 1
+            for i, archivo in enumerate(nuevas):
+                FotoProducto.objects.create(producto=producto, imagen=archivo, posicion=siguiente + i)
+        principal = self.cleaned_data.get("principal")
+        if principal is not None:
+            fotos = list(producto.fotos.all())
+            orden = [f for f in fotos if f.pk == principal.pk] + [f for f in fotos if f.pk != principal.pk]
+            for posicion, foto in enumerate(orden):
+                foto.posicion = posicion
+            FotoProducto.objects.bulk_update(orden, ["posicion"])
 
 
 class VarianteForm(forms.ModelForm):

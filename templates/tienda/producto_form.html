@@ -4,12 +4,37 @@
 {% block content %}
 <div class="tarjeta">
   <h1>{% if object %}Editar producto{% else %}Nuevo producto{% endif %}</h1>
-  {% comment %}hx-boost="false": sube un archivo (la foto).{% endcomment %}
+  {% comment %}hx-boost="false": sube archivos (las fotos).{% endcomment %}
   <form method="post" enctype="multipart/form-data" novalidate hx-boost="false">
     {% csrf_token %}
-    {% for campo in form %}
+    {{ form.non_field_errors }}
+    {% for campo in form.campos_generales %}
       {% include 'partials/campo_form.html' with campo=campo %}
     {% endfor %}
+
+    <h2>Fotos (hasta 5)</h2>
+    {% if fotos_no_guardadas %}<p class="config-error" role="alert">Las fotos no se guardaron: volvé a elegirlas.</p>{% endif %}
+    {% for c in form.borrar_fotos %}
+      {% with foto=c.data.value.instance %}
+      <div class="form-campo">
+        <img src="{{ foto.url_cacheable }}" alt="Foto {{ forloop.counter }}" width="96" height="96" loading="lazy">
+        <label>
+          <input type="radio" name="{{ form.principal.html_name }}" value="{{ foto.pk }}"{% if form.principal.value|stringformat:"s" == foto.pk|stringformat:"s" %} checked{% endif %}>
+          Principal
+        </label>
+        {% if form.principal.initial == foto.pk %}<span class="badge badge--ok">Principal actual</span>{% endif %}
+        {{ c.tag }} <label for="{{ c.id_for_label }}">Borrar</label>
+      </div>
+      {% endwith %}
+    {% endfor %}
+    {% for error in form.borrar_fotos.errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+    {% for error in form.principal.errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+    <div class="form-campo">
+      <label for="{{ form.fotos_nuevas.id_for_label }}">{{ form.fotos_nuevas.label }}</label>
+      {{ form.fotos_nuevas }}
+      <p class="texto-suave">{{ form.fotos_nuevas.help_text }}</p>
+      {% for error in form.fotos_nuevas.errors %}<p class="config-error">{{ error }}</p>{% endfor %}
+    </div>
 
     <h2>Variantes</h2>
     <p class="texto-suave">
