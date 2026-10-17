@@ -175,7 +175,23 @@ class HomeView(LoginRequiredMixin, TemplateView):
         # justamente cuando está bloqueado.
         bloqueo = acceso.bloqueo_de(alumno, hoy=hoy)
 
+        from tienda.models import ESTADOS_QUE_RETIENEN, Pedido
+        from tienda.services import tienda_visible_para_alumnos
+
+        tienda_visible = tienda_visible_para_alumnos(perfil.gimnasio)
+        # Con la tienda apagada, el alumno con pedidos sin cerrar igual tiene
+        # que poder verlos; con la tienda visible no hace falta la query.
+        tienda_pedidos_vivos = (
+            False
+            if tienda_visible
+            else Pedido.objects.for_gimnasio(perfil.gimnasio)
+            .filter(alumno=alumno, estado__in=ESTADOS_QUE_RETIENEN)
+            .exists()
+        )
+
         return {
+            "tienda_visible": tienda_visible,
+            "tienda_pedidos_vivos": tienda_pedidos_vivos,
             # «Tu código para entrar»: solo el estado y el link a
             # `ingreso:mi_codigo`, nunca el QR (así el inicio sigue cacheable
             # y entrando en el historial de htmx). Una o dos queries fijas.

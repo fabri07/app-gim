@@ -342,3 +342,8 @@ def notificar_turno_proximo(reserva) -> None:
 def notificar_pedido_al_alumno(pedido, aviso) -> None:
     """Completada en la Tarea 8 del plan de la tienda."""
     return None
+
+
+def notificar_pedido_al_staff(pedido, aviso) -> None:
+    """Completada en la Tarea 8 del plan de la tienda."""
+    return None

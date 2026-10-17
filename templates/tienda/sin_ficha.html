@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}Tienda · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Tienda</h1>
+  <p>Tu usuario todavía no está vinculado a una ficha de alumno: pedile al gimnasio que lo revise.</p>
+  <a class="boton-secundario w-full mt-2" href="{% url 'home' %}">Volver al inicio</a>
+</div>
+{% endblock %}

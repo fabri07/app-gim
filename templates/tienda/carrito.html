@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}Carrito · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Tu carrito</h1>
+  {% if lineas %}
+    <ul>
+      {% for l in lineas %}
+        <li class="mt-2">
+          <strong>{{ l.variante.producto.nombre }}</strong> · {{ l.variante.nombre }}<br>
+          {{ l.cantidad }} × $ {{ l.variante.producto.precio|floatformat:"2g" }} = $ {{ l.subtotal|floatformat:"2g" }}
+          <form method="post" action="{% url 'tienda:carrito' %}">
+            {% csrf_token %}
+            <input type="hidden" name="accion" value="quitar">
+            <input type="hidden" name="variante" value="{{ l.variante.pk }}">
+            <button type="submit" class="boton-secundario">Quitar</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+    <p class="mt-4"><strong>Total: $ {{ total|floatformat:"2g" }}</strong></p>
+    <p class="texto-suave">Tenés {{ config.horas_reserva_transferencia }} h para transferir y subir el comprobante; si no, el pedido se cancela solo.</p>
+    <form method="post" action="{% url 'tienda:checkout' %}">
+      {% csrf_token %}
+      <button type="submit" class="boton w-full mt-2">Confirmar pedido</button>
+    </form>
+  {% else %}
+    <p class="texto-suave">Tu carrito está vacío.</p>
+  {% endif %}
+  <a class="boton-secundario w-full mt-2" href="{% url 'tienda:catalogo' %}">Seguir viendo productos</a>
+</div>
+{% endblock %}

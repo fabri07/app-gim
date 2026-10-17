@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Tienda · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Tienda</h1>
+  <p>
+    <a href="{% url 'tienda:carrito' %}">Carrito ({{ unidades_en_carrito }})</a>
+    ·
+    <a href="{% url 'tienda:mis_pedidos' %}">Mis pedidos</a>
+  </p>
+</div>
+
+{% for nombre, productos in grupos %}
+  <h2>{{ nombre }}</h2>
+  {% for p in productos %}
+    <div class="tarjeta">
+      {% if p.foto %}<img src="{{ p.foto_url_cacheable }}" alt="" width="160" height="160" loading="lazy">{% endif %}
+      <h3>{{ p.nombre }}</h3>
+      <p><strong>$ {{ p.precio|floatformat:"2g" }}</strong></p>
+      {% if p.descripcion %}<p class="texto-suave">{{ p.descripcion }}</p>{% endif %}
+      <form method="post" action="{% url 'tienda:carrito' %}">
+        {% csrf_token %}
+        <input type="hidden" name="accion" value="agregar">
+        <input type="hidden" name="volver" value="catalogo">
+        <select name="variante" aria-label="Variante de {{ p.nombre }}">
+          {% for v in p.variantes.all %}
+            <option value="{{ v.pk }}" {% if v.stock == 0 %}disabled{% endif %}>{{ v.nombre }}{% if v.stock == 0 %} — Agotado{% elif v.stock <= umbral_pocas %} — Quedan {{ v.stock }}{% endif %}</option>
+          {% endfor %}
+        </select>
+        <input type="number" name="cantidad" min="1" max="20" value="1" aria-label="Cantidad">
+        {% if not p.hay_stock %}<p class="texto-suave">Agotado</p>{% endif %}
+        <button type="submit" class="boton w-full mt-2" {% if not p.hay_stock %}disabled{% endif %}>Agregar al carrito</button>
+      </form>
+    </div>
+  {% endfor %}
+{% empty %}
+  <div class="tarjeta"><p class="texto-suave">Todavía no hay productos para mostrar.</p></div>
+{% endfor %}
+
+{% include 'tienda/_arrepentimiento.html' %}
+{% endblock %}

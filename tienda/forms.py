@@ -1,7 +1,9 @@
 from django import forms
 from django.forms import BaseInlineFormSet, inlineformset_factory
+from PIL import Image as _Image
 
 from core.forms import TenantScopedModelForm
+from pagos.models import EXTENSIONES_COMPROBANTE_PERMITIDAS
 from tienda.fotos import preparar_foto
 from tienda.models import MAX_LARGO_MOTIVO, CategoriaProducto, ConfiguracionTienda, Producto, Variante
 
@@ -119,3 +121,28 @@ class ConfiguracionTiendaForm(TenantScopedModelForm):
 
 class MotivoForm(forms.Form):
     motivo = forms.CharField(max_length=MAX_LARGO_MOTIVO, required=False, label="Motivo")
+
+
+TAMANIO_MAXIMO_COMPROBANTE = 5 * 1024 * 1024
+
+
+class ComprobanteForm(forms.Form):
+    comprobante = forms.FileField(
+        label="Comprobante de la transferencia",
+        help_text="Una captura o foto del comprobante (JPG o PNG, hasta 5 MB).",
+        widget=forms.ClearableFileInput(attrs={"accept": "image/jpeg,image/png"}),
+    )
+
+    def clean_comprobante(self):
+        archivo = self.cleaned_data["comprobante"]
+        extension = archivo.name.rsplit(".", 1)[-1].lower() if "." in archivo.name else ""
+        if extension not in EXTENSIONES_COMPROBANTE_PERMITIDAS:
+            raise forms.ValidationError("Subí una imagen JPG o PNG.")
+        if archivo.size > TAMANIO_MAXIMO_COMPROBANTE:
+            raise forms.ValidationError("El archivo pesa más de 5 MB.")
+        try:
+            _Image.open(archivo).verify()
+        except Exception:
+            raise forms.ValidationError("El archivo no es una imagen válida.")
+        archivo.seek(0)
+        return archivo

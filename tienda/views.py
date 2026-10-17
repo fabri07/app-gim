@@ -8,21 +8,24 @@ import mimetypes
 
 from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views import View
-from django.views.generic import CreateView, DetailView, ListView, UpdateView
+from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
-from tenants.mixins import StaffRequiredMixin
+from pagos.models import MedioCobro
+from tenants import suplantacion
+from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tienda import analitica, services
 from tienda.forms import (
     AjusteStockForm,
     CategoriaProductoForm,
+    ComprobanteForm,
     ConfiguracionTiendaForm,
     MotivoForm,
     ProductoForm,
@@ -363,3 +366,217 @@ class FotoProductoView(View):
         respuesta = HttpResponse(contenido, content_type=tipo)
         respuesta["Cache-Control"] = "public, max-age=31536000, immutable"
         return respuesta
+
+
+# --- Alumno ------------------------------------------------------------
+
+
+class TiendaAlumnoMixin(AlumnoRequiredMixin):
+    """Alumno + tienda visible. `requiere_tienda_visible = False` en «Mis
+    pedidos» y su detalle: con la tienda apagada el alumno sigue viendo lo que
+    compró. Sin ficha de `Alumno` vinculada, cartel con 200 (bajo boost un 403
+    es un click mudo)."""
+
+    requiere_tienda_visible = True
+
+    def get(self, request, *args, **kwargs):
+        if not hasattr(super(), "get"):  # vistas sólo-POST (checkout, acciones)
+            return self.http_method_not_allowed(request, *args, **kwargs)
+        return self._cartel() or super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        if not hasattr(self, "procesar"):  # vistas sólo-GET
+            return self.http_method_not_allowed(request, *args, **kwargs)
+        return self._cartel() or self.procesar(request, *args, **kwargs)
+
+    def _cartel(self):
+        if self.alumno is None:
+            return render(self.request, "tienda/sin_ficha.html", status=200)
+        if self.requiere_tienda_visible and not services.tienda_visible_para_alumnos(self.gimnasio):
+            return render(self.request, "tienda/cerrada.html", status=200)
+        services.vencer_pedidos(gimnasio=self.gimnasio)
+        return None
+
+
+class CatalogoView(TiendaAlumnoMixin, TemplateView):
+    template_name = "tienda/catalogo.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        productos = (
+            Producto.objects.for_gimnasio(self.gimnasio)
+            .filter(publicado=True)
+            .select_related("categoria")
+            .prefetch_related(models.Prefetch("variantes", queryset=Variante.objects.filter(activa=True)))
+            .order_by("categoria__orden", "categoria__nombre", "orden", "nombre")
+        )
+        grupos = {}
+        for producto in productos:
+            variantes = producto.variantes.all()  # prefetcheado: sin query
+            if variantes:
+                producto.hay_stock = any(v.stock > 0 for v in variantes)
+                nombre = producto.categoria.nombre if producto.categoria else "Otros"
+                grupos.setdefault(nombre, []).append(producto)
+        context["grupos"] = list(grupos.items())
+        context["unidades_en_carrito"] = sum(services.leer_carrito(self.request.session).values())
+        context["umbral_pocas"] = services.UMBRAL_POCAS_UNIDADES
+        return context
+
+
+class CarritoView(TiendaAlumnoMixin, TemplateView):
+    template_name = "tienda/carrito.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["lineas"], context["total"] = services.lineas_del_carrito(
+            self.request.session, gimnasio=self.gimnasio
+        )
+        context["config"] = obtener_configuracion(self.gimnasio)
+        return context
+
+    def procesar(self, request, *args, **kwargs):
+        try:
+            variante_id = int(request.POST.get("variante", ""))
+            cantidad = int(request.POST.get("cantidad", "1"))
+        except ValueError:
+            messages.error(request, services.MENSAJES["cantidad_invalida"])
+            return redirect("tienda:carrito")
+        if request.POST.get("accion") == "quitar":
+            services.quitar_del_carrito(request.session, variante_id)
+            return redirect("tienda:carrito")
+        try:
+            services.agregar_al_carrito(
+                request.session, gimnasio=self.gimnasio, variante_id=variante_id, cantidad=cantidad
+            )
+            messages.success(request, "Agregado al carrito.")
+        except services.ErrorDeTienda as error:
+            messages.error(request, error.mensaje)
+        destino = "tienda:catalogo" if request.POST.get("volver") == "catalogo" else "tienda:carrito"
+        return redirect(destino)
+
+
+class CheckoutView(TiendaAlumnoMixin, View):
+    def procesar(self, request, *args, **kwargs):
+        try:
+            # Se compra lo que el alumno VE en el carrito (líneas saneadas), no
+            # la sesión cruda: un producto archivado después de agregarlo no
+            # puede trabar la compra del resto.
+            lineas, _ = services.lineas_del_carrito(request.session, gimnasio=self.gimnasio)
+            pedido = services.crear_pedido(
+                gimnasio=self.gimnasio,
+                alumno=self.alumno,
+                carrito={l.variante.pk: l.cantidad for l in lineas},
+                suplantando=suplantacion.esta_activa(request),
+            )
+        except services.ErrorDeTienda as error:
+            messages.error(request, error.mensaje)
+            return redirect("tienda:carrito")
+        services.vaciar_carrito(request.session)
+        from notificaciones import services as avisos_push
+
+        transaction.on_commit(lambda: avisos_push.notificar_pedido_al_staff(pedido, "nuevo"))
+        messages.success(request, "¡Pedido hecho! Transferí y subí el comprobante antes del plazo.")
+        return redirect("tienda:mi_pedido", pk=pedido.pk)
+
+
+class MisPedidosView(TiendaAlumnoMixin, TemplateView):
+    requiere_tienda_visible = False
+    template_name = "tienda/mis_pedidos.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        pedidos = Pedido.objects.for_gimnasio(self.gimnasio).filter(alumno=self.alumno)
+        # «Botón de arrepentimiento» (Res. 424/2020): la misma pantalla, sólo
+        # con lo que todavía se puede cancelar y el botón en cada fila.
+        context["arrepentimiento"] = self.request.GET.get("arrepentimiento") == "1"
+        if context["arrepentimiento"]:
+            # Filtrado en la base y sin cortar: un `[:50]` antes de filtrar
+            # podía dejar afuera un pedido cancelable. Son pocos por naturaleza
+            # (pagados sin retirar + retirados en los últimos 10 días).
+            context["pedidos"] = pedidos.filter(services.q_puede_pedir_cancelacion()).prefetch_related("items")
+        else:
+            context["pedidos"] = pedidos.prefetch_related("items")[:50]
+        return context
+
+
+class MiPedidoView(TiendaAlumnoMixin, TemplateView):
+    requiere_tienda_visible = False
+    template_name = "tienda/mi_pedido.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        pedido = get_object_or_404(
+            Pedido.objects.for_gimnasio(self.gimnasio).filter(alumno=self.alumno).prefetch_related("items"),
+            pk=self.kwargs["pk"],
+        )
+        context.update(
+            pedido=pedido,
+            form=ComprobanteForm(),
+            medios_cobro=MedioCobro.objects.for_gimnasio(self.gimnasio).filter(activo=True),
+            config=obtener_configuracion(self.gimnasio),
+            puede_pedir_cancelacion=services.puede_pedir_cancelacion(pedido),
+        )
+        return context
+
+
+class _AccionSobreMiPedido(TiendaAlumnoMixin, View):
+    requiere_tienda_visible = False
+
+    def mi_pedido(self):
+        return get_object_or_404(
+            Pedido.objects.for_gimnasio(self.gimnasio).filter(alumno=self.alumno), pk=self.kwargs["pk"]
+        )
+
+
+class MiPedidoComprobanteView(_AccionSobreMiPedido):
+    def procesar(self, request, *args, **kwargs):
+        pk = self.kwargs["pk"]
+        pedido = self.mi_pedido()
+        form = ComprobanteForm(request.POST, request.FILES)
+        if not form.is_valid():
+            for error in form.errors.get("comprobante", []):
+                messages.error(request, error)
+            return redirect("tienda:mi_pedido", pk=pk)
+        try:
+            services.subir_comprobante(pedido, alumno=self.alumno, archivo=form.cleaned_data["comprobante"])
+        except services.ErrorDeTienda as error:
+            messages.error(request, error.mensaje)
+        else:
+            from notificaciones import services as avisos_push
+
+            transaction.on_commit(lambda: avisos_push.notificar_pedido_al_staff(pedido, "comprobante"))
+            messages.success(request, "Recibimos tu comprobante. Te avisamos cuando el gimnasio lo confirme.")
+        return redirect("tienda:mi_pedido", pk=pk)
+
+
+class MiPedidoCancelarView(_AccionSobreMiPedido):
+    def procesar(self, request, *args, **kwargs):
+        pk = self.kwargs["pk"]
+        try:
+            services.cancelar_por_alumno(self.mi_pedido(), alumno=self.alumno)
+            messages.success(request, "Pedido cancelado.")
+        except services.ErrorDeTienda as error:
+            messages.error(request, error.mensaje)
+        return redirect("tienda:mi_pedido", pk=pk)
+
+
+class MiPedidoPedirCancelacionView(_AccionSobreMiPedido):
+    def procesar(self, request, *args, **kwargs):
+        pk = self.kwargs["pk"]
+        pedido = self.mi_pedido()
+        try:
+            services.pedir_cancelacion(pedido, alumno=self.alumno)
+        except services.ErrorDeTienda as error:
+            messages.error(request, error.mensaje)
+        else:
+            from notificaciones import services as avisos_push
+
+            transaction.on_commit(lambda: avisos_push.notificar_pedido_al_staff(pedido, "cancelacion"))
+            # El número de pedido es el código de la solicitud que pide la
+            # Res. 424/2020; se muestra en el acto.
+            messages.success(
+                request,
+                f"Solicitud registrada — pedido #{pedido.pk}. Le avisamos al gimnasio: "
+                "te van a contactar para devolverte la plata.",
+            )
+        return redirect("tienda:mi_pedido", pk=pk)

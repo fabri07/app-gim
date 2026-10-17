@@ -1054,6 +1054,24 @@
         <p class="texto-suave">Sin información de tu cuota este mes.</p>
       {% endif %}
     </div>
+
+    {% if tienda_visible %}
+      <div class="tarjeta">
+        <h2>Tienda del gimnasio</h2>
+        <p class="texto-suave">Suplementos, ropa y lo que vende tu gimnasio. Pagás por transferencia y retirás acá.</p>
+        <a class="boton w-full mt-2" href="{% url 'tienda:catalogo' %}">Ver productos</a>
+        <a class="boton-secundario w-full mt-2" href="{% url 'tienda:mis_pedidos' %}">Mis pedidos</a>
+      </div>
+    {% elif tienda_pedidos_vivos %}
+      {% comment %}
+        Tienda apagada o sin publicar, pero con pedidos sin cerrar: sin este link
+        el alumno no tiene cómo ver lo que pagó y tiene para retirar.
+      {% endcomment %}
+      <div class="tarjeta">
+        <h2>Tus pedidos de la tienda</h2>
+        <a class="boton-secundario w-full mt-2" href="{% url 'tienda:mis_pedidos' %}">Mis pedidos</a>
+      </div>
+    {% endif %}
   {% endif %}
 
   <div class="tarjeta">

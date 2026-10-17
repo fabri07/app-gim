@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}Mis pedidos · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  {% if arrepentimiento %}
+    <h1>Botón de arrepentimiento</h1>
+    <p class="texto-suave">Podés arrepentirte de una compra: mientras no la retires, cuando quieras; después de retirarla, hasta 10 días. El gimnasio te devuelve la plata por el mismo medio.</p>
+    {% for p in pedidos %}
+      <div class="mt-2">
+        <strong>#{{ p.pk }}</strong> · {{ p.creado|date:"d/m/Y" }} · $ {{ p.total|floatformat:"2g" }} · {{ p.get_estado_display }}
+        <form method="post" action="{% url 'tienda:mi_pedido_pedir_cancelacion' p.pk %}">
+          {% csrf_token %}
+          <button type="submit" class="boton w-full mt-2">Pedir cancelación</button>
+        </form>
+      </div>
+    {% empty %}
+      <p class="texto-suave">No tenés pedidos que se puedan cancelar ahora.</p>
+      <a href="{% url 'tienda:mis_pedidos' %}">Ver todos mis pedidos</a>
+    {% endfor %}
+  {% else %}
+    <h1>Mis pedidos</h1>
+    {% for p in pedidos %}
+      <p class="mt-2">
+        <a href="{% url 'tienda:mi_pedido' p.pk %}">#{{ p.pk }}</a> · {{ p.creado|date:"d/m/Y" }} · $ {{ p.total|floatformat:"2g" }} · <span class="badge">{{ p.get_estado_display }}</span>
+      </p>
+    {% empty %}
+      <p class="texto-suave">Todavía no hiciste pedidos.</p>
+    {% endfor %}
+  {% endif %}
+  <a class="boton-secundario w-full mt-2" href="{% url 'home' %}">Volver al inicio</a>
+</div>
+{% include 'tienda/_arrepentimiento.html' %}
+{% endblock %}

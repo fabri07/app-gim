@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block title %}Pedido #{{ pedido.pk }} · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Pedido #{{ pedido.pk }}</h1>
+  <p><span class="badge">{{ pedido.get_estado_display }}</span> · $ {{ pedido.total|floatformat:"2g" }}</p>
+  <ul>
+    {% for i in pedido.items.all %}
+      <li>{{ i.cantidad }} × {{ i }}</li>
+    {% endfor %}
+  </ul>
+
+  {% if pedido.estado == 'pendiente_pago' %}
+    {% if pedido.comprobante %}
+      <p class="aviso-urgente">El gimnasio rechazó tu comprobante{% if pedido.motivo %}: {{ pedido.motivo }}{% endif %}. Subí otro antes del {{ pedido.reservado_hasta|date:"d/m H:i" }}.</p>
+    {% endif %}
+    <p>Transferí $ {{ pedido.total|floatformat:"2g" }} antes del {{ pedido.reservado_hasta|date:"d/m H:i" }}</p>
+    {% for m in medios_cobro %}
+      <p class="texto-suave">Alias: <strong>{{ m.alias }}</strong>{% if m.titular %} · {{ m.titular }}{% endif %}{% if m.entidad %} · {{ m.entidad }}{% endif %}</p>
+    {% empty %}
+      <p class="texto-suave">El gimnasio todavía no cargó sus datos de transferencia: consultalo en recepción</p>
+    {% endfor %}
+    <form method="post" enctype="multipart/form-data" hx-boost="false" action="{% url 'tienda:mi_pedido_comprobante' pedido.pk %}">
+      {% csrf_token %}
+      {% include 'partials/campo_form.html' with campo=form.comprobante %}
+      <button type="submit" class="boton w-full mt-2">Subir comprobante</button>
+    </form>
+    <form method="post" action="{% url 'tienda:mi_pedido_cancelar' pedido.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="boton-secundario w-full mt-2">Cancelar pedido</button>
+    </form>
+  {% elif pedido.estado == 'en_revision' %}
+    <p>El gimnasio está revisando tu comprobante</p>
+  {% elif pedido.estado == 'pagado' %}
+    <p>¡Listo! Retiralo en el gimnasio.</p>
+    {% if config.instrucciones_retiro %}<p class="texto-suave">{{ config.instrucciones_retiro|linebreaksbr }}</p>{% endif %}
+  {% elif pedido.motivo %}
+    <p class="texto-suave">{{ pedido.motivo }}</p>
+  {% endif %}
+
+  {% if puede_pedir_cancelacion %}
+    <p class="texto-suave mt-4">Podés arrepentirte de la compra: mientras no la retires, cuando quieras; después de retirarla, hasta 10 días.</p>
+    <form method="post" action="{% url 'tienda:mi_pedido_pedir_cancelacion' pedido.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="boton-secundario w-full mt-2">Pedir cancelación</button>
+    </form>
+  {% endif %}
+  <a class="boton-secundario w-full mt-2" href="{% url 'tienda:mis_pedidos' %}">Mis pedidos</a>
+</div>
+{% endblock %}
