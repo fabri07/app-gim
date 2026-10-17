@@ -351,6 +351,47 @@
     </details>
   </div>
 
+  {% if ventas_tienda %}
+  <div class="tarjeta" id="ventas-tienda">
+    <h2>Ventas de la tienda</h2>
+    {% if ventas_tienda.hay_ventas %}
+      <p class="tabular-nums">
+        <strong>Este mes (en curso): $ {{ ventas_tienda.este_mes.total|floatformat:"0g" }}</strong>
+        · {{ ventas_tienda.este_mes.pedidos }} pedido{{ ventas_tienda.este_mes.pedidos|pluralize }}
+        · mes anterior: $ {{ ventas_tienda.mes_anterior.total|floatformat:"0g" }}
+        {% if ventas_tienda.ticket_promedio %}· ticket promedio: $ {{ ventas_tienda.ticket_promedio|floatformat:"0g" }}{% endif %}
+      </p>
+      <p class="texto-suave">Pedidos pagados o entregados, por el mes en que se pagaron. Los devueltos no cuentan. El mes actual está en curso: su barra siempre se ve más baja.</p>
+      <div class="grafico-contenedor">
+        <canvas id="grafico-ventas-tienda"></canvas>
+      </div>
+      <details class="tabla-detalle">
+        <summary>Ver como tabla</summary>
+        <div class="tabla-scroll">
+          <table class="tabla">
+            <thead><tr><th>Mes</th><th>Vendido</th><th>Pedidos</th></tr></thead>
+            <tbody>
+              {% for fila in ventas_tienda.por_mes %}
+                <tr><td>{{ fila.etiqueta }}</td><td class="tabular-nums">$ {{ fila.total|floatformat:"0g" }}</td><td>{{ fila.pedidos }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% if ventas_tienda.top %}
+        <h3 class="mt-4 font-semibold">Lo más vendido (últimos 90 días)</h3>
+        <ol class="list-decimal pl-5">
+          {% for p in ventas_tienda.top %}
+            <li>{{ p.nombre }} — {{ p.unidades }} u. · <span class="tabular-nums">$ {{ p.total|floatformat:"0g" }}</span></li>
+          {% endfor %}
+        </ol>
+      {% endif %}
+    {% else %}
+      <p class="texto-suave">Todavía no hay ventas. Cuando un alumno pague un pedido, lo vas a ver acá.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="tarjeta">
     <h2>Altas y bajas de alumnos</h2>
     <p class="texto-suave">
@@ -592,6 +633,7 @@
   {% endif %}
 
   {{ ingresos_mensuales|json_script:"ingresos-data" }}
+  {% if ventas_tienda %}{{ ventas_tienda.por_mes|json_script:"ventas-tienda-data" }}{% endif %}
 
 
   {{ altas_y_bajas|json_script:"altas-bajas-data" }}
@@ -703,6 +745,37 @@
           },
         });
       }
+
+      {% if ventas_tienda %}
+      var ventasTiendaData = datosDe("ventas-tienda-data");
+      var elVentasTienda = document.getElementById("grafico-ventas-tienda");
+      if (elVentasTienda && ventasTiendaData.length) {
+        new Chart(elVentasTienda, {
+          type: "bar",
+          data: {
+            labels: ventasTiendaData.map(function (d) { return d.etiqueta; }),
+            datasets: [{
+              data: ventasTiendaData.map(function (d) { return d.total; }),
+              backgroundColor: AZUL,
+              borderRadius: 4,
+              maxBarThickness: 32,
+            }],
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: {
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  callback: function (v) { return "$ " + v.toLocaleString("es-AR"); },
+                },
+              },
+            },
+            maintainAspectRatio: false,
+          },
+        });
+      }
+      {% endif %}
 
       var altasBajasData = datosDe("altas-bajas-data");
       var elAltasBajas = document.getElementById("grafico-altas-bajas");

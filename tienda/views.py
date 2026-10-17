@@ -19,7 +19,7 @@ from django.views.generic import CreateView, DetailView, ListView, UpdateView
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
 from tenants.mixins import StaffRequiredMixin
-from tienda import services
+from tienda import analitica, services
 from tienda.forms import (
     AjusteStockForm,
     CategoriaProductoForm,
@@ -249,6 +249,7 @@ class PedidoListView(TiendaStaffMixin, ListView):
         context = super().get_context_data(**kwargs)
         context["filtro"] = self.filtro
         context["contadores"] = services.contadores_panel(self.gimnasio)
+        context["vendido_mes"] = analitica.resumen_del_mes(self.gimnasio)
         return context
 
 

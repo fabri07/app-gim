@@ -10,6 +10,8 @@
     <a class="boton-secundario" href="{% url 'tienda:configuracion' %}">Configuración</a>
   </div>
 
+  <p class="tabular-nums"><strong>Vendido este mes: $ {{ vendido_mes.total|floatformat:"2g" }}</strong> · {{ vendido_mes.pedidos }} pedido{{ vendido_mes.pedidos|pluralize }}</p>
+
   <nav class="acciones-lista" aria-label="Filtrar pedidos">
     <a class="{% if filtro == 'revisar' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=revisar">A revisar ({{ contadores.a_revisar }})</a>
     <a class="{% if filtro == 'entregar' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=entregar">Para entregar ({{ contadores.a_entregar }})</a>

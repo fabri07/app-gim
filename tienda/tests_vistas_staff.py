@@ -392,3 +392,29 @@ class PanelYBarraTests(_BaseStaff):
         Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
         self.assertContains(self.client.get(reverse("home")), "data-adicional")
         self.assertContains(self.client.get(reverse("tienda:productos")), "data-adicional")
+class VentasEnPantallasTests(_BaseStaff):
+    def setUp(self):
+        super().setUp()
+        _, variante = self.crear_producto(stock=5)
+        alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="G")
+        pedido = services.crear_pedido(gimnasio=self.gimnasio, alumno=alumno,
+                                       carrito={variante.pk: 2}, suplantando=False)
+        services.marcar_pagado(pedido)
+
+    def test_vendido_este_mes_en_el_listado_de_pedidos(self):
+        r = self.client.get(reverse("tienda:pedidos"))
+        self.assertContains(r, "Vendido este mes")
+        self.assertContains(r, "30.000")
+
+    def test_tarjeta_de_ventas_en_el_panel(self):
+        r = self.client.get(reverse("home"))
+        self.assertContains(r, "Ventas de la tienda")
+        self.assertContains(r, 'id="ventas-tienda-data"')
+
+    def test_sin_tienda_ni_tarjeta_ni_queries(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(tienda_habilitada=False)
+        with patch("tienda.analitica.panel_de_ventas", side_effect=AssertionError("no se llama sin tienda")):
+            r = self.client.get(reverse("home"))
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, "Ventas de la tienda")
+        self.assertNotContains(r, "ventas-tienda-data")

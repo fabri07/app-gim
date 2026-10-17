@@ -49,6 +49,15 @@ def _contadores_tienda(gimnasio):
     return contadores
 
 
+def _ventas_tienda(gimnasio):
+    if not gimnasio.puede_usar_tienda:
+        return None
+    # Módulo, no `from ... import panel_de_ventas`: el test lo parchea.
+    from tienda import analitica as analitica_tienda
+
+    return analitica_tienda.panel_de_ventas(gimnasio)
+
+
 class HomeView(LoginRequiredMixin, TemplateView):
     """Página de inicio tras login.
 
@@ -297,6 +306,9 @@ class HomeView(LoginRequiredMixin, TemplateView):
             "asistencia_semanal": analitica.asistencia_por_semana(gimnasio),
             "asistencia_diaria": analitica.asistencia_diaria(gimnasio),
             "ingresos_mensuales": analitica.ingresos_por_mes(gimnasio),
+            # Tienda (add-on): ventas por mes y lo más vendido. Sin tienda,
+            # ni una query (lo fija `test_sin_tienda_ni_tarjeta_ni_queries`).
+            "ventas_tienda": _ventas_tienda(gimnasio),
             "asistencia": analitica.asistencia_por_dia_y_hora(gimnasio),
             "rpe_por_ejercicio": analitica.rpe_por_ejercicio(gimnasio),
             "ejercicios_mas_asignados": analitica.ejercicios_mas_asignados(gimnasio),
