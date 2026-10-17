@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}{% if object %}Editar{% else %}Nuevo{% endif %} producto · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>{% if object %}Editar producto{% else %}Nuevo producto{% endif %}</h1>
+  {% comment %}hx-boost="false": sube un archivo (la foto).{% endcomment %}
+  <form method="post" enctype="multipart/form-data" novalidate hx-boost="false">
+    {% csrf_token %}
+    {% for campo in form %}
+      {% include 'partials/campo_form.html' with campo=campo %}
+    {% endfor %}
+
+    <h2>Variantes</h2>
+    <p class="texto-suave">
+      Talle, sabor, color: cada variante tiene su propio stock. Si el producto no
+      tiene variantes, cargá una sola, por ejemplo «Único».
+    </p>
+    {{ formset.management_form }}
+    {% if formset.non_form_errors %}<div class="config-error">{{ formset.non_form_errors }}</div>{% endif %}
+    {% for f in formset %}
+      <fieldset>
+        {{ f.id }}
+        {% include 'partials/campo_form.html' with campo=f.nombre %}
+        {% if f.stock_inicial %}{% include 'partials/campo_form.html' with campo=f.stock_inicial %}{% endif %}
+        {% include 'partials/campo_form.html' with campo=f.activa %}
+        {% if f.instance.pk not in con_ventas %}{{ f.DELETE }} <label for="{{ f.DELETE.id_for_label }}">Quitar</label>{% endif %}
+      </fieldset>
+    {% endfor %}
+
+    <button type="submit" class="boton">Guardar</button>
+    <a class="boton-secundario" href="{% url 'tienda:productos' %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

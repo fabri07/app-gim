@@ -21,6 +21,7 @@ urlpatterns = [
     path("plataforma/", include("plataforma.urls")),
     # El gimnasio paga la suscripción a la plataforma (Mercado Pago).
     path("suscripcion/", include("suscripcion.urls")),
+    path("tienda/", include("tienda.urls")),
     # Embudo público de captación de gimnasios (sin auth).
     path("solicitar/", include("solicitudes.urls")),
 ]

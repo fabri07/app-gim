@@ -111,6 +111,8 @@ URLS_SIN_BLOQUEO = frozenset(
         "fondo_gimnasio",
         "landing_gimnasio",
         "politica_privacidad",
+        # foto de producto: respuesta immutable, sin cookie (ver tienda/views.py)
+        "tienda_foto_producto",
     }
 )
 
