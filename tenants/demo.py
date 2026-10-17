@@ -502,7 +502,83 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
             )
         resumen["novedades"] = len(_NOVEDADES)
 
+        # --- Tienda (sólo la demo) -----------------------------------------
+        if gimnasio.es_demo:
+            productos, pedidos = _sembrar_tienda(gimnasio, alumnos)
+            resumen["productos_tienda"] = productos
+            resumen["pedidos_tienda"] = pedidos
+
     return resumen
+
+
+def _sembrar_tienda(gimnasio, alumnos):
+    """Productos y pedidos de muestra para que el prospecto vea la tienda con
+    vida. Sólo en la demo (en un gimnasio real `--confirmar` publicaría
+    productos inventados) y sin fotos (el workflow de restaurar no tiene R2)."""
+    from django.db.models import F
+
+    from tienda.models import (
+        ESTADOS_QUE_RETIENEN, CategoriaProducto, ItemPedido, Pedido, Producto,
+        Variante, obtener_configuracion,
+    )
+
+    config = obtener_configuracion(gimnasio)
+    config.publicada = True
+    config.instrucciones_retiro = "Retirás en recepción, de lunes a viernes de 8 a 21."
+    config.save()
+    suplementos, _ = CategoriaProducto.objects.get_or_create(
+        gimnasio=gimnasio, nombre="Suplementos", defaults={"orden": 1}
+    )
+    ropa, _ = CategoriaProducto.objects.get_or_create(
+        gimnasio=gimnasio, nombre="Ropa", defaults={"orden": 2}
+    )
+    catalogo = [
+        (suplementos, "Proteína whey 1 kg", Decimal("32000"), [("Chocolate", 8), ("Vainilla", 5)]),
+        (suplementos, "Creatina 300 g", Decimal("21000"), [("", 12)]),
+        (ropa, "Remera dry-fit", Decimal("15000"), [("S", 4), ("M", 6), ("L", 3), ("XL", 0)]),
+    ]
+    variantes = []
+    for categoria, nombre, precio, talles in catalogo:
+        producto, _ = Producto.objects.get_or_create(
+            gimnasio=gimnasio, nombre=nombre, defaults={"categoria": categoria, "precio": precio}
+        )
+        for talle, stock in talles:
+            variante, _ = Variante.objects.get_or_create(
+                producto=producto, nombre=talle, defaults={"stock": stock}
+            )
+            variantes.append(variante)
+    if not Pedido.objects.for_gimnasio(gimnasio).exists() and len(alumnos) >= 3:
+        ahora = timezone.now()
+        # El entregado se pagó hace 35 días: así la tarjeta «Ventas de la
+        # tienda» del dashboard de la demo muestra dos meses y no una barra.
+        hace_un_mes = ahora - timedelta(days=35)
+        pagado_en = {
+            Pedido.Estado.EN_REVISION: None,
+            Pedido.Estado.PAGADO: ahora,
+            Pedido.Estado.ENTREGADO: hace_un_mes,
+        }
+        estados = [Pedido.Estado.EN_REVISION, Pedido.Estado.PAGADO, Pedido.Estado.ENTREGADO]
+        for alumno, estado, variante in zip(alumnos[:3], estados, variantes):
+            pedido = Pedido.objects.create(
+                gimnasio=gimnasio, alumno=alumno, estado=estado,
+                total=variante.producto.precio, reservado_hasta=ahora,
+                pagado_en=pagado_en[estado],
+                entregado_en=hace_un_mes if estado == Pedido.Estado.ENTREGADO else None,
+                comprobante_subido_en=ahora if estado == Pedido.Estado.EN_REVISION else None,
+            )
+            ItemPedido.objects.create(
+                pedido=pedido, variante=variante, nombre=str(variante),
+                precio_unitario=variante.producto.precio, cantidad=1,
+            )
+            if estado in ESTADOS_QUE_RETIENEN:
+                # `Variante.stock` es el DISPONIBLE: un pedido que retiene lo
+                # descuenta, como `crear_pedido`. Si no, «disponible +
+                # reservado» da una unidad de más en la demo.
+                Variante.objects.filter(pk=variante.pk).update(stock=F("stock") - 1)
+    return (
+        Producto.objects.for_gimnasio(gimnasio).count(),
+        Pedido.objects.for_gimnasio(gimnasio).count(),
+    )
 
 
 def borrar_demo(*, gimnasio):

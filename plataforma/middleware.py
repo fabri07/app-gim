@@ -97,6 +97,10 @@ APPS_SIN_BLOQUEO_CON_REGISTRO = frozenset({"suscripcion"})
 #: después; y la landing y la política de privacidad son páginas públicas que
 #: no tienen nada que ver con el acceso de este usuario.
 #:
+#: `tienda_foto_producto` (la foto `immutable` de un producto de la tienda) entra
+#: por lo mismo, y por eso ya no son sólo nombres de `tenants`: se comparan por
+#: `url_name` SIN namespace, de ahí el prefijo `tienda_` en el nombre de la ruta.
+#:
 #: `logo_gimnasio` y `fondo_gimnasio` están acá por un motivo distinto del
 #: encierro: son los dos archivos que `ArchivoDeGimnasioView` sirve
 #: `immutable`, y tocarles la sesión les rompe la caché (ver el docstring del

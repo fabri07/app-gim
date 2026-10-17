@@ -298,3 +298,7 @@ Ajustes de la revisión adversarial de estos cambios:
 
 - **Dedup de avisos del cron (Tarea 8):** el recordatorio de 24 h («comprobante sin revisar») y el aviso de «vencido» se deduplican con `RecordatorioEnviado` (`PEDIDO_EN_REVISION`, `PEDIDO_VENCIDO`), como todos los recordatorios del proyecto, y no con el campo `Pedido.aviso_revision_en` que decía la sección anterior. El campo no se crea.
 - **«cancelacion_resuelta»:** las vistas mandan la misma clave al aceptar y al rechazar; `notificar_pedido_al_alumno` redacta distinto según `pedido.estado` (DEVUELTO = aceptada).
+- **Marcar pagado desde `PENDIENTE_PAGO`:** el staff puede «Marcar pagado» directo, sin comprobante (pago en mostrador).
+- **`ConfiguracionTienda` del Hito 1** no tiene `acepta_transferencia`, `acepta_mercadopago` ni `minutos_reserva_mp` (con un solo medio no hay qué elegir; llegan con el Hito 2), y `Pedido.Medio` tiene sólo `TRANSFERENCIA`.
+- **La portada no cambia en el Hito 1:** el add-on se cobra desde el Hito 3; mientras tanto la demo lleva el chip «Adicional».
+- **`Pedido.cancelacion_resuelta_en`** (ver «cancelacion_resuelta» arriba) saca de la cola las cancelaciones rechazadas.

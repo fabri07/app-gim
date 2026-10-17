@@ -3826,6 +3826,36 @@ class SembrarDemoTests(TestCase):
         # Y no escribió NADA antes de negarse.
         self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 1)
 
+    def test_la_tienda_no_se_siembra_en_un_gimnasio_que_no_es_demo(self):
+        """`--confirmar` siembra sobre gimnasios con alumnos reales: ahí la
+        tienda publicaría productos inventados a la vista de sus alumnos."""
+        from tienda.models import Producto
+
+        self._sembrar(alumnos=4, meses=1)
+
+        self.assertFalse(Producto.objects.for_gimnasio(self.gimnasio).exists())
+
+    def test_la_tienda_se_siembra_en_la_demo_sin_duplicar(self):
+        from tienda.models import Pedido, Producto, Variante
+        from tienda.services import reservado_por_variante
+
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
+        self._sembrar(alumnos=4, meses=1)
+        productos = Producto.objects.for_gimnasio(self.gimnasio).count()
+        variantes = Variante.objects.filter(producto__gimnasio=self.gimnasio).count()
+
+        self.assertGreater(productos, 0)
+        self.assertTrue(Pedido.objects.for_gimnasio(self.gimnasio).exists())
+        self.assertFalse(Producto.objects.for_gimnasio(self.gimnasio).exclude(foto="").exists())
+        # Lo reservado sale del disponible: el chocolate se siembra con 8 y su
+        # pedido en revisión retiene uno.
+        chocolate = Variante.objects.get(producto__gimnasio=self.gimnasio, nombre="Chocolate")
+        self.assertEqual(chocolate.stock + reservado_por_variante(self.gimnasio).get(chocolate.pk, 0), 8)
+
+        self._sembrar(alumnos=4, meses=1, confirmar=True)
+        self.assertEqual(Producto.objects.for_gimnasio(self.gimnasio).count(), productos)
+        self.assertEqual(Variante.objects.filter(producto__gimnasio=self.gimnasio).count(), variantes)
+
     def test_con_confirmar_siembra_igual(self):
         from alumnos.models import Alumno
 
@@ -4674,6 +4704,20 @@ class RestaurarDemoTests(TestCase):
             .filter(nombre="Ejercicio P")
             .exists()
         )
+
+    def test_saca_el_producto_del_prospecto_y_resiembra_la_tienda(self):
+        from tienda.models import CategoriaProducto, Producto
+
+        categoria = CategoriaProducto.objects.create(gimnasio=self.demo, nombre="Del prospecto")
+        Producto.objects.create(
+            gimnasio=self.demo, nombre="Producto del prospecto", categoria=categoria, precio=100
+        )
+
+        self._restaurar(alumnos=4, meses=1)
+
+        productos = Producto.objects.for_gimnasio(self.demo)
+        self.assertFalse(productos.filter(nombre="Producto del prospecto").exists())
+        self.assertTrue(productos.filter(nombre="Proteína whey 1 kg").exists())
 
     def test_devuelve_la_estetica_de_fabrica(self):
         """El prospecto también toca «Mi gimnasio»: le cambia el nombre, le

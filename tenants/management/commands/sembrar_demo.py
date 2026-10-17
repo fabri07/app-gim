@@ -37,7 +37,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--borrar", action="store_true",
-            help="Saca los datos de demo (y solo esos) en vez de sembrar.",
+            help="Saca los datos de demo (y solo esos, con sus pedidos de la tienda) en vez de sembrar.",
         )
         parser.add_argument(
             "--confirmar", action="store_true",

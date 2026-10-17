@@ -63,7 +63,9 @@ def ciclo_vigente(fecha_inicio_ciclo, hoy):
 class MedioCobro(TenantOwnedModel):
     """Alias/CBU al que los alumnos transfieren la cuota. Solo datos exhibidos en el
     portal -- sin integración de pagos (principio no negociable del proyecto: "sin
-    Mercado Pago ni integraciones financieras en el MVP")."""
+    Mercado Pago ni integraciones financieras en el MVP").
+
+    Lo muestran también la tienda (`tienda/`) en el detalle del pedido por transferencia."""
 
     alias = models.CharField(max_length=60)
     titular = models.CharField(max_length=80, blank=True)

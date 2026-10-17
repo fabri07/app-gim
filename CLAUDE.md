@@ -49,11 +49,12 @@ ya actualizados.
 2. La app es la fuente de verdad; nada de sync en vivo con Excel.
 3. Pagos simples: sin Mercado Pago ni integraciones financieras en el MVP.
    Los pendientes del mes se autogeneran por cron; el dueño confirma.
-   **Matiz desde el 2026-09-29:** Mercado Pago entró **sólo** para que el
-   gimnasio le pague la suscripción a la plataforma (`suscripcion/`, ver
-   "Cobro online de la suscripción"). El cobro del gimnasio a sus alumnos
-   (`pagos`) sigue exactamente así: sin MP, el staff confirma. No leas esa
-   entrada como una puerta abierta para los dos.
+   **Matiz desde el 2026-09-29 y el 2026-10-17:** Mercado Pago entró para que
+   el gimnasio le pague la suscripción a la plataforma (`suscripcion/`, ver
+   "Cobro online de la suscripción") y, desde el Hito 2 de la tienda, para que
+   el alumno le pague al gimnasio **sólo en la tienda** (`tienda/`, a la cuenta
+   MP del propio gimnasio). El cobro de cuotas (`pagos`) sigue sin MP: el
+   staff confirma. No leas esa entrada como una puerta abierta para las cuotas.
 4. Aislamiento por gimnasio desde el modelo de datos: ningún registro
    operativo existe sin `gimnasio`.
 5. Archivos de usuario (comprobantes, logos) van a Cloudflare R2, nunca al
@@ -117,6 +118,7 @@ tocar un área, leé su sección** (`grep -n '^## ' ARQUITECTURA.md` da el
 | Superadmin, facturación a gimnasios, `estado_cuenta`, middleware | Panel de plataforma |
 | Mercado Pago, `suscripcion/`, webhook | Cobro online de la suscripción |
 | Molinete, QR, lectores, API `/ingreso/v1/` | Control de ingreso |
+| Tienda (add-on), productos, pedidos, stock | Tienda del gimnasio (`tienda/`) |
 | Botones de borrar | Borrar: `core/borrado.py` |
 | Aviso de plan por vencer | Aviso de plan por vencer |
 | Editor de plantillas, errores de formulario | Un formulario que rechaza sin que se note… (incluye «El editor de plantillas») |
@@ -197,6 +199,7 @@ python manage.py generar_pagos       # autogenera pendientes del ciclo + vence a
 python manage.py expirar_solicitudes # cierra los leads que nunca verificaron el email
 python manage.py reconciliar_cobros  # acredita cobros online cuyo webhook se perdió
                                      # (falla con CommandError sin MERCADOPAGO_*)
+python manage.py vencer_pedidos      # vence pedidos de la tienda sin comprobante + avisos
 python manage.py avisar_cobros       # mails de «por vencer/vence hoy/vencido» al staff
                                      # (idem; la 1ra corrida avisa a todos los ya vencidos)
 python manage.py sembrar_demo --gimnasio <slug>    # datos de muestra (ver su sección)
@@ -250,5 +253,5 @@ producto (ver "Control de ingreso"). El modo kiosco de esa feature sigue sin con
 
 Mercado Pago salió de esta lista el 2026-09-29, **acotado**: sólo para el cobro
 de la suscripción de la plataforma al gimnasio (ver "Cobro online de la
-suscripción"). Para el cobro del gimnasio a sus alumnos (`pagos`) sigue acá,
-igual que el débito automático en los dos casos.
+suscripción") y la tienda (`tienda/`). Para el cobro del gimnasio a sus
+alumnos (`pagos`) sigue acá, igual que el débito automático en los dos casos.

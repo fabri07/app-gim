@@ -37,9 +37,11 @@ Una sola aplicación multi-tenant (nunca una copia del repo por gimnasio) con
 aislamiento de datos por fila y blanco-etiquetado real (logo, colores y
 tipografía por gimnasio) — se vende y se opera como "tu propia app", no como
 una cuenta más en una plataforma compartida y genérica. Sin cobro automático
-(Mercado Pago, débitos): los pagos los confirma el propio staff, lo que
+de cuotas (Mercado Pago, débitos): los pagos los confirma el propio staff, lo que
 mantiene el producto simple para un gimnasio de barrio y evita el costo y la
-fricción de integrarse a un gateway de pagos en esta etapa.
+fricción de integrarse a un gateway de pagos en esta etapa. La tienda del
+gimnasio es un add-on aparte: cobra por transferencia (y con Mercado Pago desde
+el Hito 2), sin tocar el cobro de las cuotas.
 
 ## Operating Context
 
@@ -56,8 +58,10 @@ mobile-first. No hay app nativa.
   ningún registro operativo existe sin un `gimnasio`.
 - Sin subdominios por gimnasio en el MVP — el tenant se resuelve por el
   usuario logueado.
-- Sin Mercado Pago ni integraciones financieras — los pendientes del mes se
-  autogeneran por cron, el staff confirma manualmente.
+- Sin Mercado Pago ni integraciones financieras en las cuotas — los pendientes
+  del mes se autogeneran por cron, el staff confirma manualmente. Vale para
+  `pagos`; la tienda (add-on) cobra por transferencia y con Mercado Pago desde
+  el Hito 2.
 - El identificador de login (email o teléfono) es único a nivel global de la
   plataforma, no por gimnasio — una misma persona no puede tener una sola
   cuenta que cubra dos gimnasios distintos (riesgo aceptado y documentado).

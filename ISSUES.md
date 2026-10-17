@@ -20,6 +20,16 @@ del log.
 
 ---
 
+## [2026-10-17] Tienda: derecho de arrepentimiento
+**Estado:** aceptado (riesgo asumido a propósito), pendiente de revisión legal
+**Impacto:** la tienda vende a consumidores finales; si el mecanismo no alcanza para la Ley 24.240 art. 34 / Res. 424/2020, el gimnasio queda expuesto.
+**Resolución / próximo paso:** botón «Pedir cancelación» que resuelve el staff; el plazo de 10 días se cuenta desde el retiro (`entregado_en`, en fecha argentina) y un pedido pagado sin retirar se puede cancelar siempre; link «Botón de arrepentimiento» visible en el catálogo y en «Mis pedidos»; el número de pedido es el código de la solicitud («Solicitud registrada — pedido #N»). **Revisar con un abogado** si alcanza con eso, en particular si el botón tiene que estar también fuera del login.
+
+## [2026-10-17] Principio #3 abierto para la tienda
+**Estado:** aceptado
+**Impacto:** el principio «pagos simples, sin Mercado Pago» tenía una sola excepción (la suscripción a la plataforma); ahora tiene dos y puede leerse como puerta abierta.
+**Resolución / próximo paso:** la excepción es sólo la tienda (`tienda/`, Hito 2, a la cuenta de MP del gimnasio). Las cuotas (`pagos`) siguen sin MP y las confirma el staff. `CLAUDE.md` § Principios, `PRODUCT.md` y `ROADMAP.md` lo dicen igual.
+
 ## [2026-10-15] Importar alumnos desde Excel/CSV y acciones en lote: riesgos aceptados y deuda conocida
 **Estado:** aceptado (riesgo asumido a propósito); una verificación pendiente contra Postgres
 **Impacto:** el staff carga el padrón desde un `.xlsx`/`.csv` (`importaciones:alumnos_subir`) y opera sobre varios alumnos a la vez desde el listado (`alumnos:lote`). Los importados nacen con `Alumno.importado=True` y, salvo que el archivo traiga «Inicio del ciclo», sin `fecha_inicio_ciclo`: no se les emite ninguna cuota ni se los bloquea hasta que el staff les fija la fecha. Diseño en `ARQUITECTURA.md` («Importar alumnos» y «Acciones en lote del listado de alumnos»).

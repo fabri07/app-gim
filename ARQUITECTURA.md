@@ -441,6 +441,8 @@ suma cinco funciones que responden "¿cómo venimos?".
 - **La última semana del gráfico semanal está en curso** y siempre se ve más
   baja; el copy lo aclara para que no se lea como una caída.
 
+Las ventas de la tienda viven en `tienda/analitica.py`, con el mismo molde; sin el add-on no corre ninguna query.
+
 ## Público del gimnasio y composición del padrón (2026-09-04)
 
 `Gimnasio.tipo_publico` (`TextChoices`: `MIXTO` —default—, `MUJERES`,
@@ -551,6 +553,8 @@ el producto se veía como un formulario en blanco.
   `.lower()` a mano, "Tracción" se guardaba como "traccion" y la segunda
   corrida reventaba contra la `UniqueConstraint`.
 
+La tienda se siembra **sólo si `gimnasio.es_demo`** (`tenants/demo.py::_sembrar_tienda`, dentro del `atomic` de `sembrar_demo`): `--confirmar` también siembra sobre gimnasios con alumnos reales y ahí publicaría productos inventados. Va con `get_or_create`, sin fotos (el workflow de restaurar no tiene R2) y los pedidos sembrados descuentan del disponible lo que retienen. `vaciar_gimnasio` borra los `Pedido` (PROTECT hacia `Alumno`; los ítems caen en cascada) antes que los productos, y `borrar_demo` los limpia por la marca de los alumnos.
+
 ## Cuenta de demostración compartida (`Gimnasio.es_demo`)
 
 Agregado el 2026-09-08: se le pasa UNA misma cuenta de staff (slug `demo`) a
@@ -623,6 +627,8 @@ y no revierte los dos campos del `Gimnasio` que la propia siembra muta
   `concurrency.group` que `sembrar-demo.yml`** para que una siembra manual no se
   solape con la automática. Alta de la cuenta:
   `manage.py crear_gimnasio ... --demo`.
+
+En la demo la tienda está siempre disponible (`puede_usar_tienda` es verdadero con `es_demo`) y lleva el chip «Adicional» (barra y título), porque la portada dice «todas las funciones incluidas» hasta que se facture el add-on; tampoco se conecta Mercado Pago (las compras de un prospecto le caerían a la cuenta de otro). **Después del deploy:** correr `restaurar_demo` (o `sembrar_demo`) a mano para que la demo tenga la tienda sembrada, sin esperar a la próxima corrida del cron.
 
 ## Exportador de datos (`tenants/exportacion.py`)
 
@@ -941,6 +947,8 @@ pantalla del admin.
 que `SOPORTE_CONTACTO`): sin ella el SDK ni se inicializa y la app funciona
 igual. `SENTRY_PANEL_URL` es puramente cosmética (el link del panel) y se lee
 en cada request para que `override_settings` sirva en un test.
+
+`URLS_SIN_BLOQUEO` (`plataforma/middleware.py`) ya no son sólo nombres de `tenants`: entra `tienda_foto_producto`, que se compara por `url_name` **sin namespace** (de ahí el prefijo `tienda_` en el nombre de la ruta). Es la foto `immutable` del producto: colgarle la cookie de sesión rompería su caché.
 
 ## Cobro online de la suscripción (`suscripcion/`, 2026-09-29)
 
@@ -3514,6 +3522,8 @@ notifications.
   del alumno por separado): el topbar ya es común a los dos roles, así que
   alcanza con condicionar la visibilidad ahí.
 
+La tienda suma dos tipos de `RecordatorioEnviado`: `PEDIDO_VENCIDO` y `PEDIDO_EN_REVISION` (dedup de los avisos del cron por pedido). El paso `vencer_pedidos` corre en `.github/workflows/enviar-recordatorios.yml`; tras un deploy que trae migraciones falla hasta que Render termina de migrar.
+
 ## Tour de bienvenida para staff nuevo (más allá del ROADMAP original)
 
 Notas dismissibles ("x" o "Siguiente") que guían al staff nuevo en 6 pasos
@@ -3574,6 +3584,47 @@ para que un dueño nuevo entienda la app en ~5 minutos sin tocar `/admin/`.
   servidor ya sirviera el archivo nuevo. Si un cambio a un `.js`/`.css` no
   parece aplicarse en local con la PWA instalada o ya visitada, sospechá del
   Service Worker antes que del código.
+
+## Tienda del gimnasio (`tienda/`, 2026-10-17)
+
+Diseño completo y decisiones tomadas: `docs/superpowers/specs/2026-10-17-tienda-design.md` (incluye «Ajustes del 17-10» y «Decisiones de ejecución»). Esto es lo que hay que saber para tocar el código.
+
+**Qué es.** Un add-on: el dueño del producto lo habilita por gimnasio (`Gimnasio.tienda_habilitada`, sólo desde el panel de plataforma; `puede_usar_tienda` es la puerta y la cuenta demo siempre la pasa) y se cobra aparte (USD 20 por mes, o 10 meses al año; la facturación es el Hito 3 y no está construida). El gimnasio vende productos con variantes (talles, sabores) a sus alumnos, que reservan, pagan y retiran en el gimnasio. **Hito 1: sólo transferencia.** Mercado Pago de la tienda es el Hito 2 (a la cuenta del propio gimnasio) y no está construido; el principio #3 de `CLAUDE.md` lo abre sólo para la tienda, las cuotas (`pagos`) siguen sin MP.
+
+**Modelos** (`tienda/models.py`; `TenantOwnedModel` salvo `Variante` e `ItemPedido`, que cuelgan de su padre): `ConfiguracionTienda` (una por gimnasio vía `obtener_configuracion`: `publicada`, `horas_reserva_transferencia`, `max_pedidos_activos`, `instrucciones_retiro`), `CategoriaProducto`, `Producto` (`foto`, `publicado`), `Variante` (`stock`, `activa`), `Pedido` e `ItemPedido` (snapshot de nombre y precio). Los tres lugares de la regla transversal (`vaciar_gimnasio`, `_ensuciar`, `HOJAS`/`EXCLUIDOS`) están cubiertos.
+
+**`Variante.stock` es el DISPONIBLE, no el físico.** Reservar descuenta con `update(stock=F("stock") - n)`; liberar suma. Lo reservado se calcula con `services.reservado_por_variante` (una query agregada sobre `ESTADOS_QUE_RETIENEN`) y la pantalla del staff muestra «disponible / reservado». Por eso el stock no se edita en absoluto: hay un «ajuste ±» con `F()` que no pisa reservas (`StockTests.test_ajuste_concurrente_con_una_reserva_no_pisa`). La siembra de la demo respeta esto.
+
+**Máquina de estados** (`Pedido.Estado`): `PENDIENTE_PAGO` → `EN_REVISION` (comprobante a tiempo) → `PAGADO` → `ENTREGADO`; `PENDIENTE_PAGO` → `VENCIDO`; las cancelaciones terminan en `CANCELADO` o `DEVUELTO`. Retienen stock `PENDIENTE_PAGO`, `EN_REVISION` y `PAGADO`. Toda transición es `filter(pk=…, estado__in=ORIGEN).update(...)` y el stock se libera sólo si tocó una fila (`TransicionesDelStaffTests`). El staff puede «Marcar pagado» directo desde `PENDIENTE_PAGO` (pago en mostrador).
+
+**Rechazo del comprobante = reintento.** Rechazar no cancela: vuelve `EN_REVISION → PENDIENTE_PAGO` con `reservado_hasta` nuevo (`horas_reserva_transferencia`), el motivo visible para el alumno y **el stock sigue reservado** todo el tiempo. Si no resube, vence como cualquier pendiente. El archivo viejo se borra **sólo si el nuevo entró** (el nombre viejo se lee de la base, con la fila bloqueada, justo antes del `UPDATE`). El recordatorio de 24 h por comprobante en revisión sale una vez por pedido (dedup por `RecordatorioEnviado`); queda aceptado que un reintento no lo vuelva a disparar. Tests: `ReintentoDelComprobanteTests`, `TransicionesDelStaffTests.test_rechazar_*`.
+
+**Arrepentimiento.** Pagado sin retirar: se puede pedir siempre. Retirado: 10 días desde `entregado_en` en fecha argentina (`localdate`, nunca UTC). El «Botón de arrepentimiento» (Res. 424/2020) es un link visible en el catálogo y en «Mis pedidos», que lista los pedidos cancelables; filtra en la base con `q_puede_pedir_cancelacion`, fijada contra `puede_pedir_cancelacion` por un test. El staff acepta (→ `DEVUELTO`) o rechaza (`cancelacion_resuelta_en`). Riesgo legal abierto: `ISSUES.md` 2026-10-17. Tests: `CancelacionTests`, `BotonDeArrepentimientoTests`.
+
+**Estadísticas de ventas** (`tienda/analitica.py`, molde de `tenants/analitica.py::ingresos_por_mes`): cuentan `PAGADO` + `ENTREGADO` por mes de `pagado_en`; `DEVUELTO` reescribe el mes (esa plata se devolvió). Agrupan con `TruncMonth` en hora argentina, una fila por mes aunque esté vacío y una query por indicador. La tarjeta «Ventas de la tienda» del dashboard y el «Vendido este mes» de pedidos corren sólo con `puede_usar_tienda`: **un gimnasio sin tienda no paga ninguna query** (`VentasEnPantallasTests.test_sin_tienda_ni_tarjeta_ni_queries`). Tests: `tests_analitica.py`.
+
+**Camino perezoso vs cron.** Los crons de GitHub llegan tarde (2-4 h en el plan free), así que un plazo de 30 min no puede depender de ellos: `services.vencer_pedidos` corre perezosamente al abrir catálogo, carrito, checkout, detalle, listado del staff y antes de aceptar un comprobante. **Ese camino nunca toca la red ni manda push** (con un worker, seis llamadas de 5 s son un 502; `VencimientoPerezosoSinPushTests`). El comando `vencer_pedidos` (paso del workflow `enviar-recordatorios`) es el respaldo y el que avisa por push.
+
+**Las 14 trampas de la spec, una línea cada una:**
+
+1. Variante de otro gimnasio en la sesión: la reserva filtra por `producto__gimnasio` (`CarritoTests.test_no_se_agrega_la_variante_de_otro_gimnasio`, `CrearPedidoTests.test_variante_de_otro_gimnasio_no_toca_su_stock`).
+2. Cantidad ≤ 0 suma stock: se valida en el carrito y en `crear_pedido`, más `CheckConstraint` (`ItemPedidoTests.test_la_cantidad_cero_la_rechaza_la_base`).
+3. Sobreventa: nunca leer-y-restar, `UPDATE … stock__gte=n` por ítem en `atomic()` (`CrearPedidoTests.test_la_segunda_compra_de_la_ultima_unidad_falla_sin_tocar_nada`).
+4. Doble liberación: transición condicional, se libera sólo si tocó una fila (`VencimientoTests.test_vencer_dos_veces_no_devuelve_dos_veces`, `test_si_otro_proceso_movio_un_pedido_no_libera_su_stock`).
+5. El staff pisa reservas al editar el stock: ajuste ± con `F()` (`ProductoFormTests.test_editar_el_nombre_no_pisa_el_stock_reservado`).
+6. Los crons llegan tarde: vencimiento perezoso (`PedidosStaffTests.test_listado_vence_perezosamente`).
+7. `vencer_pedidos` concurrente: `skip_locked` y costo independiente de la cantidad de pedidos (`VencimientoTests.test_el_costo_no_crece_con_la_cantidad_de_pedidos`).
+8. Comprobante subido justo al vencer: gracia de 2 min y borrado del archivo si la transición no entró (`ComprobanteTests.test_fuera_de_plazo_se_rechaza_y_no_deja_el_archivo`, `ComprobanteVistaTests.test_subir_tarde_dice_que_el_plazo_vencio_y_libera_el_stock`).
+9. Acaparar stock: tope de pedidos en curso por alumno y sin compra suplantando (`CrearPedidoTests.test_tope_de_pedidos_en_curso`, `test_no_se_compra_suplantando`).
+10. Borrar un producto vendido daba 500: con ventas se archiva (`BorrarProductoTests.test_con_ventas_no_se_borra_y_lo_explica`).
+11. `notificar_a_gimnasio` sin `rol` avisa también a los alumnos: siempre `rol=STAFF` (`AvisosAlStaffTests.test_siempre_con_rol_staff`).
+12. Foto de producto: vista propia, URL versionada `?v=` e `immutable`, nunca la `.url` firmada de R2; `tienda_foto_producto` va a `URLS_SIN_BLOQUEO` (`FotoTests.test_sirve_la_foto_cacheable_sin_cookie`, `test_logueado_tampoco_lleva_cookie_ni_registra_actividad`).
+13. Apagar el add-on con pedidos vivos: el alumno conserva «Mis pedidos» y el staff sigue entregando (`TiendaApagadaTests`, `TiendaApagadaAlumnoTests`).
+14. Demo compartida: sin Mercado Pago y con siembra sólo en `es_demo` (`SembrarDemoTests.test_la_tienda_no_se_siembra_en_un_gimnasio_que_no_es_demo`).
+
+**Detalles de pantalla.** «Quedan N» en el catálogo y badge «Stock bajo» en la lista del staff cuando el disponible llega a `services.UMBRAL_POCAS_UNIDADES` (3; con 0 se ve «Agotado», no «Stock bajo»). En la demo, la barra y el título de la tienda llevan el chip «Adicional».
+
+**Archivos a R2:** `Producto.foto` (`tienda/productos/`) y `Pedido.comprobante` (`tienda/comprobantes/`); ver § Deploy. Todo form que sube archivos lleva `hx-boost="false"`.
 
 ## Deploy (Fase 5)
 
@@ -3708,10 +3759,11 @@ enviar a la casilla propia.
   (van marcadas `sync: false` en el Blueprint, así que no se leen del repo —
   verificarlas ahí, no acá).
 - **Qué se guarda en R2 y qué no** (pregunta recurrente): R2 guarda SOLO los
-  archivos subidos por usuarios, que son exactamente cuatro campos —
+  archivos subidos por usuarios, que son exactamente seis campos —
   `Gimnasio.logo` (`logos/`), `Gimnasio.fondo_imagen` (`fondos/`),
-  `Cuota.comprobante` (`comprobantes/`) e `Importacion.archivo`
-  (`importaciones/`, el `.xlsx` o el `.pdf` original). **Todo el
+  `Cuota.comprobante` (`comprobantes/`), `Importacion.archivo`
+  (`importaciones/`, el `.xlsx` o el `.pdf` original), `Producto.foto`
+  (`tienda/productos/`) y `Pedido.comprobante` (`tienda/comprobantes/`). **Todo el
   resto de los datos vive en Postgres**: alumnos, rutinas, ejercicios, pagos,
   novedades, turnos/reservas, tokens de Google Calendar, usuarios, y el
   `resultado` JSON de cada importación. Los estáticos (`static/css/app.css`,

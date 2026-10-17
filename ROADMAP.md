@@ -89,6 +89,13 @@ nutrición, métricas deportivas, IA de rutinas, subdominios por gimnasio.
 > bloqueado hasta el lunes al gimnasio que pagaba un domingo. El detalle vive en `CLAUDE.md`
 > § "Cobro online de la suscripción".
 
+> **Actualizado (2026-10-17).** La tienda del gimnasio (`tienda/`) es un **add-on** que el
+> dueño del producto habilita por gimnasio y que se cobra aparte (USD 20 por mes, o 10
+> meses al año; la facturación es el Hito 3 y todavía no existe). El Hito 1 vende sólo por
+> transferencia; Mercado Pago llega con el Hito 2, a la cuenta del propio gimnasio. Las
+> cuotas (`pagos`) siguen sin Mercado Pago. El detalle vive en `ARQUITECTURA.md` § "Tienda
+> del gimnasio" y en `docs/superpowers/specs/2026-10-17-tienda-design.md`.
+
 ---
 
 # Fase 0 — Extracción del esqueleto reutilizable

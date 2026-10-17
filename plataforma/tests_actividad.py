@@ -711,6 +711,12 @@ class SembrarActividadDesdeLastLoginTests(TestCase):
 
 
 class PoliticaDePrivacidadTests(TestCase):
+    def test_avisa_que_se_guardan_los_pedidos_y_comprobantes_de_la_tienda(self):
+        html = self.client.get(reverse("politica_privacidad")).content.decode()
+
+        self.assertIn("tienda", html)
+        self.assertIn("comprobante", html)
+
     def test_avisa_que_se_registran_los_dias_de_uso(self):
         """Registrar qué días entra cada persona es un dato nuevo sobre ella:
         tiene que estar escrito en la política, no solo en el código."""
