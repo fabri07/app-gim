@@ -6,6 +6,8 @@ Estado de hoy: el código está hecho y **apagado**. Se prende solo cuando las 4
 
 Cómo funciona, en una frase: cada gimnasio conecta su propia cuenta de Mercado Pago (botón «Conectar Mercado Pago») y la plata va directo a esa cuenta. La plataforma nunca la toca.
 
+**Ojo:** los nombres de menús de Mercado Pago Developers, los interruptores de OAuth/PKCE/offline_access y los datos de las tarjetas de prueba son los publicados al escribir esta guía y pueden llamarse distinto o haber cambiado. Si no coinciden con lo que ves, guiate por la documentación de MP Developers.
+
 Tené a mano: tu cuenta de Mercado Pago Developers (la de la app que ya cobra las suscripciones), la cuenta de Render, la de GitHub y una terminal en la carpeta del repo.
 
 ---
@@ -26,9 +28,9 @@ Necesitás dos: un **vendedor** (el gimnasio) y un **comprador** (el alumno).
 Dentro de la misma aplicación, en **Tus integraciones**:
 
 1. Buscá la sección de **OAuth** (puede llamarse «Autorización» o «Credenciales OAuth»; si no la ves, mirá en **Editar** de la aplicación).
-2. Activá **OAuth**.
-3. Activá **PKCE** (el código de seguridad que usa la app al conectar).
-4. Activá el permiso **offline_access** (hace que la conexión dure meses sin que el dueño del gimnasio tenga que volver a autorizar). Si no aparece esa opción, anotalo en la checklist del final: sin eso, al conectar la app muestra «Mercado Pago no otorgó acceso sin conexión».
+2. Si aparece la opción, activá **OAuth**.
+3. Si aparece la opción, activá **PKCE** (el código de seguridad que usa la app al conectar).
+4. Si aparece la opción, activá el permiso **offline_access** (hace que la conexión dure meses sin que el dueño del gimnasio tenga que volver a autorizar). Si no aparece esa opción, anotalo en la checklist del final: sin eso, al conectar la app muestra «Mercado Pago no otorgó acceso sin conexión».
 5. En **Redirect URI** cargá exactamente esta dirección, sin espacios y con la barra del final:
 
    `https://www.tugimapp.com/tienda/mercadopago/callback/`
@@ -41,10 +43,10 @@ Dentro de la misma aplicación, en **Tus integraciones**:
 
 La app cifra los tokens de Mercado Pago de cada gimnasio con una clave propia. Es **distinta** de la de Google Calendar: no reuses esa.
 
-1. En la terminal, pegá este comando:
+1. En la terminal, dentro de la carpeta del repo, activá el entorno con `source .venv/bin/activate` y pegá este comando:
 
    ```
-   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
    ```
 
 2. Copiá el texto largo que imprime. Es el valor de `MP_TOKEN_ENCRYPTION_KEY`.
@@ -97,7 +99,7 @@ Usá un gimnasio de **prueba** (por ejemplo `gimnasio-verificacion-r2`), nunca e
 2. Menú **Tienda**: agregá al carrito un producto con stock.
 3. En el carrito aparecen dos opciones: **Transferencia** y **Mercado Pago**. Elegí **Mercado Pago** y confirmá.
 4. La app te manda a Mercado Pago. Logueate con el **usuario comprador de prueba** (Parte 1).
-5. Pagá con una **tarjeta de prueba**. Mercado Pago las publica en su documentación (sección «Tarjetas de prueba»); para que el pago salga aprobado, el nombre del titular es `APRO`.
+5. Pagá con una **tarjeta de prueba**. Mercado Pago las publica en su documentación (sección «Tarjetas de prueba»); para que el pago salga aprobado, el nombre del titular es `APRO`, según su documentación pública.
 6. Al terminar, tocá el botón para volver al sitio. Tendrías que aterrizar en «Mi pedido».
 
 ## Parte 8. Qué mirar para saber que anduvo
@@ -139,5 +141,5 @@ Son cosas que dependen de cómo se comporta Mercado Pago de verdad y que el cód
 1. En Render, **Environment**: borrá las 4 variables (`MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_OAUTH_REDIRECT_URI`, `MP_TOKEN_ENCRYPTION_KEY`). Render redeploya.
 2. Resultado: desaparece la tarjeta de Mercado Pago de la configuración, el carrito ofrece sólo transferencia y el webhook responde 503 (Mercado Pago reintenta un tiempo).
 3. Los pedidos de Mercado Pago que ya estaban pagados siguen como estaban. Un pedido sin pagar vence solo y el stock vuelve.
-4. En GitHub podés dejar los 4 secrets. Con las variables fuera de Render, los pasos de Mercado Pago del workflow salen en verde «apagado» si no hay cuentas conectadas; si **hay** una cuenta conectada, salen en rojo a propósito, para que nadie olvide que sus tokens dejaron de renovarse. Para silenciarlo, desconectá la cuenta desde la configuración de la tienda antes de apagar.
-5. Para volver a prender: cargá otra vez las 4 variables **con los mismos valores** (misma clave de cifrado; con otra, las cuentas quedan en «reconectar»). Mientras estuvo apagado no se acreditó ningún pago por Mercado Pago: al prender, la reconciliación recupera los de los últimos 7 días.
+4. **Apagar de verdad = borrar las 4 variables en Render Y los 4 secrets en GitHub.** Si sólo las borrás en Render, los 4 secrets de GitHub dejan la bandera del workflow PRENDIDA: el cron sigue refrescando tokens y acreditando pagos como si nada. Si sólo borrás los secrets de GitHub y hay una cuenta conectada, los pasos de Mercado Pago del workflow salen en rojo a propósito (tokens que ya no se renuevan). Si no hay cuentas conectadas, salen en verde «apagado». Para evitar el rojo, desconectá la cuenta desde la configuración de la tienda antes de apagar.
+5. Para volver a prender: cargá otra vez las 4 variables en Render y los 4 secrets en GitHub, **con los mismos valores** (misma clave de cifrado; con otra, las cuentas quedan en «reconectar»). Si sólo estuvieron fuera de Render, no se perdió nada: el cron siguió acreditando. Si estuvo todo apagado, no se acreditó ningún pago por Mercado Pago: al prender, la reconciliación recupera los de los últimos 7 días.
