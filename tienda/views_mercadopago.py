@@ -21,15 +21,17 @@ from django.contrib import messages
 from django.core import signing
 from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 
 from notificaciones import services as avisos
 from suscripcion.mercadopago import ErrorDeMercadoPago, Secreto, es_de_prueba
-from tienda import mercadopago_oauth
+from suscripcion.views import _cuerpo_tolerante
+from tienda import cuenta_mp, mercadopago_oauth, pagos_mp
 from tienda.models import ESTADOS_QUE_RETIENEN, ConfiguracionTienda, CuentaMercadoPago, Pedido, obtener_configuracion
 from tienda.views import TiendaStaffMixin
 
@@ -266,12 +268,71 @@ class DesconectarView(_MercadoPagoStaffView):
 
 
 @csrf_exempt
+@require_POST
 def webhook(request, uuid_webhook):
-    """Webhook de los pagos de la tienda: la URL ya va en cada preferencia
-    (`notification_url`), así que la ruta existe desde B4.
+    """Notificación de Mercado Pago de que cambió un pago de la tienda de UN
+    gimnasio (el `uuid_webhook` de su cuenta va en la `notification_url` de
+    cada preferencia).
 
-    TODO B5: procesar la notificación (§5 del plan: 503 con la bandera
-    apagada, 200 «ignorado», `acreditar_pedido`, 401 -> RECONECTAR). Hasta
-    entonces responde 503 y Mercado Pago reintenta; la bandera está apagada en
-    producción, así que no se crea ninguna preferencia que apunte acá."""
-    return HttpResponse("no disponible", status=503, content_type="text/plain")
+    `csrf_exempt` porque Mercado Pago no tiene sesión: **la vista nunca lee
+    `request.user`** (un test lo fija). Anónima, `PlataformaMiddleware` la deja
+    pasar. La autenticidad sale de la API: el pago se lee con el token de ESE
+    gimnasio y tiene que traer la referencia de un pedido suyo, con el monto y
+    en ARS. Si en la prueba guiada las notificaciones de un vendedor OAuth
+    llegan firmadas, la firma se agrega OBLIGATORIA en un cambio aparte.
+
+    | Caso                                              | Respuesta |
+    |---------------------------------------------------|-----------|
+    | Bandera apagada                                   | 503 (MP reintenta hasta que se prenda) |
+    | Cuenta inexistente                                | 200 «ignorado» |
+    | Cuenta sin tokens (ilegibles, o desconectada > 7 días) | 200 «ignorado», sin llamar a MP |
+    | Tipo distinto de `payment` o sin `data.id`        | 200 «ignorado» |
+    | MP responde 404 o 403 al leer el pago             | 200 (reintentar no lo arregla) |
+    | MP responde 401                                   | cuenta a RECONECTAR (condicional) + 200 |
+    | Otro error de MP o una carrera repetida           | 500 (MP reintenta a los 15 min) |
+
+    Una cuenta DESCONECTADA hace menos de 7 días todavía tiene tokens: se
+    procesa igual (pagos tardíos de pedidos vencidos).
+    """
+    if not settings.TIENDA_MP_ENABLED:
+        return JsonResponse({"error": "integracion apagada"}, status=503)
+
+    cuenta = CuentaMercadoPago.objects.filter(uuid_webhook=uuid_webhook).first()
+    if cuenta is None or not cuenta.access_token:
+        return JsonResponse({"ok": True, "accion": "ignorado"})
+
+    cuerpo = _cuerpo_tolerante(request.body)
+    data_id = request.GET.get("data.id") or request.GET.get("id")
+    if not data_id:
+        datos = cuerpo.get("data")
+        if isinstance(datos, dict) and datos.get("id") is not None:
+            data_id = str(datos["id"])
+    tipo = request.GET.get("type") or request.GET.get("topic") or cuerpo.get("type")
+    if tipo != "payment" or not data_id:
+        return JsonResponse({"ok": True, "accion": "ignorado"})
+
+    try:
+        pagos_mp.acreditar_pedido(cuenta, data_id)
+    except ErrorDeMercadoPago as error:
+        if error.codigo in (403, 404):
+            logger.warning(
+                "Webhook de la tienda: Mercado Pago no deja leer el pago %s (%s); lo ignoro.",
+                data_id, error.codigo,
+            )
+            return JsonResponse({"ok": True, "accion": "pago inexistente"})
+        if error.codigo == 401:
+            cuenta_mp.marcar_reconectar(cuenta.pk, cuenta.token_expira)
+            logger.warning(
+                "Webhook de la tienda: token rechazado (401) para la cuenta %s.", cuenta.pk
+            )
+            return JsonResponse({"ok": True, "accion": "reconectar"})
+        logger.warning(
+            "Webhook de la tienda: Mercado Pago no respondió por el pago %s (codigo=%s); "
+            "respondo 500 para que reintente.",
+            data_id, error.codigo,
+        )
+        return JsonResponse({"error": "reintentar"}, status=500)
+    except pagos_mp.AcreditacionReintentable:
+        logger.warning("Webhook de la tienda: carrera al acreditar el pago %s; reintentar.", data_id)
+        return JsonResponse({"error": "reintentar"}, status=500)
+    return JsonResponse({"ok": True})

@@ -241,6 +241,7 @@ FILTROS_PEDIDOS = {
     "revisar": Q(estado=Pedido.Estado.EN_REVISION),
     "entregar": Q(estado=Pedido.Estado.PAGADO),
     "cancelaciones": services.Q_CANCELACION_PENDIENTE,
+    "revisar_mp": services.Q_REVISAR_MP,
     "todos": Q(),
 }
 
@@ -271,6 +272,12 @@ class PedidoListView(TiendaStaffMixin, ListView):
         context["filtro"] = self.filtro
         context["contadores"] = services.contadores_panel(self.gimnasio)
         context["vendido_mes"] = analitica.resumen_del_mes(self.gimnasio)
+        # Con la bandera apagada la pestaña no existe (la tienda, idéntica a la
+        # de transferencia), salvo que haya algo pendiente de cuando estaba
+        # prendida.
+        context["ver_revisar_mp"] = settings.TIENDA_MP_ENABLED or bool(
+            context["contadores"]["a_revisar_mp"]
+        )
         return context
 
 
@@ -300,7 +307,19 @@ class PedidoDetailView(TiendaStaffMixin, DetailView):
         # Con el link de MP pagable, ni «Marcar pagado» ni «Cancelar»: el pago
         # puede entrar en cualquier momento. Pasado `vence_preferencia`, sí.
         context["mp_en_curso"] = services.preferencia_vigente(pedido)
+        # Cobrado por Mercado Pago: cancelarlo o aceptar el arrepentimiento NO
+        # devuelve la plata sola (la devolución automática queda fuera de
+        # esta versión): se le dice al staff que la devuelva desde MP.
+        context["cobrado_por_mp"] = _cobrado_por_mp(pedido)
+        context["pagos_adicionales"] = pagos_mp.adicionales_sin_resolver(pedido.respuesta_mp)
         return context
+
+
+def _cobrado_por_mp(pedido):
+    return pedido.medio == Pedido.Medio.MERCADOPAGO and pedido.payment_id != ""
+
+
+DEVOLVER_DESDE_MP = "Devolvé la plata desde tu cuenta de Mercado Pago."
 
 
 class PedidoAccionView(TiendaStaffMixin, View):
@@ -321,6 +340,9 @@ class PedidoAccionView(TiendaStaffMixin, View):
             "cancelar": ("Pedido cancelado; el stock volvió a la tienda.", "cancelado"),
             "aceptar_cancelacion": ("Cancelación aceptada.", "cancelacion_resuelta"),
             "rechazar_cancelacion": ("Cancelación rechazada.", "cancelacion_resuelta"),
+            "entregar_igual": ("Pedido entregado.", None),
+            "ya_devuelto": ("Pedido marcado como devuelto.", "devuelto_mp"),
+            "duplicado_devuelto": ("Listo: el pago duplicado quedó marcado como devuelto.", None),
         }
         try:
             if accion == "pagado":
@@ -335,12 +357,26 @@ class PedidoAccionView(TiendaStaffMixin, View):
                 services.resolver_cancelacion(pedido, aceptar=True, motivo=motivo)
             elif accion == "rechazar_cancelacion":
                 services.resolver_cancelacion(pedido, aceptar=False, motivo=motivo)
+            elif accion == "entregar_igual":
+                services.entregar_igual(pedido)
+            elif accion == "ya_devuelto":
+                services.marcar_devuelto(pedido)
+            elif accion == "duplicado_devuelto":
+                services.resolver_pago_duplicado(
+                    pedido, payment_id=request.POST.get("payment_id", "")
+                )
             else:
                 raise services.ErrorDeTienda("estado_invalido")
         except services.ErrorDeTienda as error:
             messages.error(request, error.mensaje)
         else:
             texto, aviso = avisos[accion]
+            if (
+                accion in ("cancelar", "aceptar_cancelacion")
+                and pedido.estado == Pedido.Estado.DEVUELTO
+                and _cobrado_por_mp(pedido)
+            ):
+                texto = f"{texto} {DEVOLVER_DESDE_MP}"
             messages.success(request, texto)
             if aviso:
                 from notificaciones import services as avisos_push

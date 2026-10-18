@@ -18,12 +18,14 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Count, F, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from tienda.models import (
     ESTADOS_EN_CURSO,
     ESTADOS_QUE_RETIENEN,
+    ESTADOS_SIN_CERRAR,
     MARGEN_PREFERENCIA,
     MAX_LARGO_MOTIVO,
     ConfiguracionTienda,
@@ -452,12 +454,17 @@ def reservado_por_variante(gimnasio):
 # --- Transiciones ----------------------------------------------------------
 
 
-def _transicionar(pedido, origen, ahora, **campos):
+def _transicionar(pedido, origen, ahora, *, filtro=None, **campos):
     """UPDATE condicional sobre el estado. True si este proceso hizo la
-    transición (y por lo tanto le toca devolver el stock, si corresponde)."""
-    tocadas = Pedido.objects.filter(pk=pedido.pk, estado__in=origen).update(
-        modificado=ahora, **campos
-    )
+    transición (y por lo tanto le toca devolver el stock, si corresponde).
+
+    `filtro` (un `Q`) agrega condiciones a la del estado: p. ej.
+    `Q(payment_id="")` al adjuntar un pago de Mercado Pago a un pedido que el
+    staff marcó pagado a mano, para no pisar uno que otro proceso ya adjuntó."""
+    qs = Pedido.objects.filter(pk=pedido.pk, estado__in=origen)
+    if filtro is not None:
+        qs = qs.filter(filtro)
+    tocadas = qs.update(modificado=ahora, **campos)
     if tocadas:
         pedido.refresh_from_db()
     return tocadas == 1
@@ -611,6 +618,91 @@ def resolver_cancelacion(pedido, *, aceptar, motivo="", ahora=None):
     pedido.refresh_from_db()
 
 
+# --- Pedidos de Mercado Pago a revisar (staff) ------------------------------
+
+
+def _resolver_arrepentimiento(pedido, ahora):
+    """Toda transición a DEVUELTO resuelve un arrepentimiento pendiente (si
+    no, queda contado para siempre en la tarjeta del panel)."""
+    Pedido.objects.filter(
+        pk=pedido.pk, cancelacion_pedida_en__isnull=False, cancelacion_resuelta_en__isnull=True
+    ).update(cancelacion_resuelta_en=ahora)
+
+
+def _reservar_stock_del_pedido(pedido_id):
+    """Vuelve a descontar el stock de un pedido que no lo retenía (REVISAR,
+    VENCIDO, CANCELADO): UPDATE condicional SIN JOIN por variante, en orden de
+    id (mismo criterio que `_reservar_y_crear`). Levanta `ErrorDeTienda` si a
+    alguna le falta: quien llama lo corre dentro de un `atomic` que se deshace
+    entero (todo o nada)."""
+    por_variante = (
+        ItemPedido.objects.filter(pedido_id=pedido_id)
+        .values("variante_id")
+        .annotate(n=Sum("cantidad"))
+        .order_by("variante_id")
+    )
+    for fila in por_variante:
+        if not Variante.objects.filter(
+            pk=fila["variante_id"], stock__gte=fila["n"]
+        ).update(stock=F("stock") - fila["n"]):
+            raise ErrorDeTienda("sin_stock", "uno de los productos")
+
+
+def entregar_igual(pedido, *, ahora=None):
+    """REVISAR -> ENTREGADO: el staff decide entregar igual (monto distinto,
+    pago tardío). Pide el stock (REVISAR no lo retiene) y pone `pagado_en` si
+    faltaba, así cuenta en «Vendido este mes». Primero la transición y
+    después el stock, dentro del mismo `atomic`: sin stock se deshace todo."""
+    ahora = _ahora(ahora)
+    try:
+        with transaction.atomic():
+            if not _transicionar(
+                pedido, [_E.REVISAR], ahora,
+                estado=_E.ENTREGADO, entregado_en=ahora,
+                pagado_en=Coalesce(F("pagado_en"), Value(ahora)),
+            ):
+                raise ErrorDeTienda("estado_invalido")
+            _reservar_stock_del_pedido(pedido.pk)
+    finally:
+        # Sin stock el `atomic` deshace la transición, pero la instancia ya
+        # decía ENTREGADO (`_transicionar` la refrescó adentro).
+        pedido.refresh_from_db()
+
+
+def marcar_devuelto(pedido, *, ahora=None):
+    """«Ya lo devolví»: REVISAR -> DEVUELTO. El staff devolvió la plata desde
+    su cuenta de Mercado Pago. Sin stock: REVISAR no lo retiene."""
+    ahora = _ahora(ahora)
+    with transaction.atomic():
+        if not _transicionar(pedido, [_E.REVISAR], ahora, estado=_E.DEVUELTO):
+            raise ErrorDeTienda("estado_invalido")
+        _resolver_arrepentimiento(pedido, ahora)
+    pedido.refresh_from_db()
+
+
+def resolver_pago_duplicado(pedido, *, payment_id, ahora=None):
+    """«Ya devolví el duplicado»: marca resuelta la entrada de ese pago en
+    `pagos_adicionales`. La pestaña se vacía sólo si no queda ninguna sin
+    resolver (con dos duplicados, devolver uno no alcanza). Lee y reescribe
+    el JSON con la fila bloqueada (Postgres)."""
+    from tienda import pagos_mp
+
+    ahora = _ahora(ahora)
+    with transaction.atomic():
+        bloqueado = Pedido.objects.select_for_update().get(pk=pedido.pk)
+        respuesta = pagos_mp.marcar_adicional_resuelto(
+            bloqueado.respuesta_mp, str(payment_id), ahora
+        )
+        if respuesta is None:
+            raise ErrorDeTienda("estado_invalido")
+        Pedido.objects.filter(pk=pedido.pk).update(
+            respuesta_mp=respuesta,
+            revision_mp_pendiente=pagos_mp.hay_adicionales_sin_resolver(respuesta),
+            modificado=ahora,
+        )
+    pedido.refresh_from_db()
+
+
 # --- Ventas y contadores ---------------------------------------------------
 
 
@@ -627,10 +719,20 @@ Q_CANCELACION_PENDIENTE = Q(
 )
 
 
+#: Pestaña «Revisar MP»: Mercado Pago cobró y hace falta una mano humana (el
+#: pedido quedó en REVISAR, o tiene un pago duplicado sin devolver). Un
+#: booleano y no `has_key` sobre el JSON: así la pestaña se vacía cuando se
+#: resuelve. La comparten el contador del panel, el filtro y el push.
+Q_REVISAR_MP = Q(estado=_E.REVISAR) | Q(revision_mp_pendiente=True)
+
+
 def contadores_panel(gimnasio):
+    """UNA query agregada. `vivos` = pedidos sin cerrar (retienen stock o
+    esperan una decisión del staff sobre plata cobrada: REVISAR)."""
     return Pedido.objects.for_gimnasio(gimnasio).aggregate(
         a_revisar=Count("pk", filter=Q(estado=_E.EN_REVISION)),
+        a_revisar_mp=Count("pk", filter=Q_REVISAR_MP),
         a_entregar=Count("pk", filter=Q(estado=_E.PAGADO)),
         cancelaciones=Count("pk", filter=Q_CANCELACION_PENDIENTE),
-        vivos=Count("pk", filter=Q(estado__in=ESTADOS_QUE_RETIENEN)),
+        vivos=Count("pk", filter=Q(estado__in=ESTADOS_SIN_CERRAR)),
     )

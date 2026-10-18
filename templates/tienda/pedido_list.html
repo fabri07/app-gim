@@ -16,6 +16,7 @@
     <a class="{% if filtro == 'revisar' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=revisar">A revisar ({{ contadores.a_revisar }})</a>
     <a class="{% if filtro == 'entregar' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=entregar">Para entregar ({{ contadores.a_entregar }})</a>
     <a class="{% if filtro == 'cancelaciones' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=cancelaciones">Cancelaciones ({{ contadores.cancelaciones }})</a>
+    {% if ver_revisar_mp %}<a class="{% if filtro == 'revisar_mp' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=revisar_mp">Revisar MP ({{ contadores.a_revisar_mp }})</a>{% endif %}
     <a class="{% if filtro == 'todos' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=todos">Todos</a>
   </nav>
 

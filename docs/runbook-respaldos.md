@@ -145,10 +145,11 @@ Configurá el mail de notificación a una casilla que leas de verdad.
 | `VAPID_ADMIN_EMAIL` | ídem |
 
 **Mercado Pago de la tienda (opcionales hasta prender la función).** Cuando se
-prende, `reconciliar-cobros.yml` (paso «Refrescar cuentas de Mercado Pago de la
-tienda») necesita además estos 4 secrets, con **exactamente los mismos valores**
+prende, `reconciliar-cobros.yml` (pasos «Refrescar cuentas de Mercado Pago de la
+tienda» y «Reconciliar pedidos de Mercado Pago de la tienda», los dos con la
+misma regla de salida) necesita además estos 4 secrets, con **exactamente los mismos valores**
 que en Render (si la clave de cifrado diverge, los tokens no se descifran y las
-cuentas pasan a «reconectar»). Se cargan las 4 o ninguna; sin ellos el paso
+cuentas pasan a «reconectar»). Se cargan las 4 o ninguna; sin ellos cada paso
 sale 0 «apagado»... **salvo que haya una cuenta conectada**: ahí sale 1 a
 propósito (secrets olvidados: los tokens vencerían sin que nadie lo note). Usa
 también las `VAPID_*` de abajo para avisar al staff. **Ojo:** un

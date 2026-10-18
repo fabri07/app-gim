@@ -482,10 +482,6 @@ class CrearLinkTests(_Base):
         self.assertEqual(self.variante.stock, 2)
         self.assertTrue(Pedido.objects.filter(pk=pedido.pk).exists())
 
-    def test_acreditar_es_un_stub_hasta_b5(self):
-        with self.assertRaises(NotImplementedError):
-            pagos_mp.acreditar_pedido(None, "1")
-
 
 # --- Mi pedido -----------------------------------------------------------------------
 

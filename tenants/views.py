@@ -44,7 +44,12 @@ def _contadores_tienda(gimnasio):
     contadores = contadores_panel(gimnasio)
     if not gimnasio.puede_usar_tienda and not contadores["vivos"]:
         return None
-    if not (contadores["a_revisar"] or contadores["a_entregar"] or contadores["cancelaciones"]):
+    if not (
+        contadores["a_revisar"]
+        or contadores["a_revisar_mp"]
+        or contadores["a_entregar"]
+        or contadores["cancelaciones"]
+    ):
         return None
     return contadores
 
@@ -175,7 +180,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         # justamente cuando está bloqueado.
         bloqueo = acceso.bloqueo_de(alumno, hoy=hoy)
 
-        from tienda.models import ESTADOS_QUE_RETIENEN, Pedido
+        from tienda.models import ESTADOS_SIN_CERRAR, Pedido
         from tienda.services import (
             Q_CANCELACION_PENDIENTE,
             q_puede_pedir_cancelacion,
@@ -192,7 +197,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
             .filter(
                 Q(alumno=alumno)
                 & (
-                    Q(estado__in=ESTADOS_QUE_RETIENEN)
+                    Q(estado__in=ESTADOS_SIN_CERRAR)
                     | q_puede_pedir_cancelacion()
                     | Q_CANCELACION_PENDIENTE
                 )

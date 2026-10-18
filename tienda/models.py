@@ -371,6 +371,10 @@ ESTADOS_QUE_RETIENEN = (
 #: Pedidos que todavía esperan algo del alumno o del staff antes de cobrarse
 #: (los que cuenta el tope por alumno).
 ESTADOS_EN_CURSO = (Pedido.Estado.PENDIENTE_PAGO, Pedido.Estado.EN_REVISION)
+#: Pedidos «sin cerrar»: retienen stock o esperan que el staff decida qué
+#: hacer con plata que Mercado Pago ya cobró (REVISAR). Los usan `vivos` del
+#: panel y el acceso del alumno a sus pedidos con la tienda apagada.
+ESTADOS_SIN_CERRAR = ESTADOS_QUE_RETIENEN + (Pedido.Estado.REVISAR,)
 
 
 class ItemPedido(models.Model):

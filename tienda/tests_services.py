@@ -602,4 +602,6 @@ class ContadoresTests(_Base):
         services.marcar_pagado(b, ahora=AHORA)
         with self.assertNumQueries(1):
             c = services.contadores_panel(self.gimnasio)
-        self.assertEqual(c, {"a_revisar": 1, "a_entregar": 1, "cancelaciones": 0, "vivos": 2})
+        self.assertEqual(
+            c, {"a_revisar": 1, "a_revisar_mp": 0, "a_entregar": 1, "cancelaciones": 0, "vivos": 2}
+        )

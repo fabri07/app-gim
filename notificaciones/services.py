@@ -351,6 +351,27 @@ _AVISOS_STAFF = {
         "El comprobante del pedido #{pk} de {alumno} espera hace más de un día.",
         "revisar",
     ),
+    # Mercado Pago (los manda `tienda.pagos_mp` al acreditar, en `on_commit`).
+    "pago_mp": (
+        "Pago con Mercado Pago",
+        "{alumno} pagó el pedido #{pk} por $ {total} con Mercado Pago: está para entregar.",
+        "entregar",
+    ),
+    "revisar_mp": (
+        "Pago de Mercado Pago para revisar",
+        "Mercado Pago cobró el pedido #{pk} de {alumno} pero no se pudo dejar en «Pagado»: revisalo.",
+        "revisar_mp",
+    ),
+    "pago_duplicado": (
+        "Pedido cobrado dos veces",
+        "El pedido #{pk} de {alumno} se cobró dos veces: devolvé uno desde Mercado Pago.",
+        "revisar_mp",
+    ),
+    "devuelto_mp": (
+        "Pago devuelto por Mercado Pago",
+        "Mercado Pago devolvió el pago del pedido #{pk} de {alumno}.",
+        "todos",
+    ),
 }
 
 _AVISOS_ALUMNO = {
@@ -364,6 +385,14 @@ _AVISOS_ALUMNO = {
         "El gimnasio rechazó el comprobante del pedido #{pk}. Subí otro desde tu pedido.",
     ),
     "cancelado": ("Pedido cancelado", "El gimnasio canceló tu pedido #{pk}."),
+    "revisar_mp": (
+        "Recibimos tu pago",
+        "Recibimos el pago del pedido #{pk}: el gimnasio te va a contactar.",
+    ),
+    "devuelto_mp": (
+        "Pago devuelto",
+        "Se devolvió el pago del pedido #{pk} por Mercado Pago.",
+    ),
     "vencido": (
         "Pedido vencido",
         "Tu pedido #{pk} venció: terminó el plazo para pagarlo y los productos volvieron a la tienda.",
