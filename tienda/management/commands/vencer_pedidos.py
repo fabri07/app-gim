@@ -25,9 +25,16 @@ class Command(BaseCommand):
         ahora = timezone.now()
         vencidos = services.vencer_pedidos(ahora=ahora)
 
-        recientes = Pedido.objects.filter(
-            estado=Pedido.Estado.VENCIDO, modificado__gte=ahora - VENTANA_AVISO_VENCIDO
-        ).select_related("gimnasio", "alumno__perfil__usuario")
+        recientes = (
+            Pedido.objects.filter(
+                estado=Pedido.Estado.VENCIDO, modificado__gte=ahora - VENTANA_AVISO_VENCIDO
+            )
+            # Un checkout de Mercado Pago abandonado (sin ningún pago) vence en
+            # silencio: el alumno simplemente no pagó, y le llegaría un «Tu
+            # pedido venció» por cada vez que abrió el link y se arrepintió.
+            .exclude(medio=Pedido.Medio.MERCADOPAGO, payment_id="")
+            .select_related("gimnasio", "alumno__perfil__usuario")
+        )
         avisados = sum(avisos.notificar_pedido_vencido(p) for p in recientes)
 
         demorados = Pedido.objects.filter(

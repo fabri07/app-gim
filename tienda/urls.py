@@ -23,6 +23,8 @@ urlpatterns = [
     # El valor de MERCADOPAGO_OAUTH_REDIRECT_URI es la URL absoluta de esta ruta.
     path("mercadopago/callback/", views_mercadopago.CallbackView.as_view(), name="mp_callback"),
     path("mercadopago/desconectar/", views_mercadopago.DesconectarView.as_view(), name="mp_desconectar"),
+    # Webhook de los pagos (nunca lee `request.user`; lo completa B5).
+    path("v1/webhook/mercadopago/<uuid:uuid_webhook>/", views_mercadopago.webhook, name="mp_webhook"),
     # Alumno
     path("", views.CatalogoView.as_view(), name="catalogo"),
     path("carrito/", views.CarritoView.as_view(), name="carrito"),
@@ -32,6 +34,8 @@ urlpatterns = [
     path("mis-pedidos/<int:pk>/comprobante/", views.MiPedidoComprobanteView.as_view(), name="mi_pedido_comprobante"),
     path("mis-pedidos/<int:pk>/cancelar/", views.MiPedidoCancelarView.as_view(), name="mi_pedido_cancelar"),
     path("mis-pedidos/<int:pk>/pedir-cancelacion/", views.MiPedidoPedirCancelacionView.as_view(), name="mi_pedido_pedir_cancelacion"),
+    # Adonde vuelve el navegador desde Mercado Pago (alumno dueño del pedido).
+    path("mercadopago/retorno/<uuid:referencia>/", views.RetornoMercadoPagoView.as_view(), name="mp_retorno"),
     # Foto pública (nombre único: `URLS_SIN_BLOQUEO` compara sin namespace)
     path(
         "productos/<int:pk>/fotos/<int:foto_pk>/",

@@ -22,7 +22,23 @@
   </div>
 
   <div>
-  {% if pedido.estado == 'pendiente_pago' %}
+  {% if pedido.estado == 'pendiente_pago' and es_mp %}
+    {% if mp_en_curso and pedido.init_point %}
+      <p>Pagá <span class="whitespace-nowrap">$ {{ pedido.total|floatformat:"2g" }}</span> antes de las {{ pedido.vence_preferencia|time:"H:i" }}</p>
+      <a class="boton w-full mt-2" href="{{ pedido.init_point }}" hx-boost="false">Pagar con Mercado Pago</a>
+      <p class="texto-suave mt-2">Si no lo pagás a tiempo, el pedido se da de baja solo y el stock vuelve a la tienda.</p>
+    {% else %}
+      {% comment %}
+        Sin link (el proceso murió antes de guardarlo) o con el link vencido:
+        ya no se puede pagar, sólo cancelar (o esperar a que venza solo).
+      {% endcomment %}
+      <p class="texto-suave">El link de pago ya no está disponible. Podés cancelar el pedido o esperar a que se dé de baja solo.</p>
+      <form method="post" action="{% url 'tienda:mi_pedido_cancelar' pedido.pk %}">
+        {% csrf_token %}
+        <button type="submit" class="boton-secundario w-full mt-2">Cancelar pedido</button>
+      </form>
+    {% endif %}
+  {% elif pedido.estado == 'pendiente_pago' %}
     {% if pedido.comprobante or pedido.motivo %}
       <p class="aviso-urgente">El gimnasio rechazó tu comprobante{% if pedido.motivo %}: {{ pedido.motivo }}{% endif %}. Subí otro antes del {{ pedido.reservado_hasta|date:"d/m H:i" }}.</p>
     {% endif %}
@@ -46,6 +62,10 @@
   {% elif pedido.estado == 'pagado' %}
     <p>¡Listo! Retiralo en el gimnasio.</p>
     {% if config.instrucciones_retiro %}<p class="texto-suave">{{ config.instrucciones_retiro|linebreaksbr }}</p>{% endif %}
+  {% elif pedido.estado == 'revisar' %}
+    <p>Recibimos tu pago; el gimnasio te va a contactar.</p>
+  {% elif pedido.estado == 'devuelto' and es_mp and mp_devuelto %}
+    <p>Mercado Pago te devolvió el pago.</p>
   {% elif pedido.motivo and not pedido.cancelacion_rechazada %}
     <p class="texto-suave">{{ pedido.motivo }}</p>
   {% endif %}

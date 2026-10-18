@@ -21,9 +21,11 @@ from django.contrib import messages
 from django.core import signing
 from django.db import transaction
 from django.db.models import Q
+from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.views import View
+from django.views.decorators.csrf import csrf_exempt
 
 from notificaciones import services as avisos
 from suscripcion.mercadopago import ErrorDeMercadoPago, Secreto, es_de_prueba
@@ -261,3 +263,15 @@ class DesconectarView(_MercadoPagoStaffView):
         else:
             messages.info(request, "No había una cuenta de Mercado Pago conectada.")
         return redirect("tienda:configuracion")
+
+
+@csrf_exempt
+def webhook(request, uuid_webhook):
+    """Webhook de los pagos de la tienda: la URL ya va en cada preferencia
+    (`notification_url`), así que la ruta existe desde B4.
+
+    TODO B5: procesar la notificación (§5 del plan: 503 con la bandera
+    apagada, 200 «ignorado», `acreditar_pedido`, 401 -> RECONECTAR). Hasta
+    entonces responde 503 y Mercado Pago reintenta; la bandera está apagada en
+    producción, así que no se crea ninguna preferencia que apunte acá."""
+    return HttpResponse("no disponible", status=503, content_type="text/plain")

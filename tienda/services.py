@@ -16,6 +16,7 @@ from collections import namedtuple
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Q, Sum
 from django.utils import timezone
@@ -23,8 +24,10 @@ from django.utils import timezone
 from tienda.models import (
     ESTADOS_EN_CURSO,
     ESTADOS_QUE_RETIENEN,
+    MARGEN_PREFERENCIA,
     MAX_LARGO_MOTIVO,
     ConfiguracionTienda,
+    CuentaMercadoPago,
     ItemPedido,
     Pedido,
     Variante,
@@ -67,8 +70,15 @@ MENSAJES = {
     "producto_no_disponible": "Ese producto ya no está disponible.",
     "sin_stock": "No queda stock suficiente de {detalle}. Ajustá la cantidad y probá de nuevo.",
     "tope_pedidos": (
-        "Ya tenés pedidos esperando el pago. Pagalos o cancelalos antes de hacer otro."
+        "Ya tenés pedidos esperando el pago. Pagalos, cancelá los que no vayas a pagar "
+        "o esperá a que se confirmen o venzan antes de hacer otro."
     ),
+    "medio_no_disponible": "Elegí cómo pagar: ese medio de pago no está disponible.",
+    "pago_en_curso": (
+        "Tenés el pago con Mercado Pago en curso. Si no lo vas a pagar, esperá a que venza "
+        "el link (el pedido se da de baja solo) o cancelalo después."
+    ),
+    "mp_fallo": "No pudimos conectar con Mercado Pago. Probá de nuevo{detalle}.",
     "plazo_vencido": (
         "El plazo para mandar el comprobante venció: el pedido se da de baja y el stock "
         "vuelve a la tienda."
@@ -90,6 +100,46 @@ def tienda_visible_para_alumnos(gimnasio):
     return gimnasio.puede_usar_tienda and ConfiguracionTienda.objects.filter(
         gimnasio=gimnasio, publicada=True
     ).exists()
+
+
+def mercadopago_disponible(gimnasio, config):
+    """Si el alumno puede pagar con Mercado Pago ahora. Con la bandera apagada
+    (o en la demo) no se consulta la cuenta: la tienda no carga NI UNA
+    instancia de ella. `exists()` tampoco descifra los tokens."""
+    if not settings.TIENDA_MP_ENABLED or gimnasio.es_demo or not config.acepta_mercadopago:
+        return False
+    return CuentaMercadoPago.objects.filter(
+        gimnasio=gimnasio, estado=CuentaMercadoPago.Estado.CONECTADA
+    ).exists()
+
+
+def medios_disponibles(gimnasio, config):
+    """Los medios que el alumno puede elegir, en el orden del carrito.
+
+    La transferencia es el RESPALDO: aunque el staff la haya destildado, vuelve
+    si Mercado Pago no está disponible (cuenta en «reconectar», bandera
+    apagada). Así una cuenta caída nunca deja la tienda sin poder vender; la
+    configuración le avisa al staff que sus alumnos ven sólo transferencia."""
+    mp = mercadopago_disponible(gimnasio, config)
+    medios = []
+    if config.acepta_transferencia or not mp:
+        medios.append(Pedido.Medio.TRANSFERENCIA)
+    if mp:
+        medios.append(Pedido.Medio.MERCADOPAGO)
+    return medios
+
+
+def preferencia_vigente(pedido, ahora=None):
+    """El link de Mercado Pago de este pedido todavía se puede pagar. Mientras
+    tanto ni el alumno ni el staff lo cancelan (el pago podría entrar en el
+    medio). Sin link (el proceso murió antes de guardarlo) no hay nada en curso."""
+    return (
+        pedido.medio == Pedido.Medio.MERCADOPAGO
+        and pedido.estado == _E.PENDIENTE_PAGO
+        and pedido.preference_id != ""
+        and pedido.vence_preferencia is not None
+        and _ahora(ahora) < pedido.vence_preferencia
+    )
 
 
 def _ahora(ahora):
@@ -173,7 +223,9 @@ def lineas_del_carrito(session, *, gimnasio):
 # --- Pedido ----------------------------------------------------------------
 
 
-def crear_pedido(*, gimnasio, alumno, carrito, suplantando, ahora=None):
+def crear_pedido(
+    *, gimnasio, alumno, carrito, suplantando, medio=Pedido.Medio.TRANSFERENCIA, ahora=None
+):
     ahora = _ahora(ahora)
     if not gimnasio.puede_usar_tienda:
         raise ErrorDeTienda("tienda_cerrada")
@@ -184,9 +236,23 @@ def crear_pedido(*, gimnasio, alumno, carrito, suplantando, ahora=None):
     if any(not 1 <= n <= MAX_UNIDADES_POR_ITEM for n in carrito.values()):
         raise ErrorDeTienda("cantidad_invalida")
     config = obtener_configuracion(gimnasio)
-    en_curso = Pedido.objects.for_gimnasio(gimnasio).filter(
-        alumno=alumno, estado__in=ESTADOS_EN_CURSO
-    ).count()
+    # El POST puede traer cualquier cosa, y la cuenta de MP pudo caerse entre
+    # que el alumno vio el carrito y confirmó.
+    if medio not in medios_disponibles(gimnasio, config):
+        raise ErrorDeTienda("medio_no_disponible")
+    en_curso = (
+        Pedido.objects.for_gimnasio(gimnasio)
+        .filter(alumno=alumno, estado__in=ESTADOS_EN_CURSO)
+        # Un checkout de MP abandonado cuenta sólo mientras su link es pagable
+        # (`vence_preferencia > ahora`); después ya no lo puede pagar ni
+        # cancelar hasta que venza, y no tiene por qué trabarle otra compra.
+        .exclude(
+            medio=Pedido.Medio.MERCADOPAGO,
+            estado=_E.PENDIENTE_PAGO,
+            reservado_hasta__lte=ahora + MARGEN_PREFERENCIA,
+        )
+        .count()
+    )
     if en_curso >= config.max_pedidos_activos:
         # Sin lock a propósito: un doble envío simultáneo puede pasar el tope
         # por uno. Es un freno contra acaparar, no una regla de plata.
@@ -202,7 +268,7 @@ def crear_pedido(*, gimnasio, alumno, carrito, suplantando, ahora=None):
         raise ErrorDeTienda("producto_no_disponible")
 
     try:
-        return _reservar_y_crear(gimnasio, alumno, carrito, variantes, config, ahora)
+        return _reservar_y_crear(gimnasio, alumno, carrito, variantes, config, ahora, medio)
     except IntegrityError:
         logger.warning("CHECK de stock violada al crear un pedido", exc_info=True)
         # Cinturón: la CHECK `stock >= 0` de la base. No debería pasar con el
@@ -210,7 +276,7 @@ def crear_pedido(*, gimnasio, alumno, carrito, suplantando, ahora=None):
         raise ErrorDeTienda("sin_stock", "uno de los productos")
 
 
-def _reservar_y_crear(gimnasio, alumno, carrito, variantes, config, ahora):
+def _reservar_y_crear(gimnasio, alumno, carrito, variantes, config, ahora, medio):
     with transaction.atomic():
         # Orden por id: dos compras concurrentes toman los locks de fila en el
         # mismo orden y no se bloquean en cruz.
@@ -228,11 +294,16 @@ def _reservar_y_crear(gimnasio, alumno, carrito, variantes, config, ahora):
         total = sum(
             (variantes[i].producto.precio * n for i, n in carrito.items()), Decimal("0")
         )
+        if medio == Pedido.Medio.MERCADOPAGO:
+            plazo = timedelta(minutes=config.minutos_reserva_mp)
+        else:
+            plazo = timedelta(hours=config.horas_reserva_transferencia)
         pedido = Pedido.objects.create(
             gimnasio=gimnasio,
             alumno=alumno,
+            medio=medio,
             total=total,
-            reservado_hasta=ahora + timedelta(hours=config.horas_reserva_transferencia),
+            reservado_hasta=ahora + plazo,
         )
         ItemPedido.objects.bulk_create(
             ItemPedido(
@@ -401,6 +472,10 @@ def cancelar_por_alumno(pedido, *, alumno, ahora=None):
     ahora = _ahora(ahora)
     if pedido.alumno_id != alumno.pk:
         raise ErrorDeTienda("no_es_tuyo")
+    if preferencia_vigente(pedido, ahora):
+        # El pago puede entrar en cualquier momento: cancelar ahora dejaría un
+        # cobro sobre un pedido cancelado. Pasado `vence_preferencia` sí.
+        raise ErrorDeTienda("pago_en_curso")
     with transaction.atomic():
         if not _transicionar(pedido, [_E.PENDIENTE_PAGO], ahora, estado=_E.CANCELADO, motivo=""):
             raise ErrorDeTienda("estado_invalido")

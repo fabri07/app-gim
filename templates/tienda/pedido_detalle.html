@@ -57,7 +57,11 @@
     </div>
   {% endif %}
 
-  {% if object.estado == 'pendiente_pago' or object.estado == 'en_revision' %}
+  {% if mp_en_curso %}
+    <p class="texto-suave">El alumno tiene el link de Mercado Pago abierto hasta las {{ object.vence_preferencia|time:"H:i" }}: si no paga, el pedido vence solo.</p>
+  {% endif %}
+
+  {% if not mp_en_curso and object.estado == 'pendiente_pago' or object.estado == 'en_revision' %}
     <form method="post" action="{% url 'tienda:pedido_accion' object.pk %}">
       {% csrf_token %}
       <input type="hidden" name="accion" value="pagado">
@@ -83,7 +87,7 @@
     </form>
   {% endif %}
 
-  {% if object.estado == 'pendiente_pago' or object.estado == 'en_revision' or object.estado == 'pagado' %}
+  {% if not mp_en_curso and object.estado == 'pendiente_pago' or object.estado == 'en_revision' or object.estado == 'pagado' %}
     <form method="post" action="{% url 'tienda:pedido_accion' object.pk %}" class="tarjeta">
       {% csrf_token %}
       <input type="hidden" name="accion" value="cancelar">

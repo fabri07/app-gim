@@ -4,6 +4,7 @@ Los errores de dominio (`ErrorDeTienda`) se muestran con `messages.error` y
 redirect: bajo `hx-boost` un 4xx es un click mudo.
 """
 
+import logging
 import mimetypes
 
 from django.conf import settings
@@ -11,10 +12,13 @@ from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.db.models import Count, Q
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.cache import never_cache
 from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
 
 from core.mixins import TenantScopedMixin
@@ -22,7 +26,7 @@ from core.views import BorrarConExplicacionView
 from pagos.models import MedioCobro
 from tenants import suplantacion
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
-from tienda import analitica, services
+from tienda import analitica, pagos_mp, services
 from tienda.forms import (
     AjusteStockForm,
     CategoriaProductoForm,
@@ -42,6 +46,8 @@ from tienda.models import (
     Variante,
     obtener_configuracion,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TiendaHabilitadaMixin:
@@ -291,6 +297,9 @@ class PedidoDetailView(TiendaStaffMixin, DetailView):
             and pedido.cancelacion_pedida_en is not None
             and pedido.cancelacion_resuelta_en is None
         )
+        # Con el link de MP pagable, ni «Marcar pagado» ni «Cancelar»: el pago
+        # puede entrar en cualquier momento. Pasado `vence_preferencia`, sí.
+        context["mp_en_curso"] = services.preferencia_vigente(pedido)
         return context
 
 
@@ -478,7 +487,14 @@ class CarritoView(TiendaAlumnoMixin, TemplateView):
         context["lineas"], context["total"] = services.lineas_del_carrito(
             self.request.session, gimnasio=self.gimnasio
         )
-        context["config"] = obtener_configuracion(self.gimnasio)
+        config = obtener_configuracion(self.gimnasio)
+        context["config"] = config
+        medios = services.medios_disponibles(self.gimnasio, config)
+        # Con un solo medio el carrito es el de siempre (sin elección).
+        context["elegir_medio"] = len(medios) > 1
+        context["con_mercadopago"] = Pedido.Medio.MERCADOPAGO in medios
+        context["con_transferencia"] = Pedido.Medio.TRANSFERENCIA in medios
+        context["error_medio"] = self.request.GET.get("medio") == "invalido"
         return context
 
     def procesar(self, request, *args, **kwargs):
@@ -504,6 +520,11 @@ class CarritoView(TiendaAlumnoMixin, TemplateView):
 
 class CheckoutView(TiendaAlumnoMixin, View):
     def procesar(self, request, *args, **kwargs):
+        medio = request.POST.get("medio", "")
+        if not medio:
+            # Con un solo medio el carrito no muestra elección (el de siempre).
+            medios = services.medios_disponibles(self.gimnasio, obtener_configuracion(self.gimnasio))
+            medio = medios[0] if len(medios) == 1 else ""
         try:
             # Se compra lo que el alumno VE en el carrito (líneas saneadas), no
             # la sesión cruda: un producto archivado después de agregarlo no
@@ -514,16 +535,47 @@ class CheckoutView(TiendaAlumnoMixin, View):
                 alumno=self.alumno,
                 carrito={l.variante.pk: l.cantidad for l in lineas},
                 suplantando=suplantacion.esta_activa(request),
+                medio=medio,
             )
         except services.ErrorDeTienda as error:
+            if error.motivo == "medio_no_disponible":
+                # El error va debajo de los radios (fieldset a mano).
+                return redirect(reverse("tienda:carrito") + "?medio=invalido")
             messages.error(request, error.mensaje)
             return redirect("tienda:carrito")
+        if pedido.medio == Pedido.Medio.MERCADOPAGO:
+            return self._pagar_con_mercadopago(request, pedido)
         services.vaciar_carrito(request.session)
         from notificaciones import services as avisos_push
 
         transaction.on_commit(lambda: avisos_push.notificar_pedido_al_staff(pedido, "nuevo"))
         messages.success(request, "¡Pedido hecho! Transferí y subí el comprobante antes del plazo.")
         return redirect("tienda:mi_pedido", pk=pedido.pk)
+
+    def _pagar_con_mercadopago(self, request, pedido):
+        """Fuera del `atomic` de `crear_pedido`: la red nunca va con locks
+        tomados. Si MP falla, el pedido ya está borrado y el carrito intacto.
+        SIN push «Nuevo pedido»: llegaría por cada checkout abandonado; al
+        staff le avisa el pago acreditado."""
+        try:
+            link = pagos_mp.crear_link_de_pago(
+                pedido,
+                url_retorno_para=lambda ref: request.build_absolute_uri(
+                    reverse("tienda:mp_retorno", args=[ref])
+                ),
+                url_notificacion_para=lambda uuid_webhook: request.build_absolute_uri(
+                    reverse("tienda:mp_webhook", args=[uuid_webhook])
+                ),
+            )
+        except services.ErrorDeTienda as error:
+            messages.error(request, error.mensaje)
+            return redirect("tienda:carrito")
+        services.vaciar_carrito(request.session)
+        hora = timezone.localtime(pedido.vence_preferencia).strftime("%H:%M")
+        # Se lee al volver de Mercado Pago (o si el alumno cierra la pestaña y
+        # entra de nuevo a la tienda).
+        messages.info(request, f"Pedido #{pedido.pk} reservado: pagalo con Mercado Pago antes de las {hora}.")
+        return HttpResponseRedirect(link)
 
 
 class MisPedidosView(TiendaAlumnoMixin, TemplateView):
@@ -562,6 +614,9 @@ class MiPedidoView(TiendaAlumnoMixin, TemplateView):
             medios_cobro=MedioCobro.objects.for_gimnasio(self.gimnasio).filter(activo=True),
             config=obtener_configuracion(self.gimnasio),
             puede_pedir_cancelacion=services.puede_pedir_cancelacion(pedido),
+            es_mp=pedido.medio == Pedido.Medio.MERCADOPAGO,
+            mp_en_curso=services.preferencia_vigente(pedido),
+            mp_devuelto=pedido.estado_mp in ("refunded", "charged_back"),
         )
         return context
 
@@ -631,3 +686,49 @@ class MiPedidoPedirCancelacionView(_AccionSobreMiPedido):
                 "te van a contactar para devolverte la plata.",
             )
         return redirect("tienda:mi_pedido", pk=pk)
+
+
+@method_decorator(never_cache, name="dispatch")
+class RetornoMercadoPagoView(TiendaAlumnoMixin, View):
+    """Adonde vuelve el navegador desde Mercado Pago. Mismo acceso que «Mi
+    pedido»: alumno dueño (404 si no), aunque la tienda esté apagada.
+
+    El querystring es dato del cliente: el `status` se IGNORA, la única
+    autoridad es leer el pago en la API (`acreditar_pedido`). Un error se
+    loguea y se muestra «Estamos confirmando tu pago»: el webhook y
+    `reconciliar_pedidos` lo acreditan igual. En la app instalada (iOS) la
+    vuelta puede caer en el login: también acredita el webhook."""
+
+    requiere_tienda_visible = False
+
+    def get(self, request, *args, **kwargs):
+        return self._cartel() or self._volver(request)
+
+    def _volver(self, request):
+        pedido = get_object_or_404(
+            Pedido.objects.for_gimnasio(self.gimnasio).filter(
+                alumno=self.alumno, medio=Pedido.Medio.MERCADOPAGO
+            ),
+            referencia_externa=self.kwargs["referencia"],
+        )
+        payment_id = next(
+            (
+                valor
+                for valor in (request.GET.get("payment_id", ""), request.GET.get("collection_id", ""))
+                # Mercado Pago manda el texto «null» cuando no hubo pago.
+                if valor.strip() and valor.strip().lower() != "null"
+            ),
+            "",
+        ).strip()
+        if payment_id and settings.TIENDA_MP_ENABLED:
+            cuenta = CuentaMercadoPago.objects.for_gimnasio(self.gimnasio).first()
+            if cuenta is not None:
+                try:
+                    pagos_mp.acreditar_pedido(cuenta, payment_id)
+                except Exception as exc:  # noqa: BLE001 - lo acredita el webhook
+                    logger.warning(
+                        "No se pudo acreditar al volver de Mercado Pago el pedido %s: %s",
+                        pedido.pk, type(exc).__name__,
+                    )
+                    messages.info(request, "Estamos confirmando tu pago. Te avisamos cuando se acredite.")
+        return redirect("tienda:mi_pedido", pk=pedido.pk)
