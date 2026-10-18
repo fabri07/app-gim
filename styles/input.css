@@ -173,8 +173,11 @@
       lg:gap-x-8;
   }
 
+  /* `!` a propósito: en Tailwind 4 las utilidades (`.mt-2`, `.mt-4`) viven en
+     una capa que le gana a los componentes, y sin `!` el primer elemento del
+     lateral arrancaría 8-16 px más abajo que el principal en la compu. */
   .con-lateral > * > :first-child {
-    @apply lg:mt-0;
+    @apply lg:mt-0!;
   }
 
   /* Header / nav */
