@@ -368,7 +368,7 @@ gimnasio; recién ahí se justifica pagar el costo de una carga externa.
 
 ## Layout
 
-Cuatro anchos de contenedor y dos ayudas de grilla, nada más:
+Cinco anchos de contenedor (cuatro del producto y el del sitio público) y dos ayudas de grilla, nada más:
 - **`.contenido`** (`max-w-md`, ~28rem): formularios y pantallas angostas
   centradas — login y las pantallas que no se adaptan a la compu.
 - **`.contenido--ancho`** (`max-w-5xl`, ~64rem): listados, dashboard, y toda
@@ -384,18 +384,24 @@ Cuatro anchos de contenedor y dos ayudas de grilla, nada más:
 - **`.con-lateral`**: principal + lateral DENTRO de una sola `.tarjeta`
   (carrito, pedido, comprobante de cuota); desde `lg` el lateral mide 20rem.
   Sin espacio vertical propio a propósito (en un grid los márgenes no
-  colapsan): el lateral lleva `mt-4 lg:mt-0`.
+  colapsan): en el celular la separación entre principal y lateral la pone el
+  primer elemento del lateral cuando hace falta (el comprobante lo envuelve en
+  `mt-4 lg:mt-0`, el carrito lo da el total con `mt-4 lg:mt-0`; `mi_pedido`
+  no necesita ninguno). Desde `lg`, `.con-lateral` anula el `mt` de ese primer
+  elemento (con `!important`, porque las utilidades le ganan a los componentes).
 
-**Regla del portal del alumno.** Toda pantalla nueva del alumno declara
-`{% block main_class %}contenido--alumno{% endblock %}` (o `--lectura` si es
-texto largo) y se parte con `.columnas` o `.con-lateral`. En el celular tiene
-que verse igual que antes de la adaptación.
 - **Sitio público** (`max-w-6xl`, ~72rem, `px-4`): portada y login genérico.
   Nav fija de 64px; secciones separadas por `pt-24`/`sm:pt-28`; el hero y el
   login parten en dos columnas desde `lg` (copy a la izquierda, producto o
   formulario a la derecha) y apilan abajo de eso. Las funciones alternan
   texto/demo en dos columnas desde `md`. Precios es la única franja a todo
   el ancho.
+
+**Regla del portal del alumno.** Toda pantalla nueva del alumno declara
+`{% block main_class %}contenido--alumno{% endblock %}` (o `--lectura` si es
+texto largo) y se parte con `.columnas` o `.con-lateral`. En el celular tiene
+que verse igual que antes de la adaptación. Excepción: los carteles y el QR
+quedan en `.contenido`.
 
 Densidad moderada: `px-4 py-8` en el contenedor principal, tarjetas con
 `p-6`, filas de tabla con `py-2.5`. El dashboard usa una grilla de 2
