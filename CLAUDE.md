@@ -13,7 +13,7 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: código de Fases 0-6 completo en `main` y desplegado** (en la rama `worktree-tienda` está además la tienda, Hito 1: venta con transferencia, sin mergear todavía; ver `ARQUITECTURA.md` «Tienda del gimnasio»). La app
+**Fase actual: código de Fases 0-6 completo en `main` y desplegado** (la tienda, Hito 1: venta con transferencia, ya está mergeada en `main`; ver `ARQUITECTURA.md` «Tienda del gimnasio»). La app
 vive en `https://www.tugimapp.com` (Render, free tier, dominio propio desde
 el 2026-08-19) y el bucket de
 Cloudflare R2 (`app-gim-media`) ya está creado y en uso — los pasos manuales

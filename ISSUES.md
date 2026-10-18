@@ -3129,3 +3129,19 @@ error de la base — en SQLite ese error no existe).
 ## [2026-10-17] Tienda: fotos y comprobantes reemplazados o borrados quedan huérfanos en R2
 
 Al reemplazar o borrar la foto de un producto, o borrar un pedido, el archivo anterior queda en R2 (igual que otros uploads de la plataforma). Aceptado: el costo de almacenamiento es despreciable y limpiar exige un barrido que hoy no existe.
+
+## [2026-10-17] Tienda: galería de fotos, columna muerta y costos aceptados
+
+La galería (`FotoProducto`, hasta 5 por producto) reemplaza a `Producto.foto`.
+
+- **`Producto.foto` es una columna muerta**, conservada a propósito para poder
+  volver atrás. Se borra en una migración futura; ese día se cae el test de
+  migración de `tienda` que la usa y hay que retirarlo.
+- **Huérfanos en R2:** ahora pueden quedar hasta 5 archivos por producto cuando
+  se borra un producto o se restaura la demo. Aceptado, igual que el resto de
+  los uploads.
+- **Servir hasta 5 fotos por producto pasa por Django**, y Render puede correr
+  con un solo worker de gunicorn. Medir en el QA con un catálogo real antes de
+  asumir que alcanza.
+- **El tope de 5 no es seguro ante concurrencia** (dos subidas simultáneas
+  podrían pasarlo). Aceptado: es una pantalla de un solo staff.

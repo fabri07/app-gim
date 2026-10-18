@@ -3591,7 +3591,7 @@ Diseño completo y decisiones tomadas: `docs/superpowers/specs/2026-10-17-tienda
 
 **Qué es.** Un add-on: el dueño del producto lo habilita por gimnasio (`Gimnasio.tienda_habilitada`, sólo desde el panel de plataforma; `puede_usar_tienda` es la puerta y la cuenta demo siempre la pasa) y se cobra aparte (USD 20 por mes, o 10 meses al año; la facturación es el Hito 3 y no está construida). El gimnasio vende productos con variantes (talles, sabores) a sus alumnos, que reservan, pagan y retiran en el gimnasio. **Hito 1: sólo transferencia.** Mercado Pago de la tienda es el Hito 2 (a la cuenta del propio gimnasio) y no está construido; el principio #3 de `CLAUDE.md` lo abre sólo para la tienda, las cuotas (`pagos`) siguen sin MP.
 
-**Modelos** (`tienda/models.py`; `TenantOwnedModel` salvo `Variante` e `ItemPedido`, que cuelgan de su padre): `ConfiguracionTienda` (una por gimnasio vía `obtener_configuracion`: `publicada`, `horas_reserva_transferencia`, `max_pedidos_activos`, `instrucciones_retiro`), `CategoriaProducto`, `Producto` (`foto`, `publicado`), `Variante` (`stock`, `activa`), `Pedido` e `ItemPedido` (snapshot de nombre y precio). Los tres lugares de la regla transversal (`vaciar_gimnasio`, `_ensuciar`, `HOJAS`/`EXCLUIDOS`) están cubiertos.
+**Modelos** (`tienda/models.py`; `TenantOwnedModel` salvo `Variante`, `FotoProducto` e `ItemPedido`, que cuelgan de su padre): `ConfiguracionTienda` (una por gimnasio vía `obtener_configuracion`: `publicada`, `horas_reserva_transferencia`, `max_pedidos_activos`, `instrucciones_retiro`), `CategoriaProducto`, `Producto` (`publicado`; su columna `foto` quedó muerta, ver `ISSUES.md` 2026-10-17), `FotoProducto` (hasta 5 por producto, `posicion` 0 = principal; hija de `Producto` como `Variante`, no `TenantOwnedModel`), `Variante` (`stock`, `activa`), `Pedido` e `ItemPedido` (snapshot de nombre y precio). Los tres lugares de la regla transversal (`vaciar_gimnasio`, `_ensuciar`, `HOJAS`/`EXCLUIDOS`) están cubiertos.
 
 **`Variante.stock` es el DISPONIBLE, no el físico.** Reservar descuenta con `update(stock=F("stock") - n)`; liberar suma. Lo reservado se calcula con `services.reservado_por_variante` (una query agregada sobre `ESTADOS_QUE_RETIENEN`) y la pantalla del staff muestra «disponible / reservado». Por eso el stock no se edita en absoluto: hay un «ajuste ±» con `F()` que no pisa reservas (`StockTests.test_ajuste_concurrente_con_una_reserva_no_pisa`). La siembra de la demo respeta esto. Ojo: `sembrar_demo --borrar` seguido de otra siembra deriva el stock (`borrar_demo` borra los `Pedido` sin devolver lo reservado y los productos sobreviven); el camino normal, `restaurar_demo`, vacía todo y no se ve afectado.
 
@@ -3618,13 +3618,13 @@ Diseño completo y decisiones tomadas: `docs/superpowers/specs/2026-10-17-tienda
 9. Acaparar stock: tope de pedidos en curso por alumno y sin compra suplantando (`CrearPedidoTests.test_tope_de_pedidos_en_curso`, `test_no_se_compra_suplantando`).
 10. Borrar un producto vendido daba 500: con ventas se archiva (`BorrarProductoTests.test_con_ventas_no_se_borra_y_lo_explica`).
 11. `notificar_a_gimnasio` sin `rol` avisa también a los alumnos: siempre `rol=STAFF` (`AvisosAlStaffTests.test_siempre_con_rol_staff`).
-12. Foto de producto: vista propia, URL versionada `?v=` e `immutable`, nunca la `.url` firmada de R2; `tienda_foto_producto` va a `URLS_SIN_BLOQUEO` (`FotoTests.test_sirve_la_foto_cacheable_sin_cookie`, `test_logueado_tampoco_lleva_cookie_ni_registra_actividad`).
+12. Fotos de producto (galería de hasta 5): vista propia por foto (`/tienda/productos/<producto>/fotos/<foto>/`), URL versionada `?v=` e `immutable`, nunca la `.url` firmada de R2; `tienda_foto_producto` va a `URLS_SIN_BLOQUEO` (`FotoTests.test_sirve_la_foto_cacheable_sin_cookie`, `test_logueado_tampoco_lleva_cookie_ni_registra_actividad`, `test_foto_de_otro_gimnasio_404`). El tope de 5, la principal y el borrado de filas (el archivo queda en R2) los fija `GaleriaDeFotosTests`. En el catálogo, con más de una foto se muestra la fila deslizable `.producto-fotos` con «N fotos»; con una o ninguna, la imagen suelta de siempre (`CatalogoGaleriaTests.test_tres_fotos_van_en_orden_dentro_de_una_region_deslizable`, `test_una_foto_se_ve_como_antes_sin_region_ni_contador`, `test_sin_fotos_no_hay_imagen_ni_region`; patrón en `DESIGN.md`).
 13. Apagar el add-on con pedidos vivos: el alumno conserva «Mis pedidos» y el staff sigue entregando (`TiendaApagadaTests`, `TiendaApagadaAlumnoTests`).
 14. Demo compartida: sin Mercado Pago y con siembra sólo en `es_demo` (`SembrarDemoTests.test_la_tienda_no_se_siembra_en_un_gimnasio_que_no_es_demo`).
 
 **Detalles de pantalla.** «Quedan N» en el catálogo y badge «Stock bajo» en la lista del staff cuando el disponible llega a `services.UMBRAL_POCAS_UNIDADES` (3; con 0 se ve «Agotado», no «Stock bajo»). En la demo, la barra y el título de la tienda llevan el chip «Adicional».
 
-**Archivos a R2:** `Producto.foto` (`tienda/productos/`) y `Pedido.comprobante` (`tienda/comprobantes/`); ver § Deploy. Todo form que sube archivos lleva `hx-boost="false"`.
+**Archivos a R2:** `FotoProducto.imagen` (`tienda/productos/`) y `Pedido.comprobante` (`tienda/comprobantes/`); ver § Deploy. Todo form que sube archivos lleva `hx-boost="false"`.
 
 ## Deploy (Fase 5)
 
@@ -3762,7 +3762,7 @@ enviar a la casilla propia.
   archivos subidos por usuarios, que son exactamente seis campos —
   `Gimnasio.logo` (`logos/`), `Gimnasio.fondo_imagen` (`fondos/`),
   `Cuota.comprobante` (`comprobantes/`), `Importacion.archivo`
-  (`importaciones/`, el `.xlsx` o el `.pdf` original), `Producto.foto`
+  (`importaciones/`, el `.xlsx` o el `.pdf` original), `FotoProducto.imagen`
   (`tienda/productos/`) y `Pedido.comprobante` (`tienda/comprobantes/`). **Todo el
   resto de los datos vive en Postgres**: alumnos, rutinas, ejercicios, pagos,
   novedades, turnos/reservas, tokens de Google Calendar, usuarios, y el

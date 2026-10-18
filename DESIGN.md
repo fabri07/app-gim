@@ -563,6 +563,22 @@ el alumno parado en el gimnasio mira la semana de hoy y un ejercicio a la vez.
 - **Acción:** una sola por hoja, a lo ancho y al pie («Marcar como entrenado»),
   que es donde llega el pulgar. Los controles táctiles de la hoja miden 44px.
 
+### Fotos del producto en el catálogo (`.producto-fotos`)
+
+Fila horizontal con imán dentro de la `.tarjeta` del producto, sólo cuando hay
+más de una foto (hasta 5). Una o ninguna: la imagen suelta de siempre, sin
+contenedor ni contador. Clase propia, no `.semanas-carrusel`: aquella es sólo de
+celular y esconde la barra; acá la barra se ve desde `sm`, donde no hay gesto de
+deslizar.
+
+- **Foto** (`.producto-fotos__foto`): `w-[85%]` + `snap-start`, para que la
+  siguiente asome y enseñe el gesto sin cartel; cuadrada (`aspect-square`,
+  `object-cover`), `max-w-60` en escritorio. Lleva `width`/`height` y
+  `loading="lazy"` para que no salte el layout.
+- **Accesibilidad:** el contenedor es `tabindex="0" role="region"
+  aria-label="Fotos de {nombre}"`, así se recorre con teclado.
+- **Contador:** «N fotos» en `.texto-suave` debajo. Sin JS ni lightbox.
+
 ### Landing pública — horarios de atención
 Sección nueva con datos **reales** de ese gimnasio puntual (nunca prueba
 social inventada — `PRODUCT.md` documenta que no hay clientes pagos
