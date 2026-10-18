@@ -64,7 +64,10 @@ class EncryptedTextField(models.TextField):
             return self._fernet().decrypt(value.encode()).decode()
         except InvalidToken:
             return None
-        except ImproperlyConfigured:
+        except (ImproperlyConfigured, ValueError):
+            # Con otra clave (MP), una clave ausente o mal formada
+            # (`Fernet(...)` levanta `ValueError`) es «sin clave»: None.
+            # Con la de Google no cambia nada.
             if self.clave_setting == self.CLAVE_POR_DEFECTO:
                 raise
             return None

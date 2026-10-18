@@ -100,6 +100,10 @@ def _headers(clave_idempotencia, token=None, *, sin_autorizacion=False):
         "User-Agent": USER_AGENT,
     }
     if not sin_autorizacion:
+        # Un `Secreto` vacío es un token ilegible (clave rotada): se corta acá,
+        # sin red, en vez de mandar «Bearer » vacío o romper con un TypeError.
+        if token is not None and not token.valor:
+            raise ErrorDeMercadoPago("Sin token", codigo=None)
         headers["Authorization"] = "Bearer " + (
             token.valor if token is not None else settings.MERCADOPAGO_ACCESS_TOKEN
         )

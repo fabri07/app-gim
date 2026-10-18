@@ -69,6 +69,15 @@ class ClienteConTokenTests(SimpleTestCase):
         self.assertNotIn("valor-sensible", str(s))
         self.assertNotIn("valor-sensible", f"{s}")
 
+    def test_secreto_vacio_o_none_es_error_de_mp_y_no_typeerror(self):
+        for valor in ("", None):
+            with self.subTest(valor=valor):
+                with mock.patch("urllib.request.urlopen") as uo:
+                    with self.assertRaises(mp.ErrorDeMercadoPago) as cm:
+                        mp._pedir("GET", "/x", token=mp.Secreto(valor))
+                self.assertIsNone(cm.exception.codigo)
+                uo.assert_not_called()
+
     def test_es_de_prueba_por_token(self):
         self.assertTrue(mp.es_de_prueba(mp.Secreto("TEST-1")))
         self.assertFalse(mp.es_de_prueba(mp.Secreto("APP_USR-1")))
@@ -265,6 +274,21 @@ class CampoCifradoConOtraClaveTests(SimpleTestCase):
             crudo = campo.get_prep_value("tok-mp")
         with override_settings(MP_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode()):
             self.assertIsNone(campo.from_db_value(crudo, None, None))
+
+    def test_clave_mal_formada_se_trata_como_ausente(self):
+        campo = EncryptedTextField(clave_setting="MP_TOKEN_ENCRYPTION_KEY")
+        with override_settings(MP_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode()):
+            crudo = campo.get_prep_value("tok-mp")
+        with override_settings(MP_TOKEN_ENCRYPTION_KEY="no-es-una-clave-fernet"):
+            self.assertIsNone(campo.from_db_value(crudo, None, None))
+
+    def test_la_clave_mal_formada_de_google_no_cambia(self):
+        campo = EncryptedTextField()
+        with override_settings(GOOGLE_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode()):
+            crudo = campo.get_prep_value("t")
+        with override_settings(GOOGLE_TOKEN_ENCRYPTION_KEY="no-es-una-clave-fernet"):
+            with self.assertRaises(ValueError):
+                campo.from_db_value(crudo, None, None)
 
     def test_el_default_de_google_sigue_levantando_sin_clave(self):
         campo = EncryptedTextField()
