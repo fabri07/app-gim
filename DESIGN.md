@@ -579,6 +579,15 @@ deslizar.
   aria-label="Fotos de {nombre}"`, así se recorre con teclado.
 - **Contador:** «N fotos» en `.texto-suave` debajo. Sin JS ni lightbox.
 
+#### Catálogo ancho y fila de foto en el formulario
+
+- **`.catalogo-grilla`**: el catálogo usa `contenido--ancho`; las tarjetas van
+  en 1 / 2 (`sm`) / 3 (`lg`) columnas, con el título de categoría a todo el
+  ancho encima. **`.producto-foto-unica`**: 160px en celular, llena la tarjeta
+  desde `sm`. Carrito y pedidos siguen angostos.
+- **`.foto-fila`** (formulario del staff): miniatura de 72px + «Principal» +
+  «Borrar» + insignia «Principal actual», en un flex que se parte en celular.
+
 ### Landing pública — horarios de atención
 Sección nueva con datos **reales** de ese gimnasio puntual (nunca prueba
 social inventada — `PRODUCT.md` documenta que no hay clientes pagos

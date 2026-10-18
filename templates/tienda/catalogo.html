@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
 {% block title %}Tienda · App Gimnasios{% endblock %}
 
+{% block main_class %}contenido--ancho{% endblock %}
+
 {% block content %}
 <div class="tarjeta">
   <h1>Tienda</h1>
@@ -13,6 +15,7 @@
 
 {% for nombre, productos in grupos %}
   <h2>{{ nombre }}</h2>
+  <div class="catalogo-grilla">
   {% for p in productos %}
     <div class="tarjeta">
       {% with fotos=p.fotos.all %}
@@ -22,7 +25,7 @@
         </div>
         <p class="texto-suave">{{ fotos|length }} fotos</p>
       {% else %}
-        {% with f=p.foto_principal %}{% if f %}<img src="{{ f.url_cacheable }}" alt="" width="160" height="160" loading="lazy">{% endif %}{% endwith %}
+        {% with f=p.foto_principal %}{% if f %}<img class="producto-foto-unica" src="{{ f.url_cacheable }}" alt="" width="160" height="160" loading="lazy">{% endif %}{% endwith %}
       {% endif %}
       {% endwith %}
       <h3>{{ p.nombre }}</h3>
@@ -50,6 +53,7 @@
       </form>
     </div>
   {% endfor %}
+  </div>
 {% empty %}
   <div class="tarjeta"><p class="texto-suave">Todavía no hay productos para mostrar.</p></div>
 {% endfor %}

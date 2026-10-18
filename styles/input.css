@@ -667,6 +667,41 @@
     }
   }
 
+  /* Catálogo del alumno: una columna en celular, dos desde `sm`, tres desde
+     `lg`. Los títulos de categoría quedan fuera de la grilla (van entre una
+     grilla y la siguiente), así que ocupan todo el ancho. */
+  .catalogo-grilla {
+    @apply grid gap-4 sm:grid-cols-2 lg:grid-cols-3 items-start;
+  }
+
+  .catalogo-grilla > .tarjeta {
+    @apply mb-0;
+  }
+
+  /* Foto única: 160px en celular como siempre; desde `sm` llena la tarjeta,
+     igual de cuadrada que las de `.producto-fotos__foto`. */
+  .producto-foto-unica {
+    @apply w-40 sm:w-full h-auto aspect-square object-cover rounded-lg;
+  }
+
+  /* Foto guardada en el formulario del producto: miniatura + opciones en una
+     fila que se parte limpio en celular. */
+  .foto-fila {
+    @apply flex flex-wrap items-center gap-x-4 gap-y-2 mb-3;
+  }
+
+  .foto-fila__miniatura {
+    @apply size-[72px] object-cover rounded-lg shrink-0;
+  }
+
+  .foto-fila__opcion {
+    @apply inline-flex items-center gap-2 mb-0 cursor-pointer;
+  }
+
+  .foto-fila__opcion input {
+    @apply mb-0 w-auto;
+  }
+
   .semanas-carrusel {
     @apply flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-4 px-4 mb-6;
     /* Sin esto, deslizar contra el borde dispara el gesto de "atrás" del

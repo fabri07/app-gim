@@ -356,6 +356,15 @@ class GaleriaDeFotosTests(_BaseStaff):
         self.assertFalse(Producto.objects.filter(nombre="Proteína").exists())
         self.assertFalse(FotoProducto.objects.exists())
 
+    def test_cada_foto_guardada_es_una_fila_con_radio_y_borrar(self):
+        producto, variante, fotos = self.crear_con_fotos(2)
+        html = self.client.get(reverse("tienda:producto_editar", args=[producto.pk])).content.decode()
+        self.assertEqual(html.count('class="foto-fila"'), 2)
+        for f in fotos:
+            self.assertIn(f'type="radio" name="principal" value="{f.pk}"', html)
+        self.assertEqual(html.count('type="checkbox" name="borrar_fotos"'), 2)
+        self.assertEqual(html.count("Principal actual"), 1)
+
     def test_las_que_ya_tiene_cuentan_para_el_maximo(self):
         producto, variante, fotos = self.crear_con_fotos(4)
         r = self.editar(producto, self.datos_edicion(

@@ -299,6 +299,11 @@ class CatalogoGaleriaTests(_BaseAlumno):
         self.assertEqual(html.count('class="producto-fotos__foto"'), 3)
         self.assertEqual(html.count('loading="lazy"'), 3)
 
+    def test_el_catalogo_es_ancho_y_va_en_grilla(self):
+        html = self.client.get(reverse("tienda:catalogo")).content.decode()
+        self.assertIn('class="contenido--ancho"', html)
+        self.assertIn('class="catalogo-grilla"', html)
+
     def test_una_foto_se_ve_como_antes_sin_region_ni_contador(self):
         (foto,) = self._fotos(self.producto, 1)
         html = self.client.get(reverse("tienda:catalogo")).content.decode()

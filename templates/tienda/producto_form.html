@@ -16,14 +16,14 @@
     {% if fotos_no_guardadas %}<p class="config-error" role="alert">Las fotos no se guardaron: volvé a elegirlas.</p>{% endif %}
     {% for c in form.borrar_fotos %}
       {% with foto=c.data.value.instance %}
-      <div class="form-campo">
-        <img src="{{ foto.url_cacheable }}" alt="Foto {{ forloop.counter }}" width="96" height="96" loading="lazy">
-        <label>
+      <div class="foto-fila">
+        <img class="foto-fila__miniatura" src="{{ foto.url_cacheable }}" alt="Foto {{ forloop.counter }}" width="72" height="72" loading="lazy">
+        <label class="foto-fila__opcion">
           <input type="radio" name="{{ form.principal.html_name }}" value="{{ foto.pk }}"{% if form.principal.value|stringformat:"s" == foto.pk|stringformat:"s" %} checked{% endif %}>
           Principal
         </label>
+        <label class="foto-fila__opcion" for="{{ c.id_for_label }}">{{ c.tag }} Borrar</label>
         {% if form.principal.initial == foto.pk %}<span class="badge badge--ok">Principal actual</span>{% endif %}
-        {{ c.tag }} <label for="{{ c.id_for_label }}">Borrar</label>
       </div>
       {% endwith %}
     {% endfor %}
