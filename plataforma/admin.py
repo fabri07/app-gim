@@ -18,6 +18,7 @@ class PagoPlataformaAdmin(admin.ModelAdmin):
         "periodo_hasta",
         "fecha_pago",
         "monto_usd",
+        "monto_tienda_usd",
         "monto_ars",
         "alumnos_activos",
         "origen",

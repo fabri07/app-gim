@@ -55,7 +55,7 @@
           <span>
             <strong>{{ fila.gimnasio.nombre }}</strong>
             <span class="texto-suave">
-              USD {{ fila.precio_usd }} ·
+              USD {{ fila.precio_usd }}{% if fila.tienda_usd %} <span class="texto-suave">con tienda</span>{% endif %} ·
               {% if fila.dias_de_atraso %}
                 vencido hace {{ fila.dias_de_atraso }} día{{ fila.dias_de_atraso|pluralize }}
               {% else %}
@@ -138,7 +138,7 @@
           <td>{{ fila.gimnasio.nombre }}</td>
           <td>{{ fila.gimnasio.creado|date:"d/m/Y" }}</td>
           <td>{{ fila.alumnos_activos }}</td>
-          <td>{% if fila.factura %}{{ fila.precio_usd }}{% else %}—{% endif %}</td>
+          <td>{% if fila.factura %}{{ fila.precio_usd }}{% if fila.tienda_usd %} <span class="texto-suave">con tienda</span>{% endif %}{% else %}—{% endif %}</td>
           <td><span class="badge badge--{{ fila.estado.badge }}">{{ fila.estado.etiqueta }}</span></td>
           {% comment %}
             La columna «Cuenta» (el estado del acceso) es distinta de «Estado»

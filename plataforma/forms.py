@@ -8,6 +8,8 @@ proyecto y sale en negro arriba de la etiqueta, indistinguible de una ayuda.
 Un formulario que rechaza sin que se note es igual a uno que no guarda.
 """
 
+from decimal import Decimal
+
 from django import forms
 
 from plataforma.models import PagoPlataforma
@@ -41,6 +43,17 @@ class PagoPlataformaForm(forms.ModelForm):
     def __init__(self, *args, gimnasio=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.gimnasio = gimnasio
+        # Opcional (vacío = 0): los POST que no mandan el campo siguen
+        # andando. No se redeclara el campo para no perder max_digits/help.
+        self.fields["monto_tienda_usd"].required = False
+
+    def clean_monto_tienda_usd(self):
+        valor = self.cleaned_data.get("monto_tienda_usd")
+        if valor is None:
+            return Decimal(0)
+        if valor < 0:
+            raise forms.ValidationError("La tienda no puede ser negativa.")
+        return valor
 
     class Meta:
         model = PagoPlataforma
@@ -50,6 +63,7 @@ class PagoPlataformaForm(forms.ModelForm):
             "periodo_hasta",
             "alumnos_activos",
             "monto_usd",
+            "monto_tienda_usd",
             "tipo_cambio",
             "monto_ars",
             "notas",
@@ -79,6 +93,13 @@ class PagoPlataformaForm(forms.ModelForm):
             self.add_error(
                 "periodo_hasta",
                 "El período no puede terminar antes de empezar.",
+            )
+        monto = limpio.get("monto_usd")
+        tienda = limpio.get("monto_tienda_usd")
+        if monto is not None and tienda is not None and tienda > monto:
+            self.add_error(
+                "monto_tienda_usd",
+                "La tienda no puede ser más que el monto total.",
             )
         if desde and self.gimnasio and self._ya_hay_un_pago_que_arranca(desde):
             self.add_error("periodo_desde", self.ERROR_PERIODO_REPETIDO)

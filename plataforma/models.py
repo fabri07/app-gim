@@ -14,6 +14,7 @@ queda afuera de los tres lugares donde sí va un modelo tenant-owned nuevo
 """
 
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from core.models import TimeStampedModel
@@ -57,6 +58,15 @@ class PagoPlataforma(TimeStampedModel):
     )
     monto_usd = models.DecimalField(
         max_digits=8, decimal_places=2, verbose_name="monto en USD"
+    )
+    #: La parte de `monto_usd` que es el add-on de la tienda (0 = no la
+    #: incluía; las filas viejas son 0, que es la verdad). Sólo informa, el
+    #: total sigue siendo `monto_usd`.
+    monto_tienda_usd = models.DecimalField(
+        max_digits=8, decimal_places=2, default=0,
+        validators=[MinValueValidator(0)],
+        verbose_name="de los cuales, tienda (USD)",
+        help_text="Parte del monto que es la tienda; 0 si no la tiene.",
     )
     monto_ars = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True,

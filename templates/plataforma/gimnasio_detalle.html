@@ -52,6 +52,7 @@
       <dd>
         {% if fila.factura %}
           USD {{ fila.precio_usd }}
+          {% if fila.tienda_usd %}<span class="texto-suave">(USD {{ escalon.1 }} del tramo + USD {{ fila.tienda_usd }} de la tienda)</span>{% endif %}
           {% if precio_ars %}<span class="texto-suave">≈ $ {{ precio_ars|floatformat:2 }}</span>{% endif %}
         {% elif gimnasio.es_demo %}
           No se le cobra (cuenta de demostración)
@@ -189,7 +190,7 @@
             <tr>
               <td>{{ pago.periodo_desde|date:"d/m/Y" }} al {{ pago.periodo_hasta|date:"d/m/Y" }}</td>
               <td>{{ pago.fecha_pago|date:"d/m/Y" }}</td>
-              <td>{{ pago.monto_usd|floatformat:2 }}</td>
+              <td>{{ pago.monto_usd|floatformat:2 }}{% if pago.monto_tienda_usd %} <span class="texto-suave">incl. tienda</span>{% endif %}</td>
               <td>{% if pago.monto_ars %}{{ pago.monto_ars|floatformat:2 }}{% else %}—{% endif %}</td>
               <td>{% if pago.tipo_cambio %}{{ pago.tipo_cambio|floatformat:2 }}{% else %}—{% endif %}</td>
               <td>{{ pago.alumnos_activos }}</td>

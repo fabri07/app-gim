@@ -51,6 +51,7 @@ class FilaMonitor:
 
     gimnasio: Gimnasio
     alumnos_activos: int
+    #: El TOTAL del próximo cobro (tramo + tienda si la tiene).
     precio_usd: int
     factura: bool
     estado: EstadoPago
@@ -58,6 +59,8 @@ class FilaMonitor:
     cubierto_hasta: date | None
     dias_de_atraso: int
     ultimo_uso_staff: date | None
+    #: La parte de `precio_usd` que es la tienda (0 si no la tiene).
+    tienda_usd: int = 0
 
 
 def inicio_efectivo(gimnasio):
@@ -196,10 +199,13 @@ def fila_de_gimnasio(gimnasio, hoy=None):
     cubierto_hasta = getattr(gimnasio, "cubierto_hasta", None)
     factura = gimnasio.facturacion_aplica
     alumnos_activos = gimnasio.alumnos_activos
+    # `tienda_habilitada` y no `puede_usar_tienda` (verdadera en la demo); la
+    # demo igual no factura porque `factura` la excluye.
+    tienda = gimnasio.tienda_habilitada
     return FilaMonitor(
         gimnasio=gimnasio,
         alumnos_activos=alumnos_activos,
-        precio_usd=precios.precio_usd(alumnos_activos),
+        precio_usd=precios.precio_usd(alumnos_activos, tienda=tienda),
         factura=factura,
         estado=precios.estado_pago(inicio, hoy, cubierto_hasta, exenta=not factura),
         vencimiento=precios.proximo_vencimiento(inicio, hoy, cubierto_hasta),
@@ -208,6 +214,7 @@ def fila_de_gimnasio(gimnasio, hoy=None):
             precios.dias_de_atraso(inicio, hoy, cubierto_hasta) if factura else 0
         ),
         ultimo_uso_staff=gimnasio.ultimo_uso_staff,
+        tienda_usd=precios.precio_tienda_usd(tienda),
     )
 
 

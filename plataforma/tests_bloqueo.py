@@ -763,6 +763,28 @@ class TiendaToggleViewTests(TestCase):
         self.client.post(self.url)
         self.assertEqual(Gimnasio.objects.get(pk=self.gimnasio.pk).modificado, antes)
 
+    def test_el_mensaje_avisa_que_se_cobra_desde_el_proximo_pago(self):
+        r = self.client.post(self.url, follow=True)
+        textos = [str(m) for m in r.context["messages"]]
+        self.assertIn(
+            "Tienda habilitada para Vida Plena. Se le suma USD 20 por mes "
+            "desde su próximo pago.",
+            textos,
+        )
+        r = self.client.post(self.url, follow=True)
+        textos = [str(m) for m in r.context["messages"]]
+        self.assertIn(
+            "Tienda deshabilitada para Vida Plena. Deja de cobrarse desde su "
+            "próximo pago.",
+            textos,
+        )
+
+    def test_el_mensaje_de_un_gimnasio_exento_dice_que_no_se_cobra(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(facturacion_exenta=True)
+        r = self.client.post(self.url, follow=True)
+        textos = [str(m) for m in r.context["messages"]]
+        self.assertIn("Tienda habilitada para Vida Plena (no se le cobra).", textos)
+
     def test_un_staff_de_gimnasio_recibe_403(self):
         self.client.force_login(_staff(self.gimnasio, "duenio-gim"))
         self.assertEqual(self.client.post(self.url).status_code, 403)

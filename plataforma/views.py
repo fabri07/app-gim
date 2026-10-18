@@ -178,7 +178,10 @@ class PagoPlataformaCreateView(GimnasioDePlataformaMixin, CreateView):
     def get_initial(self):
         gimnasio = self.get_gimnasio()
         alumnos_activos = gimnasio.alumnos_activos
-        monto_usd = precios.precio_usd(alumnos_activos)
+        # Mismo criterio que el monitor: la tienda se cobra si está prendida y
+        # el gimnasio factura (un exento no precarga nada).
+        tienda = gimnasio.tienda_habilitada and gimnasio.facturacion_aplica
+        monto_usd = precios.precio_usd(alumnos_activos, tienda=tienda)
         desde, hasta = facturacion.periodo_a_cobrar(gimnasio)
         cotizacion = self._cotizacion()
         inicial = {
@@ -187,6 +190,7 @@ class PagoPlataformaCreateView(GimnasioDePlataformaMixin, CreateView):
             "periodo_hasta": hasta,
             "alumnos_activos": alumnos_activos,
             "monto_usd": monto_usd,
+            "monto_tienda_usd": precios.precio_tienda_usd(tienda),
         }
         # Sin cotización los dos campos quedan vacíos en vez de en cero: un
         # pago con tipo de cambio 0 es un dato falso, y el superadmin puede
@@ -441,10 +445,17 @@ class TiendaToggleView(GimnasioDePlataformaMixin, View):
         gimnasio = self.get_gimnasio()
         habilitada = not gimnasio.tienda_habilitada
         Gimnasio.objects.filter(pk=gimnasio.pk).update(tienda_habilitada=habilitada)
-        messages.success(
-            request,
-            f"Tienda {'habilitada' if habilitada else 'deshabilitada'} para {gimnasio.nombre}.",
-        )
+        estado = "habilitada" if habilitada else "deshabilitada"
+        if not gimnasio.facturacion_aplica:
+            detalle = " (no se le cobra)."
+        elif habilitada:
+            detalle = (
+                f". Se le suma USD {precios.PRECIO_TIENDA_USD} por mes "
+                "desde su próximo pago."
+            )
+        else:
+            detalle = ". Deja de cobrarse desde su próximo pago."
+        messages.success(request, f"Tienda {estado} para {gimnasio.nombre}{detalle}")
         return redirect(self.get_success_url())
 
 

@@ -13,6 +13,10 @@ El modelo comercial (decisión cerrada con el dueño del producto):
   gimnasio, por escalones: hasta 100 → 10, 101 a 300 → 15, más de 300 → 20.
   Los bordes son inclusivos: 100 alumnos exactos pagan 10 y 300 exactos pagan
   15.
+- El add-on de la tienda suma `PRECIO_TIENDA_USD` por mes al tramo (USD 20) y
+  el anual es 10 meses (USD 200), igual que el resto. Se cobra desde el
+  próximo pago de quien ya pagó; el anual congela tramo **y** tienda por 12
+  meses.
 - Los primeros `DIAS_GRATIS` días desde el alta son gratis, así que el primer
   cobro vence el día 30. De ahí en adelante se cobra cada `DIAS_CICLO` días.
 - `DIAS_AVISO_COBRO` días antes de un vencimiento el gimnasio entra en
@@ -50,6 +54,9 @@ DIAS_ANIO = MESES_ANIO * DIAS_CICLO
 
 #: Con cuántos días de anticipación un vencimiento entra en «Para cobrar».
 DIAS_AVISO_COBRO = 7
+
+#: Lo que suma por mes el add-on de la tienda al precio del tramo.
+PRECIO_TIENDA_USD = 20
 
 #: `(tope de alumnos activos, precio en USD)`, de menor a mayor. El tope es
 #: INCLUSIVO y `None` significa "sin tope" (tiene que ser el último).
@@ -104,20 +111,35 @@ def escalon_de(alumnos_activos):
     raise ValueError("ESCALONES tiene que terminar con un escalón sin tope")
 
 
-def precio_usd(alumnos_activos):
-    """Cuánto paga por mes un gimnasio con esa cantidad de alumnos activos."""
-    return escalon_de(alumnos_activos)[1]
+def precio_tienda_usd(tienda):
+    """Lo que suma por mes la tienda: `PRECIO_TIENDA_USD` o 0."""
+    return PRECIO_TIENDA_USD if tienda else 0
 
 
-def precio_usd_anual(alumnos_activos):
+def precio_tienda_usd_anual(tienda):
+    """La tienda por el año: 10 meses, igual que el plan anual."""
+    return precio_tienda_usd(tienda) * (MESES_ANIO - DESCUENTO_ANUAL_MESES)
+
+
+def precio_usd(alumnos_activos, *, tienda=False):
+    """Cuánto paga por mes un gimnasio con esa cantidad de alumnos activos,
+    más la tienda si la tiene. `tienda` va sólo por keyword para que nadie
+    escriba `precio_usd(n, True)`."""
+    return escalon_de(alumnos_activos)[1] + precio_tienda_usd(tienda)
+
+
+def precio_usd_anual(alumnos_activos, *, tienda=False):
     """Cuánto paga por el año un gimnasio con esa cantidad de alumnos activos.
 
     Es el mensual por `MESES_ANIO - DESCUENTO_ANUAL_MESES` meses. El anual
-    **congela el escalón de precio por 12 meses**: un gimnasio de 95 alumnos que
-    llega a 250 paga todo el año al precio de 100. Es una decisión comercial
-    asumida, no un bug.
+    **congela el escalón de precio y la tienda por 12 meses**: un gimnasio de
+    95 alumnos que llega a 250 paga todo el año al precio de 100, y uno que
+    prende la tienda a mitad de año no la paga hasta renovar. Es una decisión
+    comercial asumida, no un bug.
     """
-    return precio_usd(alumnos_activos) * (MESES_ANIO - DESCUENTO_ANUAL_MESES)
+    return precio_usd(alumnos_activos, tienda=tienda) * (
+        MESES_ANIO - DESCUENTO_ANUAL_MESES
+    )
 
 
 def precio_lista_usd(alumnos_activos):
@@ -126,10 +148,10 @@ def precio_lista_usd(alumnos_activos):
     return PRECIOS_DE_LISTA_USD[escalon_de(alumnos_activos)[0]]
 
 
-def precio_usd_anual_sin_descuento(alumnos_activos):
+def precio_usd_anual_sin_descuento(alumnos_activos, *, tienda=False):
     """Lo que costarían 12 meses pagados de a uno: es el monto que se tacha al
     lado del plan anual, así el ahorro que se muestra es real."""
-    return precio_usd(alumnos_activos) * MESES_ANIO
+    return precio_usd(alumnos_activos, tienda=tienda) * MESES_ANIO
 
 
 def fin_de_prueba(inicio):

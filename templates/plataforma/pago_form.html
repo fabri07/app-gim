@@ -28,6 +28,7 @@
     <div class="form-seccion">
       <h2>Montos</h2>
       {% include 'partials/campo_form.html' with campo=form.monto_usd %}
+      {% include 'partials/campo_form.html' with campo=form.monto_tienda_usd %}
       {% include 'partials/campo_form.html' with campo=form.tipo_cambio %}
       {% comment %}
         De dónde salió el número que viene precargado. Sin esto, el tipo de
