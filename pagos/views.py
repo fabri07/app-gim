@@ -188,6 +188,16 @@ class AlumnoComprobanteUpdateView(AlumnoRequiredMixin, UpdateView):
             estado__in=Cuota.ESTADOS_IMPAGOS,
         )
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Los mismos medios que ve en el inicio: el alumno que llega acá desde
+        # «Subir comprobante» necesita el alias a la vista para transferir.
+        context["medios_cobro"] = MedioCobro.objects.for_gimnasio(
+            self.gimnasio
+        ).filter(activo=True)
+        context["gimnasio"] = self.gimnasio
+        return context
+
     def get(self, request, *args, **kwargs):
         if self.alumno is None:
             raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")

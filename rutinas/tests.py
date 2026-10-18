@@ -1621,6 +1621,11 @@ class RutinaMiDiaDetailViewTests(TestCase):
         response = self.client.get(self._url(99))
         self.assertEqual(response.status_code, 404)
 
+    def test_volver_a_mi_rutina_apunta_a_la_tarjeta_de_la_rutina(self):
+        self.client.login(username="usuario_alumno", password="clave-123456")
+        html = self.client.get(self._url(1)).content.decode()
+        self.assertIn(f'href="{reverse("home")}#mi-rutina">Volver a mi rutina', html)
+
     def test_muestra_las_4_semanas(self):
         self.client.login(username="usuario_alumno", password="clave-123456")
         response = self.client.get(self._url(1))

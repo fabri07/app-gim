@@ -1,0 +1,21 @@
+{% comment %}Medios de cobro (alias para transferir). Contexto: `medios_cobro`, `gimnasio`.{% endcomment %}
+{% if medios_cobro %}
+  <p>Podés transferir a:</p>
+  <ul>
+    {% for medio in medios_cobro %}
+      <li>
+        <strong>{{ medio.alias }}</strong>
+        {% if medio.titular %}· {{ medio.titular }}{% endif %}
+        {% if medio.entidad %}· {{ medio.entidad }}{% endif %}
+        <button type="button" class="boton-copiar" data-copiar-alias="{{ medio.alias }}">Copiar</button>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  {% comment %} Sin alias cargado el alumno no tiene a dónde pagar: se le da el contacto del gimnasio, no un hueco. {% endcomment %}
+  <p class="texto-suave">
+    El gimnasio todavía no cargó un alias para transferencias.
+    {% if gimnasio.contacto %}Escribile a {{ gimnasio.contacto }} para coordinar el pago.
+    {% else %}Consultá con el gimnasio cómo pagar.{% endif %}
+  </p>
+{% endif %}

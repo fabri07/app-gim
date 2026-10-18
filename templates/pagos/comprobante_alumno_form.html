@@ -1,15 +1,24 @@
 {% extends 'base.html' %}
 {% block title %}Subir comprobante · App Gimnasios{% endblock %}
+{% block main_class %}contenido--alumno{% endblock %}
 
 {% block content %}
 <div class="tarjeta">
   <h1>Subir comprobante</h1>
-  <p class="texto-suave">{{ object.periodo_inicio|date:"d/m/Y" }} al {{ object.periodo_fin|date:"d/m/Y" }}</p>
-  <form method="post" enctype="multipart/form-data" novalidate hx-boost="false">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit" class="boton">Subir comprobante</button>
-    <a class="boton-secundario" href="{% url 'home' %}">Cancelar</a>
-  </form>
+  <div class="con-lateral">
+    <div>
+      <p class="texto-suave">{{ object.periodo_inicio|date:"d/m/Y" }} al {{ object.periodo_fin|date:"d/m/Y" }}</p>
+      {% if object.monto > 0 %}<p>Monto: <strong>$ {{ object.monto }}</strong></p>{% endif %}
+      {% include 'partials/medios_cobro.html' %}
+    </div>
+    <div class="mt-4 lg:mt-0">
+      <form method="post" enctype="multipart/form-data" novalidate hx-boost="false">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="boton">Subir comprobante</button>
+        <a class="boton-secundario" href="{% url 'home' %}">Cancelar</a>
+      </form>
+    </div>
+  </div>
 </div>
 {% endblock %}

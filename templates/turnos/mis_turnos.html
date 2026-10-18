@@ -17,7 +17,10 @@
       <p><a class="boton" href="{% url 'home' %}">Ver cómo pagar</a></p>
     </div>
   {% endif %}
+  {% if calendar_mostrar or mis_reservas %}
+  <div class="columnas">
   {% if calendar_mostrar %}
+    <div>
     <div class="tarjeta">
       <h2>Google Calendar</h2>
       {% if calendar_conectado %}
@@ -61,9 +64,11 @@
         <a href="{% url 'calendario:conectar' %}" class="boton" hx-boost="false">Conectar mi Google Calendar</a>
       {% endif %}
     </div>
+    </div>
   {% endif %}
 
   {% if mis_reservas %}
+    <div>
     <div class="tarjeta">
       <h2>Mis reservas</h2>
       <div class="tabla-scroll">
@@ -94,6 +99,9 @@
         </table>
       </div>
     </div>
+    </div>
+  {% endif %}
+  </div>
   {% endif %}
 
   {% if sin_horarios %}
