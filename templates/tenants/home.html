@@ -1065,7 +1065,7 @@
     {% if tienda_visible %}
       <div class="tarjeta">
         <h2>Tienda del gimnasio</h2>
-        <p class="texto-suave">Suplementos, ropa y lo que vende tu gimnasio. Pagás por transferencia y retirás acá.</p>
+        <p class="texto-suave">Suplementos, ropa y lo que vende tu gimnasio. Pagás {{ tienda_como_pagar }} y retirás acá.</p>
         <a class="boton w-full mt-2" href="{% url 'tienda:catalogo' %}">Ver productos</a>
         <a class="boton-secundario w-full mt-2" href="{% url 'tienda:mis_pedidos' %}">Mis pedidos</a>
       </div>

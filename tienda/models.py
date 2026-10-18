@@ -322,6 +322,12 @@ class Pedido(TenantOwnedModel):
         return f"Pedido #{self.pk}"
 
     @property
+    def estado_mp_legible(self):
+        """El `status` crudo de Mercado Pago en castellano para el staff; uno
+        que no conocemos se muestra tal cual (mejor crudo que nada)."""
+        return _ESTADO_MP_LEGIBLE.get(self.estado_mp, self.estado_mp)
+
+    @property
     def badge_clase(self):
         """Variante de `.badge` para el estado (única fuente: la usan los
         cuatro templates que muestran el estado de un pedido)."""
@@ -353,6 +359,19 @@ class Pedido(TenantOwnedModel):
 
 #: Cuánto antes de `reservado_hasta` vence la preferencia de Mercado Pago.
 MARGEN_PREFERENCIA = timedelta(minutes=10)
+
+#: Los `status` de un pago de Mercado Pago (API v1/payments).
+_ESTADO_MP_LEGIBLE = {
+    "approved": "aprobado",
+    "authorized": "autorizado",
+    "pending": "pendiente",
+    "in_process": "en proceso",
+    "in_mediation": "en mediación",
+    "rejected": "rechazado",
+    "cancelled": "cancelado",
+    "refunded": "devuelto",
+    "charged_back": "contracargo",
+}
 
 _E = Pedido.Estado
 _BADGE_POR_ESTADO = {

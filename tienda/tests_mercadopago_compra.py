@@ -535,6 +535,50 @@ class MiPedidoMPTests(_Base):
         self.assertNotContains(r, "Pagar con Mercado Pago")
 
 
+# --- Tarjeta del inicio del alumno --------------------------------------------------
+
+
+class TarjetaDelInicioTests(_Base):
+    def inicio(self):
+        return self.client.get(reverse("home"))
+
+    def test_bandera_apagada_dice_transferencia_sin_consultar_la_config(self):
+        self.crear_cuenta()
+        self.aceptar_mp()
+        con_bandera = override_settings(TIENDA_MP_ENABLED=False)
+        with con_bandera:
+            self.inicio()  # calienta cachés de la sesión
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+
+            with CaptureQueriesContext(connection) as queries:
+                r = self.inicio()
+        self.assertContains(r, "Pagás por transferencia y retirás acá.")
+        sqls = " ".join(q["sql"] for q in queries.captured_queries)
+        self.assertNotIn("tienda_cuentamercadopago", sqls)
+        self.assertNotIn("acepta_transferencia", sqls)
+
+    @override_settings(**MP)
+    def test_con_los_dos_medios(self):
+        self.crear_cuenta()
+        self.aceptar_mp()
+        self.assertContains(self.inicio(), "Pagás por transferencia o con Mercado Pago y retirás acá.")
+
+    @override_settings(**MP)
+    def test_solo_mercado_pago(self):
+        self.crear_cuenta()
+        self.aceptar_mp(transferencia=False)
+        r = self.inicio()
+        self.assertContains(r, "Pagás con Mercado Pago y retirás acá.")
+        self.assertNotContains(r, "transferencia")
+
+    @override_settings(**MP)
+    def test_cuenta_en_reconectar_vuelve_a_transferencia(self):
+        self.crear_cuenta(estado=E.RECONECTAR)
+        self.aceptar_mp(transferencia=False)
+        self.assertContains(self.inicio(), "Pagás por transferencia y retirás acá.")
+
+
 # --- Staff ---------------------------------------------------------------------------
 
 
@@ -558,6 +602,22 @@ class StaffDetalleMPTests(_Base):
         r = self.ver(self.pedido_mp(reservado_hasta=timezone.now() + timedelta(minutes=5)))
         self.assertContains(r, "Marcar pagado")
         self.assertContains(r, 'value="cancelar"')
+
+    def test_el_estado_de_mp_se_muestra_en_castellano(self):
+        r = self.ver(self.pedido_mp(payment_id="999", estado_mp="approved"))
+        self.assertContains(r, "999 (aprobado)")
+        self.assertNotContains(r, "approved")
+
+    def test_estado_de_mp_legible(self):
+        casos = {
+            "approved": "aprobado", "rejected": "rechazado", "refunded": "devuelto",
+            "charged_back": "contracargo", "cancelled": "cancelado",
+            "in_process": "en proceso", "pending": "pendiente",
+            "algo_nuevo": "algo_nuevo", "": "",
+        }
+        for crudo, legible in casos.items():
+            with self.subTest(crudo=crudo):
+                self.assertEqual(Pedido(estado_mp=crudo).estado_mp_legible, legible)
 
     def test_sin_link_vuelven(self):
         r = self.ver(self.pedido_mp(preference_id="", init_point=""))

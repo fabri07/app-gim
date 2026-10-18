@@ -63,6 +63,25 @@ def _ventas_tienda(gimnasio):
     return analitica_tienda.panel_de_ventas(gimnasio)
 
 
+def _como_pagar_en_la_tienda(gimnasio):
+    """El medio de pago de la tarjeta «Tienda del gimnasio» del alumno, los
+    mismos que le ofrece el carrito (`medios_disponibles`). Con Mercado Pago
+    apagado (bandera o demo) siempre es transferencia y no se consulta nada:
+    cero queries de más en el inicio."""
+    from tienda.models import ConfiguracionTienda, Pedido
+    from tienda.services import medios_disponibles
+
+    if not settings.TIENDA_MP_ENABLED or gimnasio.es_demo:
+        return "por transferencia"
+    config = ConfiguracionTienda.objects.get(gimnasio=gimnasio)
+    medios = medios_disponibles(gimnasio, config)
+    if Pedido.Medio.MERCADOPAGO not in medios:
+        return "por transferencia"
+    if Pedido.Medio.TRANSFERENCIA not in medios:
+        return "con Mercado Pago"
+    return "por transferencia o con Mercado Pago"
+
+
 class HomeView(LoginRequiredMixin, TemplateView):
     """Página de inicio tras login.
 
@@ -207,6 +226,9 @@ class HomeView(LoginRequiredMixin, TemplateView):
 
         return {
             "tienda_visible": tienda_visible,
+            "tienda_como_pagar": (
+                _como_pagar_en_la_tienda(perfil.gimnasio) if tienda_visible else ""
+            ),
             "tienda_pedidos_vivos": tienda_pedidos_vivos,
             # «Tu código para entrar»: solo el estado y el link a
             # `ingreso:mi_codigo`, nunca el QR (así el inicio sigue cacheable

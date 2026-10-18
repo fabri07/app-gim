@@ -12,7 +12,7 @@
   <div class="tarjeta">
     <p><strong>Alumno:</strong> {{ object.alumno }}</p>
     <p><strong>Hecho el:</strong> {{ object.creado|date:"d/m/Y H:i" }}</p>
-    {% if object.payment_id %}<p><strong>Pago de Mercado Pago:</strong> {{ object.payment_id }}{% if object.estado_mp %} ({{ object.estado_mp }}){% endif %}</p>{% endif %}
+    {% if object.payment_id %}<p><strong>Pago de Mercado Pago:</strong> {{ object.payment_id }}{% if object.estado_mp %} ({{ object.estado_mp_legible }}){% endif %}</p>{% endif %}
     {% if object.reservado_hasta and object.estado == 'pendiente_pago' %}<p class="texto-suave">Reservado hasta el {{ object.reservado_hasta|date:"d/m/Y H:i" }}.</p>{% endif %}
     {% if object.motivo %}<p><strong>{% if object.estado == 'pendiente_pago' %}Rechazado{% else %}Motivo{% endif %}:</strong> {{ object.motivo }}</p>{% endif %}
     {% if object.comprobante %}
