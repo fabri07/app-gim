@@ -20,6 +20,17 @@ del log.
 
 ---
 
+## [2026-10-18] Tienda: Mercado Pago del gimnasio (Hito 2), construido y apagado
+**Estado:** aceptado (riesgos asumidos a propósito); pendiente la prueba guiada con cuentas de prueba
+**Impacto:** la tienda puede cobrar por Mercado Pago a la cuenta del propio gimnasio (OAuth). Todo depende de 4 variables (`MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_OAUTH_REDIRECT_URI`, `MP_TOKEN_ENCRYPTION_KEY`): sin ellas no se ve nada y la tienda cobra sólo por transferencia. Diseño en `ARQUITECTURA.md` («Mercado Pago de la tienda»); pasos y checklist en `docs/mercadopago-tienda.md`.
+**Resolución / próximo paso:**
+- **La devolución es siempre manual** desde la cuenta de Mercado Pago del gimnasio: cancelar un pedido MP pagado o aceptar un arrepentimiento sólo cambia el estado y avisa. Pasados 7 días de una desconexión o un cambio de cuenta, los reintegros y contracargos de la cuenta vieja ya no se reflejan solos (se borran sus tokens): el staff usa «Cancelar». En la app instalada de iOS la vuelta de MP puede caer en el login; acredita igual el webhook. Caso límite aceptado: dos devueltos de pagos distintos sobre un pedido no pagado congelan sólo el primero.
+- **La firma del webhook de la tienda está pendiente de la prueba.** Hoy la autenticidad sale de la API (pago leído con el token de ESE gimnasio + `external_reference` de un pedido suyo + monto + ARS). Si la `notification_url` de un vendedor OAuth llega firmada (`x-signature`), se agrega la validación obligatoria en un cambio aparte, nunca «si viene».
+- **El webhook de la suscripción ya no distingue un token de plataforma muerto.** Un 401/403 al consultar el pago (un pago de un vendedor que llega ahí, o el `MERCADOPAGO_ACCESS_TOKEN` de la plataforma revocado) responde 200 con `logger.error`, para que MP no reintente para siempre. El caso del token de la plataforma muerto lo cubren `reconciliar_cobros` (sale con error en el workflow) y ese `logger.error`; ya no lo delata un 500 en el panel de MP.
+- **Orden de deploy:** el `migrate` corre en el `buildCommand`, mientras la versión vieja sigue atendiendo (por eso los campos nuevos llevan `db_default` y `referencia_externa` admite NULL). Si el cron de `reconciliar-cobros.yml` corre ANTES de la migración con el código nuevo, ese run sale en rojo una vez (columnas inexistentes); el siguiente sale bien. No es un problema real.
+- **Pendiente de probar contra Postgres:** el `select_for_update` del pedido y de la cuenta no hace nada en SQLite (la suite); la protección ahí es el UPDATE condicional más el reintento. Las carreras reales no se midieron.
+- Para prender: hacer la prueba guiada, cargar las 4 variables en Render y los 4 secrets iguales en GitHub (si faltan y hay una cuenta conectada, los pasos de Mercado Pago del workflow salen en rojo a propósito), y una compra real chica que pase a «Pagado».
+
 ## [2026-10-17] Tienda: derecho de arrepentimiento
 **Estado:** aceptado (riesgo asumido a propósito), pendiente de revisión legal
 **Impacto:** la tienda vende a consumidores finales; si el mecanismo no alcanza para la Ley 24.240 art. 34 / Res. 424/2020, el gimnasio queda expuesto.

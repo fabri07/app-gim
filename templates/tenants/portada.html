@@ -337,7 +337,7 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
         {% endfor %}
       </div>
       {# Adicional aparte de los tramos: los números salen de `precios`, nunca literales. #}
-      <p class="portada__precio-adicional"><strong>+ Tienda online (opcional): USD {{ precios_tienda_usd }} / mes</strong>{% if precios_tienda_ars %} (≈ ${{ precios_tienda_ars|floatformat:"0g" }}){% endif %} · USD {{ precios_tienda_anual_usd }} / año. Vendé suplementos y ropa a tus alumnos, con cobro por transferencia.</p>
+      <p class="portada__precio-adicional"><strong>+ Tienda online (opcional): USD {{ precios_tienda_usd }} / mes</strong>{% if precios_tienda_ars %} (≈ ${{ precios_tienda_ars|floatformat:"0g" }}){% endif %} · USD {{ precios_tienda_anual_usd }} / año. Vendé suplementos y ropa a tus alumnos, con cobro por transferencia{% if precios_tienda_mp %} o Mercado Pago{% endif %}.</p>
       <p class="portada__precio-auto"><strong>Tu plan se ajusta solo.</strong> A medida que sumás alumnos activos pasás al tramo siguiente, sin trámites ni cambios de plan: {% for fila in precios_filas %}{% if not forloop.first %}{% if forloop.last %} y {% else %}, {% endif %}{% endif %}{{ fila.etiqueta|lower }}{% endfor %}. Si pagás el año por adelantado, tu precio queda fijo los 12 meses.</p>
       <p class="portada__precio-pie">Sin permanencia. Lo cancelás cuando quieras.</p>
     </div>

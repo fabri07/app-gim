@@ -557,6 +557,17 @@ class PortadaViewTests(TestCase):
             [f["precio_usd"] for f in response.context["precios_filas"]], [10, 15, 20]
         )
 
+    @override_settings(TIENDA_MP_ENABLED=False)
+    def test_portada_con_mercado_pago_apagado_dice_solo_transferencia(self):
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "con cobro por transferencia.</p>")
+        self.assertNotContains(response, "o Mercado Pago")
+
+    @override_settings(TIENDA_MP_ENABLED=True)
+    def test_portada_con_mercado_pago_prendido_lo_menciona(self):
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, "con cobro por transferencia o Mercado Pago.</p>")
+
     def test_sin_cotizacion_no_muestra_pesos(self):
         """Bajo TESTING `cotizacion_dolar` devuelve None, así que la landing
         muestra solo USD (mismo contrato que el panel)."""

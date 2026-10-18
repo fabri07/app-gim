@@ -516,6 +516,9 @@ def _contexto_precios():
         "precios_tienda_usd": precios.precio_tienda_usd(True),
         "precios_tienda_anual_usd": precios.precio_tienda_usd_anual(True),
         "precios_tienda_ars": cambio.pesos(precios.precio_tienda_usd(True), cotizacion),
+        # La línea de la tienda promete «o Mercado Pago» sólo cuando la función
+        # está prendida (las 4 variables cargadas): al prender cambia sola.
+        "precios_tienda_mp": settings.TIENDA_MP_ENABLED,
     }
 
 

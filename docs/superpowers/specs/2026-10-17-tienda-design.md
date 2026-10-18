@@ -148,6 +148,14 @@ REVISAR ─→ DEVUELTO | ENTREGADO (pide stock con F())
 
 ## Mercado Pago del gimnasio (Hito 2)
 
+**HITO 2 HECHO el 2026-10-18, APAGADO hasta la prueba guiada** (`docs/mercadopago-tienda.md`; se prende con las 4 variables en Render y los mismos 4 secrets en GitHub). Plan: `docs/superpowers/plans/2026-10-18-tienda-cobro-y-mercadopago.md` (Parte B); lo construido está descrito en `ARQUITECTURA.md` «Mercado Pago de la tienda». **Cambios deliberados respecto de lo que dice esta sección:**
+
+- Un segundo pago aprobado sobre un pedido ya pagado **NO lo pasa a `REVISAR`** (perdería el estado y el stock): el pedido queda como está, el pago va a `pagos_adicionales` y aparece en la pestaña «Revisar MP».
+- El tópico `mp-connect` (desautorización) queda fuera: un 401 al usar el token cumple la misma función (la cuenta pasa a RECONECTAR).
+- El refresco de tokens corre en el workflow de cada 6 h (`reconciliar-cobros.yml`, no un cron diario aparte); sólo toca cuentas con menos de 30 días de vigencia.
+- La firma de la `notification_url` sigue siendo pregunta de la prueba: hoy la autenticidad sale de leer el pago de la API con el token del gimnasio.
+- La devolución es siempre manual desde la cuenta de Mercado Pago del gimnasio (la automática queda fuera de esta versión).
+
 - Settings (grupo `_bandera_todo_o_nada`, apagado en `TESTING`): `MERCADOPAGO_CLIENT_ID`,
   `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_OAUTH_REDIRECT_URI`, `MP_TOKEN_ENCRYPTION_KEY` →
   `TIENDA_MP_ENABLED`. Sin ellas, la tienda funciona sólo con transferencia.
@@ -300,5 +308,5 @@ Ajustes de la revisión adversarial de estos cambios:
 - **«cancelacion_resuelta»:** las vistas mandan la misma clave al aceptar y al rechazar; `notificar_pedido_al_alumno` redacta distinto según `pedido.estado` (DEVUELTO = aceptada).
 - **Marcar pagado desde `PENDIENTE_PAGO`:** el staff puede «Marcar pagado» directo, sin comprobante (pago en mostrador).
 - **`ConfiguracionTienda` del Hito 1** no tiene `acepta_transferencia`, `acepta_mercadopago` ni `minutos_reserva_mp` (con un solo medio no hay qué elegir; llegan con el Hito 2), y `Pedido.Medio` tiene sólo `TRANSFERENCIA`.
-- **La portada no cambió en el Hito 1; en el Hito 3 (18-10)** dice «funciones de gestión» y lista la tienda aparte. Su frase «con cobro por transferencia» **la tiene que actualizar el Hito 2** (Mercado Pago).
+- **La portada no cambió en el Hito 1; en el Hito 3 (18-10)** dice «funciones de gestión» y lista la tienda aparte. Su frase «con cobro por transferencia» **la actualiza el Hito 2** (hecho el 18-10): `precios_tienda_mp` (`settings.TIENDA_MP_ENABLED`) agrega «o Mercado Pago» sólo cuando la función está prendida.
 - **`Pedido.cancelacion_resuelta_en`** (ver «cancelacion_resuelta» arriba) saca de la cola las cancelaciones rechazadas.
