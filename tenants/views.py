@@ -507,6 +507,10 @@ def _contexto_precios():
         "precios_dias_gratis": precios.DIAS_GRATIS,
         "precios_meses_gratis_anual": precios.DESCUENTO_ANUAL_MESES,
         "precios_cotizacion": cotizacion,
+        # El add-on de la tienda va aparte de los tramos (Hito 3).
+        "precios_tienda_usd": precios.precio_tienda_usd(True),
+        "precios_tienda_anual_usd": precios.precio_tienda_usd_anual(True),
+        "precios_tienda_ars": cambio.pesos(precios.precio_tienda_usd(True), cotizacion),
     }
 
 

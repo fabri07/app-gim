@@ -534,6 +534,29 @@ class PortadaViewTests(TestCase):
         # El anual congela el tramo: decir sólo «se ajusta solo» sería falso.
         self.assertContains(response, "tu precio queda fijo los 12 meses")
 
+    def test_portada_ofrece_la_tienda_como_adicional_con_precios_de_la_fuente_unica(self):
+        """La tienda se cobra aparte (Hito 3): la portada ya no promete «todas
+        las funciones incluidas» y lista el adicional con los números de
+        `plataforma.precios`. Se busca el texto de la LÍNEA, no el número
+        suelto: el tramo de más de 300 ya muestra «USD 200 / año»."""
+        from plataforma import precios
+
+        response = self.client.get(reverse("home"))
+        self.assertNotContains(response, "todas las funciones incluidas")
+        self.assertContains(response, "todas las funciones de gestión incluidas")
+        self.assertContains(response, "Todas las funciones de gestión")
+        self.assertContains(
+            response,
+            f"+ Tienda online (opcional): USD {precios.precio_tienda_usd(True)} / mes",
+        )
+        self.assertContains(
+            response, f"USD {precios.precio_tienda_usd_anual(True)} / año. Vendé"
+        )
+        # Los tramos no cambian por el adicional.
+        self.assertEqual(
+            [f["precio_usd"] for f in response.context["precios_filas"]], [10, 15, 20]
+        )
+
     def test_sin_cotizacion_no_muestra_pesos(self):
         """Bajo TESTING `cotizacion_dolar` devuelve None, así que la landing
         muestra solo USD (mismo contrato que el panel)."""

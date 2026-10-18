@@ -313,7 +313,7 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
   <section class="portada__precios-campo" id="precios">
     <div class="portada__inner">
       <h2 class="portada__h2 portada__h2--claro">Un precio que crece con vos</h2>
-      <p class="portada__precio-intro">Empezás con {{ precios_dias_gratis }} días gratis. Después pagás según cuántos alumnos activos tengas, con <strong>todas las funciones incluidas</strong> en cualquier tramo.</p>
+      <p class="portada__precio-intro">Empezás con {{ precios_dias_gratis }} días gratis. Después pagás según cuántos alumnos activos tengas, con <strong>todas las funciones de gestión incluidas</strong> en cualquier tramo.</p>
       <div class="portada__precios">
         {% for fila in precios_filas %}
         <div class="portada__precio">
@@ -327,7 +327,7 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
             <p class="portada__precio-anual-nota">{{ precios_meses_gratis_anual }} meses gratis{% if fila.anual_ars %} · ≈ ${{ fila.anual_ars|floatformat:"0g" }}{% endif %}</p>
           </div>
           <ul class="portada__incluye">
-            <li>Todas las funciones</li>
+            <li>Todas las funciones de gestión</li>
             <li>Portal para tus alumnos</li>
             <li>Tu logo y tus colores</li>
             <li>Planes desde Excel</li>
@@ -336,6 +336,8 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
         </div>
         {% endfor %}
       </div>
+      {# Adicional aparte de los tramos: los números salen de `precios`, nunca literales. #}
+      <p class="portada__precio-adicional"><strong>+ Tienda online (opcional): USD {{ precios_tienda_usd }} / mes</strong>{% if precios_tienda_ars %} (≈ ${{ precios_tienda_ars|floatformat:"0g" }}){% endif %} · USD {{ precios_tienda_anual_usd }} / año. Vendé suplementos y ropa a tus alumnos, con cobro por transferencia.</p>
       <p class="portada__precio-auto"><strong>Tu plan se ajusta solo.</strong> A medida que sumás alumnos activos pasás al tramo siguiente, sin trámites ni cambios de plan: {% for fila in precios_filas %}{% if not forloop.first %}{% if forloop.last %} y {% else %}, {% endif %}{% endif %}{{ fila.etiqueta|lower }}{% endfor %}. Si pagás el año por adelantado, tu precio queda fijo los 12 meses.</p>
       <p class="portada__precio-pie">Sin permanencia. Lo cancelás cuando quieras.</p>
     </div>
