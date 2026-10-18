@@ -95,6 +95,7 @@ class NavAlumnoTests(TestCase):
 
         self.assertContains(respuesta, 'aria-label="Menú"')
         self.assertContains(respuesta, ':aria-expanded="navAbierto"')
+        self.assertContains(respuesta, 'aria-expanded="false" :aria-expanded=')
         self.assertContains(respuesta, 'aria-label="Secciones"')
         self.assertContains(respuesta, 'x-init="navAbierto = false"')
 
@@ -236,3 +237,24 @@ class NavAlumnoNoAparecePara(TestCase):
                 self.assertNotContains(respuesta, NAV)
                 self.assertNotContains(respuesta, HAMBURGUESA)
                 self.client.logout()
+
+    def _body(self, respuesta):
+        html = respuesta.content.decode()
+        return html[html.index("<body"):html.index(">", html.index("<body"))]
+
+    def test_el_body_del_staff_conserva_el_x_data(self):
+        """El `x-data` ya no es sólo del alumno, pero el staff lo sigue
+        necesitando para el menú mobile de `nav-staff`."""
+        self.client.force_login(self.staff)
+
+        body = self._body(self.client.get(reverse("home")))
+
+        self.assertIn('x-data="{ navAbierto: false }"', body)
+
+    def test_un_superusuario_sin_perfil_no_lleva_x_data(self):
+        admin = User.objects.create_superuser("admin", password=CLAVE)
+        self.client.force_login(admin)
+
+        respuesta = self.client.get(reverse("login"), follow=True)
+
+        self.assertNotIn("x-data", self._body(respuesta))

@@ -101,8 +101,7 @@
     {% if user.is_authenticated and user.perfil.gimnasio %}data-tour-gimnasio="{{ user.perfil.gimnasio.slug }}"{% endif %}
   ></span>
   {% comment %}
-    Dos ramas -- Django no permite mezclar `and`/`or` en un mismo {% if %} --
-    porque el splash tiene que aparecer tanto para un usuario YA autenticado
+    Dos ramas porque el splash tiene que aparecer tanto para un usuario YA autenticado
     (base.html normal) como para un visitante anónimo en la pantalla de
     login CON estética por gimnasio (login.html, `gimnasio` en contexto vía
     slug de URL o cookie `gimnasio_preferido`): abrir la PWA instalada
@@ -227,7 +226,7 @@
         los tests del staff buscan ese texto para saber si está SU ☰.
       {% endcomment %}
       {% if user.is_authenticated and user.perfil.rol == "alumno" and user.perfil.gimnasio and not cuenta_suspendida and not cuenta_alumnos_bloqueados %}
-        <button type="button" class="sm:hidden text-gray-600" @click="navAbierto = !navAbierto" :aria-expanded="navAbierto" aria-controls="nav-alumno" aria-label="Menú">☰</button>
+        <button type="button" class="sm:hidden text-gray-600" @click="navAbierto = !navAbierto" aria-expanded="false" :aria-expanded="navAbierto" aria-controls="nav-alumno" aria-label="Menú">☰</button>
       {% endif %}
       {% if user.is_authenticated %}
         {% comment %}

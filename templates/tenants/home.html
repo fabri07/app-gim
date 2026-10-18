@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Inicio · App Gimnasios{% endblock %}
-{% block main_class %}{% if perfil.rol == "staff" %}contenido--ancho{% else %}contenido{% endif %}{% endblock %}
+{% block main_class %}{% if perfil.rol == "staff" %}contenido--ancho{% else %}contenido--alumno{% endif %}{% endblock %}
 {% block tour_pagina %}home{% endblock %}
 
 {% block content %}
@@ -957,9 +957,11 @@
       tarjeta vacía en una pantalla de 28rem. Va acá adentro, a todo el ancho,
       que es la forma normal de un CTA en mobile.
     {% endcomment %}
-    <a class="boton w-full mt-4" href="{% url 'turnos:mis_turnos' %}">Reservar turno</a>
+    <a class="boton w-full lg:w-auto mt-4" href="{% url 'turnos:mis_turnos' %}">Reservar turno</a>
   </div>
 
+  <div class="columnas">
+  <div>
   {% if not alumno %}
     <div class="tarjeta">
       <p class="texto-suave">
@@ -1013,7 +1015,7 @@
       </div>
     {% endif %}
 
-    <div class="tarjeta">
+    <div class="tarjeta scroll-mt-20" id="mi-rutina">
       <h2>Tu rutina</h2>
       {% if bloqueo %}
         <p class="texto-suave">
@@ -1054,7 +1056,11 @@
         <p class="texto-suave">Sin información de tu cuota este mes.</p>
       {% endif %}
     </div>
+  {% endif %}
+  </div>
 
+  <div>
+    {% if alumno %}
     {% if tienda_visible %}
       <div class="tarjeta">
         <h2>Tienda del gimnasio</h2>
@@ -1072,7 +1078,7 @@
         <a class="boton-secundario w-full mt-2" href="{% url 'tienda:mis_pedidos' %}">Mis pedidos</a>
       </div>
     {% endif %}
-  {% endif %}
+    {% endif %}
 
   <div class="tarjeta">
     <h2>Últimas novedades</h2>
@@ -1108,5 +1114,7 @@
   {% include 'partials/redes_sociales.html' with gimnasio=perfil.gimnasio %}
 
   <p class="texto-suave"><a href="{% url 'politica_privacidad' %}">Política de privacidad</a></p>
+  </div>
+  </div>
 {% endif %}
 {% endblock %}
