@@ -15,7 +15,16 @@
   <h2>{{ nombre }}</h2>
   {% for p in productos %}
     <div class="tarjeta">
-      {% with f=p.foto_principal %}{% if f %}<img src="{{ f.url_cacheable }}" alt="" width="160" height="160" loading="lazy">{% endif %}{% endwith %}
+      {% with fotos=p.fotos.all %}
+      {% if fotos|length > 1 %}
+        <div class="producto-fotos" tabindex="0" role="region" aria-label="Fotos de {{ p.nombre }}">
+          {% for f in fotos %}<img class="producto-fotos__foto" src="{{ f.url_cacheable }}" alt="" width="160" height="160" loading="lazy">{% endfor %}
+        </div>
+        <p class="texto-suave">{{ fotos|length }} fotos</p>
+      {% else %}
+        {% with f=p.foto_principal %}{% if f %}<img src="{{ f.url_cacheable }}" alt="" width="160" height="160" loading="lazy">{% endif %}{% endwith %}
+      {% endif %}
+      {% endwith %}
       <h3>{{ p.nombre }}</h3>
       <p><strong>$ {{ p.precio|floatformat:"2g" }}</strong></p>
       {% if p.descripcion %}<p class="texto-suave">{{ p.descripcion }}</p>{% endif %}

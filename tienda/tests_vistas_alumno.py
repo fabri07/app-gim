@@ -277,6 +277,42 @@ class CatalogoVarianteUnicaTests(_BaseAlumno):
         self.assertContains(self.client.get(reverse("tienda:carrito")), "Creatina")
 
 
+class CatalogoGaleriaTests(_BaseAlumno):
+    def _fotos(self, producto, cantidad):
+        from tienda.models import FotoProducto
+
+        return [
+            FotoProducto.objects.create(
+                producto=producto, imagen=f"tienda/productos/g{producto.pk}-{i}.jpg", posicion=i,
+            )
+            for i in range(cantidad)
+        ]
+
+    def test_tres_fotos_van_en_orden_dentro_de_una_region_deslizable(self):
+        fotos = self._fotos(self.producto, 3)
+        html = self.client.get(reverse("tienda:catalogo")).content.decode()
+        self.assertIn('class="producto-fotos"', html)
+        self.assertIn('tabindex="0" role="region" aria-label="Fotos de Remera"', html)
+        self.assertIn("3 fotos", html)
+        posiciones = [html.index(f.url_cacheable.replace("&", "&amp;")) for f in fotos]
+        self.assertEqual(posiciones, sorted(posiciones))
+        self.assertEqual(html.count('class="producto-fotos__foto"'), 3)
+        self.assertEqual(html.count('loading="lazy"'), 3)
+
+    def test_una_foto_se_ve_como_antes_sin_region_ni_contador(self):
+        (foto,) = self._fotos(self.producto, 1)
+        html = self.client.get(reverse("tienda:catalogo")).content.decode()
+        self.assertIn(foto.url_cacheable, html)
+        self.assertNotIn("producto-fotos", html)
+        self.assertNotIn('role="region"', html)
+        self.assertNotIn(" fotos", html)
+
+    def test_sin_fotos_no_hay_imagen_ni_region(self):
+        html = self.client.get(reverse("tienda:catalogo")).content.decode()
+        self.assertNotIn("<img", html.split("Remera", 1)[1].split("</form>", 1)[0])
+        self.assertNotIn("producto-fotos", html)
+
+
 class CatalogoEscalaTests(_BaseAlumno):
     def _cargar(self, cantidad):
         from tienda.models import FotoProducto

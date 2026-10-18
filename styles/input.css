@@ -643,6 +643,30 @@
       bg-amber-400;
   }
 
+  /* Galería de fotos del producto en el catálogo del alumno. Clase propia y no
+     `.semanas-carrusel`: esa es sólo de celular y esconde la barra. Acá la
+     barra se ve desde `sm` (en escritorio no hay gesto de deslizar). Sin JS. */
+  .producto-fotos {
+    @apply flex gap-2 overflow-x-auto snap-x snap-mandatory mb-1;
+    overscroll-behavior-x: contain;
+  }
+
+  /* 85%: la foto siguiente asoma y enseña el gesto sin cartel. `max-w-60`
+     evita fotos gigantes en escritorio. */
+  .producto-fotos__foto {
+    @apply snap-start shrink-0 w-[85%] max-w-60 h-auto aspect-square object-cover rounded-lg;
+  }
+
+  @media not all and (min-width: 40rem) {
+    .producto-fotos {
+      scrollbar-width: none;
+    }
+
+    .producto-fotos::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
   .semanas-carrusel {
     @apply flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-4 px-4 mb-6;
     /* Sin esto, deslizar contra el borde dispara el gesto de "atrás" del

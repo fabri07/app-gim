@@ -295,9 +295,9 @@ class FotoTests(_BaseStaff):
         self.assertEqual(self.client.get(url).status_code, 404)
 
     def test_foto_de_otro_gimnasio_404(self):
+        # Con su propio `producto_id` correcto: lo único que la frena es la
+        # puerta del gimnasio (tienda no habilitada / inactivo).
         producto, _ = self.crear_producto()
-        """Con su propio `producto_id` correcto: lo único que la frena es la
-        puerta del gimnasio (tienda no habilitada / inactivo)."""
         ajeno, _ = self.crear_producto(gimnasio=self.otro)
         foto = self.crear_foto(ajeno)
         url = reverse("tienda:tienda_foto_producto", args=[ajeno.pk, foto.pk])
