@@ -138,6 +138,45 @@
     @apply max-w-5xl mx-auto px-4 py-8;
   }
 
+  /* Pantallas del alumno que se adaptan a la compu: hasta `lg` son
+     idénticas a `.contenido` (448 px; entre 640 y 1023 px los botones
+     `w-full` no se agigantan) y desde `lg` se abren al ancho del staff. */
+  .contenido--alumno {
+    @apply max-w-md mx-auto px-4 py-8 lg:max-w-5xl;
+  }
+
+  /* Texto largo (política de privacidad): ~70-75 caracteres por línea con
+     el `p-6` de la tarjeta. */
+  .contenido--lectura {
+    @apply max-w-2xl mx-auto px-4 py-8;
+  }
+
+  /* Dos `<div>` columna desde `lg` (inicio del alumno, `mis_turnos`). La
+     última tarjeta de cada columna ya pierde su margen por
+     `.tarjeta:last-child`, y `gap-6` deja los mismos 24 px de siempre. Si
+     sólo hay una columna, ocupa todo el ancho. */
+  .columnas {
+    @apply grid grid-cols-1 gap-6 lg:grid-cols-2 items-start mb-6 last:mb-0;
+  }
+
+  .columnas > :only-child {
+    @apply lg:col-span-2;
+  }
+
+  /* Principal + lateral DENTRO de una sola `.tarjeta` (carrito, pedido,
+     comprobante): en el celular la tarjeta queda como siempre; desde `lg`
+     su contenido se parte. Sin espacio vertical a propósito: en un grid los
+     márgenes no colapsan, y un `gap` sumaría 24 px en el celular. Molde:
+     `.config-layout`. */
+  .con-lateral {
+    @apply grid grid-cols-1 items-start lg:grid-cols-[minmax(0,1fr)_20rem]
+      lg:gap-x-8;
+  }
+
+  .con-lateral > * > :first-child {
+    @apply lg:mt-0;
+  }
+
   /* Header / nav */
   .topbar {
     @apply flex items-center justify-between px-4 sm:px-6 py-3 bg-white
@@ -157,14 +196,33 @@
       hover:text-gray-800 hover:underline cursor-pointer;
   }
 
-  .nav-staff {
+  .nav-staff,
+  .nav-alumno {
     @apply flex flex-wrap gap-1 px-4 sm:px-6 py-2 bg-white border-b
       border-gray-200 text-sm;
   }
 
-  .nav-staff a {
+  .nav-staff a,
+  .nav-alumno a {
     @apply px-3 py-1.5 rounded-md text-gray-600 no-underline
       hover:bg-gray-100 hover:text-gray-900 transition;
+  }
+
+  /* Menú del alumno: escondido en el celular hasta el ☰. DESPUÉS de la
+     regla compartida (si no, su `flex` le gana a `hidden`); el estado
+     abierto con selector doble para ganarle a `hidden` sin depender del
+     orden del CSS compilado. Sin parpadeo antes de Alpine: arranca cerrado
+     desde el CSS, no desde un `:class`. */
+  .nav-alumno {
+    @apply hidden sm:flex;
+  }
+
+  .nav-alumno.nav-alumno--abierta {
+    @apply flex;
+  }
+
+  .nav-alumno a[aria-current="page"] {
+    @apply bg-gray-100 text-gray-900 font-medium;
   }
 
   /* Messages */

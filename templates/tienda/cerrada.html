@@ -5,6 +5,8 @@
 <div class="tarjeta">
   <h1>Tienda</h1>
   <p>La tienda no está disponible en este momento.</p>
+  {# Con la tienda cerrada «Mis pedidos» sigue andando (requiere_tienda_visible = False). #}
+  <p><a href="{% url 'tienda:mis_pedidos' %}">Mis pedidos</a></p>
   <a class="boton-secundario w-full mt-2" href="{% url 'home' %}">Volver al inicio</a>
 </div>
 {% endblock %}

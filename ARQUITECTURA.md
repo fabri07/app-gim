@@ -2834,8 +2834,12 @@ listado). Pantalla de confirmación: `alumnos/lote_confirmar.html`.
   redirect externo o de multipart necesita `hx-boost="false"`.
 - **Alpine.js**: solo para el toggle del nav en mobile (`x-data` en `<body>`,
   compartido entre el botón ☰ del header y el `<nav>` — deben estar en el
-  MISMO scope de `x-data`, si no el toggle no hace nada). No se usó para
-  nada más ("solo si hace falta", ROADMAP Fase 4).
+  MISMO scope de `x-data`, si no el toggle no hace nada). El `x-data` existe
+  para el staff **y para el alumno** (desde el 2026-10-17 el alumno tiene su
+  menú, `partials/nav_alumno.html`, con su propio ☰ y la misma condición:
+  sin cuenta suspendida ni con los alumnos bloqueados); el superusuario sin
+  Perfil no lo tiene, por eso su nav va sin `:class`. No se usó para nada
+  más ("solo si hace falta", ROADMAP Fase 4).
 
 ## Sitio público y embudo de solicitudes (`solicitudes/`, 2026-09-25)
 

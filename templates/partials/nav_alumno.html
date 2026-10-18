@@ -1,0 +1,24 @@
+{% comment %}
+  Menú del alumno. Lo incluye `base.html` sólo para un alumno con gimnasio y
+  con la cuenta con acceso (ni `cuenta_suspendida` ni
+  `cuenta_alumnos_bloqueados`): con la cuenta congelada todas las secciones
+  terminan en el mismo cartel.
+
+  Cero queries: `user.perfil.gimnasio` ya lo resolvió el <head>, y
+  `puede_usar_tienda` es una propiedad sin consulta.
+
+  `x-init` lo cierra en cada swap de htmx: hx-boost reemplaza el contenido de
+  <body> pero no el `x-data` del tag, así que `navAbierto` sobrevive a la
+  navegación y el menú quedaría abierto en la pantalla nueva.
+
+  «Mi rutina» va al inicio con `#mi-rutina`: no hay un índice de días
+  propio; la tarjeta de la rutina del inicio es ese índice.
+{% endcomment %}
+{% with url_name=request.resolver_match.url_name namespace=request.resolver_match.namespace %}
+<nav id="nav-alumno" class="nav-alumno" aria-label="Secciones" :class="{ 'nav-alumno--abierta': navAbierto }" x-init="navAbierto = false">
+  <a href="{% url 'home' %}"{% if url_name == "home" and not namespace %} aria-current="page"{% endif %}>Inicio</a>
+  <a href="{% url 'home' %}#mi-rutina"{% if namespace == "rutinas" and url_name == "mi_dia_detalle" %} aria-current="page"{% endif %}>Mi rutina</a>
+  <a href="{% url 'turnos:mis_turnos' %}"{% if namespace == "turnos" %} aria-current="page"{% endif %}>Turnos</a>
+  {% if user.perfil.gimnasio.puede_usar_tienda %}<a href="{% url 'tienda:catalogo' %}"{% if request.resolver_match.app_name == "tienda" %} aria-current="page"{% endif %}>Tienda</a>{% endif %}
+</nav>
+{% endwith %}

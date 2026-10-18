@@ -82,7 +82,7 @@
   <script src="{% static 'js/pwa.js' %}" defer></script>
   <script src="{% static 'js/tour_onboarding.js' %}" defer></script>
 </head>
-<body hx-boost="true" data-vapid-public-key="{{ VAPID_PUBLIC_KEY }}" data-suplantacion="{% if request.session.suplantacion %}true{% else %}false{% endif %}" {% if user.is_authenticated and user.perfil.rol == "staff" %}x-data="{ navAbierto: false }"{% endif %}>
+<body hx-boost="true" data-vapid-public-key="{{ VAPID_PUBLIC_KEY }}" data-suplantacion="{% if request.session.suplantacion %}true{% else %}false{% endif %}" {% if user.is_authenticated and user.perfil.rol == "staff" or user.is_authenticated and user.perfil.rol == "alumno" %}x-data="{ navAbierto: false }"{% endif %}>
   {% comment %}
     hx-boost solo reemplaza el CONTENIDO de <body> (su innerHTML), nunca los
     atributos del propio tag <body> -- así que CUALQUIER dato del tour que
@@ -221,6 +221,14 @@
       {% if user.is_authenticated and user.perfil.rol == "staff" and not cuenta_suspendida %}
         <button type="button" class="sm:hidden text-gray-600" @click="navAbierto = !navAbierto" aria-label="Abrir menú">☰</button>
       {% endif %}
+      {% comment %}
+        ☰ del alumno: misma condición que el menú de abajo (si no, sería un
+        botón que no despliega nada). `aria-label="Menú"` y no «Abrir menú»:
+        los tests del staff buscan ese texto para saber si está SU ☰.
+      {% endcomment %}
+      {% if user.is_authenticated and user.perfil.rol == "alumno" and user.perfil.gimnasio and not cuenta_suspendida and not cuenta_alumnos_bloqueados %}
+        <button type="button" class="sm:hidden text-gray-600" @click="navAbierto = !navAbierto" :aria-expanded="navAbierto" aria-controls="nav-alumno" aria-label="Menú">☰</button>
+      {% endif %}
       {% if user.is_authenticated %}
         {% comment %}
           hx-boost="false": el logout cambia el usuario autenticado, y el
@@ -262,9 +270,9 @@
       gimnasio, así que la nav de arriba no le sirve. Nav propia y mínima.
 
       Sin `:class` de Alpine a propósito: el `x-data="{ navAbierto: false }"`
-      del <body> y el botón ☰ solo existen para un staff con Perfil, así que
-      un binding acá quedaría fuera de todo alcance y Alpine dejaría la nav
-      escondida en mobile para siempre.
+      del <body> y los botones ☰ solo existen para un staff o un alumno con
+      Perfil, así que un binding acá quedaría fuera de todo alcance y Alpine
+      dejaría la nav escondida en mobile para siempre.
 
       El link a /admin/ lleva hx-boost="false": es otra aplicación (el admin
       de Django trae su propio <head> y sus propios estáticos), y hx-boost
@@ -274,6 +282,15 @@
       <a href="{% url 'plataforma:inicio' %}">Plataforma</a>
       <a href="{% url 'admin:index' %}" hx-boost="false">Admin de Django</a>
     </nav>
+  {% endif %}
+  {% comment %}
+    Menú del alumno: aparte de la cadena staff/superusuario de arriba (no la
+    toca). Sin cuenta congelada: con `cuenta_suspendida` o
+    `cuenta_alumnos_bloqueados` el alumno sólo ve el cartel, también
+    suplantando (el context processor lee el estado del gimnasio del alumno).
+  {% endcomment %}
+  {% if user.is_authenticated and user.perfil.rol == "alumno" and user.perfil.gimnasio and not cuenta_suspendida and not cuenta_alumnos_bloqueados %}
+    {% include 'partials/nav_alumno.html' %}
   {% endif %}
   {% if messages %}
     <ul class="mensajes">
