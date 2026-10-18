@@ -88,8 +88,10 @@ def avisar(hoy=None):
                 continue
             # Valores ya resueltos: el callback no vuelve a tocar la base.
             transaction.on_commit(
-                lambda g=gimnasio, p=para, t=tipo, v=fila.vencimiento, usd=fila.precio_usd: (
-                    emails.enviar_aviso_cobro(g, p, tipo=t, vencimiento=v, precio_usd=usd)
+                lambda g=gimnasio, p=para, t=tipo, v=fila.vencimiento, usd=fila.precio_usd, tu=fila.tienda_usd: (
+                    emails.enviar_aviso_cobro(
+                        g, p, tipo=t, vencimiento=v, precio_usd=usd, tienda_usd=tu
+                    )
                 )
             )
             mandados += 1

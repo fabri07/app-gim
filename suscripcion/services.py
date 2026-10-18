@@ -132,6 +132,16 @@ def vencer_intentos_abiertos(gimnasio, *, ahora):
     ).update(estado=_Estado.VENCIDO, modificado=ahora)
 
 
+def tienda_usd_para(gimnasio, plan):
+    """Cuánto de un cobro del `plan` es la tienda: 0 si el gimnasio no la
+    tiene habilitada. UNA sola regla para `crear_intento` y para la pantalla
+    (que decide si el link vivo todavía vale): se mira `tienda_habilitada` y no
+    `puede_usar_tienda`, que es verdadera también en la demo."""
+    if plan == _Plan.ANUAL:
+        return precios.precio_tienda_usd_anual(gimnasio.tienda_habilitada)
+    return precios.precio_tienda_usd(gimnasio.tienda_habilitada)
+
+
 def crear_intento(
     gimnasio_pk, plan, *, url_retorno_para, url_notificacion, email_de_quien_pago=""
 ):
@@ -168,13 +178,19 @@ def crear_intento(
         dias = precios.DIAS_ANIO if plan == _Plan.ANUAL else precios.DIAS_CICLO
         desde, hasta = facturacion.periodo_a_cobrar(gimnasio, dias=dias)
 
+        # ANTES de buscar el link abierto: si prendieron o apagaron la tienda
+        # después de generarlo, el link viejo tiene el monto viejo y no se
+        # puede reusar 48 h.
+        tienda = gimnasio.tienda_habilitada
+        monto_tienda_usd = tienda_usd_para(gimnasio, plan)
+
         abierto = IntentoDeCobro.objects.filter(
             gimnasio=gimnasio, estado=_Estado.CREADO, periodo_desde=desde
         ).first()
         if abierto is not None:
             le_queda = abierto.expira - ahora
-            if abierto.plan != plan:
-                # Cambió de plan: el link anterior deja de valer. Si igual lo
+            if abierto.plan != plan or abierto.monto_tienda_usd != monto_tienda_usd:
+                # Cambió de plan (o de tienda): el link anterior deja de valer. Si igual lo
                 # paga, `acreditar` lo acredita (CANCELADO es acreditable) o lo
                 # frena por solapamiento.
                 IntentoDeCobro.objects.filter(pk=abierto.pk).update(
@@ -205,9 +221,9 @@ def crear_intento(
 
         alumnos = gimnasio.alumnos_activos
         if plan == _Plan.ANUAL:
-            monto_usd = precios.precio_usd_anual(alumnos)
+            monto_usd = precios.precio_usd_anual(alumnos, tienda=tienda)
         else:
-            monto_usd = precios.precio_usd(alumnos)
+            monto_usd = precios.precio_usd(alumnos, tienda=tienda)
         monto_ars = cambio.pesos(monto_usd, cotizacion)
 
         intento = IntentoDeCobro.objects.create(
@@ -216,6 +232,7 @@ def crear_intento(
             periodo_desde=desde,
             periodo_hasta=hasta,
             monto_usd=monto_usd,
+            monto_tienda_usd=monto_tienda_usd,
             monto_ars=monto_ars,
             tipo_cambio=cotizacion["venta"],
             alumnos_activos=alumnos,
@@ -227,7 +244,7 @@ def crear_intento(
             preferencia = mercadopago.crear_preferencia(
                 titulo=(
                     f"TuGimApp — plan {plan} del {desde:%d/%m/%Y} al "
-                    f"{hasta:%d/%m/%Y}"
+                    f"{hasta:%d/%m/%Y}" + (" + tienda" if monto_tienda_usd else "")
                 ),
                 monto_ars=monto_ars,
                 referencia_externa=str(intento.referencia_externa),
@@ -542,6 +559,7 @@ def _acreditar_aprobado(intento, pago, pago_id, url_panel):
                 # Los montos son los del INTENTO, no los de MP: lo que se le
                 # cobra es lo que se le mostró.
                 monto_usd=intento.monto_usd,
+                monto_tienda_usd=intento.monto_tienda_usd,
                 monto_ars=intento.monto_ars,
                 tipo_cambio=intento.tipo_cambio,
                 alumnos_activos=intento.alumnos_activos,

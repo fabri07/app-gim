@@ -3,7 +3,7 @@ Se acreditó un cobro online por Mercado Pago.
 Gimnasio: {{ intento.gimnasio.nombre }}
 Plan: {{ intento.get_plan_display }}
 Período: {{ intento.periodo_desde|date:"d/m/Y" }} al {{ intento.periodo_hasta|date:"d/m/Y" }}
-Monto: USD {{ intento.monto_usd }} — ARS {{ intento.monto_ars }} (dólar a {{ intento.tipo_cambio }})
+Monto: USD {{ intento.monto_usd }}{% if intento.monto_tienda_usd %} (incluye tienda USD {{ intento.monto_tienda_usd }}){% endif %} — ARS {{ intento.monto_ars }} (dólar a {{ intento.tipo_cambio }})
 Pago de Mercado Pago: {{ intento.payment_id }}
 {% if descongelado %}
 La cuenta estaba congelada y quedó al día: se descongeló sola.

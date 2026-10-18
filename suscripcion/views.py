@@ -86,6 +86,12 @@ def _intento_abierto_de(gimnasio):
     manual. `plataforma` no conoce los intentos (no importa `suscripcion`),
     así que el pago manual no los cancela: el filtro vive acá. El pago online
     sí los cancela (`services._acreditar_aprobado`).
+
+    **Y sólo si su tienda coincide con la de hoy.** El link lleva congelado el
+    monto en pesos: si prendieron o apagaron la tienda después de generarlo,
+    «Continuar al pago» cobraría USD 20 (o 200 en el anual) de menos o de más.
+    `plataforma` no importa `suscripcion`, así que el toggle no puede cancelar
+    el link; `crear_intento` lo cancela cuando genera el nuevo.
     """
     candidatos = IntentoDeCobro.objects.filter(
         gimnasio_id=gimnasio.pk,
@@ -99,7 +105,10 @@ def _intento_abierto_de(gimnasio):
             else precios.DIAS_CICLO
         )
         desde, _ = facturacion.periodo_a_cobrar(gimnasio, dias=dias)
-        if intento.periodo_desde == desde:
+        if (
+            intento.periodo_desde == desde
+            and intento.monto_tienda_usd == services.tienda_usd_para(gimnasio, intento.plan)
+        ):
             return intento
     return None
 
@@ -122,6 +131,7 @@ def _contexto_suscripcion(request, *, form=None, error=None):
     """
     gimnasio, fila = _facturacion_de(request)
     alumnos = gimnasio.alumnos_activos
+    tienda = gimnasio.tienda_habilitada
 
     # Una sola llamada por request: la cotización está cacheada, pero aun así
     # dos lecturas podrían cruzar el vencimiento del caché y mostrar dos tipos
@@ -147,15 +157,15 @@ def _contexto_suscripcion(request, *, form=None, error=None):
         plan(
             IntentoDeCobro.Plan.MENSUAL,
             "Mensual",
-            precios.precio_usd(alumnos),
+            precios.precio_usd(alumnos, tienda=tienda),
             precios.DIAS_CICLO,
         ),
         plan(
             IntentoDeCobro.Plan.ANUAL,
             "Anual",
-            precios.precio_usd_anual(alumnos),
+            precios.precio_usd_anual(alumnos, tienda=tienda),
             precios.DIAS_ANIO,
-            sin_descuento_usd=precios.precio_usd_anual_sin_descuento(alumnos),
+            sin_descuento_usd=precios.precio_usd_anual_sin_descuento(alumnos, tienda=tienda),
         ),
     ]
 
@@ -167,6 +177,9 @@ def _contexto_suscripcion(request, *, form=None, error=None):
         "periodos_adeudados": periodos_adeudados(fila) if gimnasio.facturacion_aplica else 0,
         "planes": planes,
         "tramo": _tramo_de(alumnos),
+        "tiene_tienda": tienda,
+        "tienda_usd": precios.PRECIO_TIENDA_USD,
+        "tienda_anual_usd": precios.precio_tienda_usd_anual(True),
         "meses_gratis_anual": precios.DESCUENTO_ANUAL_MESES,
         "cotizacion": cotizacion,
         "intento_abierto": intento_abierto,

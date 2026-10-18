@@ -50,6 +50,11 @@ class IntentoDeCobro(TimeStampedModel):
     # INCLUSIVO, igual que `PagoPlataforma.periodo_hasta`.
     periodo_hasta = models.DateField()
     monto_usd = models.DecimalField(max_digits=8, decimal_places=2)
+    # La parte de `monto_usd` que es la tienda (0 sin tienda). Se congela con el
+    # link y `_acreditar_aprobado` la copia al pago: nunca se recalcula.
+    monto_tienda_usd = models.DecimalField(
+        max_digits=8, decimal_places=2, default=0
+    )
     monto_ars = models.DecimalField(max_digits=12, decimal_places=2)
     tipo_cambio = models.DecimalField(max_digits=10, decimal_places=2)
     alumnos_activos = models.PositiveIntegerField()

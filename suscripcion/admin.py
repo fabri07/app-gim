@@ -12,6 +12,7 @@ class IntentoDeCobroAdmin(admin.ModelAdmin):
         "plan",
         "periodo_desde",
         "periodo_hasta",
+        "monto_tienda_usd",
         "monto_ars",
         "estado",
         "estado_mp",

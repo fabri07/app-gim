@@ -128,7 +128,9 @@ _ASUNTOS_AVISO = {
 }
 
 
-def enviar_aviso_cobro(gimnasio, destinatarios, *, tipo, vencimiento, precio_usd):
+def enviar_aviso_cobro(
+    gimnasio, destinatarios, *, tipo, vencimiento, precio_usd, tienda_usd=0
+):
     """Avisa al STAFF del gimnasio (no al superadmin) que la suscripción está
     por vencer, vence hoy o venció, e invita a pagar online desde
     `suscripcion:mi_suscripcion`. `tipo` es un valor de `AvisoDeCobro.Tipo`."""
@@ -140,6 +142,7 @@ def enviar_aviso_cobro(gimnasio, destinatarios, *, tipo, vencimiento, precio_usd
             "tipo": tipo,
             "vencimiento": vencimiento,
             "precio_usd": precio_usd,
+            "tienda_usd": tienda_usd,
             "url_pago": f"{URL_SITIO}{reverse('suscripcion:mi_suscripcion')}",
         },
         destinos=destinatarios,
