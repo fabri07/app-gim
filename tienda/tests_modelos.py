@@ -1,17 +1,26 @@
 """Modelos de la tienda: restricciones que tiene que hacer cumplir la base,
 no la vista."""
 
+from datetime import timedelta
 from decimal import Decimal
 
+from cryptography.fernet import Fernet
+from django.contrib.auth.models import User
+
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.db import IntegrityError, connection, transaction
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TestCase, TransactionTestCase, override_settings
+from django.urls import reverse
+from django.utils import timezone
 
 from alumnos.models import Alumno
 from tenants.models import Gimnasio
 from tienda.models import (
+    MARGEN_PREFERENCIA,
     CategoriaProducto,
     ConfiguracionTienda,
+    CuentaMercadoPago,
     ItemPedido,
     Pedido,
     Producto,
@@ -221,18 +230,6 @@ class MigracionDeLaFotoUnicaTests(_Base):
 
 # --- Mercado Pago (B2) ------------------------------------------------------
 
-from datetime import timedelta  # noqa: E402
-
-from cryptography.fernet import Fernet  # noqa: E402
-from django.contrib.auth.models import User  # noqa: E402
-from django.db import connection  # noqa: E402
-from django.db.migrations.executor import MigrationExecutor  # noqa: E402
-from django.test import TransactionTestCase, override_settings  # noqa: E402
-from django.urls import reverse  # noqa: E402
-from django.utils import timezone  # noqa: E402
-
-from tienda.models import MARGEN_PREFERENCIA, CuentaMercadoPago  # noqa: E402
-
 
 class CuentaMercadoPagoTests(_Base):
     def test_aislamiento_por_gimnasio(self):
@@ -284,6 +281,13 @@ class PedidoMercadoPagoTests(_Base):
         a, b = self._pedido(), self._pedido()
         self.assertIsNotNone(a.referencia_externa)
         self.assertNotEqual(a.referencia_externa, b.referencia_externa)
+
+    def test_instancia_sin_guardar_tiene_los_textos_vacios_de_verdad(self):
+        """`db_default` solo daría un `DatabaseDefault` (truthy) hasta el
+        refresh: el código compara contra `""`."""
+        pedido = Pedido(gimnasio=self.gimnasio, alumno=self.alumno, total=1)
+        for campo in ("preference_id", "init_point", "payment_id", "estado_mp"):
+            self.assertEqual(getattr(pedido, campo), "", campo)
 
     def test_payment_id_unico_salvo_vacio(self):
         self._pedido()
@@ -401,6 +405,21 @@ class MigracionDeReferenciaExternaTests(TransactionTestCase):
         self.assertNotIn(None, referencias)
         self.assertEqual(len(set(referencias)), 3)
 
-    def test_la_migracion_de_datos_se_puede_revertir(self):
-        self._migrar([("tienda", "0003_mercadopago_modelos")])
+    def test_la_migracion_de_datos_se_puede_revertir_y_reaplicar(self):
+        apps_viejas = self._migrar(self.migrate_from)
+        gimnasio = apps_viejas.get_model("tenants", "Gimnasio").objects.create(nombre="M", slug="m")
+        alumno = apps_viejas.get_model("alumnos", "Alumno").objects.create(
+            gimnasio=gimnasio, nombre="A", apellido="B"
+        )
+        apps_viejas.get_model("tienda", "Pedido").objects.create(gimnasio=gimnasio, alumno=alumno, total=1)
         self._migrar(self.migrate_to)
+
+        apps = self._migrar([("tienda", "0003_mercadopago_modelos")])
+        apps.get_model("tienda", "Pedido").objects.update(referencia_externa=None)
+        apps = self._migrar(self.migrate_to)
+
+        referencias = list(
+            apps.get_model("tienda", "Pedido").objects.values_list("referencia_externa", flat=True)
+        )
+        self.assertEqual(len(referencias), 1)
+        self.assertNotIn(None, referencias)

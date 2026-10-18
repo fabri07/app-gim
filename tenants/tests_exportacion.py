@@ -228,7 +228,7 @@ class ContenidoDelZipTests(ExportacionBase):
         self.assertIn("777000111", todo)
         self.assertIn("approved", todo)
         for secreto in ("APP_USR-token-mp-secreto", "TG-refresh-mp-secreto",
-                        "pagador-secreto@example.com", "uuid_webhook"):
+                        "pagador-secreto@example.com", str(cuenta.uuid_webhook)):
             self.assertNotIn(secreto, todo)
         self.assertNotIn("cuenta", "\n".join(n for n in zf.namelist() if "tienda" in n))
 

@@ -290,10 +290,10 @@ class Pedido(TenantOwnedModel):
     referencia_externa = models.UUIDField(
         null=True, unique=True, default=uuid.uuid4, editable=False
     )
-    preference_id = models.TextField(blank=True, db_default="")
-    init_point = models.TextField(blank=True, db_default="")
-    payment_id = models.TextField(blank=True, db_default="")
-    estado_mp = models.TextField(blank=True, db_default="")
+    preference_id = models.TextField(blank=True, default="", db_default="")
+    init_point = models.TextField(blank=True, default="", db_default="")
+    payment_id = models.TextField(blank=True, default="", db_default="")
+    estado_mp = models.TextField(blank=True, default="", db_default="")
     #: Sólo `resumen_de_pago` (nunca la respuesta cruda de MP) y la lista
     #: `pagos_adicionales`. Nunca se exporta.
     respuesta_mp = models.JSONField(null=True, blank=True)

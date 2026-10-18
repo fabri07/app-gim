@@ -85,22 +85,22 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='pedido',
             name='preference_id',
-            field=models.TextField(blank=True, db_default=''),
+            field=models.TextField(blank=True, default='', db_default=''),
         ),
         migrations.AddField(
             model_name='pedido',
             name='init_point',
-            field=models.TextField(blank=True, db_default=''),
+            field=models.TextField(blank=True, default='', db_default=''),
         ),
         migrations.AddField(
             model_name='pedido',
             name='payment_id',
-            field=models.TextField(blank=True, db_default=''),
+            field=models.TextField(blank=True, default='', db_default=''),
         ),
         migrations.AddField(
             model_name='pedido',
             name='estado_mp',
-            field=models.TextField(blank=True, db_default=''),
+            field=models.TextField(blank=True, default='', db_default=''),
         ),
         migrations.AddField(
             model_name='pedido',
