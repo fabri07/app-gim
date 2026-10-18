@@ -2275,20 +2275,15 @@
     @apply font-semibold;
     color: var(--color-primario);
   }
-  .portada__precio-auto {
-    @apply mt-8 max-w-3xl text-base;
-    color: color-mix(in oklab, white 82%, var(--color-primario));
-  }
-  .portada__precio-auto strong {
-    @apply text-white;
-  }
   /* El adicional (tienda) cuelga de los tramos: mismo color claro que la
-     nota de abajo, con el titular en blanco para que se lea como un renglón
-     más del precio y no como letra chica. */
+     nota del precio automático, con el titular en blanco para que se lea
+     como un renglón más del precio y no como letra chica. */
+  .portada__precio-auto,
   .portada__precio-adicional {
     @apply mt-8 max-w-3xl text-base;
     color: color-mix(in oklab, white 82%, var(--color-primario));
   }
+  .portada__precio-auto strong,
   .portada__precio-adicional strong {
     @apply text-white;
   }
