@@ -149,6 +149,17 @@ services:
         sync: false
       - key: COBROS_AVISO_EMAIL
         sync: false
+      # Mercado Pago de la TIENDA (OAuth por gimnasio). Las 4 o ninguna ->
+      # `TIENDA_MP_ENABLED`; con alguna sola la app no arranca. Apagado hasta
+      # la prueba guiada (docs/mercadopago-tienda.md).
+      - key: MERCADOPAGO_CLIENT_ID
+        sync: false
+      - key: MERCADOPAGO_CLIENT_SECRET
+        sync: false
+      - key: MERCADOPAGO_OAUTH_REDIRECT_URI
+        sync: false
+      - key: MP_TOKEN_ENCRYPTION_KEY
+        sync: false
       # Monitoreo de errores (Sentry), opcional e independiente -- no es un
       # grupo todo-o-nada. Sin SENTRY_DSN el SDK no se inicializa.
       # SENTRY_PANEL_URL es solo el link "Errores (Sentry)" del panel de

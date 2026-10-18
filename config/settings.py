@@ -471,6 +471,29 @@ COBRO_ONLINE_ENABLED = (
     )
     and not TESTING
 )
+# Mercado Pago de la TIENDA del gimnasio (OAuth: cada gimnasio conecta SU
+# cuenta y la plata va directo a él). Las 4 o ninguna -> `TIENDA_MP_ENABLED`;
+# sin ellas nada de esto se ve y la tienda cobra sólo por transferencia.
+# `MP_TOKEN_ENCRYPTION_KEY` es una clave Fernet APARTE de la de Google. En la
+# suite siempre apagado (`not TESTING`); los tests lo prenden con
+# `override_settings`.
+MERCADOPAGO_CLIENT_ID = os.environ.get("MERCADOPAGO_CLIENT_ID", "")
+MERCADOPAGO_CLIENT_SECRET = os.environ.get("MERCADOPAGO_CLIENT_SECRET", "")
+MERCADOPAGO_OAUTH_REDIRECT_URI = os.environ.get("MERCADOPAGO_OAUTH_REDIRECT_URI", "")
+MP_TOKEN_ENCRYPTION_KEY = os.environ.get("MP_TOKEN_ENCRYPTION_KEY", "")
+TIENDA_MP_ENABLED = (
+    _bandera_todo_o_nada(
+        [
+            "MERCADOPAGO_CLIENT_ID",
+            "MERCADOPAGO_CLIENT_SECRET",
+            "MERCADOPAGO_OAUTH_REDIRECT_URI",
+            "MP_TOKEN_ENCRYPTION_KEY",
+        ],
+        "Mercado Pago de la tienda",
+        "para que la tienda cobre sólo por transferencia",
+    )
+    and not TESTING
+)
 # A quién le llegan los avisos de cobros online (acreditado, con problema).
 # Suelta y opcional, mismo criterio que SOLICITUDES_AVISO_EMAIL: vacía cae a
 # DEFAULT_FROM_EMAIL.
@@ -495,15 +518,21 @@ SENTRY_PANEL_URL = os.environ.get("SENTRY_PANEL_URL", "")   # link en el panel d
 # registro de nivel ERROR (o superior) que pase por él, sin tocar nada de
 # `LOGGING`.
 SENTRY_ENABLED = bool(SENTRY_DSN) and not TESTING
+# En una constante para poder testearla (el `init` no corre en la suite).
+# `include_local_variables=False`: Sentry adjunta las variables locales de cada
+# frame y su scrubber sólo filtra por nombre; con tokens de Mercado Pago de
+# cada gimnasio y el `client_secret` en juego, no se manda ninguna.
+SENTRY_OPCIONES = {
+    "dsn": SENTRY_DSN,
+    "send_default_pii": False,
+    "traces_sample_rate": 0.0,
+    "environment": "development" if DEBUG else "production",
+    "include_local_variables": False,
+}
 if SENTRY_ENABLED:
     import sentry_sdk
 
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        send_default_pii=False,
-        traces_sample_rate=0.0,
-        environment="development" if DEBUG else "production",
-    )
+    sentry_sdk.init(**SENTRY_OPCIONES)
 
 
 # Tour de bienvenida para staff nuevo (notas dismissibles guiando los

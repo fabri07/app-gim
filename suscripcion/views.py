@@ -379,6 +379,7 @@ class WebhookView(View):
     | `payment` con firma inválida                  | 401 | Sin tocar la base. Un reintento no arregla una firma mal firmada; 401 en serie en el panel de MP = el secret está mal cargado. |
     | Sin `data.id`, pago desconocido o ya acreditado | 200 | Nada que hacer; el cortocircuito de `acreditar` lo hace barato. |
     | MP responde 404 al consultar el pago          | 200 | El pago no existe (p. ej. «simular notificación» del panel de MP): reintentar no lo hace aparecer, y con 500 se reintentaría para siempre. |
+    | MP responde 401/403 al consultar el pago      | 200 | Pago de un vendedor (tienda) que la app manda acá: el token de la plataforma no lo puede leer y reintentar no cambia nada (con 500 MP reintenta para siempre). Se loguea `error`. |
     | `ErrorDeMercadoPago` (MP no contestó)         | 500 | A propósito: MP reintenta a los 15 min, muchísimo mejor que el cron (2-4 h tarde). |
 
     **Pendiente de confirmar en el sandbox**: que las notificaciones que llegan
@@ -432,6 +433,17 @@ class WebhookView(View):
                     data_id,
                 )
                 return JsonResponse({"ok": True, "accion": "pago inexistente"})
+            if error.codigo in (401, 403):
+                # Un pago de un VENDEDOR (tienda) que llega a este webhook
+                # porque la app de MP lo manda a todos: el token de la
+                # plataforma no puede leerlo. Reintentar no lo arregla.
+                logger.error(
+                    "Webhook: Mercado Pago negó la lectura del pago %s (%s); "
+                    "no es de esta cuenta, respondo 200.",
+                    data_id,
+                    error.codigo,
+                )
+                return JsonResponse({"ok": True, "accion": "pago ajeno"})
             logger.warning(
                 "Webhook: Mercado Pago no respondió al consultar el pago %s; "
                 "respondo 500 para que reintente.",

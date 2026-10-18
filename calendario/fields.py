@@ -20,14 +20,34 @@ class EncryptedTextField(models.TextField):
     leen por instancia. Si la clave está rotada o el dato corrupto, `from_db`
     devuelve `None` (se trata como "sin token" -> se fuerza reconexión) en vez
     de reventar el request.
+
+    `clave_setting` es el nombre del setting con la clave Fernet. El default
+    (Google) conserva el comportamiento de siempre. Con OTRA clave (tokens de
+    Mercado Pago de la tienda), **leer sin la clave en el entorno devuelve
+    `None`** en vez de levantar `ImproperlyConfigured`: si no, sacar las
+    variables con cuentas conectadas daría 500 en el admin y al borrar un
+    gimnasio. Escribir sin clave sigue levantando (nunca se guarda en claro).
     """
 
+    CLAVE_POR_DEFECTO = "GOOGLE_TOKEN_ENCRYPTION_KEY"
+
+    def __init__(self, *args, clave_setting=CLAVE_POR_DEFECTO, **kwargs):
+        self.clave_setting = clave_setting
+        super().__init__(*args, **kwargs)
+
+    def deconstruct(self):
+        name, path, args, kwargs = super().deconstruct()
+        # Omitido si es el default: así no aparece migración en `calendario`.
+        if self.clave_setting != self.CLAVE_POR_DEFECTO:
+            kwargs["clave_setting"] = self.clave_setting
+        return name, path, args, kwargs
+
     def _fernet(self):
-        key = settings.GOOGLE_TOKEN_ENCRYPTION_KEY
+        key = getattr(settings, self.clave_setting, "")
         if not key:
             raise ImproperlyConfigured(
-                "GOOGLE_TOKEN_ENCRYPTION_KEY no está seteada; no se puede "
-                "cifrar/descifrar tokens de Google Calendar."
+                f"{self.clave_setting} no está seteada; no se pueden "
+                "cifrar/descifrar tokens."
             )
         return Fernet(key.encode() if isinstance(key, str) else key)
 
@@ -43,4 +63,8 @@ class EncryptedTextField(models.TextField):
         try:
             return self._fernet().decrypt(value.encode()).decode()
         except InvalidToken:
+            return None
+        except ImproperlyConfigured:
+            if self.clave_setting == self.CLAVE_POR_DEFECTO:
+                raise
             return None

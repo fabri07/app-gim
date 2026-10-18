@@ -675,6 +675,19 @@ class WebhookTests(TestCase):
 
         self.assertEqual(respuesta.status_code, 200)
 
+    def test_un_pago_ajeno_401_o_403_da_200_con_log_de_error(self):
+        """Un pago de un vendedor (tienda) que la app manda a este webhook: el
+        token de la plataforma no lo lee; con 500 MP reintentaría siempre."""
+        for codigo in (401, 403):
+            with self.subTest(codigo=codigo):
+                with patch(
+                    "suscripcion.mercadopago.consultar_pago",
+                    side_effect=ErrorDeMercadoPago("HTTP", codigo=codigo),
+                ):
+                    with self.assertLogs("suscripcion.views", "ERROR"):
+                        respuesta = self._post()
+                self.assertEqual(respuesta.status_code, 200)
+
     def test_otro_error_http_de_mercado_pago_da_500(self):
         with patch(
             "suscripcion.mercadopago.consultar_pago",
