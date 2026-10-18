@@ -12,6 +12,7 @@ import logging
 from datetime import timedelta
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from notificaciones import services as avisos
@@ -48,23 +49,30 @@ def borrar_tokens_vencidos(ahora=None):
     )
 
 
+def _avisar_reconectar(gimnasio_id):
+    from tenants.models import Gimnasio
+
+    try:
+        avisos.notificar_cuenta_mp(Gimnasio.objects.get(pk=gimnasio_id), "reconectar")
+    except Exception:  # noqa: BLE001 - un push caído no frena el refresco
+        logger.exception("No se pudo avisar que hay que reconectar Mercado Pago")
+
+
 def marcar_reconectar(cuenta_pk, token_expira_leido):
     """CONECTADA -> RECONECTAR con UPDATE condicional al `token_expira` que se
     leyó: si otro proceso la refrescó en el medio (token_expira nuevo), no se
     pisa una cuenta sana. Devuelve si cambió algo y, en ese caso, avisa al
     staff (los avisos nunca rompen al que llama)."""
-    cuenta = CuentaMercadoPago.objects.filter(
+    cuentas = CuentaMercadoPago.objects.filter(
         pk=cuenta_pk,
         estado=CuentaMercadoPago.Estado.CONECTADA,
         token_expira=token_expira_leido,
     )
-    gimnasio = cuenta.select_related("gimnasio").first()
-    cambiadas = cuenta.update(estado=CuentaMercadoPago.Estado.RECONECTAR)
-    if cambiadas and gimnasio is not None:
-        try:
-            avisos.notificar_cuenta_mp(gimnasio.gimnasio, "reconectar")
-        except Exception:  # noqa: BLE001 - un push caído no frena el refresco
-            logger.exception("No se pudo avisar que hay que reconectar Mercado Pago")
+    # `values_list` y no la instancia: no descifra los tokens.
+    gimnasio_id = cuentas.values_list("gimnasio_id", flat=True).first()
+    cambiadas = cuentas.update(estado=CuentaMercadoPago.Estado.RECONECTAR)
+    if cambiadas:
+        transaction.on_commit(lambda: _avisar_reconectar(gimnasio_id))
     return bool(cambiadas)
 
 
@@ -81,6 +89,7 @@ def refrescar_cuentas(ahora=None):
     resultado = {"refrescadas": 0, "reconectar": 0, "errores": 0}
     pks = list(
         CuentaMercadoPago.objects.filter(estado=CuentaMercadoPago.Estado.CONECTADA)
+        .filter(Q(token_expira__lt=limite) | Q(token_expira__isnull=True))
         .order_by("pk")
         .values_list("pk", flat=True)
     )

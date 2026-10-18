@@ -356,6 +356,7 @@ class ConfiguracionView(TiendaStaffMixin, UpdateView):
         # Con la bandera apagada la tienda no carga NI UNA instancia de la
         # cuenta: la tarjeta de Mercado Pago no existe.
         context["mp_habilitado"] = settings.TIENDA_MP_ENABLED
+        context["mp_demo"] = self.gimnasio.es_demo
         if settings.TIENDA_MP_ENABLED and not self.gimnasio.es_demo:
             cuenta = (
                 CuentaMercadoPago.objects.for_gimnasio(self.gimnasio)
@@ -365,6 +366,9 @@ class ConfiguracionView(TiendaStaffMixin, UpdateView):
             context["cuenta_mp"] = cuenta
             conectada = cuenta is not None and cuenta.estado == CuentaMercadoPago.Estado.CONECTADA
             context["mp_conectada"] = conectada
+            context["mp_reconectar"] = (
+                cuenta is not None and cuenta.estado == CuentaMercadoPago.Estado.RECONECTAR
+            )
             # Leído de la base, no del form (que en un POST inválido ya trae lo tipeado).
             context["mp_no_disponible"] = (
                 not conectada and obtener_configuracion(self.gimnasio).acepta_mercadopago

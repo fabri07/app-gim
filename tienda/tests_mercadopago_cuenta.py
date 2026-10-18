@@ -448,6 +448,16 @@ class CallbackTests(_Base):
             r = self.callback(state)
         self.assertContains(r, "Terminá o cancelá esos pedidos")
 
+    def test_cambio_de_cuenta_con_pedido_mp_pagado_sin_retirar_de_hace_mas_de_7_dias_se_rechaza(self):
+        self.crear_cuenta(mp_user_id="111")
+        pedido = self.crear_pedido(medio=Pedido.Medio.MERCADOPAGO, estado=Pedido.Estado.PAGADO)
+        Pedido.objects.filter(pk=pedido.pk).update(creado=timezone.now() - timedelta(days=20))
+        state = self.iniciar()
+        with mock.patch(CANJE, return_value=tokens(user_id=222)):
+            r = self.callback(state)
+        self.assertContains(r, "Terminá o cancelá esos pedidos")
+        self.assertEqual(CuentaMercadoPago.objects.get(gimnasio=self.gimnasio).mp_user_id, "111")
+
     def test_cambio_de_cuenta_con_pedido_mp_viejo_cerrado_se_permite(self):
         self.crear_cuenta(mp_user_id="111")
         pedido = self.crear_pedido(medio=Pedido.Medio.MERCADOPAGO, estado=Pedido.Estado.ENTREGADO)
@@ -545,7 +555,7 @@ def _crudo(columna="access_token"):
 @override_settings(**MP)
 class RefrescoTests(_Base):
     def refrescar(self):
-        with mock.patch(PUSH) as push:
+        with mock.patch(PUSH) as push, self.captureOnCommitCallbacks(execute=True):
             resultado = cuenta_mp.refrescar_cuentas()
         return resultado, push
 
@@ -654,20 +664,21 @@ class RefrescoTests(_Base):
         CuentaMercadoPago.objects.filter(pk=cuenta.pk).update(
             token_expira=timezone.now() + timedelta(days=170)
         )
-        with mock.patch(PUSH) as push:
+        with mock.patch(PUSH) as push, self.captureOnCommitCallbacks(execute=True):
             self.assertFalse(cuenta_mp.marcar_reconectar(cuenta.pk, leido))
         self.assertEqual(CuentaMercadoPago.objects.get(pk=cuenta.pk).estado, E.CONECTADA)
         push.assert_not_called()
 
     def test_reconectar_condicional_si_coincide(self):
         cuenta = self.crear_cuenta()
-        with mock.patch(PUSH):
+        with mock.patch(PUSH), self.captureOnCommitCallbacks(execute=True):
             self.assertTrue(cuenta_mp.marcar_reconectar(cuenta.pk, cuenta.token_expira))
         self.assertEqual(CuentaMercadoPago.objects.get(pk=cuenta.pk).estado, E.RECONECTAR)
 
     def test_un_push_caido_no_deshace_el_paso_a_reconectar(self):
         cuenta = self.crear_cuenta()
-        with mock.patch(PUSH, side_effect=RuntimeError("push caído")):
+        with mock.patch(PUSH, side_effect=RuntimeError("push caído")), \
+                self.captureOnCommitCallbacks(execute=True):
             self.assertTrue(cuenta_mp.marcar_reconectar(cuenta.pk, cuenta.token_expira))
         self.assertEqual(CuentaMercadoPago.objects.get(pk=cuenta.pk).estado, E.RECONECTAR)
 

@@ -151,7 +151,10 @@ que en Render (si la clave de cifrado diverge, los tokens no se descifran y las
 cuentas pasan a «reconectar»). Se cargan las 4 o ninguna; sin ellos el paso
 sale 0 «apagado»... **salvo que haya una cuenta conectada**: ahí sale 1 a
 propósito (secrets olvidados: los tokens vencerían sin que nadie lo note). Usa
-también las `VAPID_*` de abajo para avisar al staff.
+también las `VAPID_*` de abajo para avisar al staff. **Ojo:** un
+`MERCADOPAGO_CLIENT_ID`/`CLIENT_SECRET` mal cargado en GitHub hace que Mercado
+Pago rechace el refresco con 400/401 y el paso pase TODAS las cuentas a
+«reconectar» de una vez.
 
 | Secret | De dónde sale |
 |---|---|

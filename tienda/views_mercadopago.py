@@ -28,7 +28,7 @@ from django.views import View
 from notificaciones import services as avisos
 from suscripcion.mercadopago import ErrorDeMercadoPago, Secreto, es_de_prueba
 from tienda import mercadopago_oauth
-from tienda.models import ConfiguracionTienda, CuentaMercadoPago, Pedido, obtener_configuracion
+from tienda.models import ESTADOS_QUE_RETIENEN, ConfiguracionTienda, CuentaMercadoPago, Pedido, obtener_configuracion
 from tienda.views import TiendaStaffMixin
 
 logger = logging.getLogger(__name__)
@@ -179,19 +179,15 @@ class CallbackView(_MercadoPagoStaffView):
                 hay_pedidos = Pedido.objects.filter(
                     gimnasio=self.gimnasio, medio=Pedido.Medio.MERCADOPAGO
                 ).filter(
-                    Q(estado__in=[
-                        Pedido.Estado.PENDIENTE_PAGO,
-                        Pedido.Estado.EN_REVISION,
-                        Pedido.Estado.REVISAR,
-                    ])
+                    Q(estado__in=ESTADOS_QUE_RETIENEN + (Pedido.Estado.REVISAR,))
                     | Q(creado__gte=ahora - VENTANA_CAMBIO_DE_CUENTA)
                 ).exists()
                 if hay_pedidos:
                     return self._volver(
                         messages.error,
-                        "Esa es otra cuenta de Mercado Pago y todavía hay pedidos "
-                        "pagados con la anterior. Terminá o cancelá esos pedidos "
-                        "antes de cambiar de cuenta.",
+                        "Esa es otra cuenta de Mercado Pago y todavía hay pedidos de "
+                        "Mercado Pago sin cerrar o recientes con la cuenta anterior. "
+                        "Terminá o cancelá esos pedidos antes de cambiar de cuenta.",
                     )
             CuentaMercadoPago.objects.update_or_create(
                 gimnasio=self.gimnasio,
