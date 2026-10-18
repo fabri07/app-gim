@@ -75,8 +75,8 @@ MENSAJES = {
     ),
     "medio_no_disponible": "Elegí cómo pagar: ese medio de pago no está disponible.",
     "pago_en_curso": (
-        "Tenés el pago con Mercado Pago en curso. Si no lo vas a pagar, esperá a que venza "
-        "el link (el pedido se da de baja solo) o cancelalo después."
+        "El pago con Mercado Pago está en curso: el link todavía se puede pagar. Esperá a "
+        "que venza (si no se paga, el pedido se da de baja solo)."
     ),
     "mp_fallo": "No pudimos conectar con Mercado Pago. Probá de nuevo{detalle}.",
     "plazo_vencido": (
@@ -243,13 +243,13 @@ def crear_pedido(
     en_curso = (
         Pedido.objects.for_gimnasio(gimnasio)
         .filter(alumno=alumno, estado__in=ESTADOS_EN_CURSO)
-        # Un checkout de MP abandonado cuenta sólo mientras su link es pagable
-        # (`vence_preferencia > ahora`); después ya no lo puede pagar ni
-        # cancelar hasta que venza, y no tiene por qué trabarle otra compra.
+        # Un checkout de MP cuenta sólo mientras su link es pagable (mismo
+        # criterio que `preferencia_vigente`): con el link vencido, o sin link
+        # (el proceso murió antes de guardarlo), no hay pago en curso y no
+        # tiene por qué trabarle otra compra.
         .exclude(
-            medio=Pedido.Medio.MERCADOPAGO,
-            estado=_E.PENDIENTE_PAGO,
-            reservado_hasta__lte=ahora + MARGEN_PREFERENCIA,
+            Q(medio=Pedido.Medio.MERCADOPAGO, estado=_E.PENDIENTE_PAGO)
+            & (Q(reservado_hasta__lte=ahora + MARGEN_PREFERENCIA) | Q(preference_id=""))
         )
         .count()
     )
@@ -486,6 +486,10 @@ def marcar_pagado(pedido, *, ahora=None):
     """El staff confirma la plata: desde la revisión del comprobante, o
     directo desde pendiente (pagó en el mostrador o transfirió sin subirlo)."""
     ahora = _ahora(ahora)
+    # Cinturón del template: con el link de MP pagable el pago puede entrar en
+    # cualquier momento (un POST desde una pantalla vieja no lo saltea).
+    if preferencia_vigente(pedido, ahora):
+        raise ErrorDeTienda("pago_en_curso")
     if not _transicionar(
         pedido, [_E.PENDIENTE_PAGO, _E.EN_REVISION], ahora, estado=_E.PAGADO, pagado_en=ahora,
         motivo="",  # un rechazo de comprobante viejo no es el motivo de nada ahora
@@ -520,6 +524,10 @@ def cancelar_por_staff(pedido, *, motivo, ahora=None):
     devolvió la plata por fuera). Las dos devuelven el stock."""
     ahora = _ahora(ahora)
     _validar_motivo(motivo)
+    if preferencia_vigente(pedido, ahora):
+        # Ver `marcar_pagado`: cancelar ahora dejaría un cobro sobre un
+        # pedido cancelado.
+        raise ErrorDeTienda("pago_en_curso")
     with transaction.atomic():
         hecho = _transicionar(
             pedido, [_E.PENDIENTE_PAGO, _E.EN_REVISION], ahora,

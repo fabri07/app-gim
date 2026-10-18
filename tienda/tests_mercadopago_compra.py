@@ -293,7 +293,7 @@ class CarritoTests(_Base):
         self.agregar()
         r = self.client.get(reverse("tienda:carrito"))
         self.assertContains(r, "24 h para transferir")
-        self.assertNotContains(r, 'name="medio"')
+        self.assertNotContains(r, 'type="radio" name="medio"')  # sin elección (el oculto es de la Ronda 1)
         self.assertNotContains(r, "Mercado Pago")
         self.assertContains(r, f'<form method="post" action="{CHECKOUT}">')
 
@@ -303,7 +303,7 @@ class CarritoTests(_Base):
         self.agregar()
         r = self.client.get(reverse("tienda:carrito"))
         self.assertContains(r, "24 h para transferir")
-        self.assertNotContains(r, 'name="medio"')
+        self.assertNotContains(r, 'type="radio" name="medio"')  # sin elección (el oculto es de la Ronda 1)
         self.assertNotContains(r, "Mercado Pago")
         self.assertContains(r, f'<form method="post" action="{CHECKOUT}">')
 
@@ -325,7 +325,7 @@ class CarritoTests(_Base):
         self.agregar()
         r = self.client.get(reverse("tienda:carrito"))
         self.assertNotContains(r, "h para transferir")
-        self.assertNotContains(r, 'name="medio"')
+        self.assertNotContains(r, 'type="radio" name="medio"')  # sin elección (el oculto es de la Ronda 1)
         self.assertContains(r, "Mercado Pago")
         self.assertContains(r, f'action="{CHECKOUT}" hx-boost="false"')
 
@@ -624,3 +624,125 @@ class RetornoTests(_Base):
             r = self.client.get(self.url(), {"payment_id": "123"})
         acreditar.assert_not_called()
         self.assertEqual(r.status_code, 302)
+
+
+# --- Ronda 1 de endurecimiento ---------------------------------------------------
+
+
+class StaffAccionConPreferenciaTests(_Base):
+    """Cinturón del lado del servidor: un POST desde una pantalla vieja no
+    marca pagado ni cancela un pedido con el link de MP pagable."""
+
+    def setUp(self):
+        super().setUp()
+        staff = User.objects.create_user("staff", password="c-123456")
+        Perfil.objects.create(usuario=staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.force_login(staff)
+
+    def accion(self, pedido, accion):
+        return self.client.post(
+            reverse("tienda:pedido_accion", args=[pedido.pk]), {"accion": accion}, follow=True
+        )
+
+    def test_marcar_pagado_con_el_link_vigente_se_rechaza(self):
+        pedido = self.pedido_mp()
+        r = self.accion(pedido, "pagado")
+        self.assertContains(r, "pago con Mercado Pago está en curso")
+        pedido.refresh_from_db()
+        self.assertEqual(pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+
+    def test_cancelar_con_el_link_vigente_se_rechaza(self):
+        pedido = self.pedido_mp()
+        Variante.objects.filter(pk=self.variante.pk).update(stock=1)
+        self.accion(pedido, "cancelar")
+        pedido.refresh_from_db()
+        self.assertEqual(pedido.estado, Pedido.Estado.PENDIENTE_PAGO)
+        self.variante.refresh_from_db()
+        self.assertEqual(self.variante.stock, 1)
+
+    def test_pasado_el_link_se_puede(self):
+        pedido = self.pedido_mp(reservado_hasta=timezone.now() + timedelta(minutes=5))
+        self.accion(pedido, "pagado")
+        pedido.refresh_from_db()
+        self.assertEqual(pedido.estado, Pedido.Estado.PAGADO)
+
+    def test_servicios_directos(self):
+        pedido = self.pedido_mp()
+        for llamada in (lambda: services.marcar_pagado(pedido),
+                        lambda: services.cancelar_por_staff(pedido, motivo="")):
+            with self.assertRaises(services.ErrorDeTienda) as e:
+                llamada()
+            self.assertEqual(e.exception.motivo, "pago_en_curso")
+
+
+class TopeSinLinkTests(_Base):
+    def test_mp_sin_link_no_cuenta_para_el_tope(self):
+        """Coincide con `preferencia_vigente`: sin link no hay pago en curso."""
+        self.config.max_pedidos_activos = 1
+        self.config.save()
+        self.pedido_mp(preference_id="", init_point="")
+        pedido = services.crear_pedido(
+            gimnasio=self.gimnasio, alumno=self.alumno, carrito={self.variante.pk: 1}, suplantando=False,
+        )
+        self.assertEqual(pedido.medio, M.TRANSFERENCIA)
+
+
+class CarritoEndurecidoTests(_Base):
+    def test_un_solo_medio_manda_el_medio_oculto(self):
+        self.agregar()
+        r = self.client.get(reverse("tienda:carrito"))
+        self.assertContains(r, '<input type="hidden" name="medio" value="transferencia">')
+
+    @override_settings(**MP)
+    def test_solo_mp_manda_el_medio_oculto_y_se_deshabilita_al_enviar(self):
+        self.crear_cuenta()
+        self.aceptar_mp(transferencia=False)
+        self.agregar()
+        r = self.client.get(reverse("tienda:carrito"))
+        self.assertContains(r, '<input type="hidden" name="medio" value="mercadopago">')
+        self.assertContains(r, ':disabled="enviando"')
+
+    @override_settings(**MP)
+    def test_dos_medios_se_deshabilita_al_enviar(self):
+        self.crear_cuenta()
+        self.aceptar_mp()
+        self.agregar()
+        self.assertContains(self.client.get(reverse("tienda:carrito")), ':disabled="enviando"')
+
+    @override_settings(**MP)
+    def test_el_medio_oculto_que_ya_no_esta_disponible_no_elige_otro(self):
+        """El carrito se mostró con sólo MP y la cuenta se cayó antes de
+        confirmar: nunca se arma un pedido por transferencia en silencio."""
+        cuenta = self.crear_cuenta()
+        self.aceptar_mp(transferencia=False)
+        self.agregar()
+        CuentaMercadoPago.objects.filter(pk=cuenta.pk).update(estado=E.RECONECTAR)
+        with mock.patch(CREAR) as crear:
+            r = self.client.post(reverse("tienda:checkout"), {"medio": "mercadopago"}, follow=True)
+        crear.assert_not_called()
+        self.assertFalse(Pedido.objects.exists())
+        self.assertContains(r, "Elegí cómo pagar")
+
+
+@override_settings(**MP)
+class CarreraMPOkStaffCancelaTests(_Base):
+    def test_mp_responde_ok_pero_el_staff_cancelo_en_el_medio(self):
+        self.crear_cuenta()
+        pedido = self.pedido_mp(preference_id="", init_point="")
+        Variante.objects.filter(pk=self.variante.pk).update(stock=1)
+
+        def staff_cancela_y_mp_ok(**kwargs):
+            services.cancelar_por_staff(Pedido.objects.get(pk=pedido.pk), motivo="")  # stock -> 2
+            return PREFERENCIA
+
+        with mock.patch(CREAR, side_effect=staff_cancela_y_mp_ok), \
+                self.assertRaises(services.ErrorDeTienda) as e:
+            pagos_mp.crear_link_de_pago(
+                pedido, url_retorno_para=lambda ref: "https://x/", url_notificacion_para=lambda u: "https://x/",
+            )
+        self.assertEqual(e.exception.motivo, "estado_invalido")
+        self.variante.refresh_from_db()
+        self.assertEqual(self.variante.stock, 2)
+        pedido.refresh_from_db()
+        self.assertEqual(pedido.estado, Pedido.Estado.CANCELADO)
+        self.assertEqual(pedido.preference_id, "")

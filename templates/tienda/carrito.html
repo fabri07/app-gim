@@ -33,7 +33,13 @@
           debajo. `hx-boost="false"`: con Mercado Pago el POST redirige a
           mercadopago.com.ar.
         {% endcomment %}
-        <form method="post" action="{% url 'tienda:checkout' %}" hx-boost="false">
+        {% comment %}
+          `enviando` deshabilita el botón al enviar (un doble click serían dos
+          pedidos); `pageshow` lo rehabilita si el navegador restaura la
+          página desde la caché al volver de Mercado Pago.
+        {% endcomment %}
+        <form method="post" action="{% url 'tienda:checkout' %}" hx-boost="false"
+          x-data="{ enviando: false }" @submit="enviando = true" @pageshow.window="enviando = false">
           {% csrf_token %}
           <fieldset class="selector-fondo-tipo">
             <legend><strong>¿Cómo pagás?</strong></legend>
@@ -48,20 +54,25 @@
           </fieldset>
           {% if error_medio %}<p class="config-error">Elegí cómo pagar: ese medio de pago no está disponible.</p>{% endif %}
           <p class="texto-suave">Si no pagás en el plazo, el pedido se cancela solo.</p>
-          <button type="submit" class="boton w-full mt-2">Confirmar pedido</button>
+          <button type="submit" class="boton w-full mt-2" :disabled="enviando">Confirmar pedido</button>
         </form>
       {% elif con_mercadopago %}
         <p class="texto-suave">Pagás con Mercado Pago: tenés {{ config.minutos_reserva_mp }} minutos; si no, el pedido se cancela solo.</p>
         {% if error_medio %}<p class="config-error">Elegí cómo pagar: ese medio de pago no está disponible.</p>{% endif %}
-        <form method="post" action="{% url 'tienda:checkout' %}" hx-boost="false">
+        <form method="post" action="{% url 'tienda:checkout' %}" hx-boost="false"
+          x-data="{ enviando: false }" @submit="enviando = true" @pageshow.window="enviando = false">
           {% csrf_token %}
-          <button type="submit" class="boton w-full mt-2">Confirmar pedido</button>
+          {# El medio que el alumno vio: si ya no está disponible, error (nunca otro en silencio). #}
+          <input type="hidden" name="medio" value="mercadopago">
+          <button type="submit" class="boton w-full mt-2" :disabled="enviando">Confirmar pedido</button>
         </form>
       {% else %}
       <p class="texto-suave">Tenés {{ config.horas_reserva_transferencia }} h para transferir y subir el comprobante; si no, el pedido se cancela solo.</p>
       {% if error_medio %}<p class="config-error">Elegí cómo pagar: ese medio de pago no está disponible.</p>{% endif %}
       <form method="post" action="{% url 'tienda:checkout' %}">
         {% csrf_token %}
+        {# El medio que el alumno vio: si ya no está disponible, error (nunca otro en silencio). #}
+        <input type="hidden" name="medio" value="transferencia">
         <button type="submit" class="boton w-full mt-2">Confirmar pedido</button>
       </form>
       {% endif %}
