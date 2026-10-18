@@ -303,7 +303,7 @@ class PedidoMercadoPagoTests(_Base):
             cursor.execute(
                 "INSERT INTO tienda_configuraciontienda (creado, modificado, gimnasio_id, "
                 "publicada, horas_reserva_transferencia, max_pedidos_activos, instrucciones_retiro) "
-                "VALUES (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s, 0, 24, 2, '')",
+                "VALUES (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, %s, FALSE, 24, 2, '')",
                 [self.gimnasio.pk],
             )
             cursor.execute(
