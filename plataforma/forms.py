@@ -69,9 +69,9 @@ class PagoPlataformaForm(forms.ModelForm):
             "notas",
         ]
         widgets = {
-            "fecha_pago": forms.DateInput(attrs={"type": "date"}),
-            "periodo_desde": forms.DateInput(attrs={"type": "date"}),
-            "periodo_hasta": forms.DateInput(attrs={"type": "date"}),
+            "fecha_pago": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "periodo_desde": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "periodo_hasta": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
             "notas": forms.Textarea(attrs={"rows": 2}),
         }
 
@@ -148,7 +148,7 @@ class FacturacionForm(forms.ModelForm):
         model = Gimnasio
         fields = ["facturacion_inicio", "facturacion_exenta"]
         widgets = {
-            "facturacion_inicio": forms.DateInput(attrs={"type": "date"}),
+            "facturacion_inicio": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
         }
 
 

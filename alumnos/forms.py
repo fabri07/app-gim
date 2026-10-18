@@ -42,8 +42,8 @@ class AlumnoForm(TenantScopedModelForm):
             "observaciones",
         ]
         widgets = {
-            "fecha_nacimiento": forms.DateInput(attrs={"type": "date"}),
-            "fecha_inicio_ciclo": forms.DateInput(attrs={"type": "date"}),
+            "fecha_nacimiento": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "fecha_inicio_ciclo": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
         }
 
     def __init__(self, *args, **kwargs):

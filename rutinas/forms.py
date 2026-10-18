@@ -51,7 +51,7 @@ class AsignarRutinaForm(forms.Form):
 
     alumno = forms.ModelChoiceField(queryset=Alumno.objects.none())
     plantilla = forms.ModelChoiceField(queryset=RutinaPlantilla.objects.none())
-    fecha_inicio = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
+    fecha_inicio = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"))
 
     def __init__(self, *args, gimnasio, **kwargs):
         super().__init__(*args, **kwargs)

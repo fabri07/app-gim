@@ -18,6 +18,6 @@ class NovedadForm(TenantScopedModelForm):
         model = Novedad
         fields = ["titulo", "mensaje", "fecha_publicacion", "visible_hasta", "activa"]
         widgets = {
-            "fecha_publicacion": forms.DateInput(attrs={"type": "date"}),
-            "visible_hasta": forms.DateInput(attrs={"type": "date"}),
+            "fecha_publicacion": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
+            "visible_hasta": forms.DateInput(attrs={"type": "date"}, format="%Y-%m-%d"),
         }

@@ -392,3 +392,67 @@ class BorrarConExplicacionViewTests(TestCase):
         ):
             with self.subTest(url=url):
                 self.assertEqual(self.client.post(url).status_code, 403)
+
+
+class InputDateConFormatoISOTests(TestCase):
+    """Un `<input type="date">` sólo acepta `value="AAAA-MM-DD"`. Con
+    `LANGUAGE_CODE = 'es-ar'` un `DateInput` sin `format` pinta
+    `value="18/10/2026"`, el navegador lo descarta y el campo aparece VACÍO:
+    al editar, guardar sin tocarlo borra la fecha (o la rechaza si es
+    obligatoria). Pasó en las fechas del pago manual y de la facturación del
+    panel de plataforma (2026-10-18), y en los forms de alumnos, novedades y
+    asignar rutina."""
+
+    FECHA = date(2026, 10, 18)
+
+    def _assert_iso(self, form, campo):
+        html = str(form[campo])
+        self.assertIn('value="2026-10-18"', html, campo)
+        self.assertNotIn("18/10/2026", html, campo)
+
+    def test_pago_manual_del_panel_de_plataforma(self):
+        from plataforma.forms import PagoPlataformaForm
+
+        campos = ("fecha_pago", "periodo_desde", "periodo_hasta")
+        form = PagoPlataformaForm(initial={c: self.FECHA for c in campos})
+        for campo in campos:
+            self._assert_iso(form, campo)
+
+    def test_facturacion_del_panel_de_plataforma(self):
+        from plataforma.forms import FacturacionForm
+
+        gimnasio = Gimnasio.objects.create(
+            nombre="Fechas", slug="fechas", facturacion_inicio=self.FECHA
+        )
+        self._assert_iso(FacturacionForm(instance=gimnasio), "facturacion_inicio")
+
+    def test_alumnos_novedades_y_asignar_rutina(self):
+        from alumnos.forms import AlumnoForm
+        from novedades.forms import NovedadForm
+        from rutinas.forms import AsignarRutinaForm
+
+        gimnasio = Gimnasio.objects.create(nombre="Fechas", slug="fechas")
+        casos = [
+            (AlumnoForm, ("fecha_nacimiento", "fecha_inicio_ciclo")),
+            (NovedadForm, ("fecha_publicacion", "visible_hasta")),
+            (AsignarRutinaForm, ("fecha_inicio",)),
+        ]
+        for clase, campos in casos:
+            form = clase(initial={c: self.FECHA for c in campos}, gimnasio=gimnasio)
+            for campo in campos:
+                self._assert_iso(form, campo)
+
+    def test_ningun_dateinput_de_tipo_date_sin_format(self):
+        """Barrido del código: el próximo `DateInput` de tipo date tiene que
+        llevar `format="%Y-%m-%d"` o esta prueba lo frena."""
+        raiz = Path(settings.BASE_DIR)
+        patron = re.compile(r"DateInput\([^)]*\"type\": \"date\"[^)]*\)")
+        sin_format = []
+        for archivo in raiz.rglob("*.py"):
+            partes = archivo.relative_to(raiz).parts
+            if partes[0] in {"node_modules", ".venv", "venv"} or "tests" in archivo.name:
+                continue
+            for m in patron.finditer(archivo.read_text(encoding="utf-8")):
+                if "format=" not in m.group(0):
+                    sin_format.append(f"{archivo.relative_to(raiz)}: {m.group(0)}")
+        self.assertEqual(sin_format, [])
