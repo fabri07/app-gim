@@ -110,7 +110,7 @@ gimnasio sin cobro): bajo el `hx-boost` global un 4xx es un click muerto.
         Tenés {{ gimnasio.alumnos_activos }} alumno{{ gimnasio.alumnos_activos|pluralize }} activo{{ gimnasio.alumnos_activos|pluralize }}: tramo {{ tramo }} alumnos.
         El precio mensual se ajusta solo si cambiás de tramo o se activa o desactiva la tienda; el anual queda fijo los 12 meses, con la tienda incluida si la tenías.
       </p>
-      {% if tiene_tienda %}
+      {% if tiene_tienda and factura %}
         <p class="texto-suave">Incluye la tienda: USD {{ tienda_usd }} por mes (USD {{ tienda_anual_usd }} en el anual).</p>
       {% elif es_demo %}
         <p class="texto-suave">La tienda es un adicional de USD {{ tienda_usd }} por mes.</p>

@@ -9,6 +9,9 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
+import re
+
+from django.db import connection
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
@@ -91,14 +94,24 @@ class TiendaEnElMonitorTests(TestCase):
         self.assertEqual(kpis["clientes"], 0)
 
     def test_el_monitor_marca_con_tienda_solo_donde_corresponde(self):
-        _gimnasio("Con Tienda", 45, tienda_habilitada=True)
-        _gimnasio("Sin Tienda", 45)
+        _gimnasio("Alfa", 45, tienda_habilitada=True)
+        _gimnasio("Beta", 45)
         self.client.force_login(_superadmin())
         html = self.client.get(reverse("plataforma:inicio")).content.decode()
 
-        # Dos veces, las dos del gimnasio con tienda: en «Para cobrar» (a los
-        # 45 días ya está vencido) y en la tabla. El otro no lleva etiqueta.
-        self.assertEqual(html.count("con tienda"), 2)
+        # En la tabla y en «Para cobrar» (a los 45 días ya está vencido): la
+        # etiqueta va en las filas de Alfa y en ninguna de Beta.
+        def bloques(etiqueta, nombre):
+            return [
+                b for b in re.findall(rf"<{etiqueta}>.*?</{etiqueta}>", html, re.S)
+                if f">{nombre}<" in b
+            ]
+
+        for etiqueta in ("tr", "li"):
+            (alfa,) = bloques(etiqueta, "Alfa")
+            (beta,) = bloques(etiqueta, "Beta")
+            self.assertIn("con tienda", alfa, etiqueta)
+            self.assertNotIn("con tienda", beta, etiqueta)
 
 
 class PagoManualConTiendaTests(TestCase):
@@ -184,3 +197,31 @@ class PagoManualConTiendaTests(TestCase):
         )
         self.assertContains(ficha, "USD 35")
         self.assertContains(ficha, "USD 15 del tramo + USD 20 de la tienda")
+
+    def test_la_ficha_sin_tienda_no_desglosa(self):
+        ficha = self.client.get(
+            reverse("plataforma:gimnasio_detalle", args=[self.gimnasio.pk])
+        )
+        self.assertContains(ficha, "USD 15")
+        self.assertNotContains(ficha, "del tramo +")
+        self.assertNotContains(ficha, "de la tienda)")
+
+
+class InsertDelCodigoViejoTests(TestCase):
+    """Durante el `migrate` del `buildCommand` (y tras un rollback) el código
+    viejo sigue insertando pagos sin nombrar `monto_tienda_usd`: la columna
+    necesita `db_default` o el INSERT da IntegrityError (NOT NULL)."""
+
+    def test_un_insert_sin_monto_tienda_usd_guarda_cero(self):
+        gimnasio = _gimnasio("Viejo", 45)
+        jefe = _superadmin()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO plataforma_pagoplataforma (creado, modificado, fecha_pago, "
+                "monto_usd, alumnos_activos, periodo_desde, periodo_hasta, notas, "
+                "gimnasio_id, registrado_por_id, origen) VALUES (CURRENT_TIMESTAMP, "
+                "CURRENT_TIMESTAMP, '2026-06-01', 15, 5, '2026-06-01', '2026-06-30', "
+                "'', %s, %s, 'manual')",
+                [gimnasio.pk, jefe.pk],
+            )
+        self.assertEqual(PagoPlataforma.objects.get().monto_tienda_usd, 0)

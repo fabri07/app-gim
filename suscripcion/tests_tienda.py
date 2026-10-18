@@ -11,7 +11,8 @@ Los servicios y los mails van con `TransactionTestCase` (los mails salen por
 from decimal import Decimal
 
 from django.core import mail
-from django.test import TransactionTestCase
+from django.db import connection
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 
 from plataforma import facturacion, precios
@@ -25,6 +26,7 @@ from suscripcion.tests_services import (
     _crear,
     _pago,
 )
+from plataforma.tests_facturacion import _gimnasio as _gimnasio_plataforma
 from suscripcion.tests_vistas import PRENDIDO, _Base, _intento
 from tenants.models import Gimnasio
 
@@ -185,8 +187,8 @@ class MiSuscripcionConTiendaTests(_Base):
         respuesta = self._get()
 
         self.assertNotContains(respuesta, "Continuar al pago")
-        total = precios.precio_usd(0, tienda=True)
-        self.assertContains(respuesta, f"USD {total}")
+        planes = {p["valor"]: p for p in respuesta.context["planes"]}
+        self.assertEqual(planes["mensual"]["monto_usd"], precios.precio_usd(0, tienda=True))
 
     def test_apagar_la_tienda_con_un_link_vivo_con_tienda_oculta_el_banner(self):
         _tienda(self.gimnasio, True)
@@ -253,6 +255,15 @@ class MiSuscripcionConTiendaTests(_Base):
             f"La tienda es un adicional de USD {precios.PRECIO_TIENDA_USD} por mes.",
         )
 
+    def test_la_demo_con_la_tienda_prendida_no_dice_incluye(self):
+        """La demo no factura: «Incluye la tienda» sería un cobro que no hay."""
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            es_demo=True, tienda_habilitada=True
+        )
+        respuesta = self._get()
+        self.assertNotContains(respuesta, "Incluye la tienda")
+        self.assertContains(respuesta, "La tienda es un adicional")
+
     def test_un_gimnasio_no_demo_no_ve_la_linea_de_la_demo(self):
         self.assertNotContains(self._get(), "La tienda es un adicional")
 
@@ -275,3 +286,24 @@ class AvisoPorMailConTiendaTests(TransactionTestCase):
         self.assertIn(f"USD {total} (incluye la tienda, USD 20)", cuerpos["con@x.com"])
         self.assertIn(f"USD {precios.precio_usd(2)} (se paga", cuerpos["sin@x.com"])
         self.assertNotIn("tienda", cuerpos["sin@x.com"])
+
+
+class InsertDelCodigoViejoTests(TestCase):
+    """El código viejo sigue atendiendo durante el `migrate` (y tras un
+    rollback): su INSERT del intento no nombra `monto_tienda_usd`."""
+
+    def test_un_insert_sin_monto_tienda_usd_guarda_cero(self):
+        gimnasio = _gimnasio_plataforma("Viejo", 45)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO suscripcion_intentodecobro (creado, modificado, plan, "
+                "periodo_desde, periodo_hasta, monto_usd, monto_ars, tipo_cambio, "
+                "alumnos_activos, referencia_externa, preference_id, init_point, expira, "
+                "estado, payment_id, estado_mp, respuesta_mp, email_de_quien_pago, "
+                "gimnasio_id) VALUES (CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'mensual', "
+                "'2026-06-01', '2026-06-30', 10, 10000, 1000, 5, "
+                "'0123456789abcdef0123456789abcdef', '', '', CURRENT_TIMESTAMP, "
+                "'creado', '', '', '{}', '', %s)",
+                [gimnasio.pk],
+            )
+        self.assertEqual(IntentoDeCobro.objects.get().monto_tienda_usd, 0)

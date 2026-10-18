@@ -55,7 +55,7 @@
           <span>
             <strong>{{ fila.gimnasio.nombre }}</strong>
             <span class="texto-suave">
-              USD {{ fila.precio_usd }}{% if fila.tienda_usd %} <span class="texto-suave">con tienda</span>{% endif %} ·
+              USD {{ fila.precio_usd }}{% if fila.tienda_usd %} con tienda{% endif %} ·
               {% if fila.dias_de_atraso %}
                 vencido hace {{ fila.dias_de_atraso }} día{{ fila.dias_de_atraso|pluralize }}
               {% else %}

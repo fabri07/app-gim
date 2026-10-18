@@ -687,6 +687,7 @@ class WebhookTests(TestCase):
                     with self.assertLogs("suscripcion.views", "ERROR"):
                         respuesta = self._post()
                 self.assertEqual(respuesta.status_code, 200)
+                self.assertEqual(respuesta.json()["accion"], "pago ajeno")
 
     def test_otro_error_http_de_mercado_pago_da_500(self):
         with patch(
