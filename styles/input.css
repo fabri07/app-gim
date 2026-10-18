@@ -385,6 +385,54 @@
     @apply border-b-0;
   }
 
+  /* «Mis pedidos» del alumno: tabla desde `lg`; debajo (el contenedor mide
+     448 px hasta `lg`) cada fila se ve como la línea «#n · fecha · $ ·
+     estado» de siempre. `text-base` deshace el `text-sm` de `.tabla`; `my-2`
+     reproduce el `mb-2` del `<p>` que había antes; `overflow-visible` deja
+     colapsar esos márgenes. El « · » depende del salto de línea entre
+     `</td>` y `<td>` en el template. La fila con `.celda-accion` (rama del
+     «Botón de arrepentimiento») era un `div.mt-2` sin margen abajo. */
+  @media (width < 64rem) {
+    .tabla--pedidos,
+    .tabla--pedidos tbody,
+    .tabla--pedidos tr {
+      @apply block;
+    }
+
+    .tabla--pedidos {
+      @apply bg-transparent border-0 shadow-none rounded-none overflow-visible
+        text-base;
+    }
+
+    .tabla--pedidos thead {
+      @apply hidden;
+    }
+
+    .tabla--pedidos tr {
+      @apply my-2;
+    }
+
+    .tabla--pedidos td {
+      @apply inline p-0 border-0;
+    }
+
+    .tabla--pedidos td + td::before {
+      content: "· ";
+    }
+
+    .tabla--pedidos .celda-accion {
+      @apply block;
+    }
+
+    .tabla--pedidos .celda-accion::before {
+      content: none;
+    }
+
+    .tabla--pedidos tr:has(.celda-accion) {
+      @apply mt-2 mb-0;
+    }
+  }
+
   /* List page header + filters */
   .acciones-lista {
     @apply flex items-center justify-between mb-4 flex-wrap gap-2;

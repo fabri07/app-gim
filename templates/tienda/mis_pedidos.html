@@ -1,32 +1,66 @@
 {% extends 'base.html' %}
 {% block title %}Mis pedidos · App Gimnasios{% endblock %}
 
+{% block main_class %}contenido--alumno{% endblock %}
+
 {% block content %}
+{% comment %}
+Una sola tabla: desde `lg` se ve como tabla; debajo, `.tabla--pedidos`
+(styles/input.css) muestra cada fila como las líneas «#n · fecha · $ · estado»
+de siempre. El « · » sale de `td + td::before` y del espacio entre celdas: el
+salto de línea entre `</td>` y `<td>` no se puede sacar.
+{% endcomment %}
 <div class="tarjeta">
   {% if arrepentimiento %}
     <h1>Botón de arrepentimiento</h1>
     <p class="texto-suave">Podés arrepentirte de una compra: mientras no la retires, cuando quieras; después de retirarla, hasta 10 días. El gimnasio te devuelve la plata por el mismo medio.</p>
-    {% for p in pedidos %}
-      <div class="mt-2">
-        <strong>#{{ p.pk }}</strong> · {{ p.creado|date:"d/m/Y" }} · $ {{ p.total|floatformat:"2g" }} · {{ p.get_estado_display }}
-        <form method="post" action="{% url 'tienda:mi_pedido_pedir_cancelacion' p.pk %}">
-          {% csrf_token %}
-          <button type="submit" class="boton w-full mt-2">Pedir cancelación</button>
-        </form>
-      </div>
-    {% empty %}
+    {% if pedidos %}
+      <table class="tabla tabla--pedidos">
+        <thead>
+          <tr><th>Pedido</th><th>Fecha</th><th>Total</th><th>Estado</th><th><span class="sr-only">Acción</span></th></tr>
+        </thead>
+        <tbody>
+          {% for p in pedidos %}
+            <tr>
+              <td><strong>#{{ p.pk }}</strong></td>
+              <td>{{ p.creado|date:"d/m/Y" }}</td>
+              <td>$ {{ p.total|floatformat:"2g" }}</td>
+              <td>{{ p.get_estado_display }}</td>
+              <td class="celda-accion">
+                <form method="post" action="{% url 'tienda:mi_pedido_pedir_cancelacion' p.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="boton w-full mt-2 lg:w-auto lg:mt-0">Pedir cancelación</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
       <p class="texto-suave">No tenés pedidos que se puedan cancelar ahora.</p>
       <a href="{% url 'tienda:mis_pedidos' %}">Ver todos mis pedidos</a>
-    {% endfor %}
+    {% endif %}
   {% else %}
     <h1>Mis pedidos</h1>
-    {% for p in pedidos %}
-      <p class="mt-2">
-        <a href="{% url 'tienda:mi_pedido' p.pk %}">#{{ p.pk }}</a> · {{ p.creado|date:"d/m/Y" }} · $ {{ p.total|floatformat:"2g" }} · <span class="badge {{ p.badge_clase }}">{{ p.get_estado_display }}</span>{% if p.cancelacion_pendiente %} <span class="badge badge--alerta">Cancelación pedida</span>{% endif %}
-      </p>
-    {% empty %}
+    {% if pedidos %}
+      <table class="tabla tabla--pedidos">
+        <thead>
+          <tr><th>Pedido</th><th>Fecha</th><th>Total</th><th>Estado</th></tr>
+        </thead>
+        <tbody>
+          {% for p in pedidos %}
+            <tr>
+              <td><a href="{% url 'tienda:mi_pedido' p.pk %}">#{{ p.pk }}</a></td>
+              <td>{{ p.creado|date:"d/m/Y" }}</td>
+              <td>$ {{ p.total|floatformat:"2g" }}</td>
+              <td><span class="badge {{ p.badge_clase }}">{{ p.get_estado_display }}</span>{% if p.cancelacion_pendiente %} <span class="badge badge--alerta">Cancelación pedida</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
       <p class="texto-suave">Todavía no hiciste pedidos.</p>
-    {% endfor %}
+    {% endif %}
   {% endif %}
   <a class="boton-secundario w-full mt-2" href="{% url 'home' %}">Volver al inicio</a>
 </div>

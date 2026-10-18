@@ -1,8 +1,12 @@
 {% extends 'base.html' %}
 {% block title %}Pedido #{{ pedido.pk }} · App Gimnasios{% endblock %}
 
+{% block main_class %}contenido--alumno{% endblock %}
+
 {% block content %}
 <div class="tarjeta">
+  <div class="con-lateral">
+  <div>
   <h1>Pedido #{{ pedido.pk }}</h1>
   <p><span class="badge {{ pedido.badge_clase }}">{{ pedido.get_estado_display }}</span> · <span class="whitespace-nowrap">$ {{ pedido.total|floatformat:"2g" }}</span></p>
   {% if pedido.cancelacion_pendiente %}
@@ -15,7 +19,9 @@
       <li>{{ i }}</li>
     {% endfor %}
   </ul>
+  </div>
 
+  <div>
   {% if pedido.estado == 'pendiente_pago' %}
     {% if pedido.comprobante or pedido.motivo %}
       <p class="aviso-urgente">El gimnasio rechazó tu comprobante{% if pedido.motivo %}: {{ pedido.motivo }}{% endif %}. Subí otro antes del {{ pedido.reservado_hasta|date:"d/m H:i" }}.</p>
@@ -52,5 +58,7 @@
     </form>
   {% endif %}
   <a class="boton-secundario w-full mt-2" href="{% url 'tienda:mis_pedidos' %}">Mis pedidos</a>
+  </div>
+  </div>
 </div>
 {% endblock %}

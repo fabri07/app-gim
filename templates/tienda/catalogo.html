@@ -4,9 +4,9 @@
 {% block main_class %}contenido--ancho{% endblock %}
 
 {% block content %}
-<div class="tarjeta">
+<div class="tarjeta lg:flex lg:justify-between lg:items-center">
   <h1>Tienda</h1>
-  <p>
+  <p class="lg:mb-0">
     <a href="{% url 'tienda:carrito' %}">Carrito ({{ unidades_en_carrito }})</a>
     ·
     <a href="{% url 'tienda:mis_pedidos' %}">Mis pedidos</a>
