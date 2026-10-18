@@ -122,18 +122,19 @@ class ProductoForm(TenantScopedModelForm):
                 "fotos_nuevas",
                 f"Máximo {MAX_FOTOS_POR_PRODUCTO} fotos por producto: borrá alguna antes de agregar.",
             )
+        # El radio «Principal» siempre viaja marcado (con la principal actual):
+        # si esa misma foto se borra, no es un conflicto, es «sin principal
+        # explícita»; manda la de menor posición que quede (o la nueva).
         principal = cleaned.get("principal")
         if principal is not None and principal in borradas:
-            self.add_error(
-                "principal",
-                "La foto principal no se puede borrar: elegí otra como principal primero.",
-            )
+            cleaned["principal"] = None
         return cleaned
 
     def guardar_fotos(self, producto):
         """Va dentro del `atomic()` de la vista, después de `save()`. Borra
         sólo las filas (el archivo queda en R2), agrega las nuevas al final en
-        el orden elegido y, si hay principal, renumera: ella 0, el resto 1..n."""
+        el orden elegido y renumera 0..n-1 (la principal elegida primero; sin
+        principal explícita, o si se borró, queda el orden actual)."""
         borradas = self.cleaned_data.get("borrar_fotos") or []
         if borradas:
             FotoProducto.objects.filter(producto=producto, pk__in=[f.pk for f in borradas]).delete()
@@ -144,12 +145,17 @@ class ProductoForm(TenantScopedModelForm):
             for i, archivo in enumerate(nuevas):
                 FotoProducto.objects.create(producto=producto, imagen=archivo, posicion=siguiente + i)
         principal = self.cleaned_data.get("principal")
-        if principal is not None:
+        if principal is not None or borradas:
             fotos = list(producto.fotos.all())
-            orden = [f for f in fotos if f.pk == principal.pk] + [f for f in fotos if f.pk != principal.pk]
-            for posicion, foto in enumerate(orden):
-                foto.posicion = posicion
-            FotoProducto.objects.bulk_update(orden, ["posicion"])
+            if principal is not None:
+                fotos = [f for f in fotos if f.pk == principal.pk] + [f for f in fotos if f.pk != principal.pk]
+            cambiadas = []
+            for posicion, foto in enumerate(fotos):
+                if foto.posicion != posicion:
+                    foto.posicion = posicion
+                    cambiadas.append(foto)
+            if cambiadas:
+                FotoProducto.objects.bulk_update(cambiadas, ["posicion"])
 
 
 class VarianteForm(forms.ModelForm):

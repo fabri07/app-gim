@@ -3145,3 +3145,10 @@ La galería (`FotoProducto`, hasta 5 por producto) reemplaza a `Producto.foto`.
   asumir que alcanza.
 - **El tope de 5 no es seguro ante concurrencia** (dos subidas simultáneas
   podrían pasarlo). Aceptado: es una pantalla de un solo staff.
+- **Ventana de deploy:** una foto subida con el formulario viejo mientras se
+  despliega cae en la columna muerta `Producto.foto` y no llega a la galería.
+  Aceptado (tráfico mínimo).
+- **Rollback:** las fotos agregadas por la galería son invisibles para el
+  código viejo. Aceptado (tráfico mínimo).
+- **Chequeo post-deploy:** `Producto.objects.exclude(foto="").exclude(fotos__imagen=F("foto"))`
+  debe dar vacío.

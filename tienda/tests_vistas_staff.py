@@ -297,7 +297,6 @@ class FotoTests(_BaseStaff):
     def test_foto_de_otro_gimnasio_404(self):
         # Con su propio `producto_id` correcto: lo único que la frena es la
         # puerta del gimnasio (tienda no habilitada / inactivo).
-        producto, _ = self.crear_producto()
         ajeno, _ = self.crear_producto(gimnasio=self.otro)
         foto = self.crear_foto(ajeno)
         url = reverse("tienda:tienda_foto_producto", args=[ajeno.pk, foto.pk])
@@ -411,14 +410,40 @@ class GaleriaDeFotosTests(_BaseStaff):
             [(fotos[2].pk, 0), (fotos[0].pk, 1), (fotos[1].pk, 2)],
         )
 
-    def test_principal_marcada_para_borrar_es_error_visible(self):
-        producto, variante, fotos = self.crear_con_fotos(2)
+    def test_borrar_la_unica_foto_deja_cero_fotos(self):
+        producto, variante, fotos = self.crear_con_fotos(1)
         r = self.editar(producto, self.datos_edicion(
             variante, principal=str(fotos[0].pk), borrar_fotos=[str(fotos[0].pk)],
         ))
-        self.assertEqual(r.status_code, 200)
-        self.assertContains(r, "La foto principal no se puede borrar")
-        self.assertEqual(producto.fotos.count(), 2)
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(producto.fotos.count(), 0)
+        self.assertIsNone(producto.foto_principal)
+        html = self.client.get(reverse("tienda:productos")).content.decode()
+        self.assertIn("Remera", html)
+        self.assertNotIn("<img", html.split("Remera", 1)[1])
+
+    def test_borrar_la_principal_con_otra_foto_promueve_la_que_queda(self):
+        producto, variante, fotos = self.crear_con_fotos(3)
+        r = self.editar(producto, self.datos_edicion(
+            variante, principal=str(fotos[0].pk), borrar_fotos=[str(fotos[0].pk)],
+        ))
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(
+            list(producto.fotos.order_by("posicion").values_list("pk", "posicion")),
+            [(fotos[1].pk, 0), (fotos[2].pk, 1)],
+        )
+
+    def test_borrar_la_principal_y_subir_una_nueva_en_un_guardado(self):
+        producto, variante, fotos = self.crear_con_fotos(1)
+        r = self.editar(producto, self.datos_edicion(
+            variante, principal=str(fotos[0].pk), borrar_fotos=[str(fotos[0].pk)],
+            fotos_nuevas=[jpeg()],
+        ))
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(
+            list(producto.fotos.values_list("posicion", flat=True)), [0],
+        )
+        self.assertFalse(FotoProducto.objects.filter(pk=fotos[0].pk).exists())
 
     def test_foto_de_otro_producto_no_es_opcion_valida(self):
         producto, variante, fotos = self.crear_con_fotos(1)

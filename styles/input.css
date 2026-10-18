@@ -681,7 +681,7 @@
   /* Foto única: 160px en celular como siempre; desde `sm` llena la tarjeta,
      igual de cuadrada que las de `.producto-fotos__foto`. */
   .producto-foto-unica {
-    @apply w-40 sm:w-full h-auto aspect-square object-cover rounded-lg;
+    @apply w-40 sm:w-full sm:max-w-60 h-auto aspect-square object-cover rounded-lg;
   }
 
   /* Foto guardada en el formulario del producto: miniatura + opciones en una

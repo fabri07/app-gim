@@ -584,7 +584,7 @@ deslizar.
 - **`.catalogo-grilla`**: el catálogo usa `contenido--ancho`; las tarjetas van
   en 1 / 2 (`sm`) / 3 (`lg`) columnas, con el título de categoría a todo el
   ancho encima. **`.producto-foto-unica`**: 160px en celular, llena la tarjeta
-  desde `sm`. Carrito y pedidos siguen angostos.
+  desde `sm` hasta 240px (el mismo tope que las fotos de la galería). Carrito y pedidos siguen angostos.
 - **`.foto-fila`** (formulario del staff): miniatura de 72px + «Principal» +
   «Borrar» + insignia «Principal actual», en un flex que se parte en celular.
 

@@ -310,7 +310,8 @@ class CatalogoGaleriaTests(_BaseAlumno):
         self.assertIn(foto.url_cacheable, html)
         self.assertNotIn("producto-fotos", html)
         self.assertNotIn('role="region"', html)
-        self.assertNotIn(" fotos", html)
+        tarjeta = html.split("Remera", 1)[1].split("</form>", 1)[0]
+        self.assertNotIn(" fotos", tarjeta)
 
     def test_sin_fotos_no_hay_imagen_ni_region(self):
         html = self.client.get(reverse("tienda:catalogo")).content.decode()
