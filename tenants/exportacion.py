@@ -314,13 +314,19 @@ HOJAS = (
     ),
     Hoja(
         "tienda_productos", "tienda.Producto", "gimnasio",
-        "Productos de la tienda. `foto_archivo` es el nombre del archivo; las "
-        "fotos en sí no van en esta exportación.",
+        "Productos de la tienda. Las fotos están en `tienda_productos_fotos` "
+        "(sólo el nombre del archivo; las fotos en sí no van en esta exportación).",
         (
             ("id", "id"), ("categoria_id", "categoria_id"), ("nombre", "nombre"),
             ("descripcion", "descripcion"), ("precio", "precio"),
-            ("publicado", "publicado"), ("foto_archivo", "foto"), ("creado", "creado"),
+            ("publicado", "publicado"), ("creado", "creado"),
         ),
+    ),
+    Hoja(
+        "tienda_productos_fotos", "tienda.FotoProducto", "producto__gimnasio",
+        "Fotos de cada producto, en orden (`posicion` 0 es la principal). "
+        "`archivo` es el nombre del archivo.",
+        (("producto_id", "producto_id"), ("posicion", "posicion"), ("archivo", "imagen")),
     ),
     Hoja(
         "tienda_variantes", "tienda.Variante", "producto__gimnasio",

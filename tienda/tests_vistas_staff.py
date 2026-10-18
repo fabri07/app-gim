@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 from PIL import Image
+from PIL.JpegImagePlugin import JpegImageFile
 
 from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
@@ -190,6 +191,60 @@ class BorrarProductoTests(_BaseStaff):
         self.assertContains(r, "Destildá «Publicado»")
 
 
+class BorrarProductoConFotosTests(_BaseStaff):
+    def test_la_confirmacion_avisa_que_se_borran_las_fotos(self):
+        producto, _ = self.crear_producto()
+        for i in range(2):
+            FotoProducto.objects.create(producto=producto, imagen=f"tienda/productos/{i}.jpg", posicion=i)
+        from core.borrado import arrastres_de_borrado
+
+        self.assertIn(("fotos", 2), arrastres_de_borrado(producto))
+        r = self.client.get(reverse("tienda:producto_borrar", args=[producto.pk]))
+        self.assertContains(r, "2 fotos")
+
+
+class ListadoDeProductosEscalaTests(_BaseStaff):
+    def _cargar(self, cantidad):
+        for _ in range(cantidad):
+            producto, _v = self.crear_producto()
+            for i in range(2):
+                FotoProducto.objects.create(
+                    producto=producto, imagen=f"tienda/productos/{producto.pk}-{i}.jpg", posicion=i,
+                )
+
+    def _queries(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.assertEqual(self.client.get(reverse("tienda:productos")).status_code, 200)
+        return len(ctx)
+
+    def test_las_queries_no_dependen_de_la_cantidad_de_productos(self):
+        self._cargar(2)
+        self._queries()  # calienta lo que se cachea en la primera request
+        pocos = self._queries()
+        self._cargar(2)
+        muchos = self._queries()
+        self.assertEqual(pocos, muchos)
+
+
+class PrepararFotoDraftTests(TestCase):
+    def test_el_draft_pide_el_lado_maximo_y_no_mas(self):
+        from tienda import fotos
+
+        original = JpegImageFile.draft
+        pedidos = []
+
+        def espia(self, modo, tamanio):
+            pedidos.append(tamanio)
+            return original(self, modo, tamanio)
+
+        with patch.object(JpegImageFile, "draft", espia):
+            fotos.preparar_foto(jpeg(3000, 2000))
+        self.assertEqual(pedidos, [(fotos.LADO_MAXIMO, fotos.LADO_MAXIMO)])
+
+
 class FotoTests(_BaseStaff):
     def crear_foto(self, producto, posicion=0):
         foto = FotoProducto(producto=producto, posicion=posicion)
@@ -241,9 +296,15 @@ class FotoTests(_BaseStaff):
 
     def test_foto_de_otro_gimnasio_404(self):
         producto, _ = self.crear_producto()
+        """Con su propio `producto_id` correcto: lo único que la frena es la
+        puerta del gimnasio (tienda no habilitada / inactivo)."""
         ajeno, _ = self.crear_producto(gimnasio=self.otro)
         foto = self.crear_foto(ajeno)
-        url = reverse("tienda:tienda_foto_producto", args=[producto.pk, foto.pk])
+        url = reverse("tienda:tienda_foto_producto", args=[ajeno.pk, foto.pk])
+        self.assertEqual(self.client.get(url).status_code, 200)
+        Gimnasio.objects.filter(pk=self.otro.pk).update(tienda_habilitada=False)
+        self.assertEqual(self.client.get(url).status_code, 404)
+        Gimnasio.objects.filter(pk=self.otro.pk).update(tienda_habilitada=True, activo=False)
         self.assertEqual(self.client.get(url).status_code, 404)
 
 

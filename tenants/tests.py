@@ -3836,7 +3836,7 @@ class SembrarDemoTests(TestCase):
         self.assertFalse(Producto.objects.for_gimnasio(self.gimnasio).exists())
 
     def test_la_tienda_se_siembra_en_la_demo_sin_duplicar(self):
-        from tienda.models import Pedido, Producto, Variante
+        from tienda.models import FotoProducto, Pedido, Producto, Variante
         from tienda.services import reservado_por_variante
 
         Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
@@ -3846,7 +3846,7 @@ class SembrarDemoTests(TestCase):
 
         self.assertGreater(productos, 0)
         self.assertTrue(Pedido.objects.for_gimnasio(self.gimnasio).exists())
-        self.assertFalse(Producto.objects.for_gimnasio(self.gimnasio).exclude(foto="").exists())
+        self.assertFalse(FotoProducto.objects.filter(producto__gimnasio=self.gimnasio).exists())
         # Lo reservado sale del disponible: el chocolate se siembra con 8 y su
         # pedido en revisión retiene uno.
         chocolate = Variante.objects.get(producto__gimnasio=self.gimnasio, nombre="Chocolate")

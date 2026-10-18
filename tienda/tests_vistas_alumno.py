@@ -277,6 +277,35 @@ class CatalogoVarianteUnicaTests(_BaseAlumno):
         self.assertContains(self.client.get(reverse("tienda:carrito")), "Creatina")
 
 
+class CatalogoEscalaTests(_BaseAlumno):
+    def _cargar(self, cantidad):
+        from tienda.models import FotoProducto
+
+        for _ in range(cantidad):
+            producto = Producto.objects.create(gimnasio=self.gimnasio, nombre="P", precio=Decimal("100"), publicado=True)
+            Variante.objects.create(producto=producto, nombre="M", stock=3)
+            for i in range(2):
+                FotoProducto.objects.create(
+                    producto=producto, imagen=f"tienda/productos/{producto.pk}-{i}.jpg", posicion=i,
+                )
+
+    def _queries(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as ctx:
+            self.assertEqual(self.client.get(reverse("tienda:catalogo")).status_code, 200)
+        return len(ctx)
+
+    def test_las_queries_no_dependen_de_la_cantidad_de_productos(self):
+        self._cargar(2)
+        self._queries()  # calienta lo que se cachea en la primera request
+        pocos = self._queries()
+        self._cargar(2)
+        muchos = self._queries()
+        self.assertEqual(pocos, muchos)
+
+
 class BotonDeArrepentimientoTests(_BaseAlumno):
     """Res. 424/2020: el «botón de arrepentimiento» tiene que estar a la
     vista, no escondido dentro de cada pedido."""

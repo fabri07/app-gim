@@ -30,8 +30,10 @@ def preparar_foto(archivo):
     try:
         imagen = Image.open(archivo)
         # Decodifica el JPEG a escala reducida (no-op en PNG): menos CPU en
-        # el worker de Render con fotos de celular de 12 MP.
-        imagen.draft("RGB", (2400, 2400))
+        # el worker de Render con fotos de celular de 12 MP. `draft` nunca
+        # baja de lo pedido, así que la salida sigue llegando a LADO_MAXIMO;
+        # el mínimo de resolución ya se validó sobre el original arriba.
+        imagen.draft("RGB", (LADO_MAXIMO, LADO_MAXIMO))
         imagen = ImageOps.exif_transpose(imagen).convert("RGB")
     except Exception:
         raise forms.ValidationError("El archivo no es una imagen válida.")

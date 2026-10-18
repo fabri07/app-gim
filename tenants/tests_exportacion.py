@@ -77,6 +77,12 @@ def _ensuciar_para_exportar(gimnasio, staff, marca="X"):
         novedad=Novedad.objects.get(gimnasio=gimnasio), alumno=alumno
     )
     GoogleCalendarCredential.objects.create(alumno=alumno, refresh_token=TOKEN_SECRETO)
+    from tienda.models import FotoProducto, Producto
+
+    FotoProducto.objects.create(
+        producto=Producto.objects.get(gimnasio=gimnasio),
+        imagen="tienda/productos/x.jpg", posicion=0,
+    )
     return alumno
 
 
@@ -173,6 +179,7 @@ class ContenidoDelZipTests(ExportacionBase):
         self.assertEqual(len(_filas(zf, "para-importar/novedades_lecturas.csv", ",")), 1)
         self.assertEqual(len(_filas(zf, "para-importar/plantillas_ejercicios.csv", ",")), 1)
         self.assertEqual(len(_filas(zf, "para-importar/tienda_variantes.csv", ",")), 1)
+        self.assertEqual(len(_filas(zf, "para-importar/tienda_productos_fotos.csv", ",")), 1)
         self.assertEqual(len(_filas(zf, "para-importar/tienda_pedidos_items.csv", ",")), 1)
 
     def test_no_sale_ningun_secreto(self):
