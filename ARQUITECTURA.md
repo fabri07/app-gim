@@ -2024,10 +2024,26 @@ p.ej. `alumnos:listado`, `rutinas:asignar`) y templates bajo
 - **Portal**: `HomeView._portal_alumno` (mismo patrón de import tardío que
   `_metricas_dashboard`) resuelve `perfil.alumno` y agrega su rutina activa
   (con items), la cuota del mes actual y las novedades visibles al contexto;
-  la plantilla renderiza todo en una sola pantalla mobile-first (ROADMAP
+  la plantilla lo renderiza en una sola pantalla mobile-first (ROADMAP
   Fase 3: "entiende su rutina sin explicación adicional"). Si el `Perfil` de
   rol `alumno` todavía no está vinculado a un `Alumno`, se muestra un estado
   vacío, no un error 500.
+- **Menú y panel en dos columnas en la compu.** El alumno tiene un menú
+  (`templates/partials/nav_alumno.html`, incluido por `base.html`; Inicio,
+  «Mi rutina» → `home#mi-rutina`, Turnos y, con `puede_usar_tienda`, Tienda)
+  y el inicio se parte en dos columnas desde `lg` (`.columnas`). El orden del
+  HTML es el del celular y NO cambia: las columnas son sólo CSS, así que el
+  celular queda idéntico. Cero queries nuevas: el menú usa
+  `user.perfil.gimnasio`, que el `<head>` ya resolvió, y `puede_usar_tienda`
+  es una propiedad sin consulta (`tenants/tests_nav_alumno.py` fija las 0
+  queries del partial). Con la cuenta suspendida o con los alumnos bloqueados
+  el menú no se renderiza: todas las secciones terminan en el mismo cartel.
+  Las pantallas del alumno usan `contenido--alumno` (o `--lectura` la
+  privacidad) y `.columnas`/`.con-lateral`; el comprobante de cuota muestra los
+  medios de cobro con el mismo partial que el inicio
+  (`partials/medios_cobro.html`). El detalle visual está en `DESIGN.md`
+  («Layout» y «Navigation»); los tests, en `tenants/tests_home_alumno.py` y
+  `tenants/tests_portal_pantallas.py`.
 
 ## Accesos, revocación y suplantación (Frente B)
 

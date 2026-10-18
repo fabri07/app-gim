@@ -368,11 +368,28 @@ gimnasio; recién ahí se justifica pagar el costo de una carga externa.
 
 ## Layout
 
-Dos anchos de contenedor, sin grid propio más allá de eso:
+Cuatro anchos de contenedor y dos ayudas de grilla, nada más:
 - **`.contenido`** (`max-w-md`, ~28rem): formularios y pantallas angostas
-  centradas — el portal del alumno, login.
+  centradas — login y las pantallas que no se adaptan a la compu.
 - **`.contenido--ancho`** (`max-w-5xl`, ~64rem): listados, dashboard, y toda
-  vista de gestión de staff.
+  vista de gestión de staff; en el portal del alumno, el catálogo de la
+  tienda y `mis_turnos` (que además anida su propio contenedor).
+- **`.contenido--alumno`**: pantallas del alumno que se adaptan a la compu.
+  Hasta `lg` es idéntico a `.contenido` (448px); desde `lg` pasa a `max-w-5xl`.
+- **`.contenido--lectura`** (`max-w-2xl`): texto largo, hoy sólo la política
+  de privacidad (~70-75 caracteres por línea con el `p-6` de la tarjeta).
+- **`.columnas`**: dos `<div>` columna desde `lg` (inicio del alumno,
+  `mis_turnos`); con una sola columna ocupa todo el ancho. El orden del HTML
+  es el del celular y no cambia: las columnas son sólo CSS.
+- **`.con-lateral`**: principal + lateral DENTRO de una sola `.tarjeta`
+  (carrito, pedido, comprobante de cuota); desde `lg` el lateral mide 20rem.
+  Sin espacio vertical propio a propósito (en un grid los márgenes no
+  colapsan): el lateral lleva `mt-4 lg:mt-0`.
+
+**Regla del portal del alumno.** Toda pantalla nueva del alumno declara
+`{% block main_class %}contenido--alumno{% endblock %}` (o `--lectura` si es
+texto largo) y se parte con `.columnas` o `.con-lateral`. En el celular tiene
+que verse igual que antes de la adaptación.
 - **Sitio público** (`max-w-6xl`, ~72rem, `px-4`): portada y login genérico.
   Nav fija de 64px; secciones separadas por `pt-24`/`sm:pt-28`; el hero y el
   login parten en dos columnas desde `lg` (copy a la izquierda, producto o
@@ -385,7 +402,8 @@ Densidad moderada: `px-4 py-8` en el contenedor principal, tarjetas con
 columnas en mobile y 4 en desktop (`grid-cols-2 sm:grid-cols-4`) para las
 métricas; la agenda de turnos pasa de 1 columna en mobile a 7 en desktop
 (una por día). Mobile-first en todo: el nav de staff colapsa detrás de un
-botón `☰` (Alpine.js) por debajo del breakpoint `sm`.
+botón `☰` (Alpine.js) por debajo del breakpoint `sm`; el menú del alumno
+(`.nav-alumno`) hace lo mismo con su propio `☰`.
 
 ## Elevation & Depth
 
@@ -519,6 +537,10 @@ paisaje y badges. Nunca un tercer escalón intermedio.
   para que el radio no se rompa en los bordes de las celdas.
 - **Header:** fondo `gray-50`, texto `gray-600` semi-bold.
 - **Rows:** borde inferior `gray-100` entre filas, sin borde en la última.
+- **`.tabla--pedidos`** (mis pedidos del alumno): una sola tabla; desde `lg`
+  se ve como tabla y debajo de `lg` se desarma en la línea de texto de
+  siempre (celdas inline separadas por «·», el botón de acción en su propio
+  renglón), para que el celular quede idéntico.
 
 ### Inputs / Fields
 - **Style:** borde `gray-300`, `rounded-md`, `text-sm`, `px-3 py-2`.
@@ -526,12 +548,18 @@ paisaje y badges. Nunca un tercer escalón intermedio.
   transparente — el único elemento de foco del sistema, y también el único
   input cuyo color de foco cambia por gimnasio.
 
-### Navigation (`.topbar` / `.nav-staff`)
+### Navigation (`.topbar` / `.nav-staff` / `.nav-alumno`)
 - **Topbar:** blanco, `sticky top-0`, con el logo/nombre del gimnasio a la
   izquierda y "Salir" a la derecha. El logo es dato del `Gimnasio`, no un
   asset del sistema.
 - **Nav de staff:** fila de links de texto (`gray-600`, hover `bg-gray-100`),
   nunca íconos — 8 secciones, colapsa detrás de `☰` en mobile.
+- **Menú del alumno (`.nav-alumno`):** comparte estilos con `.nav-staff`
+  (fila de links de texto) y lista Inicio, Mi rutina (`home#mi-rutina`),
+  Turnos y, sólo si el gimnasio tiene la tienda disponible, Tienda. El link
+  de la sección actual lleva `aria-current="page"` (`gray-100`, medium).
+  Desde `sm` está siempre a la vista; debajo, escondido hasta el `☰` del
+  topbar. No aparece con la cuenta suspendida ni con los alumnos bloqueados.
 
 ### Hojas de semana del alumno (`.semanas-carrusel` / `.semana-hoja`)
 
@@ -584,7 +612,7 @@ deslizar.
 - **`.catalogo-grilla`**: el catálogo usa `contenido--ancho`; las tarjetas van
   en 1 / 2 (`sm`) / 3 (`lg`) columnas, con el título de categoría a todo el
   ancho encima. **`.producto-foto-unica`**: 160px en celular, llena la tarjeta
-  desde `sm` hasta 240px (el mismo tope que las fotos de la galería). Carrito y pedidos siguen angostos.
+  desde `sm` hasta 240px (el mismo tope que las fotos de la galería). Carrito, pedido y mis pedidos usan `contenido--alumno` (angostos en el celular, anchos desde `lg`).
 - **`.foto-fila`** (formulario del staff): miniatura de 72px + «Principal» +
   «Borrar» + insignia «Principal actual», en un flex que se parte en celular.
 
