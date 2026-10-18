@@ -3152,3 +3152,33 @@ La galería (`FotoProducto`, hasta 5 por producto) reemplaza a `Producto.foto`.
   código viejo. Aceptado (tráfico mínimo).
 - **Chequeo post-deploy:** `Producto.objects.exclude(foto="").exclude(fotos__imagen=F("foto"))`
   debe dar vacío.
+
+## [2026-10-18] Tienda: cobro del add-on (Hito 3) y la decisión «desde el próximo pago»
+
+El add-on se suma a la suscripción: USD 20 por mes, 200 el anual (10 meses), sólo si
+`gimnasio.tienda_habilitada` (nunca `puede_usar_tienda`, verdadera en la demo) y sólo donde
+ya se cobra (`facturacion_aplica`). Los números salen de `plataforma/precios.py`.
+
+**Decisión del dueño del producto (18-10): se cobra desde el próximo pago.** Prender la
+tienda a un gimnasio que ya pagó (mensual o anual) no toca lo pagado; apagarla a mitad de
+período no devuelve nada. El anual congela tramo **y** tienda por 12 meses. Sin prueba gratis
+propia: el primer mes gratis del gimnasio nuevo ya cubre todo.
+
+Casos aceptados a propósito:
+
+- **Un período atrasado pagado después de prender la tienda la incluye**: el monto sale del
+  toggle del día en que se paga, no del período («desde el próximo pago» = el próximo cobro).
+- **Un link viejo sin tienda (CANCELADO/VENCIDO) que igual se paga se acredita con su monto**
+  (`monto_tienda_usd = 0`): se cobra lo que se mostró. Hay test.
+- **El aviso por mail de vencimiento sale una vez por período**: si la tienda cambia después,
+  el precio del mail queda viejo (Mi suscripción siempre muestra el actual).
+- **Después de un «Monto a revisar», el pago manual precarga la tienda del toggle de hoy**; el
+  superadmin la corrige si hace falta.
+- **El monitor muestra el precio del PRÓXIMO cobro**: un gimnasio con un anual pago al que se
+  le prende la tienda ya suma +20 en `kpis` aunque no pague hasta renovar (igual que un cambio
+  de tramo); la etiqueta «con tienda» lo explica.
+- **La portada dice «con cobro por transferencia»**: el Hito 2 (Mercado Pago) tiene que
+  actualizar esa frase.
+
+Post-deploy: no hay nada a mano (los campos nuevos arrancan en 0), pero los gimnasios con la
+tienda prendida hoy pagan USD 20 más en su próximo cobro: avisarles.

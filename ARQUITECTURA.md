@@ -628,7 +628,7 @@ y no revierte los dos campos del `Gimnasio` que la propia siembra muta
   solape con la automática. Alta de la cuenta:
   `manage.py crear_gimnasio ... --demo`.
 
-En la demo la tienda está siempre disponible (`puede_usar_tienda` es verdadero con `es_demo`) y lleva el chip «Adicional» (barra y título), porque la portada dice «todas las funciones incluidas» hasta que se facture el add-on; tampoco se conecta Mercado Pago (las compras de un prospecto le caerían a la cuenta de otro). **Después del deploy:** correr `restaurar_demo` (o `sembrar_demo`) a mano para que la demo tenga la tienda sembrada, sin esperar a la próxima corrida del cron.
+En la demo la tienda está siempre disponible (`puede_usar_tienda` es verdadero con `es_demo`) y lleva el chip «Adicional» (barra y título), porque es un adicional que se cobra aparte (la portada dice «todas las funciones de gestión incluidas» y lista la tienda como «+ Tienda online (opcional)»; en la demo `tienda_habilitada` sigue en False y `facturacion_aplica` la excluye, así que no se le factura nada); tampoco se conecta Mercado Pago (las compras de un prospecto le caerían a la cuenta de otro). **Después del deploy:** correr `restaurar_demo` (o `sembrar_demo`) a mano para que la demo tenga la tienda sembrada, sin esperar a la próxima corrida del cron.
 
 ## Exportador de datos (`tenants/exportacion.py`)
 
@@ -852,6 +852,20 @@ de cobro** y no se tacha en «Mi suscripción», donde se cobra. El anual (10 de
 «se ajusta solo» y aclara que el anual lo congela 12 meses: las dos frases van
 juntas o el texto miente. Ver `ISSUES.md [2026-10-11]`.
 
+**La tienda (Hito 3, 2026-10-18):** `PRECIO_TIENDA_USD = 20` por mes,
+`precio_tienda_usd(tienda)` (20 o 0) y `precio_tienda_usd_anual(tienda)` (10
+meses: 200 o 0). `precio_usd`, `precio_usd_anual` y
+`precio_usd_anual_sin_descuento` ganan `tienda=False` **sólo por keyword**
+(`precio_usd(n, True)` no compila a propósito); sin el argumento devuelven lo de
+siempre. **El anual congela tramo Y tienda por 12 meses.** Sin prueba gratis
+propia: el primer mes gratis del gimnasio nuevo ya cubre todo. La portada lee
+estos números de `_contexto_precios` (`precios_tienda_usd`,
+`precios_tienda_anual_usd`, `precios_tienda_ars`), nunca literales: la línea
+«+ Tienda online (opcional)» va debajo de los tramos y los textos dicen «todas las
+funciones **de gestión** incluidas». «Con cobro por transferencia» es verdad
+mientras la tienda no tenga MP: **el Hito 2 tiene que actualizar esa frase**.
+Test: `tenants.tests` (`test_portada_ofrece_la_tienda_como_adicional...`).
+
 **Ojo con la simetría**: acá `DIAS_CICLO` es 30 (lo que la PLATAFORMA le cobra
 al gimnasio) y en `pagos` es 28 (lo que el gimnasio le cobra a sus alumnos).
 Son dos negocios distintos y las dos constantes tienen que poder moverse por
@@ -884,6 +898,31 @@ que validar, y con `auto_now` un campo fuera de `update_fields` no se
 persiste). `Gimnasio.version_media` deriva de `modificado` y versiona la URL
 del logo, la del fondo y la del ícono de la PWA: tocarlo por un cambio de
 facturación le hace volver a bajar todo a cada celular del gimnasio.
+
+### La tienda en el monitor y en el pago manual (Hito 3)
+
+- `facturacion.fila_de_gimnasio` toma `tienda = gimnasio.tienda_habilitada`;
+  `FilaMonitor.precio_usd` pasa a ser el **total** (tramo + tienda) y gana
+  `tienda_usd: int = 0` al final. `kpis`, `para_cobrar` y `avisos` no cambiaron
+  de código: ya suman el total. Sin tienda, todo idéntico a antes (test «sin
+  tienda = igual que hoy»). La demo con `tienda_habilitada=True` igual no
+  factura (`facturacion_aplica`).
+- **Aceptado:** el monitor muestra el precio del PRÓXIMO cobro, así que un
+  gimnasio con un anual pago al que se le prende la tienda ya suma +20 en `kpis`
+  aunque no pague hasta renovar (mismo comportamiento de siempre con un cambio
+  de tramo). La etiqueta «con tienda» de las columnas «Precio (USD)» y «Para
+  cobrar» lo explica.
+- `PagoPlataforma.monto_tienda_usd` (default 0: las filas viejas valen 0, que es
+  la verdad) es la parte del monto que es la tienda. El pago manual
+  (`PagoPlataformaCreateView.get_initial`) precarga `monto_usd` con la tienda y
+  `monto_tienda_usd` con `precio_tienda_usd(tienda_habilitada and facturacion_aplica)`.
+  El campo es opcional en el form (vacío = 0, para no romper los POST que no lo
+  mandan), no negativo y no puede superar `monto_usd`. **Aceptado:** después de
+  un «Monto a revisar» el precargado sale del toggle de hoy, no del intento; el
+  superadmin lo corrige.
+- `TiendaToggleView` sigue con `update()` (no toca `modificado`); sólo cambia el
+  mensaje: con cobro dice que se suma (o deja de sumarse) desde el próximo pago,
+  y sin cobro (demo, exento, retirado) «(no se le cobra)».
 
 ### Cotización del dólar (`plataforma/cambio.py`)
 
@@ -1057,6 +1096,32 @@ una cotización vieja siempre subfactura.
   prueba, aunque el gimnasio ya haya pagado tres. Un comentario no alcanzaba:
   el guard levanta `ValueError`. `gimnasios_anotados()` sigue siendo UNA query;
   la lista «Cobros con problema» del superadmin es una query aparte.
+
+### La tienda en el cobro online (Hito 3)
+
+- `services.tienda_usd_para(gimnasio, plan)` es la única regla: el add-on
+  (mensual o anual) de `gimnasio.tienda_habilitada`. Lo usan `crear_intento` y
+  `views._intento_abierto_de`. `IntentoDeCobro.monto_tienda_usd` lo guarda al
+  generar el link y `_acreditar_aprobado` lo **copia** al `PagoPlataforma`, nunca
+  lo recalcula (lo cobrado es lo mostrado).
+- **El link vivo se reusa sólo si coincide plan Y tienda**: si no, se cancela
+  como un cambio de plan. Sin eso, un link generado antes de prender la tienda
+  se reusaría 48 h con el monto viejo. `plataforma` no importa `suscripcion`, así
+  que el toggle no puede cancelar links: el filtro vive en
+  `_intento_abierto_de` (el banner «Continuar al pago» de Mi suscripción, que va
+  directo a MP con el `monto_ars` viejo) y `crear_intento` cancela el viejo al
+  generar el nuevo.
+- Mails al superadmin (`cobro_acreditado`, `cobro_con_problema`) y título de la
+  preferencia de MP dicen «tienda» si la incluye. El aviso de vencimiento
+  (`avisos.avisar`) pasa `tienda_usd` como default del lambda (si no, todos los
+  mails de la corrida llevan el valor de la última fila).
+- **Casos aceptados:** (1) un período atrasado pagado después de prender la
+  tienda la incluye: el monto sale del toggle del día en que se paga, no del
+  período («desde el próximo pago» = el próximo cobro); (2) un link viejo sin
+  tienda (CANCELADO/VENCIDO) que igual se paga se acredita con su monto
+  (`monto_tienda_usd = 0`): se cobra lo que se mostró (hay test); (3) el mail de
+  vencimiento sale una vez por período, así que si la tienda cambia después su
+  precio queda viejo (Mi suscripción siempre muestra el actual).
 
 ### `mercadopago.py` levanta, al revés de `cambio.py`
 
@@ -3609,7 +3674,7 @@ para que un dueño nuevo entienda la app en ~5 minutos sin tocar `/admin/`.
 
 Diseño completo y decisiones tomadas: `docs/superpowers/specs/2026-10-17-tienda-design.md` (incluye «Ajustes del 17-10» y «Decisiones de ejecución»). Esto es lo que hay que saber para tocar el código.
 
-**Qué es.** Un add-on: el dueño del producto lo habilita por gimnasio (`Gimnasio.tienda_habilitada`, sólo desde el panel de plataforma; `puede_usar_tienda` es la puerta y la cuenta demo siempre la pasa) y se cobra aparte (USD 20 por mes, o 10 meses al año; la facturación es el Hito 3 y no está construida). El gimnasio vende productos con variantes (talles, sabores) a sus alumnos, que reservan, pagan y retiran en el gimnasio. **Hito 1: sólo transferencia.** Mercado Pago de la tienda es el Hito 2 (a la cuenta del propio gimnasio) y no está construido; el principio #3 de `CLAUDE.md` lo abre sólo para la tienda, las cuotas (`pagos`) siguen sin MP.
+**Qué es.** Un add-on: el dueño del producto lo habilita por gimnasio (`Gimnasio.tienda_habilitada`, sólo desde el panel de plataforma; `puede_usar_tienda` es la puerta y la cuenta demo siempre la pasa) y se cobra aparte (USD 20 por mes, o 10 meses al año; **Hito 3 hecho el 2026-10-18**: se suma a la suscripción sólo si `gimnasio.tienda_habilitada`, nunca por `puede_usar_tienda`, que es verdadera en la demo; ver «Precios, ciclo y prueba», «Panel de plataforma» y «Cobro online de la suscripción». **Se cobra desde el próximo pago**: prenderla a un gimnasio que ya pagó no toca lo pagado, y apagarla a mitad de período no devuelve nada). El gimnasio vende productos con variantes (talles, sabores) a sus alumnos, que reservan, pagan y retiran en el gimnasio. **Hito 1: sólo transferencia.** Mercado Pago de la tienda es el Hito 2 (a la cuenta del propio gimnasio) y no está construido; el principio #3 de `CLAUDE.md` lo abre sólo para la tienda, las cuotas (`pagos`) siguen sin MP.
 
 **Modelos** (`tienda/models.py`; `TenantOwnedModel` salvo `Variante`, `FotoProducto` e `ItemPedido`, que cuelgan de su padre): `ConfiguracionTienda` (una por gimnasio vía `obtener_configuracion`: `publicada`, `horas_reserva_transferencia`, `max_pedidos_activos`, `instrucciones_retiro`), `CategoriaProducto`, `Producto` (`publicado`; su columna `foto` quedó muerta, ver `ISSUES.md` 2026-10-17), `FotoProducto` (hasta 5 por producto, `posicion` 0 = principal; hija de `Producto` como `Variante`, no `TenantOwnedModel`), `Variante` (`stock`, `activa`), `Pedido` e `ItemPedido` (snapshot de nombre y precio). Los tres lugares de la regla transversal (`vaciar_gimnasio`, `_ensuciar`, `HOJAS`/`EXCLUIDOS`) están cubiertos.
 

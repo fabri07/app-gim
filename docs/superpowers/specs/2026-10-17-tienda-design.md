@@ -35,7 +35,7 @@ MP, con el staff confirmando. Se reescribe el principio en el mismo PR, junto co
 | Comprobante subido a tiempo | El stock queda reservado **sin límite** hasta que el staff decide; recordatorio a las 24 h (una vez) y tarjeta en el panel. |
 | Arrepentimiento (Ley 24.240 art. 34) | Botón **«Pedir cancelación»**: siempre mientras el pedido está pago sin retirar, y hasta 10 días corridos después del retiro (la ley cuenta desde la entrega o el contrato, lo último); link visible «Botón de arrepentimiento» (Res. 424/2020). Lo resuelve el staff. Entrada en `ISSUES.md` para revisarlo con un abogado. |
 | Categorías | **Por gimnasio**, sin lista fija (la lección de `CategoriaEjercicio`). |
-| Cobro del add-on | **USD 20 por mes, sumados a la suscripción** (definido el 2026-10-17). El plan anual se cobra igual que el tramo: 10 meses (USD 200). La portada deja de decir «todas las funciones incluidas». |
+| Cobro del add-on | **USD 20 por mes, sumados a la suscripción** (definido el 2026-10-17). El plan anual se cobra igual que el tramo: 10 meses (USD 200). La portada deja de decir «todas las funciones incluidas». **Hito 3 HECHO el 2026-10-18** (se cobra desde el próximo pago; sin prueba gratis propia; una línea «+ Tienda online (opcional)» bajo los tramos). |
 | Alumno moroso | **Puede comprar**: es venta para el gimnasio. La tienda se bloquea sólo con el gimnasio congelado. |
 | Carrito | En la **sesión**, sin modelo y sin reservar stock. |
 | Comisión de la plataforma (`marketplace_fee`) | Fuera de v1. |
@@ -269,8 +269,8 @@ Después de aprobar el plan, el usuario pidió (y aprobó) estos cambios:
    Para cortar, el staff usa «Cancelar pedido».
 3. **«Vendido este mes»** en la pantalla de pedidos del staff (`PAGADO` + `ENTREGADO` por
    `pagado_en` en el mes de `timezone.localdate()`; `DEVUELTO` no cuenta).
-4. **Chip «Adicional» en la demo** (link y título de la tienda), porque la portada dice «todas
-   las funciones incluidas» hasta el Hito 3.
+4. **Chip «Adicional» en la demo** (link y título de la tienda). Nació porque la portada decía «todas
+   las funciones incluidas»; desde el Hito 3 (18-10) sigue porque la tienda es un adicional que se cobra aparte.
 5. **Tarjeta «Ventas de la tienda» en el dashboard** (`tienda/analitica.py`, molde de
    `tenants/analitica.py::ingresos_por_mes`): una fila por mes aunque esté vacío, UNA query por
    indicador, sólo si `puede_usar_tienda` (un gimnasio sin tienda no paga ninguna query).
@@ -300,5 +300,5 @@ Ajustes de la revisión adversarial de estos cambios:
 - **«cancelacion_resuelta»:** las vistas mandan la misma clave al aceptar y al rechazar; `notificar_pedido_al_alumno` redacta distinto según `pedido.estado` (DEVUELTO = aceptada).
 - **Marcar pagado desde `PENDIENTE_PAGO`:** el staff puede «Marcar pagado» directo, sin comprobante (pago en mostrador).
 - **`ConfiguracionTienda` del Hito 1** no tiene `acepta_transferencia`, `acepta_mercadopago` ni `minutos_reserva_mp` (con un solo medio no hay qué elegir; llegan con el Hito 2), y `Pedido.Medio` tiene sólo `TRANSFERENCIA`.
-- **La portada no cambia en el Hito 1:** el add-on se cobra desde el Hito 3; mientras tanto la demo lleva el chip «Adicional».
+- **La portada no cambió en el Hito 1; en el Hito 3 (18-10)** dice «funciones de gestión» y lista la tienda aparte. Su frase «con cobro por transferencia» **la tiene que actualizar el Hito 2** (Mercado Pago).
 - **`Pedido.cancelacion_resuelta_en`** (ver «cancelacion_resuelta» arriba) saca de la cola las cancelaciones rechazadas.

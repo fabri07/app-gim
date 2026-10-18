@@ -737,8 +737,8 @@ class PanelYBarraTests(_BaseStaff):
         self.assertContains(r, f'href="{reverse("tienda:productos")}"')
 
     def test_chip_adicional_solo_en_la_demo(self):
-        """La portada dice «todas las funciones incluidas» hasta el Hito 3:
-        en la demo, la tienda se marca como adicional."""
+        """La tienda es un adicional que se cobra aparte (Hito 3): en la demo,
+        que no paga, se marca como adicional para que el prospecto lo sepa."""
         self.assertNotContains(self.client.get(reverse("home")), "data-adicional")
         self.assertNotContains(self.client.get(reverse("tienda:productos")), "data-adicional")
         Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
