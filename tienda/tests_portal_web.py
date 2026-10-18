@@ -163,6 +163,17 @@ class MisPedidosTablaTests(_BaseAlumno):
         self.assertIn(reverse("tienda:mi_pedido", args=[pedido.pk]), str(fila))
         self.assertIn("Volver al inicio", str(main))
 
+    def test_hay_espacio_entre_celdas_para_el_separador_del_celular(self):
+        """En el celular el « · » sale de `td + td::before` más el espacio
+        entre celdas: `</td><td>` pegados lo dejarían pegado al dato."""
+        self._pagado()
+        for url in (reverse("tienda:mis_pedidos"),
+                    reverse("tienda:mis_pedidos") + "?arrepentimiento=1"):
+            html = self.client.get(url).content.decode()
+            fila = html[html.index("<tbody>"):html.index("</tbody>")]
+            self.assertRegex(fila, r"</td>\s+<td")
+            self.assertNotRegex(fila, r"</td><td")
+
     def test_sin_pedidos_el_aviso_queda_fuera_de_la_tabla(self):
         main = _main(self.client.get(reverse("tienda:mis_pedidos")))
 

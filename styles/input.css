@@ -412,8 +412,10 @@
       @apply my-2;
     }
 
+    /* `align-baseline`: un `td` inline hereda `vertical-align: middle` del
+       `tbody` y la línea se correría 1-2 px respecto del `<p>` de antes. */
     .tabla--pedidos td {
-      @apply inline p-0 border-0;
+      @apply inline p-0 border-0 align-baseline;
     }
 
     .tabla--pedidos td + td::before {
@@ -430,6 +432,12 @@
 
     .tabla--pedidos tr:has(.celda-accion) {
       @apply mt-2 mb-0;
+    }
+
+    /* El `div.mt-2` de antes heredaba el `text-gray-900` del `body`; el
+       color va en el `td` porque `.tabla td` lo fija ahí. */
+    .tabla--pedidos tr:has(.celda-accion) td {
+      @apply text-gray-900;
     }
   }
 
