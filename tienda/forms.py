@@ -1,4 +1,5 @@
 from django import forms
+from django.conf import settings
 from django.db.models import Max
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from PIL import Image as _Image
@@ -11,6 +12,7 @@ from tienda.models import (
     MAX_LARGO_MOTIVO,
     CategoriaProducto,
     ConfiguracionTienda,
+    CuentaMercadoPago,
     FotoProducto,
     Producto,
     Variante,
@@ -232,9 +234,47 @@ class AjusteStockForm(forms.Form):
 
 
 class ConfiguracionTiendaForm(TenantScopedModelForm):
+    CAMPOS_MP = ("acepta_transferencia", "acepta_mercadopago", "minutos_reserva_mp")
+
     class Meta:
         model = ConfiguracionTienda
-        fields = ["publicada", "horas_reserva_transferencia", "max_pedidos_activos", "instrucciones_retiro"]
+        fields = [
+            "publicada", "horas_reserva_transferencia", "max_pedidos_activos",
+            "instrucciones_retiro", "acepta_transferencia", "acepta_mercadopago",
+            "minutos_reserva_mp",
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Con la bandera apagada (o en la demo) el form es el de siempre: sin
+        # estos campos un POST viejo no los pisa ni el HTML los muestra.
+        if not settings.TIENDA_MP_ENABLED or self.gimnasio.es_demo:
+            for nombre in self.CAMPOS_MP:
+                del self.fields[nombre]
+
+    def clean(self):
+        cleaned = super().clean()
+        # Sólo si los campos están: con la bandera apagada no hay nada que validar.
+        if "acepta_mercadopago" not in self.fields:
+            return cleaned
+        errores = self.errors
+        transferencia = cleaned.get("acepta_transferencia")
+        mercadopago = cleaned.get("acepta_mercadopago")
+        if "acepta_transferencia" not in errores and "acepta_mercadopago" not in errores:
+            if not transferencia and not mercadopago:
+                self.add_error("acepta_transferencia", "Elegí al menos un medio de pago.")
+            # Sólo al PRENDERLO exige la cuenta conectada: si ya estaba prendido y
+            # la cuenta pasó a «reconectar», guardar otro campo no se bloquea.
+            elif mercadopago and not self.initial.get("acepta_mercadopago"):
+                conectada = CuentaMercadoPago.objects.for_gimnasio(self.gimnasio).filter(
+                    estado=CuentaMercadoPago.Estado.CONECTADA
+                ).exists()
+                if not conectada:
+                    self.add_error(
+                        "acepta_mercadopago",
+                        "Primero conectá tu cuenta de Mercado Pago.",
+                    )
+        return cleaned
 
 
 class MotivoForm(forms.Form):

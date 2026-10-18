@@ -1,6 +1,6 @@
 from django.urls import path
 
-from tienda import views
+from tienda import views, views_mercadopago
 
 app_name = "tienda"
 
@@ -19,6 +19,10 @@ urlpatterns = [
     path("pedidos/<int:pk>/", views.PedidoDetailView.as_view(), name="pedido_detalle"),
     path("pedidos/<int:pk>/accion/", views.PedidoAccionView.as_view(), name="pedido_accion"),
     path("configuracion/", views.ConfiguracionView.as_view(), name="configuracion"),
+    path("mercadopago/conectar/", views_mercadopago.ConectarView.as_view(), name="mp_conectar"),
+    # El valor de MERCADOPAGO_OAUTH_REDIRECT_URI es la URL absoluta de esta ruta.
+    path("mercadopago/callback/", views_mercadopago.CallbackView.as_view(), name="mp_callback"),
+    path("mercadopago/desconectar/", views_mercadopago.DesconectarView.as_view(), name="mp_desconectar"),
     # Alumno
     path("", views.CatalogoView.as_view(), name="catalogo"),
     path("carrito/", views.CarritoView.as_view(), name="carrito"),

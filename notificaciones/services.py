@@ -438,3 +438,31 @@ def notificar_pedido_al_alumno(pedido, aviso) -> None:
         "icon": _icono_url(pedido.gimnasio),
     }
     notificar_a_usuario(pedido.alumno.perfil.usuario, payload)
+
+
+_AVISOS_CUENTA_MP = {
+    "conectada": (
+        "Mercado Pago conectado",
+        "{quien} conectó la cuenta de Mercado Pago de la tienda.",
+    ),
+    "reconectar": (
+        "Hay que reconectar Mercado Pago",
+        "La conexión con Mercado Pago de la tienda dejó de funcionar: "
+        "reconectala desde la configuración de la tienda.",
+    ),
+}
+
+
+def notificar_cuenta_mp(gimnasio, aviso, quien="") -> None:
+    """Avisos de la cuenta de Mercado Pago de la tienda, a TODO el staff.
+    `rol` explícito SIEMPRE: el default `None` le avisa también a los alumnos.
+    Que cualquier staff pueda conectar la cuenta es la razón del aviso: nadie
+    desvía las ventas en silencio."""
+    titulo, cuerpo = _AVISOS_CUENTA_MP[aviso]
+    payload = {
+        "title": titulo,
+        "body": cuerpo.format(quien=quien or "Alguien del equipo"),
+        "url": reverse("tienda:configuracion"),
+        "icon": _icono_url(gimnasio),
+    }
+    notificar_a_gimnasio(gimnasio, payload, rol=Perfil.Rol.STAFF)

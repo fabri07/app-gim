@@ -6,6 +6,7 @@ redirect: bajo `hx-boost` un 4xx es un click mudo.
 
 import mimetypes
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
@@ -33,6 +34,7 @@ from tienda.forms import (
 )
 from tienda.models import (
     CategoriaProducto,
+    CuentaMercadoPago,
     FotoProducto,
     ItemPedido,
     Pedido,
@@ -351,6 +353,26 @@ class ConfiguracionView(TiendaStaffMixin, UpdateView):
 
         context = super().get_context_data(**kwargs)
         context["medios_cobro"] = MedioCobro.objects.for_gimnasio(self.gimnasio).filter(activo=True)
+        # Con la bandera apagada la tienda no carga NI UNA instancia de la
+        # cuenta: la tarjeta de Mercado Pago no existe.
+        context["mp_habilitado"] = settings.TIENDA_MP_ENABLED
+        if settings.TIENDA_MP_ENABLED and not self.gimnasio.es_demo:
+            cuenta = (
+                CuentaMercadoPago.objects.for_gimnasio(self.gimnasio)
+                .select_related("conectada_por")
+                .first()
+            )
+            context["cuenta_mp"] = cuenta
+            conectada = cuenta is not None and cuenta.estado == CuentaMercadoPago.Estado.CONECTADA
+            context["mp_conectada"] = conectada
+            # Leído de la base, no del form (que en un POST inválido ya trae lo tipeado).
+            context["mp_no_disponible"] = (
+                not conectada and obtener_configuracion(self.gimnasio).acepta_mercadopago
+            )
+            if cuenta is not None and cuenta.conectada_por is not None:
+                context["mp_conectada_por"] = (
+                    cuenta.conectada_por.get_full_name() or cuenta.conectada_por.get_username()
+                )
         return context
 
     def form_valid(self, form):

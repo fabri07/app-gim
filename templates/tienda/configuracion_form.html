@@ -14,6 +14,38 @@
     <button type="submit" class="boton">Guardar</button>
   </form>
 
+  {% if mp_habilitado %}
+  <div class="tarjeta" id="mercadopago">
+    <h2>Mercado Pago</h2>
+    {% if request.user.perfil.gimnasio.es_demo %}
+      <p class="texto-suave">En la cuenta de demostración no se conecta Mercado Pago.</p>
+    {% else %}
+      {% if mp_no_disponible %}
+        <p class="config-error">Mercado Pago no está disponible: tus alumnos ven sólo transferencia.</p>
+      {% endif %}
+      {% if mp_conectada %}
+        <p><strong>Conectada</strong>{% if cuenta_mp.es_de_prueba %} · cuenta de prueba{% endif %}</p>
+        <p class="texto-suave">
+          {% if mp_conectada_por %}La conectó {{ mp_conectada_por }}{% else %}Conectada{% endif %}{% if cuenta_mp.conectada_en %} el {{ cuenta_mp.conectada_en|date:"d/m/Y H:i" }}{% endif %}.
+          La plata de las ventas va directo a esa cuenta.
+        </p>
+        <form method="post" action="{% url 'tienda:mp_desconectar' %}">
+          {% csrf_token %}
+          <button type="submit" class="boton-secundario">Desconectar</button>
+        </form>
+      {% else %}
+        {% if cuenta_mp and cuenta_mp.estado == 'reconectar' %}
+          <p class="config-error">La conexión con Mercado Pago dejó de funcionar: hay que volver a conectarla.</p>
+        {% else %}
+          <p class="texto-suave">Conectá tu cuenta de Mercado Pago para cobrar las ventas de la tienda: la plata va directo a tu cuenta.</p>
+        {% endif %}
+        {% comment %}Redirige a mercadopago.com.ar: con hx-boost global sería un click mudo.{% endcomment %}
+        <p><a class="boton" href="{% url 'tienda:mp_conectar' %}" hx-boost="false">Conectar Mercado Pago</a></p>
+      {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="tarjeta">
     <h2>Datos para la transferencia</h2>
     {% if medios_cobro %}

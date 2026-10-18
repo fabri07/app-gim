@@ -144,6 +144,22 @@ Configurá el mail de notificación a una casilla que leas de verdad.
 | `VAPID_PUBLIC_KEY` | ídem |
 | `VAPID_ADMIN_EMAIL` | ídem |
 
+**Mercado Pago de la tienda (opcionales hasta prender la función).** Cuando se
+prende, `reconciliar-cobros.yml` (paso «Refrescar cuentas de Mercado Pago de la
+tienda») necesita además estos 4 secrets, con **exactamente los mismos valores**
+que en Render (si la clave de cifrado diverge, los tokens no se descifran y las
+cuentas pasan a «reconectar»). Se cargan las 4 o ninguna; sin ellos el paso
+sale 0 «apagado»... **salvo que haya una cuenta conectada**: ahí sale 1 a
+propósito (secrets olvidados: los tokens vencerían sin que nadie lo note). Usa
+también las `VAPID_*` de abajo para avisar al staff.
+
+| Secret | De dónde sale |
+|---|---|
+| `MERCADOPAGO_CLIENT_ID` | La aplicación de Mercado Pago (la misma de Render) |
+| `MERCADOPAGO_CLIENT_SECRET` | ídem |
+| `MERCADOPAGO_OAUTH_REDIRECT_URI` | `https://www.tugimapp.com/tienda/mercadopago/callback/` |
+| `MP_TOKEN_ENCRYPTION_KEY` | La clave Fernet de Render (la que cifra los tokens) |
+
 **Las 3 `VAPID_*` no son opcionales y faltaron durante meses.**
 `enviar-recordatorios.yml` las necesita para firmar los push. Cuando faltan las
 tres, `_bandera_todo_o_nada` devuelve `False` **en silencio** (solo lanza si
