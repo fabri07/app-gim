@@ -30,7 +30,7 @@ from django.views.decorators.http import require_POST
 
 from notificaciones import services as avisos
 from suscripcion.mercadopago import ErrorDeMercadoPago, Secreto, cuerpo_de_webhook, es_de_prueba
-from tienda import cuenta_mp, mercadopago_oauth, pagos_mp
+from tienda import cuenta_mp, mercadopago_oauth, pagos_mp, services
 from tienda.models import ESTADOS_QUE_RETIENEN, ConfiguracionTienda, CuentaMercadoPago, Pedido, obtener_configuracion
 from tienda.views import TiendaStaffMixin
 
@@ -176,20 +176,31 @@ class CallbackView(_MercadoPagoStaffView):
             vigencia = 15552000  # 180 días, lo habitual de Mercado Pago
         ahora = timezone.now()
 
+        # Un link ya vencido que el cron todavía no cerró no debe trabar el
+        # cambio: se vence antes de mirar (mismo criterio que el catálogo).
+        services.vencer_pedidos(gimnasio=self.gimnasio)
         with transaction.atomic():
             previa = CuentaMercadoPago.objects.filter(gimnasio=self.gimnasio).first()
             if previa is not None and previa.mp_user_id and previa.mp_user_id != mp_user_id:
+                # Los recientes traban porque un reintegro o contracargo
+                # volvería por la cuenta vieja; uno vencido o cancelado que
+                # nunca tuvo pago (una compra abandonada) no tiene nada que
+                # pueda volver.
+                nunca_pagado = Q(
+                    estado__in=(Pedido.Estado.VENCIDO, Pedido.Estado.CANCELADO), payment_id=""
+                )
                 hay_pedidos = Pedido.objects.filter(
                     gimnasio=self.gimnasio, medio=Pedido.Medio.MERCADOPAGO
                 ).filter(
                     Q(estado__in=ESTADOS_QUE_RETIENEN + (Pedido.Estado.REVISAR,))
-                    | Q(creado__gte=ahora - VENTANA_CAMBIO_DE_CUENTA)
+                    | (Q(creado__gte=ahora - VENTANA_CAMBIO_DE_CUENTA) & ~nunca_pagado)
                 ).exists()
                 if hay_pedidos:
                     return self._volver(
                         messages.error,
                         "Esa es otra cuenta de Mercado Pago y todavía hay pedidos de "
-                        "Mercado Pago sin cerrar o recientes con la cuenta anterior. "
+                        "Mercado Pago sin cerrar, o con pago en los últimos 7 días, con "
+                        "la cuenta anterior (las compras abandonadas no cuentan). "
                         "Terminá o cancelá esos pedidos antes de cambiar de cuenta.",
                     )
             CuentaMercadoPago.objects.update_or_create(
@@ -235,6 +246,9 @@ class DesconectarView(_MercadoPagoStaffView):
         rechazo = self._no_disponible()
         if rechazo:
             return rechazo
+        # Un link ya vencido que el cron todavía no cerró no es un pedido
+        # «esperando el pago»: se vence antes de mirar.
+        services.vencer_pedidos(gimnasio=self.gimnasio)
         with transaction.atomic():
             if Pedido.objects.filter(
                 gimnasio=self.gimnasio,

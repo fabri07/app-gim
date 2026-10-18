@@ -468,6 +468,44 @@ class CallbackTests(_Base):
         self.assertContains(r, "quedó conectado")
         self.assertEqual(CuentaMercadoPago.objects.get(gimnasio=self.gimnasio).mp_user_id, "222")
 
+    def test_cambio_de_cuenta_con_compra_abandonada_y_vencida_se_permite(self):
+        """Una compra de prueba que nunca se pagó (vencida o cancelada, sin
+        `payment_id`) no tiene nada que pueda volver por la cuenta vieja."""
+        self.crear_cuenta(mp_user_id="111")
+        self.crear_pedido(medio=Pedido.Medio.MERCADOPAGO, estado=Pedido.Estado.VENCIDO)
+        self.crear_pedido(medio=Pedido.Medio.MERCADOPAGO, estado=Pedido.Estado.CANCELADO)
+        # Y una con el link ya vencido que el cron todavía no pasó a VENCIDO.
+        self.crear_pedido(
+            medio=Pedido.Medio.MERCADOPAGO, preference_id="pref-x",
+            reservado_hasta=timezone.now() - timedelta(minutes=10),
+        )
+        state = self.iniciar()
+        with mock.patch(CANJE, return_value=tokens(user_id=222)):
+            r = self.callback(state)
+        self.assertContains(r, "quedó conectado")
+        self.assertEqual(CuentaMercadoPago.objects.get(gimnasio=self.gimnasio).mp_user_id, "222")
+
+    def test_cambio_de_cuenta_con_vencido_que_tiene_pago_se_rechaza(self):
+        self.crear_cuenta(mp_user_id="111")
+        self.crear_pedido(
+            medio=Pedido.Medio.MERCADOPAGO, estado=Pedido.Estado.VENCIDO, payment_id="555"
+        )
+        state = self.iniciar()
+        with mock.patch(CANJE, return_value=tokens(user_id=222)):
+            r = self.callback(state)
+        self.assertContains(r, "Terminá o cancelá esos pedidos")
+
+    def test_cambio_de_cuenta_con_pedido_mp_pagado_reciente_se_rechaza(self):
+        self.crear_cuenta(mp_user_id="111")
+        self.crear_pedido(
+            medio=Pedido.Medio.MERCADOPAGO, estado=Pedido.Estado.PAGADO, payment_id="777"
+        )
+        state = self.iniciar()
+        with mock.patch(CANJE, return_value=tokens(user_id=222)):
+            r = self.callback(state)
+        self.assertContains(r, "Terminá o cancelá esos pedidos")
+        self.assertEqual(CuentaMercadoPago.objects.get(gimnasio=self.gimnasio).mp_user_id, "111")
+
     def test_los_pedidos_de_transferencia_no_frenan_el_cambio(self):
         self.crear_cuenta(mp_user_id="111")
         self.crear_pedido()
@@ -513,6 +551,20 @@ class DesconectarTests(_Base):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "Hay pedidos esperando el pago por Mercado Pago")
         self.assertEqual(CuentaMercadoPago.objects.get(gimnasio=self.gimnasio).estado, E.CONECTADA)
+
+    def test_un_link_ya_vencido_no_frena_la_desconexion(self):
+        """El cron todavía no lo pasó a VENCIDO: la desconexión lo vence antes
+        de mirar (y devuelve su stock)."""
+        self.crear_cuenta()
+        pedido = self.crear_pedido(
+            medio=Pedido.Medio.MERCADOPAGO, preference_id="pref-x",
+            reservado_hasta=timezone.now() - timedelta(minutes=10),
+        )
+        r = self.client.post(reverse("tienda:mp_desconectar"), follow=True)
+        self.assertContains(r, "quedó desconectado")
+        self.assertEqual(CuentaMercadoPago.objects.get(gimnasio=self.gimnasio).estado, E.DESCONECTADA)
+        pedido.refresh_from_db()
+        self.assertEqual(pedido.estado, Pedido.Estado.VENCIDO)
 
     def test_pedidos_de_transferencia_o_ya_pagos_no_frenan(self):
         self.crear_cuenta()
