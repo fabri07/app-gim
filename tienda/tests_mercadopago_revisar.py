@@ -263,6 +263,12 @@ class DevolverDesdeMercadoPagoTests(_Base):
         self.assertEqual(p.estado, E.DEVUELTO)
         self.assertContains(r, self.TEXTO)
 
+    def test_un_rechazado_anotado_y_marcado_a_mano_no_es_cobrado_por_mp(self):
+        p = self.pedido(E.PAGADO, estado_mp="rejected")
+        r = self.accion(p, "cancelar", motivo="")
+        self.assertEqual(p.estado, E.DEVUELTO)
+        self.assertNotContains(r, self.TEXTO)
+
     def test_transferencia_no(self):
         p = self.pedido(E.PAGADO, medio=Pedido.Medio.TRANSFERENCIA, payment_id="")
         r = self.accion(p, "cancelar", motivo="")

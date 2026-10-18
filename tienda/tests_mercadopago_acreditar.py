@@ -190,16 +190,30 @@ class AprobadoTests(_Base):
         self.assertEqual(otra.stock, 0)
 
     def test_cancelado_por_el_alumno_se_re_reserva(self):
-        p = self.pedido(E.CANCELADO, motivo="")
+        p = self.pedido(reservado_hasta=timezone.now() - timedelta(minutes=5))
+        services.cancelar_por_alumno(p, alumno=self.alumno)  # devuelve 1 -> 6
         final, _, _ = self.acreditar(self.pago(p))
         self.assertEqual(final.estado, E.PAGADO)
-        self.assertEqual(self.stock(), 4)
+        self.assertFalse(final.cancelado_por_staff)
+        self.assertEqual(self.stock(), 5)
 
     def test_cancelado_por_el_staff_va_a_revisar_y_no_se_revive(self):
-        p = self.pedido(E.CANCELADO, motivo="No hay más talles")
+        p = self.pedido(reservado_hasta=timezone.now() - timedelta(minutes=5))
+        services.cancelar_por_staff(p, motivo="No hay más talles")
         final, staff, _ = self.acreditar(self.pago(p))
         self.assertEqual(final.estado, E.REVISAR)
-        self.assertEqual(self.stock(), 5)
+        self.assertEqual(self.stock(), 6)
+        self.assertEqual(staff, ["revisar_mp"])
+
+    def test_cancelado_por_el_staff_sin_motivo_tampoco_se_revive(self):
+        """El motivo es opcional: lo que distingue al staff es el campo."""
+        p = self.pedido(reservado_hasta=timezone.now() - timedelta(minutes=5))
+        services.cancelar_por_staff(p, motivo="")
+        self.assertTrue(p.cancelado_por_staff)
+        self.assertEqual(p.motivo, "")
+        final, staff, _ = self.acreditar(self.pago(p))
+        self.assertEqual(final.estado, E.REVISAR)
+        self.assertEqual(self.stock(), 6)
         self.assertEqual(staff, ["revisar_mp"])
 
     def test_vencido_con_monto_distinto_va_a_revisar_sin_tocar_el_stock(self):
@@ -223,6 +237,29 @@ class AprobadoTests(_Base):
         self.assertEqual(final.pagado_en, antes)
         self.assertFalse(final.revision_mp_pendiente)
         self.assertEqual((staff, alumno), ([], []))
+
+    def test_rechazado_marcado_pagado_a_mano_y_despues_aprobado_no_es_duplicado(self):
+        """`marcar_pagado` conserva el id del rechazado: no es un cobro."""
+        p = self.pedido()
+        self.acreditar(self.pago(p, id="P1", status="rejected"))
+        Pedido.objects.filter(pk=p.pk).update(reservado_hasta=timezone.now() + timedelta(minutes=5))
+        p.refresh_from_db()
+        services.marcar_pagado(p)
+        final, staff, alumno = self.acreditar(self.pago(p, id="P2"))
+        self.assertEqual(final.estado, E.PAGADO)
+        self.assertEqual((final.payment_id, final.estado_mp), ("2", "approved"))
+        self.assertFalse(final.revision_mp_pendiente)
+        self.assertNotIn("pagos_adicionales", final.respuesta_mp)
+        self.assertEqual((staff, alumno), ([], []))
+
+    def test_adjuntar_a_mano_con_monto_distinto_deja_un_warning_sin_pii(self):
+        p = self.pedido(E.PAGADO)
+        with self.assertLogs("tienda.pagos_mp", "WARNING") as logs:
+            final, staff, _ = self.acreditar(self.pago(p, monto="1"))
+        self.assertEqual((final.estado, final.payment_id), (E.PAGADO, "1"))
+        self.assertEqual(staff, [])
+        self.assertIn("monto o moneda distintos", logs.output[0])
+        self.assertNotIn("nunca@se.guarda", logs.output[0])
 
     def test_entregado_a_mano_sin_payment_id_adjunta_el_pago(self):
         p = self.pedido(E.ENTREGADO)
@@ -714,9 +751,20 @@ class ReconciliarTests(_Base):
         with mock.patch("notificaciones.services.notificar_cuenta_mp"):
             resultado = self.correr({"1": self.pago(a)}, buscar=buscar)
         self.assertEqual(resultado, {"revisados": 2, "errores": 1})
+        self.assertEqual(self.buscar.call_count, 2)
         self.assertEqual(self.estado(a), E.PAGADO)
         cuenta_b.refresh_from_db()
         self.assertEqual(cuenta_b.estado, CuentaMercadoPago.Estado.RECONECTAR)
+
+    def test_una_cuenta_que_dio_401_se_saltea_en_el_resto_de_la_corrida(self):
+        for _ in range(3):
+            self.pedido()
+        with mock.patch("notificaciones.services.notificar_cuenta_mp"):
+            resultado = self.correr(
+                {}, buscar=mock.Mock(side_effect=ErrorDeMercadoPago("x", codigo=401))
+            )
+        self.assertEqual(self.buscar.call_count, 1)
+        self.assertEqual(resultado, {"revisados": 1, "errores": 1})
 
     def test_cuenta_sin_tokens_se_saltea(self):
         self.pedido()

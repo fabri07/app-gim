@@ -316,7 +316,11 @@ class PedidoDetailView(TiendaStaffMixin, DetailView):
 
 
 def _cobrado_por_mp(pedido):
-    return pedido.medio == Pedido.Medio.MERCADOPAGO and pedido.payment_id != ""
+    """Mercado Pago movió plata en este pedido (un pago rechazado anotado no
+    cuenta: `marcar_pagado` lo conserva)."""
+    return pedido.medio == Pedido.Medio.MERCADOPAGO and pedido.estado_mp in (
+        pagos_mp.ESTADOS_MP_APROBADO | pagos_mp.ESTADOS_MP_DEVUELTO
+    )
 
 
 DEVOLVER_DESDE_MP = "Devolvé la plata desde tu cuenta de Mercado Pago."

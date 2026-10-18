@@ -538,7 +538,7 @@ def cancelar_por_staff(pedido, *, motivo, ahora=None):
     with transaction.atomic():
         hecho = _transicionar(
             pedido, [_E.PENDIENTE_PAGO, _E.EN_REVISION], ahora,
-            estado=_E.CANCELADO, motivo=motivo,
+            estado=_E.CANCELADO, motivo=motivo, cancelado_por_staff=True,
         ) or _transicionar(pedido, [_E.PAGADO], ahora, estado=_E.DEVUELTO, motivo=motivo)
         if not hecho:
             raise ErrorDeTienda("estado_invalido")

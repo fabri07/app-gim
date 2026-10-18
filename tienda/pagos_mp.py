@@ -264,8 +264,8 @@ def _re_reservar(pedido, campos, ahora):
     porque la segunda ya no encuentra el pedido en VENCIDO/CANCELADO. Sin
     stock: se deshace el savepoint, se relee y va a REVISAR."""
     origen = [_E.VENCIDO, _E.CANCELADO]
-    # Un CANCELADO con motivo lo canceló el staff: no se revive (`_aplicar`).
-    filtro = Q(estado=_E.VENCIDO) | Q(motivo="")
+    # Un CANCELADO por el staff no se revive (`_aplicar`).
+    filtro = Q(estado=_E.VENCIDO) | Q(cancelado_por_staff=False)
     try:
         with transaction.atomic():
             _transicionar(
@@ -329,11 +329,26 @@ def _aplicar(pedido, pago, ahora):
                 # Mismo pago con un estado previo no aprobado sobre un pedido
                 # que ya cobró (no debería pasar): sólo se anota.
                 _transicionar(pedido, [previo], ahora, filtro=Q(payment_id=pago_id), **campos)
-            elif pedido.payment_id == "" and previo in (_E.PAGADO, _E.ENTREGADO):
+            elif previo in (_E.PAGADO, _E.ENTREGADO) and (
+                pedido.payment_id == "" or pedido.estado_mp not in ESTADOS_MP_APROBADO
+            ):
                 # El staff lo marcó pagado a mano (pasado el link): se adjunta
-                # el pago, sin alarma. `payment_id=""` en el filtro: no se pisa
-                # uno que otro proceso adjuntó en el medio.
-                _transicionar(pedido, [previo], ahora, filtro=Q(payment_id=""), **campos)
+                # el pago, sin alarma. Sin pago o con uno que NO cobró (un
+                # rechazado anterior queda anotado: `marcar_pagado` no lo
+                # borra, y tomarlo por cobrado daría un falso «cobrado dos
+                # veces»). El filtro exige el pago leído: no se pisa uno que
+                # otro proceso adjuntó en el medio.
+                if not _monto_coincide(pago, pedido):
+                    logger.warning(
+                        "Pago de Mercado Pago %s con monto o moneda distintos adjuntado al "
+                        "pedido %s, que el staff marcó pagado a mano.",
+                        pago_id, pedido.pk,
+                    )
+                _transicionar(
+                    pedido, [previo], ahora,
+                    filtro=Q(payment_id=pedido.payment_id, estado_mp=pedido.estado_mp),
+                    **campos,
+                )
             else:
                 # Otro pago (o vacío en DEVUELTO) sobre un pedido que ya cobró:
                 # queda como está (NO pasa a REVISAR: perdería el estado y el
@@ -361,11 +376,12 @@ def _aplicar(pedido, pago, ahora):
             )
             _avisar(pedido.pk, staff="pago_mp", alumno="confirmado")
             return
-        if previo == _E.CANCELADO and pedido.motivo:
-            # Lo canceló el staff (con motivo): un pago tardío no lo revive,
-            # lo decide una persona desde «Revisar MP».
+        if previo == _E.CANCELADO and pedido.cancelado_por_staff:
+            # Lo canceló el staff: un pago tardío no lo revive, lo decide una
+            # persona desde «Revisar MP».
             _transicionar(
-                pedido, [_E.CANCELADO], ahora, filtro=~Q(motivo=""), estado=_E.REVISAR, **campos
+                pedido, [_E.CANCELADO], ahora, filtro=Q(cancelado_por_staff=True),
+                estado=_E.REVISAR, **campos,
             )
             _avisar(pedido.pk, staff="revisar_mp", alumno="revisar_mp")
             return
@@ -508,11 +524,13 @@ def reconciliar_pedidos(*, limite=50, ahora=None):
         )
     }
     resultado = {"revisados": 0, "errores": 0}
+    rechazadas = set()
     for pk, gimnasio_id, referencia in pedidos:
         cuenta = cuentas.get(gimnasio_id)
         # Sin tokens (ilegibles, o desconectada hace más de 7 días): no hay
-        # con qué preguntar.
-        if cuenta is None or not cuenta.access_token:
+        # con qué preguntar. Una cuenta que ya dio 401 en esta corrida
+        # tampoco: daría 401 en cada pedido.
+        if cuenta is None or not cuenta.access_token or gimnasio_id in rechazadas:
             continue
         resultado["revisados"] += 1
         try:
@@ -520,6 +538,7 @@ def reconciliar_pedidos(*, limite=50, ahora=None):
                 acreditar_pedido(cuenta, pago_id)
         except ErrorDeMercadoPago as exc:
             if exc.codigo == 401:
+                rechazadas.add(gimnasio_id)
                 cuenta_mp.marcar_reconectar(cuenta.pk, cuenta.token_expira)
             logger.warning(
                 "Reconciliación de la tienda: no se pudo revisar el pedido %s: %s (codigo=%s)",

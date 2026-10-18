@@ -337,3 +337,16 @@ def firma_valida(secret, *, data_id, request_id, x_signature):
         return hmac.compare_digest(esperado.encode(), v1.encode())
     except Exception:
         return False
+
+
+def cuerpo_de_webhook(crudo):
+    """El cuerpo de un webhook de Mercado Pago como dict, o `{}`. Nunca
+    levanta: un JSON inválido, uno que no es un objeto o uno anidado de más
+    (`RecursionError`) son todos «sin cuerpo», no un 500. Lo usan los dos
+    webhooks (suscripción y tienda)."""
+    try:
+        cuerpo = json.loads(crudo or b"{}")
+    except (ValueError, RecursionError):
+        # `JSONDecodeError` y `UnicodeDecodeError` son `ValueError`.
+        return {}
+    return cuerpo if isinstance(cuerpo, dict) else {}

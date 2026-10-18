@@ -299,6 +299,10 @@ class Pedido(TenantOwnedModel):
     respuesta_mp = models.JSONField(null=True, blank=True)
     #: «Hay algún pago adicional sin resolver»: alimenta la pestaña «Revisar MP».
     revision_mp_pendiente = models.BooleanField(default=False, db_default=False)
+    #: Lo canceló el staff (`cancelar_por_staff`), no el alumno: un pago de
+    #: Mercado Pago tardío NO lo revive (va a REVISAR). No alcanza con mirar
+    #: `motivo`: el staff puede cancelar sin escribir ninguno.
+    cancelado_por_staff = models.BooleanField(default=False, db_default=False, editable=False)
 
     class Meta:
         verbose_name = "pedido"

@@ -17,7 +17,6 @@ tercer nivel de allowlist de `plataforma/middleware.py`
 salir del bloqueo.
 """
 
-import json
 import logging
 
 from datetime import timedelta
@@ -342,18 +341,6 @@ class RetornoView(StaffRequiredMixin, TemplateView):
         return contexto
 
 
-def _cuerpo_tolerante(crudo):
-    """El cuerpo del webhook como dict, o `{}`. Nunca levanta: un JSON
-    inválido, uno que no es un objeto o uno anidado de más (`RecursionError`)
-    son todos «sin cuerpo», no un 500."""
-    try:
-        cuerpo = json.loads(crudo or b"{}")
-    except (ValueError, RecursionError):
-        # `JSONDecodeError` y `UnicodeDecodeError` son `ValueError`.
-        return {}
-    return cuerpo if isinstance(cuerpo, dict) else {}
-
-
 @method_decorator(csrf_exempt, name="dispatch")
 class WebhookView(View):
     """La notificación de Mercado Pago de que un pago cambió.
@@ -394,7 +381,7 @@ class WebhookView(View):
         if not services.integracion_activa():
             return JsonResponse({"error": "integracion apagada"}, status=503)
 
-        cuerpo = _cuerpo_tolerante(request.body)
+        cuerpo = mercadopago.cuerpo_de_webhook(request.body)
         data_id = request.GET.get("data.id") or request.GET.get("id")
         if not data_id:
             datos = cuerpo.get("data")

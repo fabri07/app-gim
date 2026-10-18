@@ -29,8 +29,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from notificaciones import services as avisos
-from suscripcion.mercadopago import ErrorDeMercadoPago, Secreto, es_de_prueba
-from suscripcion.views import _cuerpo_tolerante
+from suscripcion.mercadopago import ErrorDeMercadoPago, Secreto, cuerpo_de_webhook, es_de_prueba
 from tienda import cuenta_mp, mercadopago_oauth, pagos_mp
 from tienda.models import ESTADOS_QUE_RETIENEN, ConfiguracionTienda, CuentaMercadoPago, Pedido, obtener_configuracion
 from tienda.views import TiendaStaffMixin
@@ -301,7 +300,7 @@ def webhook(request, uuid_webhook):
     if cuenta is None or not cuenta.access_token:
         return JsonResponse({"ok": True, "accion": "ignorado"})
 
-    cuerpo = _cuerpo_tolerante(request.body)
+    cuerpo = cuerpo_de_webhook(request.body)
     data_id = request.GET.get("data.id") or request.GET.get("id")
     if not data_id:
         datos = cuerpo.get("data")
