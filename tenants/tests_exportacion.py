@@ -208,6 +208,30 @@ class ContenidoDelZipTests(ExportacionBase):
         # ...pero el identificador de acceso sí: es un dato del gimnasio.
         self.assertIn("alumno-X", todo)
 
+    def test_mercado_pago_exporta_el_id_del_pago_pero_nunca_tokens_ni_respuesta(self):
+        from tienda.models import CuentaMercadoPago, Pedido
+
+        with override_settings(MP_TOKEN_ENCRYPTION_KEY=Fernet.generate_key().decode()):
+            _ensuciar_para_exportar(self.gimnasio, self.staff)
+            cuenta = CuentaMercadoPago.objects.get(gimnasio=self.gimnasio)
+            cuenta.access_token = "APP_USR-token-mp-secreto"
+            cuenta.refresh_token = "TG-refresh-mp-secreto"
+            cuenta.save()
+            Pedido.objects.filter(gimnasio=self.gimnasio).update(
+                payment_id="777000111", estado_mp="approved",
+                respuesta_mp={"payer": {"email": "pagador-secreto@example.com"}},
+            )
+
+            zf, _ = _exportar(self.gimnasio)
+            todo = "\n".join(_textos(zf).values())
+
+        self.assertIn("777000111", todo)
+        self.assertIn("approved", todo)
+        for secreto in ("APP_USR-token-mp-secreto", "TG-refresh-mp-secreto",
+                        "pagador-secreto@example.com", "uuid_webhook"):
+            self.assertNotIn(secreto, todo)
+        self.assertNotIn("cuenta", "\n".join(n for n in zf.namelist() if "tienda" in n))
+
     def test_las_dos_carpetas_formatean_distinto_los_mismos_datos(self):
         _ensuciar_para_exportar(self.gimnasio, self.staff)
         zf, _ = _exportar(self.gimnasio)

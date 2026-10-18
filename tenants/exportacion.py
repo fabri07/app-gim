@@ -305,6 +305,9 @@ HOJAS = (
             ("horas_reserva_transferencia", "horas_reserva_transferencia"),
             ("max_pedidos_activos", "max_pedidos_activos"),
             ("instrucciones_retiro", "instrucciones_retiro"),
+            ("acepta_transferencia", "acepta_transferencia"),
+            ("acepta_mercadopago", "acepta_mercadopago"),
+            ("minutos_reserva_mp", "minutos_reserva_mp"),
         ),
     ),
     Hoja(
@@ -349,6 +352,9 @@ HOJAS = (
             ("comprobante_subido_en", "comprobante_subido_en"),
             ("cancelacion_pedida_en", "cancelacion_pedida_en"),
             ("cancelacion_resuelta_en", "cancelacion_resuelta_en"),
+            # De Mercado Pago sólo el id y el estado del pago: `respuesta_mp`
+            # (datos del pagador) y los tokens NUNCA salen.
+            ("payment_id", "payment_id"), ("estado_mp", "estado_mp"),
         ),
     ),
     Hoja(
@@ -378,6 +384,9 @@ EXCLUIDOS = {
     ),
     "calendario.GoogleCalendarCredential": (
         "credenciales de Google de cada alumno (nunca salen de la plataforma)"
+    ),
+    "tienda.CuentaMercadoPago": (
+        "credenciales de Mercado Pago del gimnasio (nunca salen de la plataforma)"
     ),
     "calendario.ReservaCalendarEvent": (
         "estado técnico de la sincronización con Google Calendar"

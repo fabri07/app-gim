@@ -724,7 +724,13 @@ def vaciar_gimnasio(*, gimnasio):
     from pagos.models import Cuota, MedioCobro
     from rutinas.models import RutinaAsignada, RutinaPlantilla
     from tenants.models import Perfil, RegistroSuplantacion
-    from tienda.models import CategoriaProducto, ConfiguracionTienda, Pedido, Producto
+    from tienda.models import (
+        CategoriaProducto,
+        ConfiguracionTienda,
+        CuentaMercadoPago,
+        Pedido,
+        Producto,
+    )
     from turnos.models import (
         ConfiguracionTurnos,
         CupoExcepcion,
@@ -807,6 +813,9 @@ def vaciar_gimnasio(*, gimnasio):
         ConfiguracionTurnos.objects.for_gimnasio(gimnasio).delete()
         ConfiguracionIngreso.objects.for_gimnasio(gimnasio).delete()
         ConfiguracionTienda.objects.for_gimnasio(gimnasio).delete()
+        # La cuenta de MP no se conecta en la demo, pero un `.delete()` sobre
+        # filas con tokens cifrados no necesita la clave (no los lee).
+        CuentaMercadoPago.objects.for_gimnasio(gimnasio).delete()
 
         # Las que quedan son las del staff. Borrarlas es lo que evita el push
         # cruzado: `SuscripcionPush` cuelga del `User`, así que si dos dueños

@@ -4413,6 +4413,7 @@ def _ensuciar(gimnasio, staff, marca="X"):
     from tienda.models import (
         CategoriaProducto,
         ConfiguracionTienda,
+        CuentaMercadoPago,
         ItemPedido,
         Pedido,
         Producto,
@@ -4420,6 +4421,11 @@ def _ensuciar(gimnasio, staff, marca="X"):
     )
 
     ConfiguracionTienda.objects.create(gimnasio=gimnasio)
+    # Tokens `""`: el campo no cifra un vacío, así la suite no necesita
+    # `MP_TOKEN_ENCRYPTION_KEY`.
+    CuentaMercadoPago.objects.create(
+        gimnasio=gimnasio, access_token="", refresh_token="", mp_user_id=f"mp-{marca}",
+    )
     categoria_tienda = CategoriaProducto.objects.create(gimnasio=gimnasio, nombre=f"Ropa {marca}")
     producto = Producto.objects.create(
         gimnasio=gimnasio, categoria=categoria_tienda,

@@ -10,10 +10,15 @@ reservada por un pedido ya no está en `stock`. Por eso el staff nunca escribe
 el stock en forma absoluta (ver `services.ajustar_stock`).
 """
 
+import uuid
+from datetime import timedelta
+
+from django.conf import settings
 from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 from django.db import models
 from django.urls import reverse
 
+from calendario.fields import EncryptedTextField
 from core.models import TenantOwnedModel, validar_gimnasio_de
 from pagos.models import EXTENSIONES_COMPROBANTE_PERMITIDAS
 
@@ -48,6 +53,24 @@ class ConfiguracionTienda(TenantOwnedModel):
         help_text="Ej.: «Retirás en recepción, de lunes a viernes de 8 a 21».",
     )
 
+    # Los tres campos de abajo llevan `db_default` además de `default`: el
+    # `migrate` corre en el `buildCommand` mientras la versión vieja sigue
+    # atendiendo, y sus INSERT no conocen las columnas nuevas.
+    acepta_transferencia = models.BooleanField(
+        default=True, db_default=True,
+        verbose_name="aceptar transferencia",
+    )
+    acepta_mercadopago = models.BooleanField(
+        default=False, db_default=False,
+        verbose_name="aceptar Mercado Pago",
+    )
+    minutos_reserva_mp = models.PositiveSmallIntegerField(
+        default=30, db_default=30,
+        validators=[MinValueValidator(20), MaxValueValidator(120)],
+        verbose_name="minutos para pagar con Mercado Pago",
+        help_text="Si el alumno no paga en este plazo, el pedido vence y el stock vuelve.",
+    )
+
     class Meta:
         verbose_name = "configuración de la tienda"
         verbose_name_plural = "configuraciones de la tienda"
@@ -57,6 +80,54 @@ class ConfiguracionTienda(TenantOwnedModel):
 
     def __str__(self):
         return f"Configuración de la tienda de {self.gimnasio}"
+
+
+class CuentaMercadoPago(TenantOwnedModel):
+    """La cuenta de Mercado Pago del PROPIO gimnasio (OAuth): la plata de la
+    tienda va directo a ella, la plataforma nunca la toca. Una por gimnasio.
+
+    Los tokens van cifrados con `MP_TOKEN_ENCRYPTION_KEY` (no la de Google).
+    Un vacío no se cifra, así que los tests y `_ensuciar` los dejan en `""`
+    sin necesitar la clave. Sin la clave, o con una rotada, leerlos da `None`:
+    la cuenta se trata como «hay que reconectar». Nunca se exporta ni se
+    muestra en el admin."""
+
+    class Estado(models.TextChoices):
+        CONECTADA = "conectada", "Conectada"
+        RECONECTAR = "reconectar", "Hay que reconectarla"
+        DESCONECTADA = "desconectada", "Desconectada"
+
+    access_token = EncryptedTextField(
+        clave_setting="MP_TOKEN_ENCRYPTION_KEY", blank=True, default=""
+    )
+    refresh_token = EncryptedTextField(
+        clave_setting="MP_TOKEN_ENCRYPTION_KEY", blank=True, default=""
+    )
+    mp_user_id = models.CharField(max_length=40, blank=True)
+    token_expira = models.DateTimeField(null=True, blank=True)
+    #: Identifica el webhook de ESTA cuenta en la URL (no es secreto: la
+    #: autenticidad sale de leer el pago con el token del gimnasio).
+    uuid_webhook = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    es_de_prueba = models.BooleanField(default=False)
+    estado = models.CharField(
+        max_length=20, choices=Estado.choices, default=Estado.CONECTADA
+    )
+    conectada_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+    conectada_en = models.DateTimeField(null=True, blank=True)
+    desconectada_en = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "cuenta de Mercado Pago"
+        verbose_name_plural = "cuentas de Mercado Pago"
+        constraints = [
+            models.UniqueConstraint(fields=["gimnasio"], name="cuenta_mp_unica_por_gimnasio")
+        ]
+
+    def __str__(self):
+        return f"Mercado Pago de {self.gimnasio}"
 
 
 def obtener_configuracion(gimnasio):
@@ -186,9 +257,14 @@ class Pedido(TenantOwnedModel):
         VENCIDO = "vencido", "Vencido"
         CANCELADO = "cancelado", "Cancelado"
         DEVUELTO = "devuelto", "Devuelto"
+        #: Mercado Pago cobró pero el pedido no se pudo dejar en «Pagado»
+        #: (monto distinto, sin stock, pago tardío sobre uno cancelado). NO
+        #: retiene stock: lo resuelve el staff.
+        REVISAR = "revisar", "Pagado, a revisar"
 
     class Medio(models.TextChoices):
         TRANSFERENCIA = "transferencia", "Transferencia"
+        MERCADOPAGO = "mercadopago", "Mercado Pago"
 
     alumno = models.ForeignKey("alumnos.Alumno", on_delete=models.PROTECT, related_name="pedidos")
     medio = models.CharField(max_length=20, choices=Medio.choices, default=Medio.TRANSFERENCIA)
@@ -207,11 +283,36 @@ class Pedido(TenantOwnedModel):
     cancelacion_pedida_en = models.DateTimeField(null=True, blank=True)
     cancelacion_resuelta_en = models.DateTimeField(null=True, blank=True)
 
+    # --- Mercado Pago -------------------------------------------------------
+    # `null=True`: Postgres admite varios NULL bajo `unique`, así un INSERT del
+    # código viejo durante el deploy no rompe. El código exige que no sea nulo
+    # al crear un link; la migración llena los existentes.
+    referencia_externa = models.UUIDField(
+        null=True, unique=True, default=uuid.uuid4, editable=False
+    )
+    preference_id = models.TextField(blank=True, db_default="")
+    init_point = models.TextField(blank=True, db_default="")
+    payment_id = models.TextField(blank=True, db_default="")
+    estado_mp = models.TextField(blank=True, db_default="")
+    #: Sólo `resumen_de_pago` (nunca la respuesta cruda de MP) y la lista
+    #: `pagos_adicionales`. Nunca se exporta.
+    respuesta_mp = models.JSONField(null=True, blank=True)
+    #: «Hay algún pago adicional sin resolver»: alimenta la pestaña «Revisar MP».
+    revision_mp_pendiente = models.BooleanField(default=False, db_default=False)
+
     class Meta:
         verbose_name = "pedido"
         verbose_name_plural = "pedidos"
         ordering = ["-creado"]
         indexes = [models.Index(fields=["gimnasio", "estado"], name="pedido_gimnasio_estado")]
+        constraints = [
+            # Un pago de MP acredita un solo pedido. Parcial: los pedidos sin
+            # pago (todos los de transferencia) tienen `""`.
+            models.UniqueConstraint(
+                fields=["payment_id"], condition=~models.Q(payment_id=""),
+                name="pedido_payment_id_unico",
+            ),
+        ]
 
     def __str__(self):
         return f"Pedido #{self.pk}"
@@ -221,6 +322,14 @@ class Pedido(TenantOwnedModel):
         """Variante de `.badge` para el estado (única fuente: la usan los
         cuatro templates que muestran el estado de un pedido)."""
         return _BADGE_POR_ESTADO[self.estado]
+
+    @property
+    def vence_preferencia(self):
+        """Hasta cuándo es pagable el link de MP: un margen ANTES de la
+        reserva, así un pago nunca llega con el stock ya devuelto."""
+        if self.reservado_hasta is None:
+            return None
+        return self.reservado_hasta - MARGEN_PREFERENCIA
 
     @property
     def cancelacion_pendiente(self):
@@ -238,6 +347,9 @@ class Pedido(TenantOwnedModel):
             validar_gimnasio_de(self.gimnasio, alumno=self.alumno)
 
 
+#: Cuánto antes de `reservado_hasta` vence la preferencia de Mercado Pago.
+MARGEN_PREFERENCIA = timedelta(minutes=10)
+
 _E = Pedido.Estado
 _BADGE_POR_ESTADO = {
     _E.PENDIENTE_PAGO: "badge--alerta",
@@ -247,6 +359,7 @@ _BADGE_POR_ESTADO = {
     _E.VENCIDO: "badge--neutro",
     _E.CANCELADO: "badge--neutro",
     _E.DEVUELTO: "badge--neutro",
+    _E.REVISAR: "badge--alerta",
 }
 
 #: Estados cuyas unidades están descontadas de `Variante.stock`.
