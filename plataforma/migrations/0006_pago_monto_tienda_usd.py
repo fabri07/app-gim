@@ -14,6 +14,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='pagoplataforma',
             name='monto_tienda_usd',
-            field=models.DecimalField(decimal_places=2, default=0, help_text='Parte del monto que es la tienda; 0 si no la tiene.', max_digits=8, validators=[django.core.validators.MinValueValidator(0)], verbose_name='de los cuales, tienda (USD)'),
+            field=models.DecimalField(db_default=0, decimal_places=2, default=0, help_text='Parte del monto que es la tienda; 0 si no la tiene.', max_digits=8, validators=[django.core.validators.MinValueValidator(0)], verbose_name='de los cuales, tienda (USD)'),
         ),
     ]

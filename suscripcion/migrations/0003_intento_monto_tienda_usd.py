@@ -13,6 +13,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='intentodecobro',
             name='monto_tienda_usd',
-            field=models.DecimalField(decimal_places=2, default=0, max_digits=8),
+            field=models.DecimalField(db_default=0, decimal_places=2, default=0, max_digits=8),
         ),
     ]

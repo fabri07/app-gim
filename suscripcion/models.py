@@ -52,8 +52,10 @@ class IntentoDeCobro(TimeStampedModel):
     monto_usd = models.DecimalField(max_digits=8, decimal_places=2)
     # La parte de `monto_usd` que es la tienda (0 sin tienda). Se congela con el
     # link y `_acreditar_aprobado` la copia al pago: nunca se recalcula.
+    # `db_default`: el INSERT del código viejo (durante el `migrate` o tras un
+    # rollback) no conoce la columna.
     monto_tienda_usd = models.DecimalField(
-        max_digits=8, decimal_places=2, default=0
+        max_digits=8, decimal_places=2, default=0, db_default=0
     )
     monto_ars = models.DecimalField(max_digits=12, decimal_places=2)
     tipo_cambio = models.DecimalField(max_digits=10, decimal_places=2)

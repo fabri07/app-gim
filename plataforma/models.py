@@ -61,9 +61,10 @@ class PagoPlataforma(TimeStampedModel):
     )
     #: La parte de `monto_usd` que es el add-on de la tienda (0 = no la
     #: incluía; las filas viejas son 0, que es la verdad). Sólo informa, el
-    #: total sigue siendo `monto_usd`.
+    #: total sigue siendo `monto_usd`. `db_default`: el código viejo sigue
+    #: insertando durante el `migrate` (y tras un rollback) sin esta columna.
     monto_tienda_usd = models.DecimalField(
-        max_digits=8, decimal_places=2, default=0,
+        max_digits=8, decimal_places=2, default=0, db_default=0,
         validators=[MinValueValidator(0)],
         verbose_name="de los cuales, tienda (USD)",
         help_text="Parte del monto que es la tienda; 0 si no la tiene.",
