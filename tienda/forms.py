@@ -269,6 +269,9 @@ class VarianteForm(forms.ModelForm):
         self.caracteristicas_validas = caracteristicas_validas
         self.fila_unica = fila_unica
         super().__init__(*args, **kwargs)
+        # Lo que hay en la base, antes de que `_post_clean` copie lo posteado
+        # a la instancia (`has_changed` compara contra esto).
+        self._valores_guardados = (self.instance.valor_1, self.instance.valor_2)
         if self.instance.pk:
             del self.fields["stock_inicial"]
             # Creada por el código viejo durante el deploy (nombre libre, sin
@@ -318,13 +321,19 @@ class VarianteForm(forms.ModelForm):
         # La fila única de un alta sin características se guarda aunque nadie
         # la toque (si no, el producto quedaría sin variantes). Y una fila
         # cuyo nombre cambia sin que cambie lo posteado (se borró una
-        # característica; una fila creada por el código viejo) también. El
-        # `hasattr`: el `full_clean` del formset pregunta antes del `clean`.
+        # característica; una fila creada por el código viejo) también, igual
+        # que una cuyos valores difieren de los guardados aunque lo posteado
+        # sea el `initial` (la precarga de una vieja: «S» posteado, «» en la
+        # base). El `hasattr`: el `full_clean` del formset pregunta antes del
+        # `clean`.
         if super().has_changed() or self.fila_unica:
             return True
-        return bool(
-            self.instance.pk and hasattr(self, "cleaned_data")
-            and self.nombre_calculado() != self.instance.nombre
+        if not (self.instance.pk and hasattr(self, "cleaned_data")):
+            return False
+        datos = self.cleaned_data
+        return (
+            self.nombre_calculado() != self.instance.nombre
+            or (datos.get("valor_1", ""), datos.get("valor_2", "")) != self._valores_guardados
         )
 
     def save(self, commit=True):

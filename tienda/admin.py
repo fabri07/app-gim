@@ -27,6 +27,8 @@ class VarianteAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Lo que hay en la base, antes de que `_post_clean` copie lo posteado.
+        self._valores_guardados = (self.instance.valor_1, self.instance.valor_2)
         # Creada con nombre libre y sin valores (código viejo): se precarga,
         # así guardar el producto desde acá no la deja en «».
         if self.instance.pk and not self.instance.valor_1 and self.instance.nombre:
@@ -36,6 +38,16 @@ class VarianteAdminForm(forms.ModelForm):
         codigo = normalizar(self.cleaned_data.get("codigo"))
         validar_codigo(codigo, pk=self.instance.pk)
         return codigo
+
+    def has_changed(self):
+        # Con la precarga, «S» posteado es igual al `initial` y Django no
+        # guardaría la fila: se compara contra lo que hay en la base.
+        if super().has_changed():
+            return True
+        datos = getattr(self, "cleaned_data", None)
+        if not (self.instance.pk and datos):
+            return False
+        return (datos.get("valor_1", ""), datos.get("valor_2", "")) != self._valores_guardados
 
     def save(self, commit=True):
         variante = super().save(commit=False)
@@ -47,9 +59,10 @@ class VarianteAdminForm(forms.ModelForm):
 
 class VarianteAdminFormSet(BaseInlineFormSet):
     """La base ya no tiene constraint de nombre único (ver `tienda/0008`):
-    los nombres calculados se comparan acá, entre las filas del inline (que
-    muestra todas las variantes del producto). Saltea las que se borran y las
-    que tienen errores."""
+    los nombres calculados se comparan acá, entre las filas ACTIVAS del
+    inline (que muestra todas las variantes del producto). Saltea las que se
+    borran y las que tienen errores; una desactivada no choca (el form del
+    staff permite una «» activa y otra desactivada)."""
 
     def clean(self):
         super().clean()
@@ -60,6 +73,8 @@ class VarianteAdminFormSet(BaseInlineFormSet):
             if self.can_delete and self._should_delete_form(form):
                 continue
             if form.instance.pk is None and not form.has_changed():
+                continue
+            if not form.cleaned_data.get("activa"):
                 continue
             nombre = componer_nombre(form.cleaned_data.get("valor_1"), form.cleaned_data.get("valor_2"))
             if clave(nombre) in vistos:

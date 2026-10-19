@@ -59,7 +59,7 @@
 
   // Sin mayúsculas ni acentos, como `tienda.variantes.clave`.
   function clave(texto) {
-    return (texto || "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    return (texto || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   }
 
   function nombreDe(i) {
@@ -184,6 +184,10 @@
     filas().forEach(function (fila) {
       var v1 = campoDe(fila, "valor_1");
       var v2 = campoDe(fila, "valor_2");
+      var quitar = campoDe(fila, "DELETE");
+      // Una fila marcada «Quitar» no ocupa su combinación: se puede volver a
+      // generar.
+      if (quitar && quitar.checked) return;
       if (v1 && v1.value.trim()) {
         presentes[clave(v1.value) + "|" + (nombre2 && v2 ? clave(v2.value) : "")] = true;
       }

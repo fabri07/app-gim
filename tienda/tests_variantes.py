@@ -372,6 +372,17 @@ class EdicionTests(_Base):
         m.refresh_from_db()
         self.assertEqual((m.nombre, m.valor_1), ("", ""))
 
+    def test_variante_vieja_precargada_guarda_su_valor_aunque_no_se_toque(self):
+        """La precarga hace que lo posteado sea igual al `initial`: sin
+        comparar contra la instancia, la fila no «cambiaba» y `valor_1`
+        quedaba en «» para siempre."""
+        producto, _ = self.producto(filas=())
+        vieja = Variante.objects.create(producto=producto, nombre="S", stock=1)
+        r = self.edicion(producto, [{"variante": vieja, "valor_1": "S"}])
+        self.assertRedirects(r, reverse(URL_LISTA))
+        vieja.refresh_from_db()
+        self.assertEqual((vieja.valor_1, vieja.nombre), ("S", "S"))
+
     def test_variante_vieja_sin_valores_precarga_el_nombre(self):
         producto, _ = self.producto(filas=())
         Variante.objects.create(producto=producto, nombre="S", stock=1)
@@ -430,7 +441,8 @@ class AdminTests(_Base):
             datos[f"variantes-{i}-valor_1"] = fila.get("valor_1", "")
             datos[f"variantes-{i}-valor_2"] = fila.get("valor_2", "")
             datos[f"variantes-{i}-codigo"] = fila.get("codigo", "")
-            datos[f"variantes-{i}-activa"] = "on"
+            if fila.get("activa", True):
+                datos[f"variantes-{i}-activa"] = "on"
         return self.client.post(reverse("admin:tienda_producto_change", args=[producto.pk]), datos)
 
     def test_nombre_de_solo_lectura(self):
@@ -446,6 +458,25 @@ class AdminTests(_Base):
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "Hay dos variantes «M»")
         self.assertEqual(producto.variantes.count(), 1)
+
+    def test_dos_sin_nombre_con_una_inactiva_no_es_duplicado(self):
+        """El mismo estado que el form del staff permite (una activa y otra
+        desactivada, las dos «»): sólo se comparan las activas entre sí."""
+        producto, (a, b) = self.producto(c1="", filas=(("", ""), ("", "")))
+        Variante.objects.filter(pk=b.pk).update(activa=False)
+        r = self.post_admin(producto, [{"variante": a}, {"variante": b, "activa": False}])
+        self.assertEqual(r.status_code, 302)
+        r = self.post_admin(producto, [{"variante": a}, {"variante": b}])
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Hay dos variantes")
+
+    def test_variante_vieja_precargada_guarda_su_valor(self):
+        producto, _ = self.producto(filas=())
+        vieja = Variante.objects.create(producto=producto, nombre="S", stock=1)
+        r = self.post_admin(producto, [{"variante": vieja, "valor_1": "S"}])
+        self.assertEqual(r.status_code, 302)
+        vieja.refresh_from_db()
+        self.assertEqual((vieja.valor_1, vieja.nombre), ("S", "S"))
 
     def test_mas_de_60_es_error_en_valor_1(self):
         producto, (m,) = self.producto(c2="Color")

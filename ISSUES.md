@@ -3244,7 +3244,9 @@ revertir.
 también las filas marcadas «Quitar» (`deleted_forms` devuelve `[]` mientras el formset es
 inválido), así que «Son más de 50 variantes» puede aparecer junto al error de la fila.
 
-**Una pestaña de producto abierta durante el deploy** postea `variantes-N-nombre` (el form viejo)
-y no `valor_1`: el form nuevo lo ignora y, si el producto pasa a tener «Opción», pide completar
-los valores. Se recarga la página y listo.
+**Una pestaña de producto abierta durante el deploy** postea el form viejo: `variantes-N-nombre`
+(que el form nuevo ignora) y ni `caracteristica_1` ni `valor_1`. El producto queda entonces «sin
+características»: con **una** variante se guarda bien (queda con `nombre=""`; si tenía nombre, lo
+pierde); con **varias** el formset rechaza con «Sin características el producto tiene una sola
+variante…» y no guarda nada. Se recarga la página y se vuelve a guardar; aceptado.
 
