@@ -333,10 +333,12 @@ HOJAS = (
     ),
     Hoja(
         "tienda_variantes", "tienda.Variante", "producto__gimnasio",
-        "Variantes (talle, color, sabor) de cada producto, con su stock disponible.",
+        "Variantes (talle, color, sabor) de cada producto, con su stock disponible. "
+        "`codigo` es el código de barras (los de 13 dígitos que empiezan con 20 los "
+        "inventó la app).",
         (
             ("id", "id"), ("producto_id", "producto_id"), ("nombre", "nombre"),
-            ("stock_disponible", "stock"), ("activa", "activa"),
+            ("codigo", "codigo"), ("stock_disponible", "stock"), ("activa", "activa"),
         ),
     ),
     Hoja(

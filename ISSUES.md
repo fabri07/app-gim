@@ -3193,3 +3193,23 @@ Casos aceptados a propósito:
 
 Post-deploy: no hay nada a mano (los campos nuevos arrancan en 0), pero los gimnasios con la
 tienda prendida hoy pagan USD 20 más en su próximo cobro: avisarles.
+
+## [2026-10-18] Tienda: «Orden» salía obligatorio y código de barras sin constraint en la base
+
+**«Orden» obligatorio.** En categoría y producto el form marcaba «Orden» con `*` aunque sólo
+decide la posición en el catálogo y en la base ya vale 0: el ModelForm hereda `required` de un
+`PositiveSmallIntegerField` sin `blank`. Arreglado en el form (`OrdenOpcionalMixin`: no
+obligatorio, vacío o ausente → 0), sin migración.
+
+**Riesgo aceptado: código de barras manual duplicado por guardados simultáneos.** La unicidad
+de `Variante.codigo` por gimnasio se valida en el formset del staff (una query), no en la base:
+`Variante` no tiene `gimnasio` y una constraint por producto no alcanza. Dos staff guardando a
+la vez el mismo código manual en dos productos podrían duplicarlo; la búsqueda por código
+exacto usa `filter` (nunca `get`) y muestra los dos, y se corrige desde el formulario. Los
+códigos internos (`20…`, salen del `pk`) nunca chocan. El admin tampoco chequea la unicidad
+(sólo lo usa el superadmin).
+
+**Arreglo de paso en la suite:** `MigracionDeReferenciaExternaTests.tearDown` dejaba la base
+en `tienda/0005`; con migraciones posteriores, el próximo `TransactionTestCase` del orden
+fallaba por columnas faltantes. Ahora vuelve a la última migración.
+

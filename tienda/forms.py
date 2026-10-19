@@ -6,6 +6,7 @@ from PIL import Image as _Image
 
 from core.forms import TenantScopedModelForm
 from pagos.models import EXTENSIONES_COMPROBANTE_PERMITIDAS
+from tienda.codigos import normalizar, validar_codigo
 from tienda.fotos import preparar_foto
 from tienda.models import (
     MAX_FOTOS_POR_PRODUCTO,
@@ -19,7 +20,27 @@ from tienda.models import (
 )
 
 
-class CategoriaProductoForm(TenantScopedModelForm):
+class OrdenOpcionalMixin:
+    """«Orden» sólo decide la posición en el catálogo y en la base ya vale 0
+    por defecto, pero el ModelForm hereda `required` del
+    `PositiveSmallIntegerField` sin `blank` y lo marcaba obligatorio (ver
+    ISSUES.md, 2026-10-18). Vacío o ausente es 0."""
+
+    def _hacer_orden_opcional(self):
+        campo = self.fields["orden"]
+        campo.required = False
+        campo.label = "Orden en el catálogo"
+        campo.help_text = (
+            "Opcional. Los de número más bajo se muestran primero; vacío es 0, "
+            "y entre iguales van por orden alfabético."
+        )
+
+    def clean_orden(self):
+        orden = self.cleaned_data.get("orden")
+        return 0 if orden is None else orden
+
+
+class CategoriaProductoForm(OrdenOpcionalMixin, TenantScopedModelForm):
     """Valida a mano el nombre único por gimnasio: `gimnasio` no es campo del
     form, así que el `UniqueConstraint` explotaría como `IntegrityError` (500).
     Mismo patrón que `ejercicios/forms.py` (`clean_nombre` de la categoría)."""
@@ -27,6 +48,10 @@ class CategoriaProductoForm(TenantScopedModelForm):
     class Meta:
         model = CategoriaProducto
         fields = ["nombre", "orden"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._hacer_orden_opcional()
 
     def clean_nombre(self):
         nombre = self.cleaned_data["nombre"].strip()
@@ -56,7 +81,7 @@ class MultipleFileField(forms.FileField):
         return [limpiar_uno(data, initial)]
 
 
-class ProductoForm(TenantScopedModelForm):
+class ProductoForm(OrdenOpcionalMixin, TenantScopedModelForm):
     """La galería va en el mismo form (sin un segundo formset): tres campos
     que no son del modelo, que `save()` ignora y guarda `guardar_fotos()`.
     `borrar_fotos` y `principal` se acotan en `__init__` a las fotos de ESTE
@@ -93,6 +118,7 @@ class ProductoForm(TenantScopedModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._hacer_orden_opcional()
         # El related manager de un producto sin pk tira `ValueError`.
         if self.instance.pk:
             fotos = FotoProducto.objects.filter(producto=self.instance)
@@ -163,7 +189,10 @@ class ProductoForm(TenantScopedModelForm):
 class VarianteForm(forms.ModelForm):
     """`stock` NO es un campo del form: escribirlo en forma absoluta pisaría
     las reservas que entren mientras la pantalla está abierta. En el alta se
-    carga como `stock_inicial`; después sólo con «ajuste ±»."""
+    carga como `stock_inicial`; después sólo con «ajuste ±».
+
+    `gimnasio` llega por `form_kwargs` (lo usa el formset para la unicidad del
+    código); el form en sí sólo valida el formato."""
 
     stock_inicial = forms.IntegerField(
         min_value=0, max_value=100000, required=False, label="Stock inicial"
@@ -171,12 +200,24 @@ class VarianteForm(forms.ModelForm):
 
     class Meta:
         model = Variante
-        fields = ["nombre", "activa"]
+        fields = ["nombre", "codigo", "activa"]
+        widgets = {
+            # `data-codigo-barras`: el lector USB manda Enter al final y
+            # `tienda_variantes.js` lo convierte en «pasar al campo siguiente»
+            # (si no, cada escaneo enviaría el form a medio cargar).
+            "codigo": forms.TextInput(attrs={"data-codigo-barras": "", "autocomplete": "off"}),
+        }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, gimnasio=None, **kwargs):
+        self.gimnasio = gimnasio
         super().__init__(*args, **kwargs)
         if self.instance.pk:
             del self.fields["stock_inicial"]
+
+    def clean_codigo(self):
+        codigo = normalizar(self.cleaned_data.get("codigo"))
+        validar_codigo(codigo, pk=self.instance.pk)
+        return codigo
 
     def save(self, commit=True):
         variante = super().save(commit=False)
@@ -185,12 +226,16 @@ class VarianteForm(forms.ModelForm):
             if commit:
                 variante.save()
         elif commit:
-            variante.save(update_fields=["nombre", "activa"])
+            # `codigo` vacío: `Variante.save()` inventa el interno de nuevo.
+            variante.save(update_fields=["nombre", "codigo", "activa"])
         return variante
 
 
 class BaseVarianteFormSet(BaseInlineFormSet):
     def clean(self):
+        # El código antes del corte por errores: es un error de fila más, y
+        # así se ve junto con los demás en el mismo intento.
+        self._validar_codigos()
         # Primero las reglas propias: el `validate_unique` de Django (que corre
         # en `super().clean()`) contaría como duplicados los dos extras vacíos
         # y tapa nuestros mensajes con «información duplicada en nombre».
@@ -199,7 +244,10 @@ class BaseVarianteFormSet(BaseInlineFormSet):
         vivas = [
             f for f in self.forms
             if f.cleaned_data and not f.cleaned_data.get("DELETE")
-            and (f.instance.pk or f.cleaned_data.get("nombre") or f.cleaned_data.get("stock_inicial") is not None)
+            and (
+                f.instance.pk or f.cleaned_data.get("nombre") or f.cleaned_data.get("codigo")
+                or f.cleaned_data.get("stock_inicial") is not None
+            )
         ]
         if not vivas:
             raise forms.ValidationError("El producto tiene que tener al menos una variante.")
@@ -207,6 +255,45 @@ class BaseVarianteFormSet(BaseInlineFormSet):
         if len(nombres) != len(set(nombres)):
             raise forms.ValidationError("Hay dos variantes con el mismo nombre.")
         super().clean()
+
+    def _validar_codigos(self):
+        """Único por gimnasio (sin mayúsculas: todo código se guarda
+        normalizado) y único entre las filas. Una sola query para todas las
+        filas.
+
+        - Las filas que de verdad se borran no cuentan (liberan su código);
+          las que tienen ventas sí, aunque se posteen «Quitar» (se conservan
+          desactivadas).
+        - Contra la base se excluyen las variantes del propio formset: así
+          intercambiar dos códigos entre filas no da un falso duplicado.
+        """
+        filas = [
+            f for f in self.forms
+            if getattr(f, "cleaned_data", None) and f.cleaned_data.get("codigo")
+            and not (self.can_delete and self._should_delete_form(f))
+        ]
+        if not filas:
+            return
+        por_codigo = {}
+        for f in filas:
+            por_codigo.setdefault(f.cleaned_data["codigo"], []).append(f)
+        for codigo, mismas in por_codigo.items():
+            if len(mismas) > 1:
+                for f in mismas:
+                    f.add_error("codigo", f"Hay dos variantes con el código {codigo}.")
+        gimnasio = self.form_kwargs.get("gimnasio")
+        if gimnasio is None:
+            return
+        propias = [f.instance.pk for f in self.forms if f.instance.pk]
+        usados = set(
+            Variante.objects.filter(producto__gimnasio=gimnasio, codigo__in=list(por_codigo))
+            .exclude(pk__in=propias)
+            .values_list("codigo", flat=True)
+        )
+        for codigo in usados:
+            for f in por_codigo[codigo]:
+                if "codigo" not in f.errors:
+                    f.add_error("codigo", "Ese código ya lo usa otro producto de tu gimnasio.")
 
     def _should_delete_form(self, form):
         # Una variante con ventas no se borra (ItemPedido la protege): se

@@ -21,6 +21,8 @@ from django.urls import reverse
 from calendario.fields import EncryptedTextField
 from core.models import TenantOwnedModel, validar_gimnasio_de
 from pagos.models import EXTENSIONES_COMPROBANTE_PERMITIDAS
+from tienda.codigos import LARGO_MAXIMO as LARGO_MAXIMO_CODIGO
+from tienda.codigos import codigo_interno, normalizar
 
 MAX_LARGO_MOTIVO = 300
 
@@ -234,6 +236,17 @@ class Variante(models.Model):
     )
     stock = models.PositiveIntegerField(default=0, verbose_name="stock disponible")
     activa = models.BooleanField(default=True)
+    #: Código de barras: el de fábrica o el interno que inventa la app (ver
+    #: `tienda/codigos.py`). Sin constraint de unicidad en la base: `Variante`
+    #: no tiene `gimnasio` y la unicidad es por gimnasio, así que la valida el
+    #: formset del staff (riesgo aceptado de dos guardados simultáneos, ver
+    #: ISSUES.md). `db_default`: los INSERT de la versión vieja durante el
+    #: deploy no conocen la columna; esas quedan en «» y se completan al guardar.
+    codigo = models.CharField(
+        max_length=LARGO_MAXIMO_CODIGO, blank=True, default="", db_default="",
+        verbose_name="código de barras",
+        help_text="Vacío: la app inventa uno.",
+    )
 
     class Meta:
         verbose_name = "variante"
@@ -246,6 +259,17 @@ class Variante(models.Model):
 
     def __str__(self):
         return f"{self.producto.nombre} · {self.nombre}" if self.nombre else self.producto.nombre
+
+    def save(self, *args, **kwargs):
+        # Normalizar acá y no sólo en el form: el admin también guarda.
+        self.codigo = normalizar(self.codigo)
+        super().save(*args, **kwargs)
+        if not self.codigo:
+            # El interno sale del `pk`, que recién existe después del INSERT.
+            # También en memoria: un `save(update_fields=[..., "codigo"])`
+            # posterior sobre esta instancia no lo pisa con «».
+            self.codigo = codigo_interno(self.pk)
+            Variante.objects.filter(pk=self.pk).update(codigo=self.codigo)
 
 
 class Pedido(TenantOwnedModel):

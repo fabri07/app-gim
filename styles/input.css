@@ -819,6 +819,24 @@
     @apply mb-0 w-auto;
   }
 
+  /* Buscador de la lista de productos (también recibe el lector de código
+     de barras). El input no llena el ancho en la compu: un código entra en
+     24rem de sobra. */
+  .buscador-tienda {
+    @apply mb-4;
+  }
+
+  .buscador-tienda input[type="search"] {
+    @apply mb-0 w-full sm:max-w-96;
+  }
+
+  /* La variante del código escaneado (o la recién ajustada en el escaneo en
+     serie): un fondo suave del color del gimnasio, sin mover nada de lugar. */
+  .variante-destacada {
+    @apply rounded-md -mx-1 px-1;
+    background: color-mix(in oklab, var(--color-primario) 12%, transparent);
+  }
+
   .semanas-carrusel {
     @apply flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-4 px-4 mb-6;
     /* Sin esto, deslizar contra el borde dispara el gesto de "atrás" del

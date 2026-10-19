@@ -161,6 +161,10 @@ class ContenidoDelZipTests(ExportacionBase):
         ):
             self.assertIn(columna, exportadas)
 
+    def test_variantes_exporta_el_codigo_de_barras(self):
+        hoja = next(h for h in exportacion.HOJAS if h.nombre == "tienda_variantes")
+        self.assertIn("codigo", [e for e, _ in hoja.columnas])
+
     def test_no_trae_nada_de_otro_gimnasio(self):
         _ensuciar_para_exportar(self.gimnasio, self.staff, marca="PROPIO")
         _ensuciar_para_exportar(self.otro, self.staff_otro, marca="AJENO")

@@ -383,7 +383,11 @@ class MigracionDeReferenciaExternaTests(TransactionTestCase):
         return ejecutor.loader.project_state(destino).apps
 
     def tearDown(self):
-        self._migrar(self.migrate_to)  # deja la base como la espera el resto
+        # Deja la base como la espera el resto: en la ÚLTIMA migración, no en
+        # `migrate_to` (con 0006+ la base quedaba sin columnas nuevas y el
+        # próximo TransactionTestCase del orden fallaba).
+        ejecutor = MigrationExecutor(connection)
+        ejecutor.migrate(ejecutor.loader.graph.leaf_nodes())
         super().tearDown()
 
     def test_los_pedidos_existentes_quedan_con_referencia_unica_y_no_nula(self):

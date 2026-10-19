@@ -14,7 +14,11 @@ from tienda.models import (
 class VarianteInline(admin.TabularInline):
     model = Variante
     extra = 0
+    fields = ("nombre", "codigo", "stock", "activa")
     # Stock disponible: escribirlo en absoluto pisa reservas (ver models.py).
+    # `codigo` se normaliza en `Variante.save()` (también desde acá); la
+    # unicidad por gimnasio NO se chequea en el admin (aceptado: lo usa sólo
+    # el superadmin).
     readonly_fields = ("stock",)
 
 

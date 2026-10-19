@@ -15,6 +15,7 @@ from django.db.models import Count, Q
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils.http import urlencode
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -117,14 +118,55 @@ class CategoriaBorrarView(TiendaStaffMixin, BorrarConExplicacionView):
         return "Categoría eliminada. Sus productos quedaron sin categoría."
 
 
+LARGO_MAXIMO_BUSQUEDA = 60
+
+
+def _entero_positivo(valor):
+    """`?ajustada=` viene de la URL: cualquier cosa rara se ignora, nunca un
+    500. `int()` con `try` y no `isdigit()`: `"²".isdigit()` es `True`."""
+    try:
+        numero = int(valor)
+    except (TypeError, ValueError):
+        return None
+    return numero if 0 < numero < 2**63 else None
+
+
 class ProductoListView(TiendaStaffMixin, ListView):
+    """Lista con buscador. El buscador sirve también para el lector de código
+    de barras (USB = teclado + Enter): un código exacto deja sólo su producto,
+    marca la fila y pone el foco en su «Sumar o restar».
+
+    Escaneo en serie: el ajuste hecho desde una búsqueda vuelve con
+    `?ajustada=<pk>` (fila marcada, buscador vacío con el foco), así el
+    próximo escaneo cae en el buscador y nunca en el input del ajuste, donde
+    se sumaría el código como cantidad."""
+
     model = Producto
     template_name = "tienda/producto_list.html"
 
     def get_queryset(self):
-        return (
+        queryset = (
             super().get_queryset().select_related("categoria").prefetch_related("variantes", "fotos")
         )
+        self.q = (self.request.GET.get("q") or "").strip()[:LARGO_MAXIMO_BUSQUEDA]
+        self.destacadas = set()
+        self.ajustada = _entero_positivo(self.request.GET.get("ajustada"))
+        if not self.q:
+            return queryset
+        # `filter` y no `get`: sin constraint en la base (ver ISSUES.md), dos
+        # variantes podrían compartir el código; se muestran todas.
+        exactas = list(
+            Variante.objects.filter(producto__gimnasio=self.gimnasio, codigo__iexact=self.q)
+            .values_list("pk", "producto_id")
+        )
+        if exactas:
+            self.destacadas = {pk for pk, _producto in exactas}
+            return queryset.filter(pk__in={producto for _pk, producto in exactas})
+        return queryset.filter(
+            Q(nombre__icontains=self.q)
+            | Q(variantes__nombre__icontains=self.q)
+            | Q(variantes__codigo__icontains=self.q)
+        ).distinct()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -135,6 +177,17 @@ class ProductoListView(TiendaStaffMixin, ListView):
             (producto, [(v, reservado.get(v.pk, 0)) for v in producto.variantes.all()])
             for producto in context["object_list"]
         ]
+        # El foco va a UN solo `[autofocus]` (htmx y el navegador enfocan el
+        # primero): el ajuste de la primera variante del código escaneado, o
+        # si no el buscador.
+        context["foco_ajuste"] = next(
+            (v.pk for _p, variantes in context["filas"] for v, _r in variantes if v.pk in self.destacadas),
+            None,
+        )
+        context["q"] = self.q
+        context["destacadas"] = self.destacadas
+        context["marcadas"] = self.destacadas | ({self.ajustada} if self.ajustada else set())
+        context["en_serie"] = bool(self.q or self.ajustada)
         context["umbral_pocas"] = services.UMBRAL_POCAS_UNIDADES
         return context
 
@@ -145,12 +198,18 @@ class _ProductoFormMixin:
     template_name = "tienda/producto_form.html"
     success_url = reverse_lazy("tienda:productos")
 
+    def _formset(self, data=None, instance=None):
+        # `gimnasio` a cada fila (GET, redibujo y POST): la unicidad del
+        # código de barras es por gimnasio.
+        return VarianteFormSet(
+            data, instance=instance or self.object or Producto(),
+            form_kwargs={"gimnasio": self.gimnasio},
+        )
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if "formset" not in context:
-            context["formset"] = VarianteFormSet(
-                self.request.POST or None, instance=self.object or Producto()
-            )
+            context["formset"] = self._formset(self.request.POST or None)
         # Variantes que ya se vendieron: no se pueden borrar. Una query, no
         # una por fila del formset.
         context["con_ventas"] = (
@@ -171,7 +230,7 @@ class _ProductoFormMixin:
 
     def form_valid(self, form):
         form.instance.gimnasio = self.gimnasio
-        formset = VarianteFormSet(self.request.POST, instance=form.instance)
+        formset = self._formset(self.request.POST, instance=form.instance)
         if not formset.is_valid():
             return self.render_to_response(self.get_context_data(form=form, formset=formset))
         with transaction.atomic():
@@ -234,6 +293,9 @@ class VarianteAjustarView(TiendaStaffMixin, View):
                 messages.success(request, f"{variante}: quedan {variante.stock} disponibles.")
             except services.ErrorDeTienda as error:
                 messages.error(request, error.mensaje)
+        if request.POST.get("desde_busqueda") == "1":
+            # Escaneo en serie: ver `ProductoListView`.
+            return redirect(reverse("tienda:productos") + "?" + urlencode({"ajustada": variante.pk}))
         return redirect("tienda:productos")
 
 

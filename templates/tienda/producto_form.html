@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}{% if object %}Editar{% else %}Nuevo{% endif %} producto · App Gimnasios{% endblock %}
 
 {% block content %}
@@ -43,18 +44,27 @@
     </p>
     {{ formset.management_form }}
     {% if formset.non_form_errors %}<div class="config-error">{{ formset.non_form_errors }}</div>{% endif %}
+    <div data-variantes>
     {% for f in formset %}
       <fieldset>
         {{ f.id }}
         {% include 'partials/campo_form.html' with campo=f.nombre %}
+        {% include 'partials/campo_form.html' with campo=f.codigo %}
         {% if f.stock_inicial %}{% include 'partials/campo_form.html' with campo=f.stock_inicial %}{% endif %}
         {% include 'partials/campo_form.html' with campo=f.activa %}
         {% if f.instance.pk not in con_ventas %}{{ f.DELETE }} <label for="{{ f.DELETE.id_for_label }}">Quitar</label>{% endif %}
       </fieldset>
     {% endfor %}
+    </div>
 
     <button type="submit" class="boton">Guardar</button>
     <a class="boton-secundario" href="{% url 'tienda:productos' %}">Cancelar</a>
   </form>
 </div>
+{% comment %}
+Dentro de `content` (no en `extra_style` ni con `defer` en el `<head>`): htmx
+re-ejecuta los `<script>` del body en cada visita boosteada; el archivo se
+cuida solo de no engancharse dos veces.
+{% endcomment %}
+<script src="{% static 'js/tienda_variantes.js' %}"></script>
 {% endblock %}

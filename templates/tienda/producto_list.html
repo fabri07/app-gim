@@ -12,6 +12,20 @@
     <a class="boton-secundario" href="{% url 'tienda:configuracion' %}">Configuración</a>
   </div>
 
+  {% comment %}
+  Buscador: también recibe el lector de código de barras (teclado + Enter).
+  Lleva `autofocus` salvo cuando un código exacto deja el foco en el ajuste de
+  su fila (un solo `[autofocus]` por página; ver `ProductoListView`).
+  {% endcomment %}
+  <form method="get" role="search" class="buscador-tienda">
+    <label for="buscar-productos">Buscar por nombre o código; podés escanear con el lector</label>
+    <div class="flex items-center gap-2">
+      <input type="search" id="buscar-productos" name="q" value="{{ q }}" autocomplete="off" inputmode="search"{% if not foco_ajuste %} autofocus{% endif %}>
+      <button type="submit" class="boton-secundario">Buscar</button>
+      {% if q %}<a href="{% url 'tienda:productos' %}">Ver todos</a>{% endif %}
+    </div>
+  </form>
+
   <div class="tabla-scroll">
     <table class="tabla">
       <thead>
@@ -28,13 +42,15 @@
             <td><span class="tabular-nums whitespace-nowrap">$ {{ p.precio|floatformat:"2g" }}</span></td>
             <td>
               {% for v, reservado in variantes %}
-                <div>
+                <div{% if v.pk in marcadas %} class="variante-destacada" data-destacada{% endif %}>
                   {% if v.nombre %}{{ v.nombre }}{% endif %}{% if not v.activa %} <span class="badge badge--neutro">Inactiva</span>{% endif %}{% if v.nombre or not v.activa %}:{% endif %}
                   <span class="tabular-nums">{{ v.stock }}</span> / <span class="tabular-nums">{{ reservado }}</span>
                   {% if v.activa %}{% if v.stock == 0 %}<span class="badge badge--riesgo">Sin stock</span>{% elif v.stock <= umbral_pocas %}<span class="badge badge--alerta" data-stock-bajo>Stock bajo</span>{% endif %}{% endif %}
+                  <span class="block texto-suave tabular-nums" data-codigo>{{ v.codigo|default:"—" }}</span>
                   <form method="post" action="{% url 'tienda:variante_ajustar' v.pk %}" class="flex items-center gap-2 mt-1">
                     {% csrf_token %}
-                    <input type="number" name="delta" required aria-label="Sumar o restar unidades de {{ v.nombre|default:p.nombre }}" placeholder="±" class="w-20">
+                    {% if en_serie %}<input type="hidden" name="desde_busqueda" value="1">{% endif %}
+                    <input type="number" name="delta" required autocomplete="off" aria-label="Sumar o restar unidades de {{ v.nombre|default:p.nombre }}" placeholder="±" class="w-20"{% if v.pk == foco_ajuste %} autofocus{% endif %}>
                     <button type="submit" class="boton-secundario">Ajustar</button>
                   </form>
                 </div>
@@ -48,7 +64,9 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="5" class="texto-suave">No hay productos todavía.</td>
+            <td colspan="5" class="texto-suave">
+              {% if q %}No hay productos que coincidan con «{{ q }}». <a href="{% url 'tienda:productos' %}">Ver todos</a>{% else %}No hay productos todavía.{% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
