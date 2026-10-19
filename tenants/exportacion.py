@@ -318,11 +318,14 @@ HOJAS = (
     Hoja(
         "tienda_productos", "tienda.Producto", "gimnasio",
         "Productos de la tienda. Las fotos están en `tienda_productos_fotos` "
-        "(sólo el nombre del archivo; las fotos en sí no van en esta exportación).",
+        "(sólo el nombre del archivo; las fotos en sí no van en esta exportación). "
+        "`caracteristica_1` y `caracteristica_2` son las características de sus "
+        "variantes (talle, color, sabor); vacías si el producto tiene una sola.",
         (
             ("id", "id"), ("categoria_id", "categoria_id"), ("nombre", "nombre"),
             ("descripcion", "descripcion"), ("precio", "precio"),
-            ("publicado", "publicado"), ("creado", "creado"),
+            ("publicado", "publicado"), ("caracteristica_1", "caracteristica_1"),
+            ("caracteristica_2", "caracteristica_2"), ("creado", "creado"),
         ),
     ),
     Hoja(
@@ -334,11 +337,13 @@ HOJAS = (
     Hoja(
         "tienda_variantes", "tienda.Variante", "producto__gimnasio",
         "Variantes (talle, color, sabor) de cada producto, con su stock disponible. "
+        "`valor_1` y `valor_2` son sus valores para cada característica del producto "
+        "y `nombre` los junta («M · Negro»). "
         "`codigo` es el código de barras (los de 13 dígitos que empiezan con 20 los "
         "inventó la app).",
         (
             ("id", "id"), ("producto_id", "producto_id"), ("nombre", "nombre"),
-            ("codigo", "codigo"), ("stock_disponible", "stock"), ("activa", "activa"),
+            ("valor_1", "valor_1"), ("valor_2", "valor_2"), ("codigo", "codigo"), ("stock_disponible", "stock"), ("activa", "activa"),
         ),
     ),
     Hoja(

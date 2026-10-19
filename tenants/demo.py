@@ -545,19 +545,30 @@ def _sembrar_tienda(gimnasio, alumnos):
         gimnasio=gimnasio, nombre="Ropa", defaults={"orden": 2}
     )
     catalogo = [
-        (suplementos, "Proteína whey 1 kg", Decimal("32000"), [("Chocolate", 8), ("Vainilla", 5)]),
-        (suplementos, "Creatina 300 g", Decimal("21000"), [("", 12)]),
-        (ropa, "Remera dry-fit", Decimal("15000"), [("S", 4), ("M", 6), ("L", 3), ("XL", 0)]),
+        (suplementos, "Proteína whey 1 kg", Decimal("32000"), "Sabor", [("Chocolate", 8), ("Vainilla", 5)]),
+        (suplementos, "Creatina 300 g", Decimal("21000"), "", [("", 12)]),
+        (ropa, "Remera dry-fit", Decimal("15000"), "Talle", [("S", 4), ("M", 6), ("L", 3), ("XL", 0)]),
     ]
     variantes = []
-    for categoria, nombre, precio, talles in catalogo:
+    for categoria, nombre, precio, caracteristica, valores in catalogo:
         producto, _ = Producto.objects.get_or_create(
             gimnasio=gimnasio, nombre=nombre, defaults={"categoria": categoria, "precio": precio}
         )
-        for talle, stock in talles:
-            variante, _ = Variante.objects.get_or_create(
-                producto=producto, nombre=talle, defaults={"stock": stock}
-            )
+        # Explícitas después del `get_or_create`: los productos sobreviven a
+        # `--borrar`, y una demo migrada por `tienda/0008` quedó en «Opción».
+        if (producto.caracteristica_1, producto.caracteristica_2) != (caracteristica, ""):
+            producto.caracteristica_1 = caracteristica
+            producto.caracteristica_2 = ""
+            producto.save(update_fields=["caracteristica_1", "caracteristica_2"])
+        for valor, stock in valores:
+            # `filter().first()` y no `get_or_create`: sin la constraint de
+            # nombre único (`tienda/0008`), un visitante que agregó un Color
+            # podría dejar dos «M» y `get` daría `MultipleObjectsReturned`.
+            # Aceptado: esa demo tocada puede quedar con una «M · Negro»
+            # suelta; lo normal es `restaurar_demo`, que vacía todo.
+            variante = Variante.objects.filter(producto=producto, valor_1=valor, valor_2="").first()
+            if variante is None:
+                variante = Variante.objects.create(producto=producto, valor_1=valor, stock=stock)
             variantes.append(variante)
     if not Pedido.objects.for_gimnasio(gimnasio).exists() and len(alumnos) >= 3:
         ahora = timezone.now()

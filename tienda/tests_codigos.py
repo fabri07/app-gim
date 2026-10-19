@@ -26,11 +26,14 @@ class _Base(TestCase):
         self.otro = Gimnasio.objects.create(nombre="B", slug="b", tienda_habilitada=True)
 
     def producto(self, nombre="Remera", gimnasio=None, variantes=(("M", ""),)):
+        # Con «Talle» si alguna variante tiene nombre; sin características si
+        # es la única «».
         producto = Producto.objects.create(
-            gimnasio=gimnasio or self.gimnasio, nombre=nombre, precio=Decimal("15000")
+            gimnasio=gimnasio or self.gimnasio, nombre=nombre, precio=Decimal("15000"),
+            caracteristica_1="Talle" if any(n for n, _c in variantes) else "",
         )
         creadas = [
-            Variante.objects.create(producto=producto, nombre=n, codigo=c, stock=3)
+            Variante.objects.create(producto=producto, valor_1=n, codigo=c, stock=3)
             for n, c in variantes
         ]
         return producto, creadas
@@ -42,13 +45,14 @@ def datos_edicion(producto, filas, **extra):
     datos = {
         "nombre": producto.nombre, "descripcion": "", "precio": "15000", "publicado": "on",
         "orden": "0", "categoria": "",
+        "caracteristica_1": producto.caracteristica_1, "caracteristica_2": producto.caracteristica_2,
         "variantes-TOTAL_FORMS": str(len(filas) + 1), "variantes-INITIAL_FORMS": str(len(filas)),
         "variantes-MIN_NUM_FORMS": "0", "variantes-MAX_NUM_FORMS": "50",
     }
     for i, fila in enumerate(filas):
         v = fila["variante"]
         datos[f"variantes-{i}-id"] = str(v.pk)
-        datos[f"variantes-{i}-nombre"] = fila.get("nombre", v.nombre)
+        datos[f"variantes-{i}-valor_1"] = fila.get("valor_1", v.valor_1)
         datos[f"variantes-{i}-codigo"] = fila.get("codigo", v.codigo)
         if fila.get("activa", True):
             datos[f"variantes-{i}-activa"] = "on"
@@ -61,11 +65,11 @@ def datos_edicion(producto, filas, **extra):
 def datos_alta(**extra):
     datos = {
         "nombre": "Proteína", "descripcion": "", "precio": "25000", "publicado": "on",
-        "orden": "0", "categoria": "",
+        "orden": "0", "categoria": "", "caracteristica_1": "Sabor", "caracteristica_2": "",
         "variantes-TOTAL_FORMS": "2", "variantes-INITIAL_FORMS": "0",
         "variantes-MIN_NUM_FORMS": "0", "variantes-MAX_NUM_FORMS": "50",
-        "variantes-0-nombre": "Chocolate", "variantes-0-stock_inicial": "4", "variantes-0-activa": "on",
-        "variantes-1-nombre": "Vainilla", "variantes-1-stock_inicial": "2", "variantes-1-activa": "on",
+        "variantes-0-valor_1": "Chocolate", "variantes-0-stock_inicial": "4", "variantes-0-activa": "on",
+        "variantes-1-valor_1": "Vainilla", "variantes-1-stock_inicial": "2", "variantes-1-activa": "on",
     }
     datos.update(extra)
     return datos
@@ -220,7 +224,7 @@ class CodigoEnElFormularioTests(_Base):
             gimnasio=self.gimnasio, alumno=alumno, carrito={v.pk: 1}, suplantando=False
         )
         datos = datos_edicion(producto, [{"variante": v, "borrar": True}])
-        datos.update({"variantes-1-nombre": "L", "variantes-1-codigo": "COD-X", "variantes-1-activa": "on"})
+        datos.update({"variantes-1-valor_1": "L", "variantes-1-codigo": "COD-X", "variantes-1-activa": "on"})
         r = self.client.post(reverse("tienda:producto_editar", args=[producto.pk]), datos)
         self._rechaza(r, "Hay dos variantes con el código COD-X")
         self.assertFalse(producto.variantes.filter(nombre="L").exists())
@@ -512,7 +516,7 @@ class AdminCodigoTests(_Base):
             "variantes-TOTAL_FORMS": "1", "variantes-INITIAL_FORMS": "1",
             "variantes-MIN_NUM_FORMS": "0", "variantes-MAX_NUM_FORMS": "1000",
             "variantes-0-id": str(v.pk), "variantes-0-producto": str(producto.pk),
-            "variantes-0-nombre": "M", "variantes-0-codigo": "abc-99", "variantes-0-activa": "on",
+            "variantes-0-valor_1": "M", "variantes-0-codigo": "abc-99", "variantes-0-activa": "on",
         }
         r = self.client.post(url, datos)
         self.assertEqual(r.status_code, 302, r.content.decode()[:3000])

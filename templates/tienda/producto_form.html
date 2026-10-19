@@ -39,23 +39,49 @@
 
     <h2>Variantes</h2>
     <p class="texto-suave">
-      Talle, sabor, color: cada variante tiene su propio stock. Si el producto no
-      tiene variantes, cargá una sola, por ejemplo «Único».
+      Si el producto viene en talles, colores o sabores, poné hasta dos
+      características y tildá los valores: se arma una variante por
+      combinación, cada una con su stock y su código. Sin características, el
+      producto tiene una sola variante.
     </p>
+    <div class="variantes-caracteristicas">
+      {% include 'partials/campo_form.html' with campo=form.caracteristica_1 %}
+      {% include 'partials/campo_form.html' with campo=form.caracteristica_2 %}
+    </div>
+    <datalist id="sugerencias-caracteristicas">
+      {% for nombre in sugerencias %}<option value="{{ nombre }}"></option>{% endfor %}
+    </datalist>
+    {{ sugerencias|json_script:"sugerencias-variantes" }}
+
+    {% comment %}
+    El generador sólo existe con JS (`hidden` hasta que el script lo prende):
+    sin JS se cargan las filas a mano, una por vez, con la fila vacía que
+    siempre hay al final.
+    {% endcomment %}
+    <div class="generador-variantes" data-generador hidden>
+      <h3>Agregar combinaciones</h3>
+      {% for n in "12" %}
+      <div class="generador-variantes__caracteristica" data-generador-caracteristica="{{ n }}" hidden>
+        <p class="generador-variantes__titulo" data-generador-titulo></p>
+        <div class="generador-variantes__casillas" data-generador-casillas></div>
+        <div class="form-campo">
+          <label for="generador-otros-{{ n }}">Otros valores, separados por coma</label>
+          <input type="text" id="generador-otros-{{ n }}" data-generador-otros autocomplete="off">
+        </div>
+      </div>
+      {% endfor %}
+      <p class="config-error" data-generador-aviso role="alert" hidden></p>
+      <button type="button" class="boton-secundario" data-agregar-combinaciones>Agregar combinaciones</button>
+    </div>
+
     {{ formset.management_form }}
     {% if formset.non_form_errors %}<div class="config-error">{{ formset.non_form_errors }}</div>{% endif %}
     <div data-variantes>
     {% for f in formset %}
-      <fieldset>
-        {{ f.id }}
-        {% include 'partials/campo_form.html' with campo=f.nombre %}
-        {% include 'partials/campo_form.html' with campo=f.codigo %}
-        {% if f.stock_inicial %}{% include 'partials/campo_form.html' with campo=f.stock_inicial %}{% endif %}
-        {% include 'partials/campo_form.html' with campo=f.activa %}
-        {% if f.instance.pk not in con_ventas %}{{ f.DELETE }} <label for="{{ f.DELETE.id_for_label }}">Quitar</label>{% endif %}
-      </fieldset>
+      {% include 'tienda/_fila_variante.html' with f=f %}
     {% endfor %}
     </div>
+    <template data-fila-vacia>{% include 'tienda/_fila_variante.html' with f=formset.empty_form %}</template>
 
     <button type="submit" class="boton">Guardar</button>
     <a class="boton-secundario" href="{% url 'tienda:productos' %}">Cancelar</a>

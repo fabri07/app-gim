@@ -1,0 +1,21 @@
+{% comment %}
+Una fila del formset de variantes (`f`). La usan las filas reales y el
+`<template>` del generador (con `formset.empty_form`, prefijo `__prefix__`).
+
+`valor_1` y `valor_2` se dibujan SIEMPRE, con su línea de error: sin JS el
+error nunca queda sobre un campo ausente. `tienda_variantes.js` sólo los
+esconde (`hidden` en el `data-campo-valor`) cuando la característica está
+vacía, y nunca si el campo tiene un error.
+
+La fila única (alta sin características) no dibuja «Quitar»: es LA variante.
+Una con ventas tampoco: no se borra, se desactiva.
+{% endcomment %}
+<fieldset class="fila-variante" data-fila>
+  {{ f.id }}
+  <div data-campo-valor="1">{% include 'partials/campo_form.html' with campo=f.valor_1 %}</div>
+  <div data-campo-valor="2">{% include 'partials/campo_form.html' with campo=f.valor_2 %}</div>
+  {% include 'partials/campo_form.html' with campo=f.codigo %}
+  {% if f.stock_inicial %}{% include 'partials/campo_form.html' with campo=f.stock_inicial %}{% endif %}
+  {% include 'partials/campo_form.html' with campo=f.activa %}
+  {% if f.instance.pk not in con_ventas and not f.fila_unica %}{{ f.DELETE }} <label for="{{ f.DELETE.id_for_label }}">Quitar</label>{% endif %}
+</fieldset>

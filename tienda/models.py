@@ -14,6 +14,7 @@ import uuid
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 from django.db import models
 from django.urls import reverse
@@ -23,6 +24,7 @@ from core.models import TenantOwnedModel, validar_gimnasio_de
 from pagos.models import EXTENSIONES_COMPROBANTE_PERMITIDAS
 from tienda.codigos import LARGO_MAXIMO as LARGO_MAXIMO_CODIGO
 from tienda.codigos import codigo_interno, normalizar
+from tienda.variantes import LARGO_MAXIMO_NOMBRE, componer_nombre
 
 MAX_LARGO_MOTIVO = 300
 
@@ -176,6 +178,19 @@ class Producto(TenantOwnedModel):
         help_text="Destildalo para sacarlo de la tienda sin perder su historial de ventas.",
     )
     orden = models.PositiveSmallIntegerField(default=0)
+    #: Hasta dos características por producto, texto libre («Talle»,
+    #: «Color»): los valores de cada variante arman su nombre (ver
+    #: `tienda/variantes.py`). Vacías: el producto tiene una sola variante
+    #: sin nombre. `db_default`: los INSERT de la versión vieja durante el
+    #: deploy no conocen las columnas.
+    caracteristica_1 = models.CharField(
+        max_length=30, blank=True, default="", db_default="",
+        verbose_name="característica 1",
+    )
+    caracteristica_2 = models.CharField(
+        max_length=30, blank=True, default="", db_default="",
+        verbose_name="característica 2",
+    )
 
     class Meta:
         verbose_name = "producto"
@@ -230,10 +245,18 @@ class FotoProducto(models.Model):
 
 class Variante(models.Model):
     producto = models.ForeignKey(Producto, on_delete=models.CASCADE, related_name="variantes")
+    #: CALCULADO de `valor_1` y `valor_2` («M · Negro»; ver `save()`). Se
+    #: queda como columna porque todo lo demás lo lee (catálogo, carrito,
+    #: `str()` del snapshot del pedido, exportación). Sin `UniqueConstraint`
+    #: desde `tienda/0008`: el guardado fila por fila del formset chocaba al
+    #: intercambiar o reusar nombres; la unicidad la validan el formset del
+    #: staff y el del admin (riesgo aceptado, ver ISSUES.md).
     nombre = models.CharField(
-        max_length=60, blank=True,
-        help_text="Talle, color o sabor. Vacío si el producto no tiene variantes.",
+        max_length=LARGO_MAXIMO_NOMBRE, blank=True,
+        help_text="Se arma con los valores de las características. Vacío si el producto no tiene variantes.",
     )
+    valor_1 = models.CharField(max_length=60, blank=True, default="", db_default="")
+    valor_2 = models.CharField(max_length=60, blank=True, default="", db_default="")
     stock = models.PositiveIntegerField(default=0, verbose_name="stock disponible")
     activa = models.BooleanField(default=True)
     #: Código de barras: el de fábrica o el interno que inventa la app (ver
@@ -253,14 +276,33 @@ class Variante(models.Model):
         verbose_name_plural = "variantes"
         ordering = ["pk"]
         constraints = [
-            models.UniqueConstraint(fields=["producto", "nombre"], name="variante_unica_por_producto"),
             models.CheckConstraint(condition=models.Q(stock__gte=0), name="variante_stock_no_negativo"),
         ]
 
     def __str__(self):
         return f"{self.producto.nombre} · {self.nombre}" if self.nombre else self.producto.nombre
 
+    def clean(self):
+        # Corre en todo ModelForm (staff y admin) vía `full_clean`. El error
+        # va en `valor_1`, que es campo de los dos forms (sobre `nombre`, que
+        # no es campo, el form tira `ValueError`). Sin esto un nombre de más
+        # de 60 llega a Postgres como `DataError` (SQLite no valida largos).
+        nombre = componer_nombre(self.valor_1, self.valor_2)
+        if len(nombre) > LARGO_MAXIMO_NOMBRE:
+            raise ValidationError({
+                "valor_1": (
+                    f"El nombre de la variante («{nombre}») pasa de {LARGO_MAXIMO_NOMBRE} "
+                    "caracteres: acortá los valores."
+                )
+            })
+
     def save(self, *args, **kwargs):
+        # Antes del INSERT/UPDATE (la demo usa `str(variante)` enseguida). Sin
+        # valores no toca `nombre`: así se puede seguir creando con `nombre=`
+        # (tests, datos viejos). El form del staff, en cambio, lo asigna
+        # siempre (también «»).
+        if self.valor_1 or self.valor_2:
+            self.nombre = componer_nombre(self.valor_1, self.valor_2)
         # Normalizar acá y no sólo en el form: el admin también guarda.
         self.codigo = normalizar(self.codigo)
         super().save(*args, **kwargs)

@@ -16,9 +16,11 @@ from tienda.models import (
     ConfiguracionTienda,
     CuentaMercadoPago,
     FotoProducto,
+    ItemPedido,
     Producto,
     Variante,
 )
+from tienda.variantes import MAXIMO_VARIANTES, clave, componer_nombre
 
 
 class OrdenOpcionalMixin:
@@ -89,6 +91,8 @@ class ProductoForm(OrdenOpcionalMixin, TenantScopedModelForm):
     producto: una foto de otro producto no es opción válida."""
 
     CAMPOS_FOTOS = ("fotos_nuevas", "borrar_fotos", "principal")
+    #: Se dibujan en la sección «Variantes», no en la general.
+    CAMPOS_CARACTERISTICAS = ("caracteristica_1", "caracteristica_2")
 
     fotos_nuevas = MultipleFileField(
         required=False,
@@ -115,7 +119,29 @@ class ProductoForm(OrdenOpcionalMixin, TenantScopedModelForm):
 
     class Meta:
         model = Producto
-        fields = ["nombre", "categoria", "descripcion", "precio", "publicado", "orden"]
+        fields = [
+            "nombre", "categoria", "descripcion", "precio", "publicado", "orden",
+            "caracteristica_1", "caracteristica_2",
+        ]
+        labels = {
+            "caracteristica_1": "Característica 1",
+            "caracteristica_2": "Característica 2 (opcional)",
+        }
+        help_texts = {
+            "caracteristica_1": "Talle, Color, Sabor, Peso… Vacía: el producto tiene una sola variante.",
+        }
+        widgets = {
+            # `list`: el `<datalist>` de sugerencias del template. `data-*`:
+            # el generador de `tienda_variantes.js` lee de acá.
+            "caracteristica_1": forms.TextInput(attrs={
+                "list": "sugerencias-caracteristicas", "autocomplete": "off",
+                "data-caracteristica": "1",
+            }),
+            "caracteristica_2": forms.TextInput(attrs={
+                "list": "sugerencias-caracteristicas", "autocomplete": "off",
+                "data-caracteristica": "2",
+            }),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -128,7 +154,8 @@ class ProductoForm(OrdenOpcionalMixin, TenantScopedModelForm):
             self.fields["principal"].initial = fotos.values_list("pk", flat=True).first()
 
     def campos_generales(self):
-        return [campo for campo in self if campo.name not in self.CAMPOS_FOTOS]
+        fuera = self.CAMPOS_FOTOS + self.CAMPOS_CARACTERISTICAS
+        return [campo for campo in self if campo.name not in fuera]
 
     def clean_fotos_nuevas(self):
         preparadas = []
@@ -157,6 +184,20 @@ class ProductoForm(OrdenOpcionalMixin, TenantScopedModelForm):
         principal = cleaned.get("principal")
         if principal is not None and principal in borradas:
             cleaned["principal"] = None
+        # Si alguna de las dos queda con error, `add_error` la saca de
+        # `cleaned_data` y la vista le avisa al formset que no confíe en ellas
+        # (`caracteristicas_validas=False`): así no aparecen errores falsos en
+        # todas las filas.
+        if "caracteristica_1" not in self.errors and "caracteristica_2" not in self.errors:
+            primera = cleaned.get("caracteristica_1", "")
+            segunda = cleaned.get("caracteristica_2", "")
+            if segunda and not primera:
+                self.add_error("caracteristica_2", "Poné primero la característica 1.")
+            elif segunda and clave(segunda) == clave(primera):
+                self.add_error(
+                    "caracteristica_2",
+                    "Las dos características son la misma: poné otra o dejala vacía.",
+                )
         return cleaned
 
     def guardar_fotos(self, producto):
@@ -188,12 +229,18 @@ class ProductoForm(OrdenOpcionalMixin, TenantScopedModelForm):
 
 
 class VarianteForm(forms.ModelForm):
-    """`stock` NO es un campo del form: escribirlo en forma absoluta pisaría
-    las reservas que entren mientras la pantalla está abierta. En el alta se
-    carga como `stock_inicial`; después sólo con «ajuste ±».
+    """Una fila de variante: un valor por característica del producto, el
+    código de barras y «Activa». `nombre` NO es campo: lo calcula `save()`
+    de los valores («M · Negro», o «» sin características).
 
-    `gimnasio` llega por `form_kwargs` (lo usa el formset para la unicidad del
-    código); el form en sí sólo valida el formato."""
+    `stock` tampoco: escribirlo en forma absoluta pisaría las reservas que
+    entren mientras la pantalla está abierta. En el alta se carga como
+    `stock_inicial`; después sólo con «ajuste ±».
+
+    Llegan por `form_kwargs` (los arma el formset): `gimnasio` (unicidad del
+    código), `caracteristicas` (las validadas del form del producto, para
+    limpiar valores y reglas), `caracteristicas_validas`, `etiquetas` (lo
+    que el staff tipeó, para las etiquetas del redibujo) y `fila_unica`."""
 
     stock_inicial = forms.IntegerField(
         min_value=0, max_value=100000, required=False, label="Stock inicial"
@@ -201,19 +248,38 @@ class VarianteForm(forms.ModelForm):
 
     class Meta:
         model = Variante
-        fields = ["nombre", "codigo", "activa"]
+        fields = ["valor_1", "valor_2", "codigo", "activa"]
+        labels = {"codigo": "Código de barras"}
+        help_texts = {"codigo": "Vacío: la app inventa uno."}
         widgets = {
+            "valor_1": forms.TextInput(attrs={"data-valor": "1", "autocomplete": "off"}),
+            "valor_2": forms.TextInput(attrs={"data-valor": "2", "autocomplete": "off"}),
             # `data-codigo-barras`: el lector USB manda Enter al final y
             # `tienda_variantes.js` lo convierte en «pasar al campo siguiente»
             # (si no, cada escaneo enviaría el form a medio cargar).
             "codigo": forms.TextInput(attrs={"data-codigo-barras": "", "autocomplete": "off"}),
         }
 
-    def __init__(self, *args, gimnasio=None, **kwargs):
+    def __init__(
+        self, *args, gimnasio=None, caracteristicas=("", ""), caracteristicas_validas=True,
+        etiquetas=None, fila_unica=False, **kwargs,
+    ):
         self.gimnasio = gimnasio
+        self.caracteristicas = tuple(caracteristicas)
+        self.caracteristicas_validas = caracteristicas_validas
+        self.fila_unica = fila_unica
         super().__init__(*args, **kwargs)
         if self.instance.pk:
             del self.fields["stock_inicial"]
+            # Creada por el código viejo durante el deploy (nombre libre, sin
+            # valores): se precarga para que el staff no la retipee.
+            if not self.instance.valor_1 and self.instance.nombre:
+                self.initial["valor_1"] = self.instance.nombre
+        etiquetas = tuple(etiquetas) if etiquetas is not None else self.caracteristicas
+        # «Valor 1/2» sólo en un alta sin JS: el script pone el nombre de la
+        # característica apenas se tipea.
+        self.fields["valor_1"].label = etiquetas[0] or "Valor 1"
+        self.fields["valor_2"].label = etiquetas[1] or "Valor 2"
         # El largo se valida DESPUÉS de normalizar (`FORMATO` ya topea en 32):
         # un código pegado con espacios puede pasar de 32 y ser válido. Sin
         # esto el `max_length` del modelo lo rechazaba antes de `clean_codigo`,
@@ -228,42 +294,197 @@ class VarianteForm(forms.ModelForm):
         validar_codigo(codigo, pk=self.instance.pk)
         return codigo
 
+    def clean(self):
+        # Acá y no en el `clean` del formset: cuando corre ése, `_post_clean`
+        # ya copió los valores a la instancia. Borrar una característica no
+        # deja errores sobre campos que el JS esconde. Con una característica
+        # inválida en el form del producto no se toca nada (no se sabe cuál
+        # quedó vacía de verdad; ese POST no guarda).
+        cleaned = super().clean()
+        if self.caracteristicas_validas:
+            primera, segunda = self.caracteristicas
+            if not primera:
+                cleaned["valor_1"] = ""
+                cleaned["valor_2"] = ""
+            elif not segunda:
+                cleaned["valor_2"] = ""
+        return cleaned
+
+    def nombre_calculado(self):
+        datos = getattr(self, "cleaned_data", None) or {}
+        return componer_nombre(datos.get("valor_1", ""), datos.get("valor_2", ""))
+
+    def has_changed(self):
+        # La fila única de un alta sin características se guarda aunque nadie
+        # la toque (si no, el producto quedaría sin variantes). Y una fila
+        # cuyo nombre cambia sin que cambie lo posteado (se borró una
+        # característica; una fila creada por el código viejo) también. El
+        # `hasattr`: el `full_clean` del formset pregunta antes del `clean`.
+        if super().has_changed() or self.fila_unica:
+            return True
+        return bool(
+            self.instance.pk and hasattr(self, "cleaned_data")
+            and self.nombre_calculado() != self.instance.nombre
+        )
+
     def save(self, commit=True):
         variante = super().save(commit=False)
+        # Siempre, también «»: sin valores `Variante.save()` no toca el
+        # nombre, y vaciar los dos dejaría el «M» viejo.
+        variante.nombre = self.nombre_calculado()
         if variante.pk is None:
             variante.stock = self.cleaned_data.get("stock_inicial") or 0
             if commit:
                 variante.save()
         elif commit:
             # `codigo` vacío: `Variante.save()` inventa el interno de nuevo.
-            variante.save(update_fields=["nombre", "codigo", "activa"])
+            variante.save(update_fields=["nombre", "valor_1", "valor_2", "codigo", "activa"])
         return variante
 
 
 class BaseVarianteFormSet(BaseInlineFormSet):
+    """Las filas de variantes del form de producto.
+
+    Reglas (sobre las filas «vivas» y activas): sin `caracteristica_1`, como
+    mucho una activa; con ella, cada activa con su valor (y el de la 2 si la
+    hay); al menos una viva siempre; sin nombres repetidos entre activas (ni
+    contra una desactivada sin ventas). La base ya no tiene constraint de
+    nombre único (ver `tienda/0008`): esto es lo que lo frena.
+
+    Ojo con el orden de Django: `full_clean` llama `has_changed()` y
+    `_should_delete_form()` de cada fila ANTES de este `clean`, así que
+    «viva» (`_es_viva`) es función pura del estado de la fila, nunca algo que
+    calcule `clean`."""
+
+    default_error_messages = {"too_many_forms": "Son más de %(num)s variantes."}
+
+    def __init__(
+        self, *args, caracteristicas=("", ""), caracteristicas_validas=True, etiquetas=None,
+        con_ventas=None, **kwargs,
+    ):
+        self.caracteristicas = tuple(caracteristicas)
+        self.caracteristicas_validas = caracteristicas_validas
+        self.etiquetas = tuple(etiquetas) if etiquetas is not None else self.caracteristicas
+        super().__init__(*args, **kwargs)
+        # Variantes con ventas (no se borran: se desactivan). Lo arma la vista
+        # con una query; si no llega, una query acá (nunca una por fila).
+        if con_ventas is None:
+            con_ventas = (
+                set(
+                    ItemPedido.objects.filter(variante__producto=self.instance)
+                    .values_list("variante_id", flat=True)
+                )
+                if self.instance.pk else set()
+            )
+        self.con_ventas = set(con_ventas)
+
+    def get_form_kwargs(self, index):
+        kwargs = super().get_form_kwargs(index)
+        kwargs.update(
+            caracteristicas=self.caracteristicas,
+            caracteristicas_validas=self.caracteristicas_validas,
+            etiquetas=self.etiquetas,
+        )
+        # Alta (o producto sin variantes) sin características: la primera fila
+        # es LA variante y se guarda aunque venga sin tocar. `empty_form` pasa
+        # `index=None` (y ya trae su propio `empty_permitted`).
+        if (
+            index is not None and index == self.initial_form_count() == 0
+            and self.caracteristicas_validas and not self.caracteristicas[0]
+        ):
+            kwargs.update(fila_unica=True, empty_permitted=False)
+        return kwargs
+
+    @staticmethod
+    def _borrar_posteado(form):
+        return bool((getattr(form, "cleaned_data", None) or {}).get("DELETE"))
+
+    def _es_viva(self, form):
+        """Fila que cuenta como variante: no borrada de verdad (una con ventas
+        posteada «Quitar» se conserva desactivada, así que cuenta), con `pk` o
+        con algún dato, o la fila única. Pura: sólo mira la fila."""
+        datos = getattr(form, "cleaned_data", None) or {}
+        if form.instance.pk:
+            return not self._borrar_posteado(form) or form.instance.pk in self.con_ventas
+        if self._borrar_posteado(form):
+            return False
+        if form.fila_unica:
+            return True
+        return bool(
+            datos.get("valor_1") or datos.get("valor_2") or datos.get("codigo")
+            or datos.get("stock_inicial") is not None
+        )
+
+    def _activa_efectiva(self, form):
+        """Activa después de guardar: «Quitar» sobre una con ventas la
+        desactiva aunque venga tildada."""
+        return bool(form.cleaned_data.get("activa")) and not (
+            self._borrar_posteado(form) and form.instance.pk in self.con_ventas
+        )
+
     def clean(self):
         # El código antes del corte por errores: es un error de fila más, y
         # así se ve junto con los demás en el mismo intento.
         self._validar_codigos()
-        # Primero las reglas propias: el `validate_unique` de Django (que corre
-        # en `super().clean()`) contaría como duplicados los dos extras vacíos
-        # y tapa nuestros mensajes con «información duplicada en nombre».
         if any(self.errors):
             return
-        vivas = [
-            f for f in self.forms
-            if f.cleaned_data and not f.cleaned_data.get("DELETE")
-            and (
-                f.instance.pk or f.cleaned_data.get("nombre") or f.cleaned_data.get("codigo")
-                or f.cleaned_data.get("stock_inicial") is not None
-            )
-        ]
+        # Una característica con error en el form del producto: no se sabe
+        # qué reglas aplicar; sólo corrieron código y largo. Ese POST no
+        # guarda (el form del producto es inválido).
+        if not self.caracteristicas_validas:
+            return
+        primera, segunda = self.caracteristicas
+        vivas = [f for f in self.forms if self._es_viva(f)]
         if not vivas:
             raise forms.ValidationError("El producto tiene que tener al menos una variante.")
-        nombres = [f.cleaned_data.get("nombre", "").strip().lower() for f in vivas]
-        if len(nombres) != len(set(nombres)):
-            raise forms.ValidationError("Hay dos variantes con el mismo nombre.")
+        activas = [f for f in vivas if self._activa_efectiva(f)]
+        if not primera:
+            if len(activas) > 1:
+                raise forms.ValidationError(
+                    "Sin características el producto tiene una sola variante. "
+                    "Poné una, como Talle, para cargar varias."
+                )
+        else:
+            for f in activas:
+                if not f.cleaned_data.get("valor_1"):
+                    f.add_error("valor_1", f"Completá el {primera} o desactivá esta fila.")
+                if segunda and not f.cleaned_data.get("valor_2"):
+                    f.add_error("valor_2", f"Completá el {segunda} o desactivá esta fila.")
+            if any(self.errors):
+                return
+        self._validar_nombres(vivas, activas)
         super().clean()
+
+    def _validar_nombres(self, vivas, activas):
+        """Sin dos activas con el mismo nombre, ni una activa con el de una
+        desactivada SIN ventas. Dos desactivadas nunca chocan, ni una activa
+        con una desactivada con ventas: el catálogo sólo muestra activas y
+        los pedidos van por `pk`, y así sacar una característica a un
+        producto con ventas nunca deja un callejón sin salida."""
+        dormidas = {
+            clave(f.nombre_calculado())
+            for f in vivas
+            if f not in activas and f.instance.pk not in self.con_ventas
+        }
+        vistas = set()
+        for f in activas:
+            nombre = f.nombre_calculado()
+            if not nombre:
+                # Sólo pasa sin características (con ellas cada activa tiene
+                # su valor): una activa y otra «» desactivada sin ventas que
+                # sobra. Error general: los campos de valor están escondidos.
+                if "" in dormidas:
+                    raise forms.ValidationError(
+                        "Sin características el producto tiene una sola variante: quitá la que sobra."
+                    )
+            elif clave(nombre) in vistas:
+                f.add_error("valor_1", f"Hay dos variantes «{nombre}».")
+            elif clave(nombre) in dormidas:
+                f.add_error(
+                    "valor_1",
+                    f"Ya existe «{nombre}» desactivada: tildá Activa en esa fila y quitá esta.",
+                )
+            vistas.add(clave(nombre))
 
     def _validar_codigos(self):
         """Único por gimnasio (sin mayúsculas: todo código se guarda
@@ -305,19 +526,27 @@ class BaseVarianteFormSet(BaseInlineFormSet):
                     f.add_error("codigo", "Ese código ya lo usa otro producto de tu gimnasio.")
 
     def _should_delete_form(self, form):
-        # Una variante con ventas no se borra (ItemPedido la protege): se
-        # desactiva. El template no muestra la casilla en ese caso; esto es el
-        # guard por si se postea a mano.
         borrar = super()._should_delete_form(form)
-        if borrar and form.instance.pk and form.instance.items.exists():
+        if borrar and form.instance.pk and form.instance.pk in self.con_ventas:
+            # Una variante con ventas no se borra (ItemPedido la protege): se
+            # desactiva. El template no muestra la casilla en ese caso; esto
+            # es el guard por si se postea a mano.
             form.instance.activa = False
             return False
-        return borrar
+        if borrar:
+            return True
+        # Una fila nueva sin datos (la extra con sólo «Activa» destildada, o
+        # una sobrante con el valor limpiado) se descarta: si no, se guardaría
+        # como una variante «». NUNCA una con errores: un código «AB» o un
+        # stock «-1» en una fila nueva se perdería en silencio.
+        return form.instance.pk is None and not form.errors and not self._es_viva(form)
 
 
 VarianteFormSet = inlineformset_factory(
     Producto, Variante, form=VarianteForm, formset=BaseVarianteFormSet,
-    extra=2, min_num=0, max_num=50, can_delete=True,
+    # Una fila vacía siempre disponible (también sin JS); el generador la
+    # reusa antes de clonar. El tope cuenta también las inactivas con ventas.
+    extra=1, min_num=0, max_num=MAXIMO_VARIANTES, validate_max=True, can_delete=True,
 )
 
 

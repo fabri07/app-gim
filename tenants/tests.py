@@ -3890,6 +3890,49 @@ class SembrarDemoTests(TestCase):
         self.assertEqual(Producto.objects.for_gimnasio(self.gimnasio).count(), productos)
         self.assertEqual(Variante.objects.filter(producto__gimnasio=self.gimnasio).count(), variantes)
 
+    def test_la_tienda_demo_se_siembra_con_caracteristicas(self):
+        from tienda.models import Producto, Variante
+
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
+        self._sembrar(alumnos=4, meses=1)
+        productos = Producto.objects.for_gimnasio(self.gimnasio)
+        self.assertEqual(productos.get(nombre="Proteína whey 1 kg").caracteristica_1, "Sabor")
+        self.assertEqual(productos.get(nombre="Remera dry-fit").caracteristica_1, "Talle")
+        creatina = productos.get(nombre="Creatina 300 g")
+        self.assertEqual(creatina.caracteristica_1, "")
+        self.assertEqual(list(creatina.variantes.values_list("nombre", flat=True)), [""])
+        self.assertTrue(
+            Variante.objects.filter(producto__gimnasio=self.gimnasio, valor_1="M", nombre="M").exists()
+        )
+
+    def test_la_tienda_demo_resembrada_pisa_la_opcion_de_la_migracion(self):
+        """Una demo migrada por `tienda/0008` quedó con «Opción»: las
+        características se setean explícitamente después del `get_or_create`."""
+        from tienda.models import Producto
+
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
+        self._sembrar(alumnos=4, meses=1)
+        Producto.objects.for_gimnasio(self.gimnasio).exclude(caracteristica_1="").update(
+            caracteristica_1="Opción"
+        )
+        self._sembrar(alumnos=4, meses=1, confirmar=True)
+        remera = Producto.objects.for_gimnasio(self.gimnasio).get(nombre="Remera dry-fit")
+        self.assertEqual(remera.caracteristica_1, "Talle")
+
+    def test_la_tienda_demo_resembrada_con_una_m_negro_agregada_no_explota(self):
+        """Sin la constraint de nombre único, un visitante que agregó Color
+        («M · Negro») no puede dar `MultipleObjectsReturned` al re-sembrar."""
+        from tienda.models import Producto, Variante
+
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
+        self._sembrar(alumnos=4, meses=1)
+        remera = Producto.objects.for_gimnasio(self.gimnasio).get(nombre="Remera dry-fit")
+        Producto.objects.filter(pk=remera.pk).update(caracteristica_2="Color")
+        Variante.objects.create(producto=remera, valor_1="M", valor_2="Negro", stock=1)
+        cantidad = remera.variantes.count()
+        self._sembrar(alumnos=4, meses=1, confirmar=True)
+        self.assertEqual(remera.variantes.count(), cantidad)
+
     def test_la_tienda_demo_trae_un_medio_de_cobro_sin_duplicar(self):
         Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
         self._sembrar(alumnos=4, meses=1)

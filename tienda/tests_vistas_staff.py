@@ -31,20 +31,21 @@ class _BaseStaff(TestCase):
 
     def crear_producto(self, gimnasio=None, stock=3):
         producto = Producto.objects.create(
-            gimnasio=gimnasio or self.gimnasio, nombre="Remera", precio=Decimal("15000")
+            gimnasio=gimnasio or self.gimnasio, nombre="Remera", precio=Decimal("15000"),
+            caracteristica_1="Talle",
         )
-        variante = Variante.objects.create(producto=producto, nombre="M", stock=stock)
+        variante = Variante.objects.create(producto=producto, valor_1="M", stock=stock)
         return producto, variante
 
 
 def datos_producto(**extra):
     datos = {
         "nombre": "Proteína", "descripcion": "", "precio": "25000", "publicado": "on",
-        "orden": "0", "categoria": "",
+        "orden": "0", "categoria": "", "caracteristica_1": "Sabor", "caracteristica_2": "",
         "variantes-TOTAL_FORMS": "2", "variantes-INITIAL_FORMS": "0",
         "variantes-MIN_NUM_FORMS": "1", "variantes-MAX_NUM_FORMS": "50",
-        "variantes-0-nombre": "Chocolate", "variantes-0-stock_inicial": "4", "variantes-0-activa": "on",
-        "variantes-1-nombre": "Vainilla", "variantes-1-stock_inicial": "2", "variantes-1-activa": "on",
+        "variantes-0-valor_1": "Chocolate", "variantes-0-stock_inicial": "4", "variantes-0-activa": "on",
+        "variantes-1-valor_1": "Vainilla", "variantes-1-stock_inicial": "2", "variantes-1-activa": "on",
     }
     datos.update(extra)
     return datos
@@ -67,14 +68,28 @@ class ProductoFormTests(_BaseStaff):
         # La columna vieja queda muerta: el form nuevo no la escribe.
         self.assertFalse(producto.foto)
 
-    def test_sin_ninguna_variante_es_error_visible(self):
-        datos = datos_producto(**{"variantes-0-nombre": "", "variantes-0-stock_inicial": "",
-                                   "variantes-1-nombre": "", "variantes-1-stock_inicial": ""})
+    def test_sin_caracteristicas_y_todo_vacio_es_una_variante_desactivada(self):
+        """Sin características la primera fila es LA variante: se guarda
+        aunque venga sin tocar (nunca un producto sin variantes)."""
+        datos = datos_producto(**{"caracteristica_1": "",
+                                   "variantes-0-valor_1": "", "variantes-0-stock_inicial": "",
+                                   "variantes-1-valor_1": "", "variantes-1-stock_inicial": ""})
+        datos.pop("variantes-0-activa")
+        datos.pop("variantes-1-activa")
+        r = self.client.post(reverse("tienda:producto_crear"), datos)
+        self.assertRedirects(r, reverse("tienda:productos"))
+        producto = Producto.objects.get(nombre="Proteína")
+        self.assertEqual(list(producto.variantes.values_list("nombre", "stock", "activa")), [("", 0, False)])
+
+    def test_con_caracteristica_y_sin_filas_es_error_visible(self):
+        datos = datos_producto(**{"variantes-0-valor_1": "", "variantes-0-stock_inicial": "",
+                                   "variantes-1-valor_1": "", "variantes-1-stock_inicial": ""})
         datos.pop("variantes-0-activa")
         datos.pop("variantes-1-activa")
         r = self.client.post(reverse("tienda:producto_crear"), datos)
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "al menos una variante")
+        self.assertFalse(Producto.objects.filter(nombre="Proteína").exists())
 
     def test_editar_el_nombre_no_pisa_el_stock_reservado(self):
         producto, variante = self.crear_producto(stock=3)
@@ -83,10 +98,10 @@ class ProductoFormTests(_BaseStaff):
                               carrito={variante.pk: 2}, suplantando=False)
         datos = {
             "nombre": "Remera Dry", "descripcion": "", "precio": "15000", "publicado": "on",
-            "orden": "0", "categoria": "",
+            "orden": "0", "categoria": "", "caracteristica_1": "Talle", "caracteristica_2": "",
             "variantes-TOTAL_FORMS": "1", "variantes-INITIAL_FORMS": "1",
             "variantes-MIN_NUM_FORMS": "1", "variantes-MAX_NUM_FORMS": "50",
-            "variantes-0-id": str(variante.pk), "variantes-0-nombre": "M",
+            "variantes-0-id": str(variante.pk), "variantes-0-valor_1": "M",
             "variantes-0-activa": "on",
         }
         r = self.client.post(reverse("tienda:producto_editar", args=[producto.pk]), datos)
@@ -99,15 +114,29 @@ class ProductoFormTests(_BaseStaff):
         los campos del formset de variantes no los cubre, así que se prueban acá."""
         r = self.client.post(
             reverse("tienda:producto_crear"),
-            datos_producto(**{"variantes-1-nombre": "Chocolate"}),
+            datos_producto(**{"variantes-1-valor_1": "Chocolate"}),
         )
-        self.assertContains(r, "mismo nombre")
+        self.assertContains(r, "Hay dos variantes «Chocolate»")
         r = self.client.post(
             reverse("tienda:producto_crear"),
             datos_producto(**{"variantes-0-stock_inicial": "-3"}),
         )
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "config-error")
+        # Los campos nuevos: valor 1 y 2, código y las características.
+        casos = [
+            ({"variantes-1-valor_1": ""}, "Completá el Sabor o desactivá esta fila."),
+            ({"caracteristica_2": "Peso"}, "Completá el Peso o desactivá esta fila."),
+            ({"variantes-0-codigo": "AB"}, "letras, números y guiones"),
+            ({"caracteristica_1": "", "caracteristica_2": "Peso"}, "Poné primero la característica 1."),
+            ({"caracteristica_2": "sabor"}, "Las dos características son la misma"),
+        ]
+        for extra, mensaje in casos:
+            with self.subTest(extra=extra):
+                r = self.client.post(reverse("tienda:producto_crear"), datos_producto(**extra))
+                self.assertEqual(r.status_code, 200)
+                self.assertContains(r, mensaje)
+                self.assertRegex(r.content.decode(), r'<p class="config-error">[^<]*' + mensaje[:12])
         self.assertFalse(Producto.objects.filter(nombre="Proteína").exists())
 
     def test_categoria_de_otro_gimnasio_no_se_puede_elegir(self):
@@ -323,10 +352,10 @@ class GaleriaDeFotosTests(_BaseStaff):
     def datos_edicion(self, variante, **extra):
         datos = {
             "nombre": "Remera", "descripcion": "", "precio": "15000", "publicado": "on",
-            "orden": "0", "categoria": "",
+            "orden": "0", "categoria": "", "caracteristica_1": "Talle", "caracteristica_2": "",
             "variantes-TOTAL_FORMS": "1", "variantes-INITIAL_FORMS": "1",
             "variantes-MIN_NUM_FORMS": "1", "variantes-MAX_NUM_FORMS": "50",
-            "variantes-0-id": str(variante.pk), "variantes-0-nombre": "M",
+            "variantes-0-id": str(variante.pk), "variantes-0-valor_1": "M",
             "variantes-0-activa": "on",
         }
         datos.update(extra)
@@ -477,10 +506,10 @@ class GaleriaDeFotosTests(_BaseStaff):
     def test_cartel_si_fallan_las_variantes_con_el_form_valido(self):
         r = self.client.post(
             reverse("tienda:producto_crear"),
-            datos_producto(fotos_nuevas=[jpeg()], **{"variantes-1-nombre": "Chocolate"}),
+            datos_producto(fotos_nuevas=[jpeg()], **{"variantes-1-valor_1": "Chocolate"}),
         )
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, "mismo nombre")
+        self.assertContains(r, "Hay dos variantes «Chocolate»")
         self.assertContains(r, "Las fotos no se guardaron: volvé a elegirlas")
         self.assertFalse(FotoProducto.objects.exists())
 

@@ -837,6 +837,34 @@
     background: color-mix(in oklab, var(--color-primario) 12%, transparent);
   }
 
+  /* Form de producto: las dos características lado a lado desde la tablet
+     (en celular, una abajo de la otra). */
+  .variantes-caracteristicas {
+    @apply grid gap-x-4 sm:grid-cols-2;
+  }
+
+  /* El generador de combinaciones: un recuadro aparte de las filas, con las
+     casillas de sugerencias en renglones que se acomodan al ancho. */
+  .generador-variantes {
+    @apply border border-gray-200 rounded-lg p-4 mb-4;
+  }
+
+  .generador-variantes__titulo {
+    @apply font-semibold mb-2;
+  }
+
+  .generador-variantes__casillas {
+    @apply flex flex-wrap gap-x-4 gap-y-2 mb-3;
+  }
+
+  .generador-variantes__casilla {
+    @apply inline-flex items-center gap-2 mb-0 cursor-pointer;
+  }
+
+  .generador-variantes__casilla input {
+    @apply mb-0 w-auto;
+  }
+
   .semanas-carrusel {
     @apply flex gap-3 overflow-x-auto snap-x snap-mandatory -mx-4 px-4 mb-6;
     /* Sin esto, deslizar contra el borde dispara el gesto de "atrás" del

@@ -44,9 +44,31 @@ class VarianteTests(_Base):
         with self.assertRaises(IntegrityError), transaction.atomic():
             Variante.objects.filter(pk=self.variante.pk).update(stock=-1)
 
-    def test_nombre_unico_por_producto(self):
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            Variante.objects.create(producto=self.producto, stock=1)
+    def test_nombre_repetido_ya_no_lo_frena_la_base(self):
+        """Desde `tienda/0008` la unicidad del nombre es del formset (staff y
+        admin): con nombres calculados, el guardado fila por fila chocaba con
+        la constraint al intercambiar o reusar nombres. Un nombre repetido no
+        rompe ningún dato: stock, pedidos y snapshots van por `pk`."""
+        otra = Variante.objects.create(producto=self.producto, stock=1)
+        self.assertEqual(otra.nombre, self.variante.nombre)
+
+    def test_el_nombre_se_calcula_de_los_valores(self):
+        v = Variante.objects.create(producto=self.producto, valor_1="M", valor_2="Negro")
+        self.assertEqual(v.nombre, "M · Negro")
+        self.assertEqual(str(v), "Proteína · M · Negro")
+        solo = Variante.objects.create(producto=self.producto, valor_1="L")
+        self.assertEqual(solo.nombre, "L")
+
+    def test_sin_valores_no_toca_el_nombre(self):
+        v = Variante.objects.create(producto=self.producto, nombre="Chocolate")
+        self.assertEqual(v.nombre, "Chocolate")
+
+    def test_clean_rechaza_un_nombre_de_mas_de_60_en_valor_1(self):
+        v = Variante(producto=self.producto, valor_1="A" * 40, valor_2="B" * 20)
+        with self.assertRaises(ValidationError) as error:
+            v.full_clean()
+        self.assertIn("valor_1", error.exception.message_dict)
+        Variante(producto=self.producto, valor_1="A" * 40, valor_2="B" * 17).full_clean()
 
     def test_str_sin_variantes_es_el_producto(self):
         self.assertEqual(str(self.variante), "Proteína")

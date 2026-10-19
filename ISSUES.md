@@ -3221,3 +3221,30 @@ negativo; aceptado.
 en `tienda/0005`; con migraciones posteriores, el próximo `TransactionTestCase` del orden
 fallaba por columnas faltantes. Ahora vuelve a la última migración.
 
+## [2026-10-18] Tienda: variantes por características y sin constraint de nombre único
+
+**Qué cambió.** `Variante.nombre` pasó a calcularse de dos valores (`valor_1`, `valor_2`) de
+hasta dos características por producto («M · Negro»). La migración `tienda/0008` saca la
+`UniqueConstraint(producto, nombre)`: con nombres calculados, el guardado fila por fila del
+formset de Django (y el borrado dentro del mismo loop) chocaba con ella al intercambiar o reusar
+nombres (A «M»→«L» con B «L»→«XL»; quitar L y renombrar M→L), y el renombre temporal necesitaba
+un carácter NUL que Postgres rechaza. Un nombre repetido no rompe ningún dato (stock, pedidos y
+snapshots van por `pk`): es un problema de carga, y lo frenan el formset del staff y el del
+inline del admin.
+
+**Riesgo aceptado: nombre de variante duplicado por ediciones simultáneas.** Dos staff editando
+el mismo producto a la vez podrían dejar dos «M»; se arregla desde el mismo formulario (el
+formset marca el duplicado en el próximo guardado).
+
+**Riesgo aceptado: rollback de esquema.** El reverse de `0008` vuelve a crear la constraint
+(`AddConstraint`) y falla si ya hay nombres repetidos en un producto: limpiarlos antes de
+revertir.
+
+**Cosmético aceptado:** con una fila inválida en el formset, `validate_max` de Django cuenta
+también las filas marcadas «Quitar» (`deleted_forms` devuelve `[]` mientras el formset es
+inválido), así que «Son más de 50 variantes» puede aparecer junto al error de la fila.
+
+**Una pestaña de producto abierta durante el deploy** postea `variantes-N-nombre` (el form viejo)
+y no `valor_1`: el form nuevo lo ignora y, si el producto pasa a tener «Opción», pide completar
+los valores. Se recarga la página y listo.
+

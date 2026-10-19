@@ -29,6 +29,7 @@ from tenants import suplantacion
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tienda import analitica, pagos_mp, services
 from tienda.codigos import normalizar
+from tienda.variantes import SUGERENCIAS
 from tienda.forms import (
     AjusteStockForm,
     CategoriaProductoForm,
@@ -198,33 +199,80 @@ class ProductoListView(TiendaStaffMixin, ListView):
 
 
 class _ProductoFormMixin:
+    """Form del producto + formset de variantes, validados JUNTOS: los errores
+    de los dos se ven en el primer intento (antes el formset sólo se validaba
+    si el form pasaba), y el formset necesita las características ya
+    validadas del form para saber qué reglas aplicar."""
+
     model = Producto
     form_class = ProductoForm
     template_name = "tienda/producto_form.html"
     success_url = reverse_lazy("tienda:productos")
 
-    def _formset(self, data=None, instance=None):
-        # `gimnasio` a cada fila (GET, redibujo y POST): la unicidad del
-        # código de barras es por gimnasio.
+    def _con_ventas(self):
+        # Variantes que ya se vendieron: no se pueden borrar. Una query, no
+        # una por fila del formset.
+        if not self.object:
+            return set()
+        return set(
+            ItemPedido.objects.filter(variante__producto=self.object)
+            .values_list("variante_id", flat=True)
+        )
+
+    def _formset(self, data=None, form=None, con_ventas=None):
+        """En el POST (`form` validado) las características salen de
+        `form.cleaned_data`, y si alguna tiene error el formset no confía en
+        ellas; las etiquetas, de lo que el staff tipeó. En el GET, de la
+        instancia. `gimnasio` a cada fila: la unicidad del código de barras
+        es por gimnasio."""
+        if form is not None and form.is_bound:
+            instance = form.instance
+            validas = "caracteristica_1" not in form.errors and "caracteristica_2" not in form.errors
+            caracteristicas = (
+                (form.cleaned_data.get("caracteristica_1", ""), form.cleaned_data.get("caracteristica_2", ""))
+                if validas else ("", "")
+            )
+            etiquetas = tuple(
+                (form[nombre].value() or "").strip() for nombre in ("caracteristica_1", "caracteristica_2")
+            )
+        else:
+            instance = self.object or Producto()
+            validas = True
+            caracteristicas = etiquetas = (instance.caracteristica_1, instance.caracteristica_2)
         return VarianteFormSet(
-            data, instance=instance or self.object or Producto(),
+            data, instance=instance,
             form_kwargs={"gimnasio": self.gimnasio},
+            caracteristicas=caracteristicas, caracteristicas_validas=validas,
+            etiquetas=etiquetas, con_ventas=con_ventas,
+        )
+
+    def post(self, request, *args, **kwargs):
+        # Propio y explícito: el mixin va antes que `CreateView`/`UpdateView`
+        # en el MRO y reemplaza su `post`. `get_object` ya filtra por
+        # gimnasio (`TenantScopedMixin.get_queryset`): lo ajeno es 404.
+        self.object = self.get_object() if "pk" in self.kwargs else None
+        form = self.get_form()
+        form.instance.gimnasio = self.gimnasio
+        form_ok = form.is_valid()
+        con_ventas = self._con_ventas()
+        formset = self._formset(request.POST, form=form, con_ventas=con_ventas)
+        formset_ok = formset.is_valid()
+        if form_ok and formset_ok:
+            self._formset_valido = formset
+            # Con la firma de siempre: en el MRO va primero
+            # `TenantScopedMixin.form_valid` (estampa el gimnasio).
+            return self.form_valid(form)
+        return self.render_to_response(
+            self.get_context_data(form=form, formset=formset, con_ventas=con_ventas)
         )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        if "con_ventas" not in context:
+            context["con_ventas"] = self._con_ventas()
         if "formset" not in context:
-            context["formset"] = self._formset(self.request.POST or None)
-        # Variantes que ya se vendieron: no se pueden borrar. Una query, no
-        # una por fila del formset.
-        context["con_ventas"] = (
-            set(
-                ItemPedido.objects.filter(variante__producto=self.object)
-                .values_list("variante_id", flat=True)
-            )
-            if self.object
-            else set()
-        )
+            context["formset"] = self._formset(con_ventas=context["con_ventas"])
+        context["sugerencias"] = SUGERENCIAS
         # El navegador nunca re-envía un `<input type=file>`: si la pantalla
         # se redibuja tras un POST con fotos elegidas (falló el form o las
         # variantes), hay que avisar que no se guardaron.
@@ -234,10 +282,7 @@ class _ProductoFormMixin:
         return context
 
     def form_valid(self, form):
-        form.instance.gimnasio = self.gimnasio
-        formset = self._formset(self.request.POST, instance=form.instance)
-        if not formset.is_valid():
-            return self.render_to_response(self.get_context_data(form=form, formset=formset))
+        formset = self._formset_valido
         with transaction.atomic():
             self.object = form.save()
             form.guardar_fotos(self.object)

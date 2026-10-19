@@ -1,5 +1,8 @@
+from django import forms
 from django.contrib import admin
+from django.forms import BaseInlineFormSet
 
+from tienda.codigos import normalizar, validar_codigo
 from tienda.models import (
     CategoriaProducto,
     ConfiguracionTienda,
@@ -9,17 +12,72 @@ from tienda.models import (
     Producto,
     Variante,
 )
+from tienda.variantes import clave, componer_nombre
+
+
+class VarianteAdminForm(forms.ModelForm):
+    """Como el del staff: el nombre se calcula SIEMPRE de los valores (sin
+    valores `Variante.save()` no lo toca, y vaciar los dos dejaría el «M»
+    viejo) y el código pasa por el mismo validador. El largo del nombre lo
+    valida `Variante.clean()`."""
+
+    class Meta:
+        model = Variante
+        fields = ["valor_1", "valor_2", "codigo", "activa"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Creada con nombre libre y sin valores (código viejo): se precarga,
+        # así guardar el producto desde acá no la deja en «».
+        if self.instance.pk and not self.instance.valor_1 and self.instance.nombre:
+            self.initial["valor_1"] = self.instance.nombre
+
+    def clean_codigo(self):
+        codigo = normalizar(self.cleaned_data.get("codigo"))
+        validar_codigo(codigo, pk=self.instance.pk)
+        return codigo
+
+    def save(self, commit=True):
+        variante = super().save(commit=False)
+        variante.nombre = componer_nombre(variante.valor_1, variante.valor_2)
+        if commit:
+            variante.save()
+        return variante
+
+
+class VarianteAdminFormSet(BaseInlineFormSet):
+    """La base ya no tiene constraint de nombre único (ver `tienda/0008`):
+    los nombres calculados se comparan acá, entre las filas del inline (que
+    muestra todas las variantes del producto). Saltea las que se borran y las
+    que tienen errores."""
+
+    def clean(self):
+        super().clean()
+        vistos = set()
+        for form in self.forms:
+            if not getattr(form, "cleaned_data", None) or form.errors:
+                continue
+            if self.can_delete and self._should_delete_form(form):
+                continue
+            if form.instance.pk is None and not form.has_changed():
+                continue
+            nombre = componer_nombre(form.cleaned_data.get("valor_1"), form.cleaned_data.get("valor_2"))
+            if clave(nombre) in vistos:
+                raise forms.ValidationError(f"Hay dos variantes «{nombre}».")
+            vistos.add(clave(nombre))
 
 
 class VarianteInline(admin.TabularInline):
     model = Variante
+    form = VarianteAdminForm
+    formset = VarianteAdminFormSet
     extra = 0
-    fields = ("nombre", "codigo", "stock", "activa")
+    fields = ("valor_1", "valor_2", "codigo", "nombre", "stock", "activa")
     # Stock disponible: escribirlo en absoluto pisa reservas (ver models.py).
-    # `codigo` se normaliza en `Variante.save()` (también desde acá); la
-    # unicidad por gimnasio NO se chequea en el admin (aceptado: lo usa sólo
-    # el superadmin).
-    readonly_fields = ("stock",)
+    # `nombre` se calcula de los valores. `codigo` se normaliza en
+    # `Variante.save()` (también desde acá); la unicidad por gimnasio NO se
+    # chequea en el admin (aceptado: lo usa sólo el superadmin).
+    readonly_fields = ("nombre", "stock")
 
 
 @admin.register(Producto)
