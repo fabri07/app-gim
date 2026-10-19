@@ -843,6 +843,25 @@
     @apply grid gap-x-4 sm:grid-cols-2;
   }
 
+  /* Cada variante en su recuadro: con 6 u 8 combinaciones generadas, sin
+     borde no se distinguía dónde empezaba una fila y terminaba la otra (QA
+     del 19-10). «Activa» y «Quitar» al pie, en un mismo renglón. */
+  .fila-variante {
+    @apply border border-gray-200 rounded-lg p-4 mb-3;
+  }
+
+  .fila-variante__pie {
+    @apply flex flex-wrap items-end gap-x-6;
+  }
+
+  .fila-variante__quitar {
+    @apply inline-flex items-center gap-2 mb-4 cursor-pointer;
+  }
+
+  .fila-variante__quitar input {
+    @apply mb-0 w-auto;
+  }
+
   /* El generador de combinaciones: un recuadro aparte de las filas, con las
      casillas de sugerencias en renglones que se acomodan al ancho. */
   .generador-variantes {
