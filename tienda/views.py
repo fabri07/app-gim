@@ -28,6 +28,7 @@ from pagos.models import MedioCobro
 from tenants import suplantacion
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tienda import analitica, pagos_mp, services
+from tienda.codigos import normalizar
 from tienda.forms import (
     AjusteStockForm,
     CategoriaProductoForm,
@@ -119,6 +120,7 @@ class CategoriaBorrarView(TiendaStaffMixin, BorrarConExplicacionView):
 
 
 LARGO_MAXIMO_BUSQUEDA = 60
+MINIMO_BUSQUEDA_EN_CODIGO = 4
 
 
 def _entero_positivo(valor):
@@ -155,18 +157,21 @@ class ProductoListView(TiendaStaffMixin, ListView):
             return queryset
         # `filter` y no `get`: sin constraint en la base (ver ISSUES.md), dos
         # variantes podrían compartir el código; se muestran todas.
+        # Contra el código normalizado (mayúsculas, sin espacios): así se
+        # guardan todos, y un código pegado con espacios también es exacto.
         exactas = list(
-            Variante.objects.filter(producto__gimnasio=self.gimnasio, codigo__iexact=self.q)
+            Variante.objects.filter(producto__gimnasio=self.gimnasio, codigo=normalizar(self.q))
             .values_list("pk", "producto_id")
         )
         if exactas:
             self.destacadas = {pk for pk, _producto in exactas}
             return queryset.filter(pk__in={producto for _pk, producto in exactas})
-        return queryset.filter(
-            Q(nombre__icontains=self.q)
-            | Q(variantes__nombre__icontains=self.q)
-            | Q(variantes__codigo__icontains=self.q)
-        ).distinct()
+        filtro = Q(nombre__icontains=self.q) | Q(variantes__nombre__icontains=self.q)
+        # Dentro de los códigos sólo desde 4 caracteres (el mínimo de un
+        # código): «20» o «0» están en todos los internos y traerían todo.
+        if len(self.q) >= MINIMO_BUSQUEDA_EN_CODIGO:
+            filtro |= Q(variantes__codigo__icontains=self.q)
+        return queryset.filter(filtro).distinct()
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -285,7 +290,13 @@ class VarianteAjustarView(TiendaStaffMixin, View):
     def post(self, request, pk):
         variante = get_object_or_404(Variante, pk=pk, producto__gimnasio=self.gimnasio)
         form = AjusteStockForm(request.POST)
-        if not form.is_valid():
+        crudo = normalizar(request.POST.get("delta"))
+        if crudo and Variante.objects.filter(producto__gimnasio=self.gimnasio, codigo=crudo).exists():
+            # El lector escaneó con el foco en «Sumar o restar»: un código corto
+            # y numérico pasaría como cantidad. Los largos (EAN-13) ya los frena
+            # el `max_value` del form.
+            messages.error(request, "Eso parece un código de barras, no una cantidad: buscalo arriba.")
+        elif not form.is_valid():
             messages.error(request, "Escribí un número entero, por ejemplo 10 o -1.")
         else:
             try:

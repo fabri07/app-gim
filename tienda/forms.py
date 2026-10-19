@@ -1,5 +1,6 @@
 from django import forms
 from django.conf import settings
+from django.core.validators import MaxLengthValidator
 from django.db.models import Max
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from PIL import Image as _Image
@@ -213,6 +214,14 @@ class VarianteForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if self.instance.pk:
             del self.fields["stock_inicial"]
+        # El largo se valida DESPUÉS de normalizar (`FORMATO` ya topea en 32):
+        # un código pegado con espacios puede pasar de 32 y ser válido. Sin
+        # esto el `max_length` del modelo lo rechazaba antes de `clean_codigo`,
+        # y el `maxlength` del input lo cortaba en el navegador.
+        campo = self.fields["codigo"]
+        campo.max_length = None
+        campo.validators = [v for v in campo.validators if not isinstance(v, MaxLengthValidator)]
+        campo.widget.attrs.pop("maxlength", None)
 
     def clean_codigo(self):
         codigo = normalizar(self.cleaned_data.get("codigo"))

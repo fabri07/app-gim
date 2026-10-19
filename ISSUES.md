@@ -3209,6 +3209,14 @@ exacto usa `filter` (nunca `get`) y muestra los dos, y se corrige desde el formu
 códigos internos (`20…`, salen del `pk`) nunca chocan. El admin tampoco chequea la unicidad
 (sólo lo usa el superadmin).
 
+**Riesgo residual: un escaneo que cae en «Sumar o restar».** El escaneo en serie deja el foco en
+el buscador, pero si el staff hace click en un ajuste y escanea, el código llega como `delta`.
+Los largos (EAN-13) ya los frena el `max_value` (100.000) del form; uno corto y numérico que sea
+**exactamente** el código de una variante del gimnasio se rechaza con «Eso parece un código de
+barras…» sin tocar el stock. Queda sin cubrir un código del producto que NO está cargado en la
+app (o de otro gimnasio) de hasta 6 dígitos: se sumaría como cantidad. Se corrige con un ajuste
+negativo; aceptado.
+
 **Arreglo de paso en la suite:** `MigracionDeReferenciaExternaTests.tearDown` dejaba la base
 en `tienda/0005`; con migraciones posteriores, el próximo `TransactionTestCase` del orden
 fallaba por columnas faltantes. Ahora vuelve a la última migración.

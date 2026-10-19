@@ -12,6 +12,7 @@ from django.urls import reverse
 
 from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
+from tienda import services
 from tienda.codigos import codigo_interno, digito_verificador
 from tienda.models import CategoriaProducto, Producto, Variante
 
@@ -120,13 +121,17 @@ class CodigoEnElModeloTests(_Base):
         v.refresh_from_db()
         self.assertEqual(v.codigo, codigo_interno(v.pk))
 
-    def test_un_save_posterior_no_lo_pisa_con_vacio(self):
+    def test_un_save_posterior_no_vuelve_a_escribir_el_codigo(self):
+        """El interno queda también EN MEMORIA: si no, la misma instancia
+        seguiría con «» y cada `save()` posterior haría un UPDATE de más."""
         _, (v,) = self.producto()
         v.stock = 9
-        v.save(update_fields=["stock"])
-        v.save()
+        with CaptureQueriesContext(connection) as ctx:
+            v.save(update_fields=["stock"])
+        self.assertEqual(len(ctx), 1, [q["sql"] for q in ctx])
+        self.assertNotIn("codigo", ctx[0]["sql"])
         v.refresh_from_db()
-        self.assertEqual(v.codigo, codigo_interno(v.pk))
+        self.assertEqual((v.stock, v.codigo), (9, codigo_interno(v.pk)))
 
     def test_se_guarda_en_mayusculas_y_sin_espacios(self):
         _, (v,) = self.producto(variantes=(("M", " ab-12 34 "),))
@@ -186,12 +191,39 @@ class CodigoEnElFormularioTests(_Base):
                     reverse("tienda:producto_crear"), datos_alta(**{"variantes-0-codigo": malo})
                 )
                 self._rechaza(r, "letras, números y guiones")
-        # El largo lo frena antes el `max_length` del campo, con su mensaje.
+        # El largo se valida DESPUÉS de normalizar, con el mensaje propio.
         r = self.client.post(
             reverse("tienda:producto_crear"), datos_alta(**{"variantes-0-codigo": "A" * 33})
         )
-        self._rechaza(r, "32 caracteres")
+        self._rechaza(r, "letras, números y guiones")
         self.assertFalse(Producto.objects.filter(nombre="Proteína").exists())
+
+    def test_codigo_pegado_con_espacios_se_acepta_aunque_pase_de_32(self):
+        # 32 caracteres útiles + espacios: el `max_length` del campo lo habría
+        # rechazado antes de normalizar.
+        pegado = " ".join(["ABCD"] * 8)
+        self.assertGreater(len(pegado), 32)
+        r = self.client.post(
+            reverse("tienda:producto_crear"), datos_alta(**{"variantes-0-codigo": pegado})
+        )
+        self.assertRedirects(r, reverse("tienda:productos"))
+        self.assertEqual(Variante.objects.get(nombre="Chocolate").codigo, "ABCD" * 8)
+        r = self.client.get(reverse("tienda:producto_crear"))
+        self.assertNotRegex(r.content.decode(), r'name="variantes-0-codigo"[^>]*maxlength')
+
+    def test_una_con_ventas_quitada_conserva_su_codigo(self):
+        """Con ventas, «Quitar» la desactiva pero no la borra: su código sigue
+        ocupado y otra fila no lo puede tomar."""
+        producto, (v,) = self.producto(variantes=(("M", "COD-X"),))
+        alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="G")
+        services.crear_pedido(
+            gimnasio=self.gimnasio, alumno=alumno, carrito={v.pk: 1}, suplantando=False
+        )
+        datos = datos_edicion(producto, [{"variante": v, "borrar": True}])
+        datos.update({"variantes-1-nombre": "L", "variantes-1-codigo": "COD-X", "variantes-1-activa": "on"})
+        r = self.client.post(reverse("tienda:producto_editar", args=[producto.pk]), datos)
+        self._rechaza(r, "Hay dos variantes con el código COD-X")
+        self.assertFalse(producto.variantes.filter(nombre="L").exists())
 
     def test_duplicado_con_otro_producto_es_error(self):
         self.producto(variantes=(("M", "ABC-1"),))
@@ -326,6 +358,15 @@ class BusquedaTests(_Base):
         self.assertEqual(self.productos(self.buscar("rem-")), [self.remera])
         self.assertEqual(self.productos(self.buscar("12345")), [self.prote])
 
+    def test_menos_de_4_caracteres_no_busca_dentro_de_los_codigos(self):
+        # «20» está en todos los códigos internos: traería todo.
+        self.assertEqual(self.productos(self.buscar("779")), [])
+        self.assertEqual(self.productos(self.buscar("7791")), [self.prote])
+
+    def test_codigo_exacto_pegado_con_espacios_destaca(self):
+        r = self.buscar(" 7791 2345 67890 ")
+        self.assertEqual(r.context["destacadas"], {self.choco.pk})
+
     def test_coincidencia_parcial_en_dos_variantes_no_duplica_el_producto(self):
         self.assertEqual(self.productos(self.buscar("rem")), [self.remera])
 
@@ -398,6 +439,30 @@ class EscaneoEnSerieTests(_Base):
                 r = self.client.get(reverse("tienda:productos"), {"ajustada": valor})
                 self.assertEqual(r.status_code, 200)
                 self.assertNotIn("data-destacada", r.content.decode())
+
+    def test_un_codigo_escaneado_en_el_ajuste_no_se_suma_como_stock(self):
+        _, (v,) = self.producto(variantes=(("M", "4321"),))
+        _, (otra,) = self.producto(nombre="Gorra", variantes=(("", "98765"),))
+        for delta, desde in (("4321", {}), ("98765", {"desde_busqueda": "1"})):
+            with self.subTest(delta=delta):
+                r = self.client.post(
+                    reverse("tienda:variante_ajustar", args=[v.pk]), {"delta": delta, **desde}
+                )
+                esperada = reverse("tienda:productos")
+                if desde:
+                    esperada += f"?ajustada={v.pk}"
+                self.assertRedirects(r, esperada, fetch_redirect_response=False)
+                v.refresh_from_db()
+                self.assertEqual(v.stock, 3)
+                r = self.client.get(r["Location"])
+                self.assertContains(r, "Eso parece un código de barras, no una cantidad: buscalo arriba")
+
+    def test_un_codigo_de_otro_gimnasio_igual_es_una_cantidad(self):
+        _, (v,) = self.producto()
+        self.producto(gimnasio=self.otro, variantes=(("M", "1234"),))
+        self.client.post(reverse("tienda:variante_ajustar", args=[v.pk]), {"delta": "1234"})
+        v.refresh_from_db()
+        self.assertEqual(v.stock, 3 + 1234)
 
     def test_los_inputs_de_ajuste_no_autocompletan(self):
         self.producto()
