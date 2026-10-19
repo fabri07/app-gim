@@ -125,8 +125,8 @@ class ProductoFormTests(_BaseStaff):
         self.assertContains(r, "config-error")
         # Los campos nuevos: valor 1 y 2, código y las características.
         casos = [
-            ({"variantes-1-valor_1": ""}, "Completá el Sabor o desactivá esta fila."),
-            ({"caracteristica_2": "Peso"}, "Completá el Peso o desactivá esta fila."),
+            ({"variantes-1-valor_1": ""}, "Completá «Sabor» o desactivá esta fila."),
+            ({"caracteristica_2": "Peso"}, "Completá «Peso» o desactivá esta fila."),
             ({"variantes-0-codigo": "AB"}, "letras, números y guiones"),
             ({"caracteristica_1": "", "caracteristica_2": "Peso"}, "Poné primero la característica 1."),
             ({"caracteristica_2": "sabor"}, "Las dos características son la misma"),

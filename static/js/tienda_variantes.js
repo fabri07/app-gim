@@ -254,9 +254,22 @@
       actualizarFilas();
       actualizarGenerador();
     });
+    // Enter en una característica (elegir del datalist) no envía el form.
+    campo.addEventListener("keydown", function (evento) {
+      if (evento.key === "Enter") evento.preventDefault();
+    });
   });
   if (generador && plantilla && total && aviso) {
     generador.querySelector("[data-agregar-combinaciones]").addEventListener("click", agregarCombinaciones);
+    // Enter en «Otros valores» agrega las combinaciones en vez de enviar el
+    // form a medio cargar.
+    generador.querySelectorAll("[data-generador-otros]").forEach(function (campo) {
+      campo.addEventListener("keydown", function (evento) {
+        if (evento.key !== "Enter") return;
+        evento.preventDefault();
+        agregarCombinaciones();
+      });
+    });
   }
   actualizarFilas();
   actualizarGenerador();

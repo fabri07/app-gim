@@ -146,6 +146,15 @@ class ProductoForm(OrdenOpcionalMixin, TenantScopedModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._hacer_orden_opcional()
+        # Producto creado por la versión vieja durante el deploy (después de
+        # `tienda/0008`): sin característica y con variantes de nombre libre
+        # sin valores. Como hizo la migración, se propone «Opción» (y cada
+        # fila precarga su nombre): si no, guardar borraría los nombres.
+        if (
+            self.instance.pk and not self.is_bound and not self.instance.caracteristica_1
+            and Variante.objects.filter(producto=self.instance, valor_1="").exclude(nombre="").exists()
+        ):
+            self.initial["caracteristica_1"] = "Opción"
         # El related manager de un producto sin pk tira `ValueError`.
         if self.instance.pk:
             fotos = FotoProducto.objects.filter(producto=self.instance)
@@ -272,6 +281,7 @@ class VarianteForm(forms.ModelForm):
         # Lo que hay en la base, antes de que `_post_clean` copie lo posteado
         # a la instancia (`has_changed` compara contra esto).
         self._valores_guardados = (self.instance.valor_1, self.instance.valor_2)
+        self._codigo_guardado = self.instance.codigo
         if self.instance.pk:
             del self.fields["stock_inicial"]
             # Creada por el código viejo durante el deploy (nombre libre, sin
@@ -327,6 +337,10 @@ class VarianteForm(forms.ModelForm):
         # base). El `hasattr`: el `full_clean` del formset pregunta antes del
         # `clean`.
         if super().has_changed() or self.fila_unica:
+            return True
+        # Sin código en la base (creada por la versión vieja durante el
+        # deploy): guardarla, así `Variante.save()` le inventa el interno.
+        if self.instance.pk and not self._codigo_guardado:
             return True
         if not (self.instance.pk and hasattr(self, "cleaned_data")):
             return False
@@ -456,9 +470,9 @@ class BaseVarianteFormSet(BaseInlineFormSet):
         else:
             for f in activas:
                 if not f.cleaned_data.get("valor_1"):
-                    f.add_error("valor_1", f"Completá el {primera} o desactivá esta fila.")
+                    f.add_error("valor_1", f"Completá «{primera}» o desactivá esta fila.")
                 if segunda and not f.cleaned_data.get("valor_2"):
-                    f.add_error("valor_2", f"Completá el {segunda} o desactivá esta fila.")
+                    f.add_error("valor_2", f"Completá «{segunda}» o desactivá esta fila.")
             if any(self.errors):
                 return
         self._validar_nombres(vivas, activas)

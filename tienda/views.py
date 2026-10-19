@@ -238,7 +238,14 @@ class _ProductoFormMixin:
         else:
             instance = self.object or Producto()
             validas = True
-            caracteristicas = etiquetas = (instance.caracteristica_1, instance.caracteristica_2)
+            # Del `initial` del form (si lo hay) y no de la instancia: el form
+            # puede proponer «Opción» para un producto creado por la versión
+            # vieja (ver `ProductoForm.__init__`).
+            iniciales = form.initial if form is not None else {}
+            caracteristicas = etiquetas = (
+                iniciales.get("caracteristica_1", instance.caracteristica_1),
+                iniciales.get("caracteristica_2", instance.caracteristica_2),
+            )
         return VarianteFormSet(
             data, instance=instance,
             form_kwargs={"gimnasio": self.gimnasio},
@@ -251,6 +258,16 @@ class _ProductoFormMixin:
         # en el MRO y reemplaza su `post`. `get_object` ya filtra por
         # gimnasio (`TenantScopedMixin.get_queryset`): lo ajeno es 404.
         self.object = self.get_object() if "pk" in self.kwargs else None
+        if "caracteristica_1" not in request.POST:
+            # Una pestaña abierta antes del deploy postea el form viejo (sin
+            # características ni valores): guardarlo dejaría el producto «sin
+            # características». No se escribe nada; se redibuja lo guardado.
+            messages.error(request, "La página quedó vieja: recargala y volvé a guardar.")
+            kwargs = self.get_form_kwargs()
+            kwargs.pop("data", None)
+            kwargs.pop("files", None)
+            form = self.get_form_class()(**kwargs)
+            return self.render_to_response(self.get_context_data(form=form))
         form = self.get_form()
         form.instance.gimnasio = self.gimnasio
         form_ok = form.is_valid()
@@ -271,7 +288,7 @@ class _ProductoFormMixin:
         if "con_ventas" not in context:
             context["con_ventas"] = self._con_ventas()
         if "formset" not in context:
-            context["formset"] = self._formset(con_ventas=context["con_ventas"])
+            context["formset"] = self._formset(form=context.get("form"), con_ventas=context["con_ventas"])
         context["sugerencias"] = SUGERENCIAS
         # El navegador nunca re-envía un `<input type=file>`: si la pantalla
         # se redibuja tras un POST con fotos elegidas (falló el form o las

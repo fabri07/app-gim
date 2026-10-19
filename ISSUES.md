@@ -3244,9 +3244,19 @@ revertir.
 también las filas marcadas «Quitar» (`deleted_forms` devuelve `[]` mientras el formset es
 inválido), así que «Son más de 50 variantes» puede aparecer junto al error de la fila.
 
-**Una pestaña de producto abierta durante el deploy** postea el form viejo: `variantes-N-nombre`
-(que el form nuevo ignora) y ni `caracteristica_1` ni `valor_1`. El producto queda entonces «sin
-características»: con **una** variante se guarda bien (queda con `nombre=""`; si tenía nombre, lo
-pierde); con **varias** el formset rechaza con «Sin características el producto tiene una sola
-variante…» y no guarda nada. Se recarga la página y se vuelve a guardar; aceptado.
+**Una pestaña de producto abierta durante el deploy** postea el form viejo (`variantes-N-nombre`,
+sin `caracteristica_1` ni `valor_1`). Guardarlo dejaba el producto «sin características» y le
+borraba los nombres a las variantes. Ahora `_ProductoFormMixin.post` lo detecta (no viene la clave
+`caracteristica_1`, que el form nuevo siempre manda), no escribe nada y redibuja lo guardado con
+«La página quedó vieja: recargala y volvé a guardar.» Lo tipeado en esa pestaña se pierde: aceptado.
+
+**Producto creado por la versión vieja durante el deploy** (después de que corrió `0008`): queda
+sin característica y con variantes de nombre libre sin valores. Al editarlo, `ProductoForm`
+propone «Opción» (la misma regla que la migración) y cada fila precarga su nombre, así guardar no
+los borra. Una variante sin código de esa ventana lo recibe en el próximo guardado del producto
+(`VarianteForm.has_changed` la guarda aunque no se toque).
+
+**Riesgo aceptado: renombres hechos con la versión vieja durante el deploy** (editar «M» → «Medium»
+en una pestaña vieja mientras corre la migración) se revierten en el próximo guardado con el form
+nuevo: manda `valor_1`, que tiene el nombre anterior.
 

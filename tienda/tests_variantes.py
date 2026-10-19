@@ -17,6 +17,7 @@ from django.urls import reverse
 from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
 from tienda import services
+from tienda.codigos import codigo_interno
 from tienda.models import Producto, Variante, obtener_configuracion
 from tienda.variantes import SUGERENCIAS, clave, componer_nombre
 
@@ -193,7 +194,7 @@ class AltaTests(_Base):
         ])
         self.assertEqual(
             self.errores(r),
-            ["Completá el Color o desactivá esta fila.", "Completá el Talle o desactivá esta fila."],
+            ["Completá «Color» o desactivá esta fila.", "Completá «Talle» o desactivá esta fila."],
         )
         self.assertFalse(Producto.objects.filter(nombre="Proteína").exists())
 
@@ -276,7 +277,7 @@ class EdicionTests(_Base):
     def test_segunda_caracteristica_en_un_producto_con_variantes_guia_fila_por_fila(self):
         producto, (m, l) = self.producto(filas=(("M", ""), ("L", "")))
         r = self.edicion(producto, [{"variante": m}, {"variante": l}], c2="Color")
-        self.assertEqual(self.errores(r), ["Completá el Color o desactivá esta fila."] * 2)
+        self.assertEqual(self.errores(r), ["Completá «Color» o desactivá esta fila."] * 2)
         r = self.edicion(
             producto, [{"variante": m, "valor_2": "Negro"}, {"variante": l, "activa": False}], c2="Color",
         )
@@ -554,3 +555,78 @@ class MigracionDeCaracteristicasTests(TransactionTestCase):
         producto = Producto_.objects.get(pk=pks["varias"])
         Variante_.objects.create(producto=producto, nombre="S")
         self.assertEqual(Variante_.objects.filter(producto=producto, nombre="S").count(), 2)
+
+
+class VentanaDelDeployTests(_Base):
+    """Lo que dejan la versión vieja y sus pestañas abiertas mientras corre el
+    deploy (después de `tienda/0008`)."""
+
+    def post_viejo(self, url, filas, **mas):
+        """El form viejo: `variantes-N-nombre`, sin características ni valores."""
+        iniciales = sum(1 for pk, _n in filas if pk)
+        datos = {
+            "nombre": "Proteína", "descripcion": "", "precio": "25000", "publicado": "on",
+            "orden": "0", "categoria": "",
+            "variantes-TOTAL_FORMS": str(len(filas)), "variantes-INITIAL_FORMS": str(iniciales),
+            "variantes-MIN_NUM_FORMS": "0", "variantes-MAX_NUM_FORMS": "50",
+        }
+        for i, (pk, nombre) in enumerate(filas):
+            if pk:
+                datos[f"variantes-{i}-id"] = str(pk)
+            datos[f"variantes-{i}-nombre"] = nombre
+            datos[f"variantes-{i}-stock_inicial"] = "3"
+            datos[f"variantes-{i}-activa"] = "on"
+        datos.update(mas)
+        return self.client.post(url, datos)
+
+    def test_alta_con_el_form_viejo_pide_recargar_y_no_guarda(self):
+        r = self.post_viejo(reverse(URL_ALTA), [(None, "Chocolate"), (None, "Vainilla")])
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "La página quedó vieja: recargala y volvé a guardar.")
+        self.assertFalse(Producto.objects.filter(nombre="Proteína").exists())
+        self.assertNotContains(r, "Este campo es obligatorio")
+
+    def test_edicion_con_el_form_viejo_pide_recargar_y_no_toca_nada(self):
+        producto, (m, l) = self.producto(filas=(("M", ""), ("L", "")))
+        url = reverse("tienda:producto_editar", args=[producto.pk])
+        r = self.post_viejo(url, [(m.pk, "M"), (l.pk, "L")], nombre="Remera Nueva")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "La página quedó vieja: recargala y volvé a guardar.")
+        producto.refresh_from_db()
+        self.assertEqual((producto.nombre, producto.caracteristica_1), ("Remera", "Talle"))
+        self.assertEqual(self.nombres(producto), ["L", "M"])
+        # El form se redibuja con lo guardado, no con lo posteado.
+        self.assertContains(r, 'value="Remera"')
+        self.assertNotContains(r, 'value="Remera Nueva"')
+
+    def test_producto_creado_por_el_codigo_viejo_se_edita_con_opcion(self):
+        """Creado después de `0008` por la versión vieja: sin característica y
+        con una variante «Chocolate» sin valores. Como hizo la migración, el
+        form propone «Opción» y precarga el valor: guardar no borra el nombre."""
+        producto, _ = self.producto(c1="", filas=())
+        vieja = Variante.objects.create(producto=producto, nombre="Chocolate", stock=2)
+        url = reverse("tienda:producto_editar", args=[producto.pk])
+        html = self.client.get(url).content.decode()
+        self.assertRegex(html, r'name="caracteristica_1"[^>]*value="Opción"')
+        self.assertRegex(html, r'name="variantes-0-valor_1"[^>]*value="Chocolate"')
+        self.assertRegex(html, r'for="id_variantes-0-valor_1">\s*Opción')
+        r = self.edicion(producto, [{"variante": vieja, "valor_1": "Chocolate"}], c1="Opción")
+        self.assertRedirects(r, reverse(URL_LISTA))
+        vieja.refresh_from_db()
+        producto.refresh_from_db()
+        self.assertEqual((vieja.nombre, vieja.valor_1), ("Chocolate", "Chocolate"))
+        self.assertEqual(producto.caracteristica_1, "Opción")
+
+    def test_producto_sin_caracteristicas_sin_nombres_no_propone_opcion(self):
+        producto, _ = self.producto(c1="", filas=(("", ""),))
+        html = self.client.get(reverse("tienda:producto_editar", args=[producto.pk])).content.decode()
+        self.assertNotIn('value="Opción"', html)
+
+    def test_variante_sin_codigo_lo_recibe_al_guardar_sin_tocarla(self):
+        producto, (m,) = self.producto()
+        Variante.objects.filter(pk=m.pk).update(codigo="")
+        m.refresh_from_db()
+        r = self.edicion(producto, [{"variante": m}])
+        self.assertRedirects(r, reverse(URL_LISTA))
+        m.refresh_from_db()
+        self.assertEqual(m.codigo, codigo_interno(m.pk))
