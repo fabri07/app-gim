@@ -201,6 +201,13 @@ class ProductoListView(TiendaStaffMixin, ListView):
         return context
 
 
+# Lo que escribe la edición del staff: sólo lo que el form maneja (más
+# `modificado`, que `update_fields` no dispara solo). NUNCA los campos de
+# moderación: un `save()` completo pisaría con el valor viejo en memoria una
+# baja o una aprobación que entró mientras la pantalla estaba abierta.
+CAMPOS_EDITABLES_PRODUCTO = [*ProductoForm._meta.fields, "modificado"]
+
+
 class _ProductoFormMixin:
     """Form del producto + formset de variantes, validados JUNTOS: los errores
     de los dos se ven en el primer intento (antes el formset sólo se validaba
@@ -211,6 +218,9 @@ class _ProductoFormMixin:
     form_class = ProductoForm
     template_name = "tienda/producto_form.html"
     success_url = reverse_lazy("tienda:productos")
+    #: Se pone en `form_valid`: hay algo nuevo para la cola de moderación (alta,
+    #: texto cambiado o fotos nuevas en uno aprobado). Lo lee el aviso por mail.
+    entro_a_la_cola = False
 
     def _con_ventas(self):
         # Variantes que ya se vendieron: no se pueden borrar. Una query, no
@@ -303,8 +313,25 @@ class _ProductoFormMixin:
 
     def form_valid(self, form):
         formset = self._formset_valido
+        alta = form.instance.pk is None
+        manda_texto_a_revision = False
         with transaction.atomic():
-            self.object = form.save()
+            if alta:
+                self.object = form.save()
+            else:
+                # Sin `moderacion` en `update_fields`: la moderación es de la
+                # plataforma y el staff no la pisa.
+                self.object = form.save(commit=False)
+                self.object.save(update_fields=CAMPOS_EDITABLES_PRODUCTO)
+                if {"nombre", "descripcion"} & set(form.changed_data):
+                    # Contra la base y no contra `self.object.moderacion`
+                    # (puede estar vieja): si lo aprobaron mientras se
+                    # editaba, el texto nuevo igual tiene que revisarse.
+                    manda_texto_a_revision = bool(
+                        Producto.objects.filter(
+                            pk=self.object.pk, moderacion=Producto.Moderacion.APROBADO
+                        ).update(cambio_pendiente=True, moderacion_desde=timezone.now())
+                    )
             form.guardar_fotos(self.object)
             formset.instance = self.object
             formset.save()
@@ -312,7 +339,25 @@ class _ProductoFormMixin:
             for f in formset.forms:
                 if f.instance.pk and f.instance.activa is False and f.cleaned_data.get("DELETE"):
                     f.instance.save(update_fields=["activa"])
-        messages.success(self.request, "Producto guardado.")
+        fotos_nuevas = (
+            not alta
+            and bool(form.cleaned_data.get("fotos_nuevas"))
+            and self.object.moderacion == Producto.Moderacion.APROBADO
+        )
+        self.entro_a_la_cola = alta or manda_texto_a_revision or fotos_nuevas
+        if alta:
+            messages.info(self.request, "Producto guardado. Lo revisamos y lo publicamos en el día.")
+        elif manda_texto_a_revision:
+            messages.success(
+                self.request,
+                "Producto guardado. El cambio queda en revisión de la plataforma; mientras tanto sigue a la venta.",
+            )
+        elif fotos_nuevas:
+            messages.success(
+                self.request, "Las fotos nuevas se ven en la tienda cuando la plataforma las apruebe."
+            )
+        else:
+            messages.success(self.request, "Producto guardado.")
         return redirect(self.success_url)
 
 
@@ -321,7 +366,18 @@ class ProductoCreateView(TiendaStaffMixin, _ProductoFormMixin, CreateView):
 
 
 class ProductoUpdateView(TiendaStaffMixin, _ProductoFormMixin, UpdateView):
-    pass
+    def _bajado(self, request):
+        # Un cartel con redirect (no 403): bajo `hx-boost` un 4xx es un click mudo.
+        if self.get_object().moderacion != Producto.Moderacion.BAJADO:
+            return None
+        messages.error(request, "Este producto fue dado de baja por la plataforma y no se puede editar.")
+        return redirect("tienda:productos")
+
+    def get(self, request, *args, **kwargs):
+        return self._bajado(request) or super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        return self._bajado(request) or super().post(request, *args, **kwargs)
 
 
 class ProductoBorrarView(TiendaStaffMixin, BorrarConExplicacionView):
@@ -339,12 +395,27 @@ class ProductoBorrarView(TiendaStaffMixin, BorrarConExplicacionView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        if services.tiene_ventas(self.object):
+        if self._moderado(self.object):
+            context["bloqueos"] = "denuncias o una baja de la plataforma"
+        elif services.tiene_ventas(self.object):
             context["bloqueos"] = "pedidos de alumnos"
         return context
 
+    @staticmethod
+    def _moderado(producto):
+        return (
+            producto.moderacion == Producto.Moderacion.BAJADO
+            or producto.denuncias.exists()
+        )
+
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
+        if self._moderado(self.object):
+            messages.error(
+                request,
+                "No se puede eliminar: tiene denuncias o una baja de la plataforma. " + self.alternativa,
+            )
+            return redirect(request.path)
         if services.tiene_ventas(self.object):
             messages.error(request, "No se puede eliminar: tiene pedidos de alumnos. " + self.alternativa)
             return redirect(request.path)

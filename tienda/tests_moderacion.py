@@ -2,6 +2,7 @@
 que deja aprobado todo lo que ya estaba a la venta."""
 
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
@@ -325,3 +326,169 @@ class FotoModosTests(_Base):
         r = self.client.get(foto.url_cacheable)
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r["Cache-Control"], "private, no-store")
+
+
+class StaffModeracionTests(TestCase):
+    """Tarea 5: el staff guarda sin pisar la moderación, ve los badges y no
+    puede borrar ni editar lo moderado."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a", tienda_habilitada=True)
+        self.staff = User.objects.create_user("staff", password="c-123456")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.force_login(self.staff)
+
+    def _producto(self, **campos):
+        producto = crear_producto(
+            gimnasio=self.gimnasio, nombre="Remera", precio=Decimal("15000"),
+            caracteristica_1="Talle", **campos,
+        )
+        variante = Variante.objects.create(producto=producto, valor_1="M", stock=3)
+        return producto, variante
+
+    def _datos_edicion(self, variante, **extra):
+        datos = {
+            "nombre": "Remera", "descripcion": "", "precio": "15000", "publicado": "on",
+            "orden": "0", "categoria": "", "caracteristica_1": "Talle", "caracteristica_2": "",
+            "variantes-TOTAL_FORMS": "1", "variantes-INITIAL_FORMS": "1",
+            "variantes-MIN_NUM_FORMS": "1", "variantes-MAX_NUM_FORMS": "50",
+            "variantes-0-id": str(variante.pk), "variantes-0-valor_1": "M",
+            "variantes-0-activa": "on",
+        }
+        datos.update(extra)
+        return datos
+
+    def _editar(self, producto, variante, follow=False, **extra):
+        return self.client.post(
+            reverse("tienda:producto_editar", args=[producto.pk]),
+            self._datos_edicion(variante, **extra), follow=follow,
+        )
+
+    def test_el_alta_queda_pendiente_y_avisa(self):
+        from tienda.tests_vistas_staff import datos_producto
+
+        r = self.client.post(reverse("tienda:producto_crear"), datos_producto(), follow=True)
+        producto = Producto.objects.get(gimnasio=self.gimnasio, nombre="Proteína")
+        self.assertEqual(producto.moderacion, "pendiente")
+        self.assertContains(r, "Producto guardado. Lo revisamos y lo publicamos en el día.")
+
+    def test_editar_el_nombre_de_uno_aprobado_lo_manda_a_revision_y_sigue_a_la_venta(self):
+        producto, variante = self._producto()
+        r = self._editar(producto, variante, follow=True, nombre="Remera Dry")
+        producto.refresh_from_db()
+        self.assertIs(producto.cambio_pendiente, True)
+        self.assertEqual(producto.moderacion, "aprobado")
+        self.assertIsNotNone(producto.moderacion_desde)
+        self.assertContains(
+            r, "El cambio queda en revisión de la plataforma; mientras tanto sigue a la venta."
+        )
+
+    def test_editar_el_precio_no_lo_manda_a_revision(self):
+        # Ya pasaba antes de implementar: no se le exige FAIL.
+        producto, variante = self._producto()
+        r = self._editar(producto, variante, follow=True, precio="16000")
+        producto.refresh_from_db()
+        self.assertIs(producto.cambio_pendiente, False)
+        self.assertEqual(producto.precio, Decimal("16000"))
+        self.assertContains(r, "Producto guardado.")
+        self.assertNotContains(r, "queda en revisión")
+
+    def test_si_lo_aprueban_mientras_se_edita_el_cambio_queda_en_revision(self):
+        from tienda.forms import ProductoForm
+
+        producto, variante = self._producto(moderacion=Producto.Moderacion.PENDIENTE)
+        original = ProductoForm.save
+
+        def guardar(form, *args, **kwargs):
+            Producto.objects.filter(pk=producto.pk).update(moderacion="aprobado")
+            return original(form, *args, **kwargs)
+
+        with patch.object(ProductoForm, "save", guardar):
+            self._editar(producto, variante, nombre="Remera Dry")
+        producto.refresh_from_db()
+        self.assertEqual(producto.moderacion, "aprobado")
+        self.assertIs(producto.cambio_pendiente, True)
+
+    def test_la_edicion_no_pisa_una_baja_en_paralelo(self):
+        from tienda.forms import ProductoForm
+
+        producto, variante = self._producto()
+        original = ProductoForm.save
+
+        def guardar(form, *args, **kwargs):
+            Producto.objects.filter(pk=producto.pk).update(moderacion="bajado")
+            return original(form, *args, **kwargs)
+
+        with patch.object(ProductoForm, "save", guardar):
+            self._editar(producto, variante, nombre="Remera Dry")
+        producto.refresh_from_db()
+        self.assertEqual(producto.moderacion, "bajado")
+        self.assertEqual(producto.nombre, "Remera Dry")
+
+    def test_uno_bajado_no_se_puede_editar(self):
+        producto, variante = self._producto(moderacion=Producto.Moderacion.BAJADO)
+        url = reverse("tienda:producto_editar", args=[producto.pk])
+        aviso = "Este producto fue dado de baja por la plataforma y no se puede editar."
+        r = self.client.get(url, follow=True)
+        self.assertRedirects(r, reverse("tienda:productos"))
+        self.assertContains(r, aviso)
+        r = self._editar(producto, variante, follow=True, nombre="Otro")
+        self.assertRedirects(r, reverse("tienda:productos"))
+        self.assertContains(r, aviso)
+        producto.refresh_from_db()
+        self.assertEqual(producto.nombre, "Remera")
+
+    def test_uno_bajado_no_se_puede_borrar(self):
+        producto, _ = self._producto(moderacion=Producto.Moderacion.BAJADO)
+        url = reverse("tienda:producto_borrar", args=[producto.pk])
+        self.assertContains(self.client.get(url), "denuncias o una baja de la plataforma")
+        r = self.client.post(url, follow=True)
+        self.assertTrue(Producto.objects.filter(pk=producto.pk).exists())
+        self.assertContains(r, "No se puede eliminar")
+
+    def test_uno_denunciado_no_se_puede_borrar(self):
+        producto, _ = self._producto()
+        DenunciaProducto.objects.create(
+            gimnasio=self.gimnasio, producto=producto, motivo="otro",
+        )
+        url = reverse("tienda:producto_borrar", args=[producto.pk])
+        self.assertContains(self.client.get(url), "denuncias o una baja de la plataforma")
+        r = self.client.post(url, follow=True)
+        self.assertTrue(Producto.objects.filter(pk=producto.pk).exists())
+        self.assertContains(r, "No se puede eliminar")
+
+    def test_el_listado_muestra_los_badges(self):
+        crear_producto(
+            gimnasio=self.gimnasio, nombre="Pendiente", precio=1,
+            moderacion=Producto.Moderacion.PENDIENTE,
+        )
+        crear_producto(
+            gimnasio=self.gimnasio, nombre="Bajado", precio=1,
+            moderacion=Producto.Moderacion.BAJADO, moderacion_motivo="Foto no permitida",
+        )
+        crear_producto(gimnasio=self.gimnasio, nombre="Cambiado", precio=1, cambio_pendiente=True)
+        crear_producto(gimnasio=self.gimnasio, nombre="Normal", precio=1)
+        r = self.client.get(reverse("tienda:productos"))
+        self.assertContains(r, '<span class="badge badge--alerta">Esperando aprobación</span>', count=1)
+        self.assertContains(r, "Dado de baja por la plataforma", count=1)
+        self.assertContains(r, '<span class="badge badge--alerta">Cambio en revisión</span>', count=1)
+        self.assertContains(r, '<p class="texto-suave">Foto no permitida</p>', count=1)
+
+    def test_el_form_marca_la_foto_sin_aprobar(self):
+        producto, _ = self._producto()
+        crear_foto(producto=producto, imagen="tienda/productos/a.png", posicion=0)
+        FotoProducto.objects.create(producto=producto, imagen="tienda/productos/b.png", posicion=1)
+        r = self.client.get(reverse("tienda:producto_editar", args=[producto.pk]))
+        self.assertContains(r, '<span class="badge badge--alerta">En revisión</span>', count=1)
+
+    def test_el_admin_muestra_la_moderacion_de_solo_lectura(self):
+        from django.contrib import admin
+
+        readonly = admin.site._registry[Producto].readonly_fields
+        for campo in ("moderacion", "cambio_pendiente", "moderacion_motivo", "moderacion_desde"):
+            self.assertIn(campo, readonly)
+        self.assertIn("moderacion", admin.site._registry[Producto].list_filter)
+        denuncias = admin.site._registry[DenunciaProducto]
+        self.assertFalse(denuncias.has_add_permission(None))
+        self.assertFalse(denuncias.has_change_permission(None))
+        self.assertFalse(denuncias.has_delete_permission(None))
