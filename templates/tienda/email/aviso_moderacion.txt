@@ -1,0 +1,8 @@
+Hay algo para revisar en la tienda de {{ gimnasio.nombre }}: un producto nuevo, un cambio de texto, una foto o una denuncia.
+
+Mientras no lo apruebes, lo nuevo no se vende ni se ve.
+
+Revisalo en la cola de moderación:
+{{ url_cola }}
+
+(Este aviso sale como mucho una vez por hora por gimnasio.)
