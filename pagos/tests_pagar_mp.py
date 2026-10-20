@@ -123,6 +123,17 @@ class BotonTests(_Base):
         # El comprobante sigue al lado.
         self.assertIn(reverse("pagos:comprobante_subir", args=[self.cuota.pk]), html)
 
+    def test_sin_alias_no_dice_consulta_como_pagar_si_hay_boton(self):
+        """Sin alias de transferencia, «consultá con el gimnasio cómo pagar»
+        contradice al botón de Mercado Pago que está justo arriba."""
+        html = self.html_home()
+        self.assertIn(self.form(), html)
+        self.assertNotIn("todavía no cargó un alias", html)
+
+    @override_settings(TIENDA_MP_ENABLED=False)
+    def test_sin_alias_y_sin_mercado_pago_sigue_el_aviso_de_siempre(self):
+        self.assertIn("todavía no cargó un alias", self.html_home())
+
     def test_todo_ok_hay_boton_en_la_pantalla_de_bloqueado(self):
         self.bloquear()
         html = self.html_bloqueado()
