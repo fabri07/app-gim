@@ -81,3 +81,15 @@ def aviso_cuotas_completadas(cantidad):
     if cantidad == 1:
         return "Se completó el monto de 1 cuota impaga que estaba en $0."
     return f"Se completó el monto de {cantidad} cuotas impagas que estaban en $0."
+
+
+def precio_sin_centavos_en_cero(valor):
+    """El precio como lo escribiría el dueño: «28000», no «28000.00».
+
+    Un `DecimalField(10, 2)` vuelve de la base con dos decimales y el input
+    los muestra tal cual. Sólo se recortan los centavos en cero; un precio
+    con centavos de verdad se muestra completo.
+    """
+    if valor is not None and valor == valor.to_integral_value():
+        return int(valor)
+    return valor

@@ -377,3 +377,14 @@ class PrecioDesdeLasVistasTests(TestCase):
         Alumno.objects.filter(pk=self.alumno.pk).update(precio_cuota=None)
         response = self.client.get(reverse("alumnos:detalle", args=[self.alumno.pk]))
         self.assertContains(response, "el del gimnasio")
+
+    def test_el_input_muestra_el_precio_sin_centavos_en_cero(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(precio_cuota=Decimal("28000"))
+        Alumno.objects.filter(pk=self.alumno.pk).update(precio_cuota=Decimal("15000.50"))
+
+        response = self.client.get(reverse("gimnasio_editar"))
+        self.assertContains(response, 'value="28000"')
+        self.assertNotContains(response, 'value="28000.00"')
+
+        response = self.client.get(reverse("alumnos:editar", args=[self.alumno.pk]))
+        self.assertContains(response, 'value="15000.50"')

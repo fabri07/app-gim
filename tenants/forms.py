@@ -12,6 +12,7 @@ from django.contrib.auth.forms import PasswordResetForm
 from django.core.files.uploadedfile import UploadedFile
 from PIL import Image
 
+from pagos.precios import precio_sin_centavos_en_cero
 from tenants.models import Gimnasio, Perfil
 
 _FONDO_IMAGEN_TAMANIO_MAXIMO = 5 * 1024 * 1024
@@ -173,6 +174,11 @@ class GimnasioForm(forms.ModelForm):
         # ausencia de selección ya se resuelve con required=False (heredado
         # de blank=True) más la validación cruzada en clean().
         self.fields["fondo_doodle"].choices = Gimnasio.Doodle.choices
+        # «28000» y no «28000.00» en el input (`precio_sin_centavos_en_cero`).
+        if not self.is_bound:
+            self.initial["precio_cuota"] = precio_sin_centavos_en_cero(
+                self.instance.precio_cuota
+            )
         # Mismo criterio que `ConfiguracionTiendaForm.CAMPOS_MP`: con la
         # bandera apagada (o en la demo) el form es el de siempre y un POST
         # viejo no puede prender el cobro de cuotas.
