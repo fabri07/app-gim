@@ -3260,3 +3260,13 @@ los borra. Una variante sin código de esa ventana lo recibe en el próximo guar
 en una pestaña vieja mientras corre la migración) se revierten en el próximo guardado con el form
 nuevo: manda `valor_1`, que tiene el nombre anterior.
 
+## [2026-10-19] Tienda: moderación (aprobación del superadmin, bajas y denuncias)
+**Estado:** aceptado (riesgos asumidos a propósito)
+**Impacto:** un producto nuevo, una foto nueva o un cambio de texto en uno aprobado esperan la aprobación del superadmin; lo ya publicado no cambia. Quedan estos riesgos conocidos.
+**Resolución / próximo paso:**
+- **Lo que no se modera:** el logo, el fondo, las variantes, las categorías e `instrucciones_retiro`. Sólo se revisan el nombre, la descripción y las fotos del producto.
+- **Copias de una foto ya aprobada que después se rechaza o se baja:** siguen en los navegadores que la bajaron (`Cache-Control: immutable`, un año) y no se pueden borrar. Si el `cf-cache-status` de la foto da HIT en Cloudflare (verificación de la Tarea 10), hay que purgar la URL al bajar.
+- **Pago tardío de Mercado Pago:** sobre un pedido cancelado por la baja (`cancelado_por_staff`), o sobre uno vencido / cancelado por el alumno cuyo producto ya no está a la venta (bajado, pendiente o despublicado por el staff, no sólo bajado), el aprobado va a «Revisar MP» y el staff devuelve la plata a mano (`pagos_mp._aplicar` y `_re_reservar`).
+- **Deadlock posible en Postgres.** `bajar_producto` bloquea primero las variantes y después los pedidos; `vencer_pedidos` y `cancelar_por_alumno` lo hacen al revés. Lo mismo pasa con el checkout cuando un pedido cancelado tiene variantes de otros productos, y con dos bajas que comparten un pedido. Postgres aborta una de las transacciones y no queda ningún dato inconsistente: el costo es un 500 raro. Hace falta simultaneidad exacta, y se aceptó porque bloquear las variantes primero es lo que cierra la carrera con el checkout. El `order_by("pk")` de `_pendientes_de_producto` sólo cubre el caso de dos bajas que toman los pedidos en el mismo orden. En SQLite (la suite) `select_for_update` no hace nada: no se probó contra Postgres.
+- **Dos denuncias simultáneas** pueden contar 2 cada una y no llegar al umbral de 3; en ese caso el producto vuelve a pendiente recién con la cuarta.
+- **Con 3 denuncias** el producto sale de la venta pero sus pedidos sin pagar siguen vivos; se cancelan sólo si el superadmin lo baja (decisión del usuario).

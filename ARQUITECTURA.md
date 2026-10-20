@@ -553,7 +553,7 @@ el producto se veía como un formulario en blanco.
   `.lower()` a mano, "Tracción" se guardaba como "traccion" y la segunda
   corrida reventaba contra la `UniqueConstraint`.
 
-La tienda se siembra **sólo si `gimnasio.es_demo`** (`tenants/demo.py::_sembrar_tienda`, dentro del `atomic` de `sembrar_demo`): `--confirmar` también siembra sobre gimnasios con alumnos reales y ahí publicaría productos inventados. Va con `get_or_create`, sin fotos (el workflow de restaurar no tiene R2) y los pedidos sembrados descuentan del disponible lo que retienen. `vaciar_gimnasio` borra los `Pedido` (PROTECT hacia `Alumno`; los ítems caen en cascada) antes que los productos, y `borrar_demo` los limpia por la marca de los alumnos.
+La tienda se siembra **sólo si `gimnasio.es_demo`** (`tenants/demo.py::_sembrar_tienda`, dentro del `atomic` de `sembrar_demo`): `--confirmar` también siembra sobre gimnasios con alumnos reales y ahí publicaría productos inventados. Va con `get_or_create`, sin fotos (el workflow de restaurar no tiene R2) y los pedidos sembrados descuentan del disponible lo que retienen. `vaciar_gimnasio` borra los `Pedido` (PROTECT hacia `Alumno`; los ítems caen en cascada) antes que los productos, y `borrar_demo` los limpia por la marca de los alumnos. **La demo se siembra aprobada** (moderación): después del `get_or_create` de cada producto, `filter(pk=..., moderacion=PENDIENTE).update(moderacion=APROBADO)`, así también se aprueba uno que sobrevivió a `--borrar`; nunca pisa una baja del superadmin ni toca lo que creó un prospecto. Queda fuera de la cola de moderación (aparte y colapsada) y `vaciar_gimnasio` borra las `DenunciaProducto` (PROTECT hacia `Producto`) antes que los productos. Ver «Tienda del gimnasio» → «Moderación».
 
 ## Cuenta de demostración compartida (`Gimnasio.es_demo`)
 
@@ -967,6 +967,10 @@ serializa en la sesión, que acá vive en la BASE. `never_cache` va sobre el
 de agregar mañana otra salida que se olvide del header. `sin_password` (la
 cuenta entra con Google) no muestra ninguna contraseña: inventar una para
 llenar el hueco sería mostrar un dato que no sirve para entrar.
+
+### Moderación de la tienda en el panel (2026-10-19)
+
+`plataforma/views_moderacion.py`, todo con `SuperadminRequiredMixin`; la lógica vive en `tienda/moderacion.py` (ver «Tienda del gimnasio» → «Moderación»). **La cola** (`plataforma:moderacion`, `never_cache`) agrupa por producto: «Productos nuevos para aprobar», «A la venta con algo para revisar» y, aparte y colapsada, la demo. **El contador** del inicio (`moderacion.contador()`, UNA query, sin la demo) es el badge del botón «Moderación» y una tarjeta «Productos por revisar». **Fotos**: `FotoModeracionView` sirve la de cualquier gimnasio, aprobada o no, leyendo los bytes del storage (nunca `imagen.url`, que en R2 se re-firma en cada render) con `private, no-store`. «Aprobar» y «Bajar» un producto tienen pantalla de confirmación (GET) y POST que aplica; «Bajar» exige motivo (≤ `LARGO_MOTIVO`). Aprobar una foto es un POST directo; rechazarla tiene confirmación. Una acción sobre algo que ya no está (cola abierta en otra pestaña) responde con cartel y redirect, nunca un 404.
 
 ### Acoplamiento nuevo: `tenants` lee `SOPORTE_CONTACTO` del panel
 
@@ -3757,6 +3761,53 @@ Guía de la prueba con cuentas de prueba y checklist de lo no confirmado: `docs/
 - **Dos devueltos de pagos DISTINTOS sobre un mismo pedido no pagado:** sólo queda congelado el primero (el segundo no pisa su marca). Caso límite aceptado.
 - Un pago MP aprobado sobre un pedido «marcado a mano» con monto o moneda distintos se adjunta sin alarma (la regla de monto distinto rige sólo desde `PENDIENTE_PAGO`/`VENCIDO`/`CANCELADO`); queda un `logger.warning` sin datos personales.
 - El `select_for_update` del pedido sólo protege en Postgres; en SQLite (la suite) la protección es el UPDATE condicional más el reintento. Las carreras reales no se probaron contra Postgres.
+
+### Moderación (2026-10-19)
+
+Plan: `docs/superpowers/plans/2026-10-19-moderacion-tienda.md`; spec: `docs/superpowers/specs/2026-10-19-moderacion-tienda-design.md`. Objetivo: que nada nuevo se venda ni se vea sin que el superadmin lo apruebe, poder bajar un producto puntual y que el alumno pueda denunciar. Sin IA, sin servicio externo y sin cron. Las transiciones viven en `tienda/moderacion.py`; la cola, en el panel de plataforma.
+
+**Estados.** `Producto.moderacion`: `pendiente` («Esperando aprobación»), `aprobado`, `bajado`. `FotoProducto.aprobada` (bool). Más `Producto.cambio_pendiente` (aprobado con texto cambiado), `moderacion_motivo` (aviso al staff: foto rechazada, baja o denuncias; se limpia al aprobar) y `moderacion_desde`. Son datos de la PLATAFORMA: `editable=False`, fuera de `ProductoForm`, y la edición del staff guarda con `update_fields=CAMPOS_EDITABLES_PRODUCTO`, nunca un `save()` completo (pisaría con el valor viejo en memoria una baja o aprobación que entró mientras la pantalla estaba abierta). Todas las columnas llevan `db_default` (el `migrate` corre en el `buildCommand` con la versión vieja atendiendo); el de `moderacion` es `pendiente`, lo seguro. `tienda/0009` deja aprobado todo lo que ya existía.
+
+**`q_vendible(prefijo="")` es la ÚNICA puerta** de «a la venta»: `publicado` Y `aprobado`. Catálogo, carrito, checkout, `DenunciarView` y `pagos_mp._re_reservar` filtran por ella (`q_vendible("producto__")` desde `Variante`). Un filtro `publicado=True` suelto en la tienda es un bug. El catálogo prefetchea sólo las fotos aprobadas.
+
+**La foto, en dos modos** (`FotoProductoView`). *Público*: foto aprobada de un producto APROBADO (decisión 11: uno que vuelve a pendiente por denuncias deja de servir sus fotos). Es el de siempre: ruta en `URLS_SIN_BLOQUEO`, `Cache-Control: public, max-age=31536000, immutable`, sin `Set-Cookie` y sin registrar actividad; **no lee `request.user`**, y ésa es la razón de que sean dos modos: leer la sesión en la respuesta que se cachea un año metería la cookie (y `Vary: Cookie`, que igual lleva por `tenants/middleware.py`). *Privado*: cualquier otra. La ven sólo el staff de ese gimnasio (con acceso: `sin_acceso`) y el superadmin, con `private, no-store`; es el único camino que lee la sesión. Para todos los demás, 404 con `Cache-Control: no-store` (`HttpResponseNotFound`, no `Http404`, para poder poner la cabecera): si una caché guardara el «no existe», la foto seguiría oculta después de aprobarla. Los tests de la respuesta pública sin cookie son `tienda/tests_vistas_staff.py` (~286-302).
+
+**Transiciones** (todas `filter(...).update()` condicional; el estado de la base manda, nunca un `if self.object.moderacion` antes de escribir):
+- **Alta**: nace `pendiente`, con el mail a la plataforma.
+- **Edición del staff**: cambiar `nombre` o `descripcion` de uno aprobado marca `cambio_pendiente` (sigue a la venta con el texto nuevo, en revisión); una foto nueva en uno aprobado entra `aprobada=False`. Se mira la base, no la instancia (si lo aprobaron mientras se editaba, el cambio igual se revisa).
+- **Aprobar** (`aprobar_producto`): decisión 3, el superadmin aprueba SÓLO lo que vio. El POST manda `version` (el `modificado` de cuando se armó la pantalla), `fotos_vistas` y `denuncias_vistas`; si el texto cambió, no aprueba nada y avisa «El producto cambió mientras lo mirabas». Una foto o denuncia que entró después sigue pendiente. El `update()` no mueve `modificado`.
+- **Bajar** (`bajar_producto`): para siempre. El staff no puede editarlo, borrarlo ni volver a aprobarlo (`ProductoUpdateView._bajado`, `_moderado` en el borrado: con denuncias o baja no se borra, se despublica). Resuelve las denuncias abiertas, cancela los pedidos sin pagar y avisa al alumno con push (`cancelado_plataforma`, no «cancelado»: ése dice «El gimnasio canceló»).
+- **Foto**: aprobar / rechazar desde la cola. Rechazar borra la FILA (el archivo queda en R2) y deja `AVISO_FOTO_RECHAZADA` en el producto sin pisar otro motivo. También vale para una foto ya aprobada (decisión 6; ver `ISSUES.md`).
+- **Denuncias** (`registrar_denuncia`): con `UMBRAL_DENUNCIAS = 3` alumnos DISTINTOS con una abierta, un producto aprobado vuelve a `pendiente` (sale de la venta y a la cola). Cuentan sólo las abiertas, y una de un alumno borrado no suma. Una sola abierta por alumno y producto (`UniqueConstraint` parcial).
+
+**Qué pasa con los pedidos** (decisiones 1, 2 y 8). «Bajar» llama a `services.cancelar_pedidos_de_producto`: cancela el pedido ENTERO (y vuelve el stock de TODOS sus ítems) si está `PENDIENTE_PAGO` y tiene una variante del producto, con `cancelado_por_staff=True`. Los `EN_REVISION` (ya subió comprobante: la plata probablemente se movió), `PAGADO` y `ENTREGADO` no se tocan: los resuelve el staff. Con 3 denuncias el producto sale de la venta pero sus pedidos sin pagar siguen vivos; se cancelan sólo si el superadmin lo baja. `vencer_pedidos` NO se tocó: la función nueva copia su patrón (UPDATE masivo y, si tocó menos filas que las seleccionadas, de a uno). Contra el checkout: `bajar_producto` bloquea PRIMERO las variantes (`select_for_update`, igual que el UPDATE de stock de `_reservar_y_crear`) y `_reservar_y_crear` revalida `_variantes_vendibles` ya adentro del `atomic`, con las variantes bloqueadas; si algo dejó de ser vendible, `producto_no_disponible` deshace todo, stock incluido. Un producto bajado o pendiente que ya estaba en el carrito: el carrito lo saca. Pago tardío de Mercado Pago: el aprobado sobre un pedido cancelado por la baja va a REVISAR por `cancelado_por_staff` (`_aplicar`), y `_re_reservar` manda a REVISAR (misma rama que «sin stock») un pedido vencido o cancelado por el alumno si algún ítem ya no cumple `q_vendible` (bajado, pendiente o despublicado).
+
+**Mail a la plataforma** (`avisar_a_la_plataforma`). Entra por alta, texto cambiado, fotos nuevas en uno aprobado y denuncia. Tope de UNO por hora por gimnasio: `UPDATE` condicional sobre `ConfiguracionTienda.ultimo_aviso_moderacion` (dos altas casi juntas no mandan dos). Va por `transaction.on_commit` con `fail_silently=True` (un SMTP caído no tira un 500 al staff). Destino: `SOLICITUDES_AVISO_EMAIL` o, si no, `DEFAULT_FROM_EMAIL`; sin casilla no manda y no gasta el tope. La demo no avisa.
+
+**Denunciar** (`DenunciarView`, en el catálogo del alumno). Nunca un 404 (bajo `hx-boost` es un click mudo): un producto que ya no está a la venta, o de otro gimnasio, avisa y vuelve al catálogo; suplantando no se puede. `DenunciaProducto` es `TenantOwnedModel` (en `vaciar_gimnasio`, `_ensuciar` y `EXCLUIDOS`). Al staff no le llega quién denunció: `alumno` es `SET_NULL` (decisión 10) para que la pantalla de borrar alumno no diga «tiene 1 denuncia» y para no romper `borrar_demo`.
+
+**Las decisiones del plan** (1 a 11):
+1. Pago tardío de MP: `_re_reservar` revalida `q_vendible` (arriba).
+2. «Sin pagar» son sólo los `PENDIENTE_PAGO`, como en `vencer_pedidos`.
+3. El superadmin aprueba sólo lo que vio (`version` + `fotos_vistas` + `denuncias_vistas`).
+4. La cola se agrupa por producto en dos secciones, «Productos nuevos para aprobar» y «A la venta con algo para revisar», con marcas (texto cambiado, N fotos nuevas, N denuncias). El contador cuenta productos y sale en UNA query.
+5. El aviso al staff de una foto rechazada va en `moderacion_motivo`, debajo del badge del listado; se limpia al aprobar.
+6. «Rechazar foto» vale también para una ya aprobada.
+7. `MigracionDeReferenciaExternaTests` ya migra a `leaf_nodes()`: sin cambios.
+8. Con 3 denuncias el producto sale de la venta pero sus pedidos sin pagar siguen vivos.
+9. La cuenta demo queda fuera de la cola: no manda mail, no suma al contador y se ve en una sección aparte y colapsada. El visitante igual ve «Esperando aprobación» si algo queda pendiente; la siembra la deja aprobada (ver «Datos de demostración»).
+10. `DenunciaProducto.alumno` es `SET_NULL`.
+11. Una foto es pública sólo si está aprobada Y su producto está APROBADO.
+
+**Condiciones de uso.** Una cláusula (`<p class="texto-suave">`) en `templates/tienda/configuracion_form.html` y en `templates/plataforma/gimnasio_detalle.html`, junto al botón de habilitar la tienda: prohíbe vender drogas o medicamentos sin receta, armas, contenido o servicios sexuales y lo ilegal, y avisa que la plataforma revisa, da de baja, cancela pedidos sin pagar y puede suspender la cuenta. Si se cambia el texto, cambiarlo en las dos.
+
+**Casos aceptados** (el detalle está en `ISSUES.md`, 2026-10-19):
+- El logo, el fondo, las variantes, las categorías e `instrucciones_retiro` no se moderan.
+- Las copias de una foto ya aprobada que se rechaza o se baja siguen en los navegadores que la bajaron (`immutable`).
+- Un pago tardío de MP sobre un pedido cancelado por la baja, o sobre uno vencido de un producto que ya no está a la venta (bajado, pendiente o despublicado por el staff), queda en «Revisar MP» y el staff lo devuelve.
+- Deadlock posible en Postgres entre `bajar_producto` (variantes y después pedidos) y `vencer_pedidos` / `cancelar_por_alumno` / checkout (al revés). Postgres aborta una transacción sin dejar nada inconsistente; el costo es un 500 raro.
+- Dos denuncias simultáneas pueden contar 2 y no llegar al umbral: vuelve a pendiente con la cuarta.
+- Si el `cf-cache-status` de la foto da HIT (Tarea 10), hay que purgar la URL al bajar.
 
 ## Deploy (Fase 5)
 

@@ -417,7 +417,15 @@ def cancelar_pedidos_de_producto(producto_id, *, motivo, ahora=None):
     `cancelado_por_staff=True`: un pago tardío de Mercado Pago no lo revive
     (va a REVISAR, ver `pagos_mp._aplicar`). Mismo esquema que
     `vencer_pedidos`, que NO se toca: UPDATE masivo y, si tocó menos filas de
-    las que seleccionó, de a uno."""
+    las que seleccionó, de a uno.
+
+    El `order_by("pk")` de `_pendientes_de_producto` sólo evita el deadlock
+    entre dos bajas que toman los pedidos en el mismo orden. NO evita el que
+    hay contra `vencer_pedidos`, `cancelar_por_alumno` o un checkout que
+    comparte pedidos: esos bloquean pedidos primero y variantes después, y la
+    baja al revés (a propósito, para cerrar la carrera con el checkout).
+    Postgres aborta una de las dos transacciones sin dejar nada inconsistente.
+    Riesgo aceptado: ver `ISSUES.md` (2026-10-19, moderación de la tienda)."""
     ahora = _ahora(ahora)
     campos = dict(
         estado=_E.CANCELADO, cancelado_por_staff=True,

@@ -3890,6 +3890,31 @@ class SembrarDemoTests(TestCase):
         self.assertEqual(Producto.objects.for_gimnasio(self.gimnasio).count(), productos)
         self.assertEqual(Variante.objects.filter(producto__gimnasio=self.gimnasio).count(), variantes)
 
+    def test_la_tienda_demo_se_siembra_aprobada(self):
+        """Sin esto el visitante de la demo vería «Esperando aprobación» en
+        cada producto. Y aprobar no pisa una baja del superadmin."""
+        from tienda.models import Producto, q_vendible
+
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
+        self._sembrar(alumnos=4, meses=1)
+        productos = Producto.objects.for_gimnasio(self.gimnasio)
+
+        self.assertGreater(productos.count(), 0)
+        self.assertFalse(productos.exclude(moderacion=Producto.Moderacion.APROBADO).exists())
+        self.assertEqual(productos.filter(q_vendible()).count(), productos.count())
+
+        # Un producto que sobrevivió a `--borrar` en pendiente se aprueba, pero
+        # uno bajado por el superadmin sigue bajado.
+        whey = productos.get(nombre="Proteína whey 1 kg")
+        creatina = productos.get(nombre="Creatina 300 g")
+        Producto.objects.filter(pk=whey.pk).update(moderacion=Producto.Moderacion.PENDIENTE)
+        Producto.objects.filter(pk=creatina.pk).update(moderacion=Producto.Moderacion.BAJADO)
+        self._sembrar(alumnos=4, meses=1, confirmar=True)
+        whey.refresh_from_db()
+        creatina.refresh_from_db()
+        self.assertEqual(whey.moderacion, Producto.Moderacion.APROBADO)
+        self.assertEqual(creatina.moderacion, Producto.Moderacion.BAJADO)
+
     def test_la_tienda_demo_se_siembra_con_caracteristicas(self):
         from tienda.models import Producto, Variante
 

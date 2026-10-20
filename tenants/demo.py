@@ -554,6 +554,12 @@ def _sembrar_tienda(gimnasio, alumnos):
         producto, _ = Producto.objects.get_or_create(
             gimnasio=gimnasio, nombre=nombre, defaults={"categoria": categoria, "precio": precio}
         )
+        # La demo se ve «Esperando aprobación» si no: se aprueba SÓLO lo
+        # pendiente de este catálogo (un `--borrar` deja los productos, y una
+        # baja del superadmin no se pisa). Va fuera de la cola de moderación.
+        Producto.objects.filter(pk=producto.pk, moderacion=Producto.Moderacion.PENDIENTE).update(
+            moderacion=Producto.Moderacion.APROBADO
+        )
         # Explícitas después del `get_or_create`: los productos sobreviven a
         # `--borrar`, y una demo migrada por `tienda/0008` quedó en «Opción».
         if (producto.caracteristica_1, producto.caracteristica_2) != (caracteristica, ""):
