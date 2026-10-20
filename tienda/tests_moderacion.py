@@ -491,6 +491,72 @@ class StaffModeracionTests(TestCase):
         r = self.client.get(reverse("tienda:producto_editar", args=[producto.pk]))
         self.assertContains(r, '<span class="badge badge--alerta">En revisión</span>', count=1)
 
+    # --- Tarea 8: el aviso por mail desde el form del staff ---
+
+    def _mails_tras(self, hacer):
+        with self.captureOnCommitCallbacks(execute=True):
+            r = hacer()
+        return r, list(mail.outbox)
+
+    @override_settings(SOLICITUDES_AVISO_EMAIL="plataforma@tugimapp.com")
+    def test_el_alta_de_un_producto_avisa_a_la_plataforma(self):
+        from tienda.tests_vistas_staff import datos_producto
+
+        r, enviados = self._mails_tras(
+            lambda: self.client.post(reverse("tienda:producto_crear"), datos_producto())
+        )
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(len(enviados), 1)
+        self.assertIn(
+            "http://testserver" + reverse("plataforma:moderacion"), enviados[0].body
+        )
+
+    @override_settings(SOLICITUDES_AVISO_EMAIL="plataforma@tugimapp.com")
+    def test_un_cambio_de_texto_en_uno_aprobado_avisa(self):
+        producto, variante = self._producto()
+        _, enviados = self._mails_tras(
+            lambda: self._editar(producto, variante, nombre="Remera Dry")
+        )
+        self.assertEqual(len(enviados), 1)
+
+    @override_settings(SOLICITUDES_AVISO_EMAIL="plataforma@tugimapp.com")
+    def test_fotos_nuevas_en_uno_aprobado_avisan_y_lo_dicen(self):
+        from tienda.tests_vistas_staff import jpeg
+
+        producto, variante = self._producto()
+        r, enviados = self._mails_tras(
+            lambda: self._editar(producto, variante, follow=True, fotos_nuevas=[jpeg()])
+        )
+        self.assertEqual(len(enviados), 1)
+        self.assertContains(
+            r, "Las fotos nuevas se ven en la tienda cuando la plataforma las apruebe."
+        )
+
+    @override_settings(SOLICITUDES_AVISO_EMAIL="plataforma@tugimapp.com")
+    def test_editar_solo_el_precio_no_avisa(self):
+        producto, variante = self._producto()
+        _, enviados = self._mails_tras(lambda: self._editar(producto, variante, precio="16000"))
+        self.assertEqual(enviados, [])
+
+    def test_las_fotos_nuevas_leen_la_moderacion_de_la_base(self):
+        # Se abrió la pantalla con el producto PENDIENTE y lo aprobaron
+        # mientras se editaba: las fotos nuevas igual esperan aprobación.
+        from tienda.forms import ProductoForm
+        from tienda.tests_vistas_staff import jpeg
+
+        producto, variante = self._producto(moderacion=Producto.Moderacion.PENDIENTE)
+        original = ProductoForm.save
+
+        def guardar(form, *args, **kwargs):
+            Producto.objects.filter(pk=producto.pk).update(moderacion="aprobado")
+            return original(form, *args, **kwargs)
+
+        with patch.object(ProductoForm, "save", guardar):
+            r = self._editar(producto, variante, follow=True, fotos_nuevas=[jpeg()])
+        self.assertContains(
+            r, "Las fotos nuevas se ven en la tienda cuando la plataforma las apruebe."
+        )
+
     def test_el_admin_muestra_la_moderacion_de_solo_lectura(self):
         from django.contrib import admin
 
@@ -983,3 +1049,106 @@ class ColaTests(_BaseModeracion):
                 list(producto.fotos.all())
                 list(producto.variantes.all())
                 [d.alumno for d in producto.denuncias_abiertas]
+
+
+# --- Tarea 8: «Denunciar» del alumno --------------------------------------------
+
+
+@override_settings(SOLICITUDES_AVISO_EMAIL="plataforma@tugimapp.com")
+class DenunciarVistaTests(tests_vistas_alumno._BaseAlumno):
+    def url(self, producto=None):
+        return reverse("tienda:denunciar", args=[(producto or self.producto).pk])
+
+    def datos(self, **extra):
+        datos = {"motivo": "estafa", "detalle": "Parece falso"}
+        datos.update(extra)
+        return datos
+
+    def denunciar(self, producto=None, follow=False, **extra):
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url(producto), self.datos(**extra), follow=follow)
+
+    def test_el_formulario_se_muestra(self):
+        r = self.client.get(self.url())
+        self.assertContains(r, "Remera")
+        self.assertContains(r, "csrfmiddlewaretoken")
+
+    def test_denunciar_crea_la_denuncia_y_avisa(self):
+        r = self.denunciar(follow=True)
+        self.assertRedirects(r, reverse("tienda:catalogo"))
+        self.assertContains(r, "Gracias. La plataforma va a revisar este producto.")
+        d = DenunciaProducto.objects.get()
+        self.assertEqual((d.producto, d.alumno, d.motivo, d.detalle), (self.producto, self.alumno, "estafa", "Parece falso"))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("/plataforma/moderacion/", mail.outbox[0].body)
+
+    def test_sin_motivo_muestra_el_error_en_su_linea(self):
+        r = self.denunciar(motivo="")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, '<p class="config-error">')
+        self.assertFalse(DenunciaProducto.objects.exists())
+        self.assertEqual(mail.outbox, [])
+
+    def test_un_detalle_largo_muestra_el_error_en_su_linea(self):
+        r = self.denunciar(detalle="x" * 501)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, '<p class="config-error">')
+        self.assertFalse(DenunciaProducto.objects.exists())
+
+    def test_suplantando_no_se_puede(self):
+        from tenants import suplantacion
+
+        sesion = self.client.session
+        sesion[suplantacion.CLAVE_SESION] = {"inicio": timezone.now().isoformat()}
+        sesion.save()
+        r = self.denunciar(follow=True)
+        self.assertRedirects(r, reverse("tienda:catalogo"))
+        self.assertContains(r, "Mientras ves la app como un alumno no podés denunciar productos.")
+        self.assertFalse(DenunciaProducto.objects.exists())
+        self.assertEqual(mail.outbox, [])
+
+    def _no_esta_en_la_tienda(self, producto):
+        # Un redirect con mensaje y no un 404: bajo `hx-boost` es un click mudo.
+        with self.captureOnCommitCallbacks(execute=True):
+            for r in (
+                self.client.get(self.url(producto), follow=True),
+                self.client.post(self.url(producto), self.datos(), follow=True),
+            ):
+                self.assertRedirects(r, reverse("tienda:catalogo"))
+                self.assertContains(r, "Ese producto ya no está en la tienda.")
+        self.assertFalse(DenunciaProducto.objects.exists())
+        self.assertEqual(mail.outbox, [])
+
+    def test_un_producto_de_otro_gimnasio_avisa_y_vuelve_al_catalogo(self):
+        otro = Gimnasio.objects.create(nombre="B", slug="b")
+        ajeno = crear_producto(gimnasio=otro, nombre="Ajeno", precio=1)
+        self._no_esta_en_la_tienda(ajeno)
+
+    def test_un_producto_pendiente_avisa_y_vuelve_al_catalogo(self):
+        pendiente = crear_producto(
+            gimnasio=self.gimnasio, nombre="Nuevo", precio=1, moderacion=Producto.Moderacion.PENDIENTE
+        )
+        self._no_esta_en_la_tienda(pendiente)
+
+    def test_un_producto_bajado_avisa_y_vuelve_al_catalogo(self):
+        bajado = crear_producto(
+            gimnasio=self.gimnasio, nombre="Bajado", precio=1, moderacion=Producto.Moderacion.BAJADO
+        )
+        self._no_esta_en_la_tienda(bajado)
+
+    def test_denunciar_dos_veces_avisa_y_no_duplica(self):
+        self.denunciar()
+        mail.outbox.clear()
+        r = self.denunciar(follow=True)
+        self.assertContains(r, "Ya lo denunciaste: lo estamos revisando.")
+        self.assertEqual(DenunciaProducto.objects.count(), 1)
+        self.assertEqual(mail.outbox, [])
+
+    def test_el_catalogo_dice_ya_lo_denunciaste(self):
+        r = self.client.get(reverse("tienda:catalogo"))
+        self.assertContains(r, self.url())
+        self.assertNotContains(r, "Ya lo denunciaste")
+        self.denunciar()
+        r = self.client.get(reverse("tienda:catalogo"))
+        self.assertContains(r, "Ya lo denunciaste")
+        self.assertNotContains(r, self.url())

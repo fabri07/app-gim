@@ -29,7 +29,7 @@ from plataforma.middleware import sin_acceso
 from tenants import suplantacion
 from tenants.models import Perfil
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
-from tienda import analitica, pagos_mp, services
+from tienda import analitica, moderacion, pagos_mp, services
 from tienda.codigos import normalizar
 from tienda.variantes import SUGERENCIAS
 from tienda.forms import (
@@ -37,6 +37,7 @@ from tienda.forms import (
     CategoriaProductoForm,
     ComprobanteForm,
     ConfiguracionTiendaForm,
+    DenunciaForm,
     MotivoForm,
     ProductoForm,
     VarianteFormSet,
@@ -44,6 +45,7 @@ from tienda.forms import (
 from tienda.models import (
     CategoriaProducto,
     CuentaMercadoPago,
+    DenunciaProducto,
     FotoProducto,
     ItemPedido,
     Pedido,
@@ -339,12 +341,23 @@ class _ProductoFormMixin:
             for f in formset.forms:
                 if f.instance.pk and f.instance.activa is False and f.cleaned_data.get("DELETE"):
                     f.instance.save(update_fields=["activa"])
+            # Contra la base, UNA vez, y no contra `self.object.moderacion`
+            # (de cuando se abrió la pantalla): el superadmin puede haber
+            # aprobado mientras el staff editaba, y las fotos nuevas esperan.
+            moderacion_actual = (
+                Producto.objects.filter(pk=self.object.pk).values_list("moderacion", flat=True).get()
+            )
         fotos_nuevas = (
             not alta
             and bool(form.cleaned_data.get("fotos_nuevas"))
-            and self.object.moderacion == Producto.Moderacion.APROBADO
+            and moderacion_actual == Producto.Moderacion.APROBADO
         )
         self.entro_a_la_cola = alta or manda_texto_a_revision or fotos_nuevas
+        if self.entro_a_la_cola:
+            moderacion.avisar_a_la_plataforma(
+                self.gimnasio,
+                url_cola=self.request.build_absolute_uri(reverse("plataforma:moderacion")),
+            )
         if alta:
             messages.info(self.request, "Producto guardado. Lo revisamos y lo publicamos en el día.")
         elif manda_texto_a_revision:
@@ -767,9 +780,76 @@ class CatalogoView(TiendaAlumnoMixin, TemplateView):
                 nombre = producto.categoria.nombre if producto.categoria else "Otros"
                 grupos.setdefault(nombre, []).append(producto)
         context["grupos"] = list(grupos.items())
+        # UNA query: los productos que este alumno ya denunció (abiertas).
+        context["denunciados"] = set(
+            DenunciaProducto.objects.filter(
+                alumno=self.alumno, estado=DenunciaProducto.Estado.ABIERTA
+            ).values_list("producto_id", flat=True)
+        )
         context["unidades_en_carrito"] = sum(services.leer_carrito(self.request.session).values())
         context["umbral_pocas"] = services.UMBRAL_POCAS_UNIDADES
         return context
+
+
+class DenunciarView(TiendaAlumnoMixin, TemplateView):
+    """«Denunciar» un producto. Nunca un 404: bajo `hx-boost` es un click
+    mudo, así que un producto que ya no está a la venta (o que es de otro
+    gimnasio) avisa y vuelve al catálogo. Al staff no le llega quién denunció."""
+
+    template_name = "tienda/denunciar.html"
+
+    def _producto(self):
+        return (
+            Producto.objects.for_gimnasio(self.gimnasio)
+            .filter(q_vendible(), pk=self.kwargs["pk"])
+            .first()
+        )
+
+    def _desvio(self):
+        """Redirect si no se puede denunciar; `(redirect, producto)` si sí."""
+        if suplantacion.esta_activa(self.request):
+            messages.error(
+                self.request, "Mientras ves la app como un alumno no podés denunciar productos."
+            )
+            return redirect("tienda:catalogo"), None
+        producto = self._producto()
+        if producto is None:
+            messages.info(self.request, "Ese producto ya no está en la tienda.")
+            return redirect("tienda:catalogo"), None
+        return None, producto
+
+    def get(self, request, *args, **kwargs):
+        # El cartel de la mixin (sin ficha, tienda cerrada) va primero.
+        cartel = self._cartel()
+        if cartel:
+            return cartel
+        desvio, producto = self._desvio()
+        if desvio:
+            return desvio
+        return self.render_to_response(
+            self.get_context_data(producto=producto, form=DenunciaForm())
+        )
+
+    def procesar(self, request, *args, **kwargs):
+        desvio, producto = self._desvio()
+        if desvio:
+            return desvio
+        form = DenunciaForm(request.POST)
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(producto=producto, form=form))
+        nueva = moderacion.registrar_denuncia(
+            producto=producto, alumno=self.alumno,
+            motivo=form.cleaned_data["motivo"], detalle=form.cleaned_data["detalle"],
+        )
+        if nueva:
+            moderacion.avisar_a_la_plataforma(
+                self.gimnasio,
+                url_cola=request.build_absolute_uri(reverse("plataforma:moderacion")),
+            )
+            messages.success(request, "Gracias. La plataforma va a revisar este producto.")
+        else:
+            messages.info(request, "Ya lo denunciaste: lo estamos revisando.")
+        return redirect("tienda:catalogo")
 
 
 class CarritoView(TiendaAlumnoMixin, TemplateView):

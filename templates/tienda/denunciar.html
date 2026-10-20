@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Denunciar un producto · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Denunciar un producto</h1>
+  <p><strong>{{ producto.nombre }}</strong></p>
+  <p class="texto-suave">La denuncia es anónima para el gimnasio: la revisa la plataforma.</p>
+  <form method="post" action="{% url 'tienda:denunciar' producto.pk %}">
+    {% csrf_token %}
+    {% include 'partials/campo_form.html' with campo=form.motivo %}
+    {% include 'partials/campo_form.html' with campo=form.detalle %}
+    <button type="submit" class="boton w-full mt-2">Enviar denuncia</button>
+  </form>
+  <a class="boton-secundario w-full mt-2" href="{% url 'tienda:catalogo' %}">Volver a la tienda</a>
+</div>
+{% endblock %}

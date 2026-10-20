@@ -321,7 +321,7 @@ class CatalogoGaleriaTests(_BaseAlumno):
 
 class CatalogoEscalaTests(_BaseAlumno):
     def _cargar(self, cantidad):
-        from tienda.models import FotoProducto
+        from tienda.models import DenunciaProducto
 
         for _ in range(cantidad):
             producto = crear_producto(gimnasio=self.gimnasio, nombre="P", precio=Decimal("100"), publicado=True)
@@ -330,6 +330,11 @@ class CatalogoEscalaTests(_BaseAlumno):
                 crear_foto(
                     producto=producto, imagen=f"tienda/productos/{producto.pk}-{i}.jpg", posicion=i,
                 )
+            # Una denuncia abierta del alumno por producto: «Ya lo denunciaste»
+            # no puede costar una query por tarjeta.
+            DenunciaProducto.objects.create(
+                gimnasio=self.gimnasio, producto=producto, alumno=self.alumno, motivo="otro",
+            )
 
     def _queries(self):
         from django.db import connection
@@ -343,6 +348,10 @@ class CatalogoEscalaTests(_BaseAlumno):
         self._cargar(2)
         self._queries()  # calienta lo que se cachea en la primera request
         pocos = self._queries()
+        # Que el catálogo no esté vacío: si no, el test compara nada con nada.
+        r = self.client.get(reverse("tienda:catalogo"))
+        self.assertContains(r, "Agregar al carrito", count=3)  # los 2 cargados + el del setUp
+        self.assertContains(r, "Ya lo denunciaste", count=2)
         self._cargar(2)
         muchos = self._queries()
         self.assertEqual(pocos, muchos)
