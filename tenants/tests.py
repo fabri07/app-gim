@@ -4930,6 +4930,28 @@ class RestaurarDemoTests(TestCase):
         )
         self.assertTrue(User.objects.filter(pk=self.staff.pk).exists())
 
+    def test_repone_el_precio_de_la_cuota_y_apaga_las_cuotas_por_mercadopago(self):
+        """El precio canónico es el de las cuotas que siembra `sembrar_demo`:
+        si un prospecto lo cambia, el siguiente vería un precio que no
+        coincide con ninguna cuota."""
+        from decimal import Decimal
+
+        from pagos.models import Cuota
+
+        self.demo.precio_cuota = Decimal("1")
+        self.demo.cuotas_con_mercadopago = True
+        self.demo.save()
+
+        self._restaurar(alumnos=3, meses=1)
+
+        self.demo.refresh_from_db()
+        self.assertEqual(self.demo.precio_cuota, Decimal("28000"))
+        self.assertFalse(self.demo.cuotas_con_mercadopago)
+        self.assertEqual(
+            set(Cuota.objects.for_gimnasio(self.demo).values_list("monto", flat=True)),
+            {Decimal("28000")},
+        )
+
     def test_no_toca_el_slug_ni_la_marca_de_demo(self):
         """El slug es la URL pública que se le pasa a los prospectos, y
         `es_demo` es lo único que autoriza el vaciado: pisarlo desde el estado

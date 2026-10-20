@@ -682,6 +682,12 @@ _GIMNASIO_CANONICO = {
     "fondo_imagen": "",
     "dias_tolerancia_pago": None,
     "fecha_activacion_bloqueo": None,
+    # El mismo precio con el que `sembrar_demo` emite sus cuotas: un
+    # prospecto que lo cambia no le deja al siguiente un gimnasio que cobra
+    # otra cosa que lo que muestran las cuotas sembradas. El cobro de cuotas
+    # por Mercado Pago vuelve apagado (la demo nunca conecta MP).
+    "precio_cuota": Decimal("28000"),
+    "cuotas_con_mercadopago": False,
 }
 
 #: Los que son choices van aparte para resolverse contra el modelo en vez de

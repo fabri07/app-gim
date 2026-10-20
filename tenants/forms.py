@@ -138,6 +138,10 @@ class GimnasioForm(forms.ModelForm):
             "link_whatsapp",
             "link_facebook",
             "dias_tolerancia_pago",
+            # `cuotas_con_mercadopago` NO va todavía: entra con la conexión de
+            # Mercado Pago desde «Mi gimnasio», junto con su validación (no se
+            # prende sin una cuenta CONECTADA).
+            "precio_cuota",
         ]
         widgets = {
             "fondo_tipo": forms.RadioSelect,

@@ -285,12 +285,17 @@ class GenerarPagosEscalaTests(TestCase):
     """
 
     def _sembrar(self, slug, cantidad):
-        gimnasio = Gimnasio.objects.create(nombre=slug, slug=slug)
+        # Con precio de gimnasio y la mitad de los alumnos con precio propio:
+        # resolver el monto de cada cuota no puede sumar una query por fila.
+        gimnasio = Gimnasio.objects.create(
+            nombre=slug, slug=slug, precio_cuota=Decimal("20000")
+        )
         Alumno.objects.bulk_create(
             [
                 Alumno(
                     gimnasio=gimnasio, nombre=f"A{i}", apellido="X",
                     estado=Alumno.Estado.ACTIVO, fecha_inicio_ciclo=date(2026, 7, 1),
+                    precio_cuota=Decimal("15000") if i % 2 else None,
                 )
                 for i in range(cantidad)
             ]
@@ -303,11 +308,15 @@ class GenerarPagosEscalaTests(TestCase):
         with CaptureQueriesContext(connection) as chico:
             generar_pagos_pendientes(hoy)
 
-        self._sembrar("grande", 40)
+        grande_gimnasio = self._sembrar("grande", 40)
         with CaptureQueriesContext(connection) as grande:
             generar_pagos_pendientes(hoy)
 
         self.assertEqual(len(grande), len(chico))
+        montos = set(
+            Cuota.objects.filter(gimnasio=grande_gimnasio).values_list("monto", flat=True)
+        )
+        self.assertEqual(montos, {Decimal("15000"), Decimal("20000")})
 
 
 class MarcarVencidosTests(TestCase):

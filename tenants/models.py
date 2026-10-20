@@ -368,6 +368,38 @@ class Gimnasio(TimeStampedModel):
     #: que estuvo de licencia, el que pagó en efectivo y nadie confirmó, el
     #: becado). `bloqueo_de` ignora las cuotas anteriores a esta fecha.
     fecha_activacion_bloqueo = models.DateField(null=True, blank=True, editable=False)
+    #: Precio de cada cuota de 28 días. `generar_pagos_pendientes` emite la
+    #: cuota con el precio propio del alumno o, si no tiene, con éste; vacío
+    #: los dos, la cuota sale en $0 como siempre y el staff carga el monto al
+    #: confirmar. El monto se CONGELA al emitir: cambiar el precio no mueve
+    #: cuotas con monto ya puesto, sólo completa las impagas que siguen en $0
+    #: (`pagos.precios.aplicar_precio_a_impagas_sin_monto`).
+    #:
+    #: Un precio 0 NO es «no cobrarle»: la cuota de $0 igual bloquea si el
+    #: gimnasio tiene tolerancia. Para no cobrarle a alguien, se anula.
+    precio_cuota = models.DecimalField(
+        "Precio de la cuota",
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="Precio en pesos de cada cuota de 28 días. Las cuotas nuevas "
+        "salen con este monto, y las impagas que todavía están en $0 se "
+        "completan al guardarlo. Si lo dejás vacío, las cuotas salen sin monto "
+        "y lo cargás al confirmar el pago. Un alumno puede tener su propio "
+        "precio desde su ficha.",
+    )
+    #: Cobrar las cuotas por Mercado Pago, a la cuenta MP que el gimnasio
+    #: conecta por OAuth (la misma de la tienda). Apagado por default:
+    #: conectar MP para la tienda no prende solo el cobro de cuotas (tiene
+    #: comisión). Todavía no está en ningún form: la validación (no se prende
+    #: sin cuenta CONECTADA) y la UI llegan con la conexión desde «Mi gimnasio».
+    cuotas_con_mercadopago = models.BooleanField(
+        "Cobrar cuotas con Mercado Pago",
+        default=False,
+        db_default=False,
+    )
 
     class Meta:
         verbose_name = "gimnasio"

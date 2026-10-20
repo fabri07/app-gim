@@ -369,8 +369,21 @@ class AlumnoUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
     template_name = "alumnos/alumno_form.html"
 
     def form_valid(self, form):
-        response = super().form_valid(form)
+        from pagos.precios import (
+            aplicar_precio_a_impagas_sin_monto,
+            aviso_cuotas_completadas,
+        )
+
+        with transaction.atomic():
+            response = super().form_valid(form)
+            completadas = (
+                aplicar_precio_a_impagas_sin_monto(self.object.gimnasio, alumno=self.object)
+                if "precio_cuota" in form.changed_data
+                else 0
+            )
         messages.success(self.request, "Alumno actualizado correctamente.")
+        if completadas:
+            messages.info(self.request, aviso_cuotas_completadas(completadas))
         _avisar_si_nace_bloqueada(self.request, form, self.object)
         return response
 

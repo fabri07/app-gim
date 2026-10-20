@@ -17,8 +17,11 @@ no una capa de "servicios" separada: el proyecto es chico y no lo justifica).
 """
 
 from datetime import timedelta
+from decimal import Decimal
 
 from django.db import models
+from django.db.models import Value
+from django.db.models.functions import Coalesce
 from django.core.validators import (
     FileExtensionValidator,
     MaxValueValidator,
@@ -232,9 +235,14 @@ def generar_pagos_pendientes(hoy):
     Es la regla que este proyecto ya pagó cara con el importador (502 en
     producción por N queries por fila, ver ISSUES.md 2026-08-27).
 
-    `monto` se deja en 0: el dueño lo completa al confirmar el pago -- el cron
-    no conoce precios. `mes`/`anio` se llenan a mano acá porque `bulk_create`
-    no pasa por `save()`, y son la red de la vuelta atrás (ver el modelo).
+    `monto` es el precio propio del alumno o, si no tiene, el del gimnasio
+    (`Alumno.precio_cuota` / `Gimnasio.precio_cuota`), resuelto en la MISMA
+    query de alumnos con un `Coalesce` -- no suma queries. Vacíos los dos, la
+    cuota sale en 0 y el dueño completa el monto al confirmar el pago. El monto
+    queda congelado en la cuota: cambiar el precio después no la mueve (salvo
+    que siga en $0, ver `pagos.precios`). `mes`/`anio` se llenan a mano acá
+    porque `bulk_create` no pasa por `save()`, y son la red de la vuelta atrás
+    (ver el modelo).
 
     Devuelve cuántas cuotas faltaban y quedaron emitidas. Con `ignore_conflicts`
     ese número puede sobrar si otra corrida concurrente creó la misma fila en
@@ -247,7 +255,16 @@ def generar_pagos_pendientes(hoy):
         estado=Alumno.Estado.ACTIVO,
         gimnasio__activo=True,
         fecha_inicio_ciclo__isnull=False,
-    ).only("id", "gimnasio_id", "fecha_inicio_ciclo")
+    ).only("id", "gimnasio_id", "fecha_inicio_ciclo").annotate(
+        # Con `0` entero, Django 5.2 no puede mezclar tipos y tira `FieldError`:
+        # el default va como Decimal y con el `output_field` explícito.
+        monto_a_cobrar=Coalesce(
+            "precio_cuota",
+            "gimnasio__precio_cuota",
+            Value(Decimal("0")),
+            output_field=models.DecimalField(max_digits=10, decimal_places=2),
+        )
+    )
 
     previstas = {}
     for alumno in alumnos_activos:
@@ -262,7 +279,9 @@ def generar_pagos_pendientes(hoy):
                 (siguiente_inicio, siguiente_inicio + timedelta(days=DIAS_CICLO - 1))
             )
         for inicio, fin in periodos:
-            previstas[(alumno.id, inicio)] = (alumno.gimnasio_id, fin)
+            previstas[(alumno.id, inicio)] = (
+                alumno.gimnasio_id, fin, alumno.monto_a_cobrar
+            )
 
     if not previstas:
         return 0
@@ -282,10 +301,10 @@ def generar_pagos_pendientes(hoy):
             periodo_fin=fin,
             mes=inicio.month,
             anio=inicio.year,
-            monto=0,
+            monto=monto,
             estado=Cuota.Estado.PENDIENTE,
         )
-        for (alumno_id, inicio), (gimnasio_id, fin) in previstas.items()
+        for (alumno_id, inicio), (gimnasio_id, fin, monto) in previstas.items()
         if (alumno_id, inicio) not in ya_existen
     ]
     if a_crear:

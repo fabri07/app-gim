@@ -31,6 +31,7 @@ class AlumnoForm(TenantScopedModelForm):
             "fecha_nacimiento",
             "estado",
             "fecha_inicio_ciclo",
+            "precio_cuota",
             "sexo",
             "actividad_fisica_previa",
             "frecuencia_actividad_previa",

@@ -14,6 +14,7 @@ en la práctica (se crean siempre juntos, ver `alumnos/views.py`), pero el
 campo es `null=True` porque no todo alumno tiene acceso creado todavía.
 """
 
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from core.models import TenantOwnedModel
@@ -79,6 +80,20 @@ class Alumno(TenantOwnedModel):
     # con `bulk_create`, o sea sin señales, así que este flag existe solo para
     # que importar el padrón no infle las ALTAS de la analítica (las bajas sí
     # cuentan: una baja posterior pasa por `save()` real).
+    #: Precio propio de la cuota. Vacío = usa `Gimnasio.precio_cuota`. Un 0
+    #: explícito es un valor (no cae al del gimnasio): el `Coalesce` de
+    #: `generar_pagos_pendientes` sólo salta los NULL.
+    precio_cuota = models.DecimalField(
+        "Precio propio de la cuota",
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="Dejalo vacío para usar el precio del gimnasio. Cargalo sólo "
+        "si este alumno paga distinto (una promo, un plan familiar). Las "
+        "impagas que todavía están en $0 se completan al guardarlo.",
+    )
     importado = models.BooleanField(
         default=False,
         editable=False,

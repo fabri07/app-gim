@@ -28,6 +28,7 @@
       {% include 'partials/campo_form.html' with campo=form.estado %}
       {% with aviso=form.aviso_sin_inicio %}{% if aviso %}<p class="aviso-urgente">{{ aviso }}</p>{% endif %}{% endwith %}
       {% include 'partials/campo_form.html' with campo=form.fecha_inicio_ciclo %}
+      {% include 'partials/campo_form.html' with campo=form.precio_cuota %}
     </div>
 
     <div class="form-seccion">

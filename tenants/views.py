@@ -18,6 +18,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.mail import send_mail
+from django.db import transaction
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -727,8 +728,23 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         return context
 
     def form_valid(self, form):
-        response = super().form_valid(form)
+        from pagos.precios import (
+            aplicar_precio_a_impagas_sin_monto,
+            aviso_cuotas_completadas,
+        )
+
+        with transaction.atomic():
+            response = super().form_valid(form)
+            # Sólo un CAMBIO de precio se aplica: guardar el form por otro
+            # campo no tiene por qué reescribir cuotas.
+            completadas = (
+                aplicar_precio_a_impagas_sin_monto(self.object)
+                if "precio_cuota" in form.changed_data
+                else 0
+            )
         messages.success(self.request, "Datos del gimnasio actualizados.")
+        if completadas:
+            messages.info(self.request, aviso_cuotas_completadas(completadas))
         return response
 
 

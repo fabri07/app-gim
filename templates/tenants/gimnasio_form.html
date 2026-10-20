@@ -170,6 +170,11 @@
         {% comment %} El help_text SÍ se renderiza: la sección "Cobros" era la única del formulario que no lo mostraba, así que el campo salía como un <input number> pelado y nadie podía saber qué hacía. Fue justo la pregunta que originó esta feature. {% endcomment %}
         <p class="texto-suave">{{ form.dias_tolerancia_pago.help_text }}</p>
         {% if form.dias_tolerancia_pago.errors %}<p class="config-error">{{ form.dias_tolerancia_pago.errors.0 }}</p>{% endif %}
+
+        {{ form.precio_cuota.label_tag }}
+        {{ form.precio_cuota }}
+        <p class="texto-suave">{{ form.precio_cuota.help_text }} Una cuota de $0 igual cuenta como impaga: para no cobrarle a alguien, anulá su cuota.</p>
+        {% if form.precio_cuota.errors %}<p class="config-error">{{ form.precio_cuota.errors.0 }}</p>{% endif %}
       </div>
 
       <button type="submit" class="boton">Guardar cambios</button>

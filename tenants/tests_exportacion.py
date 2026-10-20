@@ -265,6 +265,27 @@ class ContenidoDelZipTests(ExportacionBase):
         self.assertEqual(alumno_excel["tiene_discapacidad"], "No")
         self.assertEqual(alumno_importar["tiene_discapacidad"], "false")
 
+    def test_exporta_los_precios_de_la_cuota(self):
+        alumno = _ensuciar_para_exportar(self.gimnasio, self.staff)
+        alumno.precio_cuota = Decimal("15000.50")
+        alumno.save()
+        self.gimnasio.precio_cuota = Decimal("28000")
+        self.gimnasio.save()
+
+        zf, _ = _exportar(self.gimnasio)
+
+        gimnasio = _filas(zf, "para-importar/gimnasio.csv", ",")[0]
+        self.assertEqual(gimnasio["precio_cuota"], "28000.00")
+        self.assertEqual(gimnasio["cuotas_con_mercadopago"], "false")
+        self.assertEqual(
+            _filas(zf, "para-excel/gimnasio.csv", ";")[0]["precio_cuota"], "28000,00"
+        )
+        alumnos = _filas(zf, "para-importar/alumnos.csv", ",")
+        self.assertEqual(
+            {fila["id"]: fila["precio_cuota"] for fila in alumnos}[str(alumno.pk)],
+            "15000.50",
+        )
+
     def test_los_acentos_abren_bien_en_excel(self):
         """Sin BOM, Excel lee UTF-8 como Latin-1 y «Ñandú» sale «Ã‘andÃº»."""
         zf, _ = _exportar(self.gimnasio)
