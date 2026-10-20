@@ -144,14 +144,26 @@ def editar_pagada(cuota):
     cuando abrió el form (corregir la fecha, adjuntar el comprobante).
 
     Sólo si sigue PAGADA: si en el medio volvió a impaga (un pago devuelto),
-    guardar el form la volvería a marcar pagada sin que nadie lo decida."""
-    with transaction.atomic():
-        _bloquear(cuota.pk)
-        if not Cuota.objects.filter(pk=cuota.pk, estado=Cuota.Estado.PAGADO).exists():
-            return False
-        cuota.estado = Cuota.Estado.PAGADO
-        cuota.save()
-    return True
+    guardar el form la volvería a marcar pagada sin que nadie lo decida.
+
+    Mismo cuidado que `marcar_pagada`: el comprobante se sube ANTES del lock
+    y se guardan sólo los campos del form."""
+    subido = _subir_comprobante(cuota)
+    try:
+        with transaction.atomic():
+            _bloquear(cuota.pk)
+            sigue_pagada = Cuota.objects.filter(
+                pk=cuota.pk, estado=Cuota.Estado.PAGADO
+            ).exists()
+            if sigue_pagada:
+                cuota.estado = Cuota.Estado.PAGADO
+                cuota.save(update_fields=CAMPOS_CONFIRMAR_PAGO)
+    except Exception:
+        _borrar_subido(subido)
+        raise
+    if not sigue_pagada:
+        _borrar_subido(subido)
+    return sigue_pagada
 
 
 def corregir_monto(cuota_pk, gimnasio, monto, ahora=None):

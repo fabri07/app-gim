@@ -160,6 +160,41 @@ class MarcarPagadaTests(_Base):
         self.cuota.refresh_from_db()
         self.assertFalse(self.cuota.comprobante)
 
+    def test_editar_pagada_sube_el_comprobante_antes_de_los_locks(self):
+        Cuota.objects.filter(pk=self.cuota.pk).update(estado=Estado.PAGADO)
+        orden = []
+        subir_original = FieldFile.save
+        bloquear_original = cobro._bloquear
+
+        def subir(campo, *args, **kwargs):
+            orden.append("subir")
+            return subir_original(campo, *args, **kwargs)
+
+        def bloquear(cuota_pk):
+            orden.append("bloquear")
+            return bloquear_original(cuota_pk)
+
+        cuota = self._con_comprobante()
+        Cuota.objects.filter(pk=self.cuota.pk).update(observaciones="anotado en el medio")
+        with patch.object(FieldFile, "save", autospec=True, side_effect=subir), \
+                patch.object(cobro, "_bloquear", side_effect=bloquear):
+            self.assertTrue(cobro.editar_pagada(cuota))
+
+        self.assertEqual(orden, ["subir", "bloquear"])
+        self.cuota.refresh_from_db()
+        self.assertEqual(self.cuota.medio_pago_texto, "Efectivo")
+        self.assertEqual(self.cuota.observaciones, "anotado en el medio")
+
+    def test_editar_pagada_que_volvio_a_impaga_no_guarda_y_borra_el_subido(self):
+        cuota = self._con_comprobante(Cuota.objects.get(pk=self.cuota.pk))
+
+        self.assertFalse(cobro.editar_pagada(cuota))
+
+        self.assertFalse(cuota.comprobante.storage.exists(cuota.comprobante.name))
+        self.cuota.refresh_from_db()
+        self.assertEqual(self.cuota.estado, Estado.PENDIENTE)
+        self.assertFalse(self.cuota.comprobante)
+
     def test_camino_mp_update_condicional(self):
         vivo = self._intento()
         ahora = timezone.now()
