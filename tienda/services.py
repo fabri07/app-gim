@@ -34,6 +34,7 @@ from tienda.models import (
     Pedido,
     Variante,
     obtener_configuracion,
+    q_vendible,
 )
 
 logger = logging.getLogger(__name__)
@@ -150,7 +151,7 @@ def _ahora(ahora):
 
 def _variantes_vendibles(gimnasio):
     return Variante.objects.filter(
-        producto__gimnasio=gimnasio, activa=True, producto__publicado=True
+        q_vendible("producto__"), producto__gimnasio=gimnasio, activa=True
     )
 
 

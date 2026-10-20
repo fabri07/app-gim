@@ -11,7 +11,8 @@ from django.urls import reverse
 
 from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
-from tienda.models import DenunciaProducto, FotoProducto, Producto, Variante, q_vendible
+from tienda.models import DenunciaProducto, FotoProducto, Pedido, Producto, Variante, q_vendible
+from tienda import services, tests_vistas_alumno
 from tienda.testing import crear_foto, crear_producto
 
 
@@ -174,3 +175,58 @@ class DenunciaModeloTests(_Base):
         self.assertFalse(Alumno.objects.filter(pk=self.alumno.pk).exists())
         denuncia.refresh_from_db()
         self.assertIsNone(denuncia.alumno)
+
+
+class VentaTests(tests_vistas_alumno._BaseAlumno):
+    """Tarea 3: el catálogo y el checkout sólo ven lo aprobado. `_BaseAlumno`
+    crea `self.producto` con el helper (aprobado) y `self.variante`."""
+
+    def _otro(self, nombre, **campos):
+        producto = crear_producto(
+            gimnasio=self.gimnasio, nombre=nombre, precio=Decimal("100"), **campos
+        )
+        return producto, Variante.objects.create(producto=producto, nombre="U", stock=5)
+
+    def test_un_producto_pendiente_no_aparece_en_el_catalogo(self):
+        self._otro("Pendientazo", moderacion=Producto.Moderacion.PENDIENTE)
+        html = self.client.get(reverse("tienda:catalogo")).content.decode()
+        self.assertIn("Remera", html)
+        self.assertNotIn("Pendientazo", html)
+
+    def test_un_producto_bajado_no_aparece_en_el_catalogo(self):
+        self._otro("Bajadazo", moderacion=Producto.Moderacion.BAJADO)
+        html = self.client.get(reverse("tienda:catalogo")).content.decode()
+        self.assertIn("Remera", html)
+        self.assertNotIn("Bajadazo", html)
+
+    def test_no_se_puede_agregar_al_carrito_uno_pendiente(self):
+        _, variante = self._otro("Pendientazo", moderacion=Producto.Moderacion.PENDIENTE)
+        respuesta = self.agregar(1, variante=variante)
+        self.assertContains(respuesta, services.MENSAJES["producto_no_disponible"])
+        self.assertEqual(services.leer_carrito(self.client.session), {})
+
+    def test_uno_bajado_que_ya_estaba_en_el_carrito_se_cae_y_el_resto_se_compra(self):
+        _, otra = self._otro("Gorra")
+        self.agregar(1)
+        self.agregar(1, variante=otra)
+        Producto.objects.filter(pk=otra.producto_id).update(
+            moderacion=Producto.Moderacion.BAJADO
+        )
+        respuesta = self.client.post(reverse("tienda:checkout"), follow=True)
+        self.assertEqual(respuesta.status_code, 200)
+        pedido = Pedido.objects.get(alumno=self.alumno)
+        self.assertEqual(
+            list(pedido.items.values_list("variante_id", flat=True)), [self.variante.pk]
+        )
+        otra.refresh_from_db()
+        self.assertEqual(otra.stock, 5)
+
+    def test_la_foto_sin_aprobar_no_se_muestra_en_el_catalogo(self):
+        buena = crear_foto(producto=self.producto, imagen="tienda/productos/buena.jpg", posicion=0)
+        mala = FotoProducto.objects.create(
+            producto=self.producto, imagen="tienda/productos/mala.jpg", posicion=1
+        )
+        html = self.client.get(reverse("tienda:catalogo")).content.decode()
+        self.assertIn(buena.url_cacheable.replace("&", "&amp;"), html)
+        self.assertNotIn(mala.url_cacheable.replace("&", "&amp;"), html)
+        self.assertNotIn("2 fotos", html)

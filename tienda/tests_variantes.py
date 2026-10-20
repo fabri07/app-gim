@@ -20,6 +20,7 @@ from tienda import services
 from tienda.codigos import codigo_interno
 from tienda.models import Producto, Variante, obtener_configuracion
 from tienda.variantes import SUGERENCIAS, clave, componer_nombre
+from tienda.testing import crear_producto
 
 URL_ALTA = "tienda:producto_crear"
 URL_LISTA = "tienda:productos"
@@ -33,7 +34,7 @@ class _Base(TestCase):
         self.client.force_login(self.staff)
 
     def producto(self, c1="Talle", c2="", filas=(("M", ""),), nombre="Remera"):
-        producto = Producto.objects.create(
+        producto = crear_producto(
             gimnasio=self.gimnasio, nombre=nombre, precio=Decimal("15000"),
             caracteristica_1=c1, caracteristica_2=c2,
         )
@@ -110,6 +111,13 @@ class _Base(TestCase):
         producto = producto or Producto.objects.get(gimnasio=self.gimnasio, nombre="Proteína")
         return sorted(producto.variantes.values_list("nombre", flat=True))
 
+    def aprobar(self):
+        """El producto que carga el form nace pendiente: acá lo aprueba el
+        superadmin (directo en la base) para mirar el catálogo del alumno."""
+        Producto.objects.filter(gimnasio=self.gimnasio, nombre="Proteína").update(
+            moderacion=Producto.Moderacion.APROBADO
+        )
+
     def errores(self, r):
         """Los mensajes de error visibles (las líneas `config-error` de los
         campos y el bloque de errores generales), sin el aviso del generador."""
@@ -140,6 +148,7 @@ class AltaTests(_Base):
         r = self.alta(filas=[{"stock": 5}], extra=0)
         self.assertRedirects(r, reverse(URL_LISTA))
         self.assertEqual(self.nombres(), [""])
+        self.aprobar()
         # El catálogo del alumno: botón directo, sin select (como hoy).
         alumno = User.objects.create_user("alu", password="c-123456")
         perfil = Perfil.objects.create(usuario=alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
@@ -176,6 +185,7 @@ class AltaTests(_Base):
         self.assertEqual((producto.caracteristica_1, producto.caracteristica_2), ("Talle", "Color"))
         v = producto.variantes.get(nombre="M · Negro")
         self.assertEqual((v.valor_1, v.valor_2), ("M", "Negro"))
+        self.aprobar()
         alumno = User.objects.create_user("alu", password="c-123456")
         perfil = Perfil.objects.create(usuario=alumno, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
         Alumno.objects.create(gimnasio=self.gimnasio, nombre="B", apellido="C", perfil=perfil)

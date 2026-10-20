@@ -12,6 +12,7 @@ from alumnos.models import Alumno
 from tenants.models import Gimnasio
 from tienda import analitica
 from tienda.models import ItemPedido, Pedido, Producto, Variante
+from tienda.testing import crear_producto
 
 HOY = date(2026, 10, 31)
 
@@ -25,8 +26,8 @@ class _Base(TestCase):
         self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a", tienda_habilitada=True)
         self.otro = Gimnasio.objects.create(nombre="B", slug="b", tienda_habilitada=True)
         self.alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="G")
-        self.remera = Producto.objects.create(gimnasio=self.gimnasio, nombre="Remera", precio=Decimal("15000"))
-        self.proteina = Producto.objects.create(gimnasio=self.gimnasio, nombre="Proteína", precio=Decimal("30000"))
+        self.remera = crear_producto(gimnasio=self.gimnasio, nombre="Remera", precio=Decimal("15000"))
+        self.proteina = crear_producto(gimnasio=self.gimnasio, nombre="Proteína", precio=Decimal("30000"))
         self.v_remera = Variante.objects.create(producto=self.remera, nombre="M", stock=50)
         self.v_proteina = Variante.objects.create(producto=self.proteina, stock=50)
 
@@ -70,7 +71,7 @@ class VentasPorMesTests(_Base):
 
     def test_otro_gimnasio_no_suma(self):
         alumno = Alumno.objects.create(gimnasio=self.otro, nombre="B", apellido="P")
-        ajeno = Producto.objects.create(gimnasio=self.otro, nombre="X", precio=Decimal("999"))
+        ajeno = crear_producto(gimnasio=self.otro, nombre="X", precio=Decimal("999"))
         variante = Variante.objects.create(producto=ajeno, stock=5)
         self.venta(aware(2026, 10, 5, 10, 0), variante=variante, gimnasio=self.otro, alumno=alumno)
         self.assertEqual(analitica.ventas_por_mes(self.gimnasio, hoy=HOY)[-1]["pedidos"], 0)

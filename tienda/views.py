@@ -48,6 +48,7 @@ from tienda.models import (
     Producto,
     Variante,
     obtener_configuracion,
+    q_vendible,
 )
 
 logger = logging.getLogger(__name__)
@@ -630,10 +631,12 @@ class CatalogoView(TiendaAlumnoMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         productos = (
             Producto.objects.for_gimnasio(self.gimnasio)
-            .filter(publicado=True)
+            .filter(q_vendible())
             .select_related("categoria")
             .prefetch_related(
-                models.Prefetch("variantes", queryset=Variante.objects.filter(activa=True)), "fotos"
+                models.Prefetch("variantes", queryset=Variante.objects.filter(activa=True)),
+                # Sólo las fotos aprobadas: una sin aprobar no se ve en el catálogo.
+                models.Prefetch("fotos", queryset=FotoProducto.objects.filter(aprobada=True)),
             )
             .order_by("categoria__orden", "categoria__nombre", "orden", "nombre")
         )

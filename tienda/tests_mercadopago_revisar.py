@@ -19,6 +19,7 @@ from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
 from tienda import analitica, pagos_mp, services
 from tienda.models import ConfiguracionTienda, CuentaMercadoPago, Pedido, Producto, Variante
+from tienda.testing import crear_producto
 
 CLAVE = Fernet.generate_key().decode()
 MP = dict(TIENDA_MP_ENABLED=True, MP_TOKEN_ENCRYPTION_KEY=CLAVE)
@@ -40,7 +41,7 @@ class _Base(TestCase):
             gimnasio=self.gimnasio, nombre="Ana", apellido="G", perfil=perfil,
             estado=Alumno.Estado.ACTIVO,
         )
-        self.producto = Producto.objects.create(
+        self.producto = crear_producto(
             gimnasio=self.gimnasio, nombre="Remera", precio=Decimal("15000")
         )
         self.variante = Variante.objects.create(producto=self.producto, nombre="M", stock=3)

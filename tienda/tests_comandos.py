@@ -13,6 +13,7 @@ from notificaciones.models import RecordatorioEnviado
 from tenants.models import Gimnasio, Perfil
 from tienda import services
 from tienda.models import Pedido, Producto, Variante
+from tienda.testing import crear_producto
 
 
 class VencerPedidosComandoTests(TestCase):
@@ -21,7 +22,7 @@ class VencerPedidosComandoTests(TestCase):
         usuario = User.objects.create_user("alu", password="c-123456")
         perfil = Perfil.objects.create(usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
         self.alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="G", perfil=perfil)
-        producto = Producto.objects.create(gimnasio=self.gimnasio, nombre="R", precio=Decimal("1"))
+        producto = crear_producto(gimnasio=self.gimnasio, nombre="R", precio=Decimal("1"))
         self.variante = Variante.objects.create(producto=producto, stock=5)
 
     def pedido(self):

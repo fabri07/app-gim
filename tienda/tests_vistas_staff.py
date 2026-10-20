@@ -13,6 +13,7 @@ from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
 from tienda import services
 from tienda.models import CategoriaProducto, FotoProducto, Pedido, Producto, Variante
+from tienda.testing import crear_producto
 
 
 def jpeg(ancho=1600, alto=1200):
@@ -30,7 +31,7 @@ class _BaseStaff(TestCase):
         self.otro = Gimnasio.objects.create(nombre="B", slug="b", tienda_habilitada=True)
 
     def crear_producto(self, gimnasio=None, stock=3):
-        producto = Producto.objects.create(
+        producto = crear_producto(
             gimnasio=gimnasio or self.gimnasio, nombre="Remera", precio=Decimal("15000"),
             caracteristica_1="Talle",
         )
@@ -540,6 +541,10 @@ class GaleriaDeFotosTests(_BaseStaff):
         producto = Producto.objects.get(gimnasio=self.gimnasio, nombre="Proteína")
         url = producto.foto_principal.url_cacheable
         self.assertContains(self.client.get(reverse("tienda:productos")), url)
+        # Lo que carga el form nace pendiente: el superadmin lo aprueba antes
+        # de que el alumno lo vea (acá, directo en la base).
+        Producto.objects.filter(pk=producto.pk).update(moderacion=Producto.Moderacion.APROBADO)
+        producto.fotos.update(aprobada=True)
 
         config = obtener_configuracion(self.gimnasio)
         config.publicada = True
@@ -834,7 +839,7 @@ class BadgesYPantallaTests(_BaseStaff):
         self.assertContains(r, 'class="badge badge--alerta" data-stock-bajo')
 
     def test_variante_sin_nombre_no_muestra_dos_puntos_sueltos(self):
-        producto = Producto.objects.create(gimnasio=self.gimnasio, nombre="Creatina", precio=Decimal("21000"))
+        producto = crear_producto(gimnasio=self.gimnasio, nombre="Creatina", precio=Decimal("21000"))
         Variante.objects.create(producto=producto, nombre="", stock=12)
         r = self.client.get(reverse("tienda:productos"))
         self.assertNotContains(r, ": \n")

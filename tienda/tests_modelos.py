@@ -27,13 +27,14 @@ from tienda.models import (
     Variante,
     obtener_configuracion,
 )
+from tienda.testing import crear_producto
 
 
 class _Base(TestCase):
     def setUp(self):
         self.gimnasio = Gimnasio.objects.create(nombre="A", slug="a")
         self.otro = Gimnasio.objects.create(nombre="B", slug="b")
-        self.producto = Producto.objects.create(
+        self.producto = crear_producto(
             gimnasio=self.gimnasio, nombre="Proteína", precio=Decimal("25000")
         )
         self.variante = Variante.objects.create(producto=self.producto, stock=3)
