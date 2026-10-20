@@ -17,6 +17,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models import Q
 from django.urls import reverse
 
 from calendario.fields import EncryptedTextField
@@ -74,6 +75,9 @@ class ConfiguracionTienda(TenantOwnedModel):
         verbose_name="minutos para pagar con Mercado Pago",
         help_text="Si el alumno no paga en este plazo, el pedido vence y el stock vuelve.",
     )
+    #: Cuándo se le avisó por última vez a la plataforma que hay algo para
+    #: moderar. Dato de plataforma: lo escribe el sistema, no el staff.
+    ultimo_aviso_moderacion = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         verbose_name = "configuración de la tienda"
@@ -192,6 +196,30 @@ class Producto(TenantOwnedModel):
         verbose_name="característica 2",
     )
 
+    class Moderacion(models.TextChoices):
+        PENDIENTE = "pendiente", "Esperando aprobación"
+        APROBADO = "aprobado", "Aprobado"
+        BAJADO = "bajado", "Dado de baja por la plataforma"
+
+    #: Dato de la PLATAFORMA (lo escribe el superadmin, nunca el staff del
+    #: gimnasio): `editable=False` lo deja fuera de `ProductoForm`. Lleva
+    #: `db_default` porque el `migrate` corre en el `buildCommand` mientras la
+    #: versión vieja sigue atendiendo, y sus INSERT no nombran la columna. El
+    #: default es `pendiente` a propósito: si se cuela un INSERT viejo, lo
+    #: seguro es que quede sin vender hasta que alguien lo apruebe. Lo que ya
+    #: existía lo deja aprobado `tienda/0009`.
+    moderacion = models.CharField(
+        max_length=10, choices=Moderacion.choices,
+        default=Moderacion.PENDIENTE, db_default=Moderacion.PENDIENTE, editable=False,
+    )
+    #: Un producto aprobado cuyo texto o fotos cambiaron y esperan revisión.
+    cambio_pendiente = models.BooleanField(default=False, db_default=False, editable=False)
+    #: Aviso al staff (foto rechazada, baja): se limpia al aprobar.
+    moderacion_motivo = models.CharField(
+        max_length=300, blank=True, default="", db_default="", editable=False
+    )
+    moderacion_desde = models.DateTimeField(null=True, blank=True, editable=False)
+
     class Meta:
         verbose_name = "producto"
         verbose_name_plural = "productos"
@@ -211,6 +239,16 @@ class Producto(TenantOwnedModel):
         return next(iter(self.fotos.all()), None)
 
 
+def q_vendible(prefijo=""):
+    """Lo que se puede vender y mostrar: publicado Y aprobado. Todo el que
+    filtre productos por "a la venta" pasa por acá; `prefijo` es el camino
+    desde otro modelo (`q_vendible("producto__")` para `Variante`)."""
+    return Q(**{
+        f"{prefijo}publicado": True,
+        f"{prefijo}moderacion": Producto.Moderacion.APROBADO,
+    })
+
+
 MAX_FOTOS_POR_PRODUCTO = 5
 
 
@@ -223,6 +261,10 @@ class FotoProducto(models.Model):
     imagen = models.ImageField(upload_to="tienda/productos/")
     posicion = models.PositiveSmallIntegerField(default=0)
     creado = models.DateTimeField(auto_now_add=True)
+    #: Sólo se sirve en público una foto aprobada por la plataforma. Mismo
+    #: criterio que `Producto.moderacion`: `db_default` por la ventana del
+    #: deploy; lo existente lo aprueba `tienda/0009`.
+    aprobada = models.BooleanField(default=False, db_default=False, editable=False)
 
     class Meta:
         verbose_name = "foto"
