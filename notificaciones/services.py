@@ -505,3 +505,72 @@ def notificar_cuenta_mp(gimnasio, aviso, quien="") -> None:
         "icon": _icono_url(gimnasio),
     }
     notificar_a_gimnasio(gimnasio, payload, rol=Perfil.Rol.STAFF)
+
+
+# --- Cuotas cobradas por Mercado Pago (`pagos.cobro_mp`, en `on_commit`) ------
+
+_AVISOS_CUOTA_MP_STAFF = {
+    "pago_mp": (
+        "Cuota pagada con Mercado Pago",
+        "{alumno} pagó con Mercado Pago la cuota del {inicio} ($ {monto}).",
+    ),
+    "revisar_mp": (
+        "Pago de cuota para revisar",
+        "Mercado Pago cobró la cuota del {inicio} de {alumno} pero hay algo para revisar.",
+    ),
+    "pago_duplicado": (
+        "Cuota cobrada dos veces",
+        "La cuota del {inicio} de {alumno} se cobró dos veces: devolvé uno desde Mercado Pago.",
+    ),
+    "devuelto_mp": (
+        "Pago de cuota devuelto",
+        "Mercado Pago devolvió el pago de la cuota del {inicio} de {alumno}.",
+    ),
+}
+
+_AVISOS_CUOTA_MP_ALUMNO = {
+    "pago_mp": (
+        "Recibimos el pago de tu cuota",
+        "Tu cuota del {inicio} al {fin} quedó paga.",
+    ),
+    "revisar": (
+        "Recibimos tu pago",
+        "Recibimos el pago de tu cuota por Mercado Pago: el gimnasio te va a contactar.",
+    ),
+}
+
+
+def notificar_cuota_mp_al_staff(intento, aviso) -> None:
+    """`intento` es un `pagos.CobroOnlineCuota` con la cuota y el alumno."""
+    titulo, cuerpo = _AVISOS_CUOTA_MP_STAFF[aviso]
+    cuota = intento.cuota
+    payload = {
+        "title": titulo,
+        "body": cuerpo.format(
+            alumno=cuota.alumno,
+            inicio=f"{cuota.periodo_inicio:%d/%m}",
+            monto=floatformat(intento.monto, "2g"),
+        ),
+        # TODO(T7): apuntar a `reverse("pagos:online")` con el filtro
+        # («revisar» para todo menos `pago_mp`) cuando exista la pantalla.
+        "url": reverse("pagos:listado"),
+        "icon": _icono_url(intento.gimnasio),
+    }
+    # `rol` explícito SIEMPRE: el default `None` le avisa también a los alumnos.
+    notificar_a_gimnasio(intento.gimnasio, payload, rol=Perfil.Rol.STAFF)
+
+
+def notificar_cuota_mp_al_alumno(intento, aviso) -> None:
+    cuota = intento.cuota
+    if cuota.alumno.perfil_id is None:
+        return
+    titulo, cuerpo = _AVISOS_CUOTA_MP_ALUMNO[aviso]
+    payload = {
+        "title": titulo,
+        "body": cuerpo.format(
+            inicio=f"{cuota.periodo_inicio:%d/%m}", fin=f"{cuota.periodo_fin:%d/%m}"
+        ),
+        "url": "/",
+        "icon": _icono_url(intento.gimnasio),
+    }
+    notificar_a_usuario(cuota.alumno.perfil.usuario, payload)

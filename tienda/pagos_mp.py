@@ -439,6 +439,11 @@ def acreditar_pedido(cuenta, payment_id):
     al estado que le corresponde. Devuelve el pedido, o `None` si el pago no
     es de un pedido de Mercado Pago de ESE gimnasio.
 
+    Un pago de una CUOTA (`external_reference` con el prefijo `cuota-`) se
+    desvía a `pagos.cobro_mp.acreditar_cuota_leida` y devuelve `None`: el
+    webhook, el retorno y la reconciliación de la tienda no cambian. Sus
+    carreras levantan la misma `AcreditacionReintentable`.
+
     Idempotente y conmutativo: el webhook, el retorno y la reconciliación lo
     llaman en cualquier orden y cantidad. Permisivo: no se niega por
     `publicada`, `tienda_habilitada` ni cuenta congelada (la plata ya entró).
@@ -454,6 +459,14 @@ def acreditar_pedido(cuenta, payment_id):
         mercadopago.consultar_pago(payment_id, token=Secreto(cuenta.access_token))
     )
     if pago.get("id") is None:
+        return None
+    # Los pagos de CUOTAS llegan por este mismo webhook (misma cuenta, misma
+    # `notification_url`): se desvían ANTES de buscar un pedido. Import
+    # tardío: `pagos` carga antes que `tienda`.
+    from pagos import cobro_mp
+
+    if str(pago.get("external_reference") or "").startswith(cobro_mp.PREFIJO):
+        cobro_mp.acreditar_cuota_leida(cuenta, pago)
         return None
     try:
         referencia = uuid.UUID(str(pago.get("external_reference") or ""))
