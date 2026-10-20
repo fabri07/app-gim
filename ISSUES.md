@@ -20,6 +20,24 @@ del log.
 
 ---
 
+## [2026-10-20] Cuotas: Mercado Pago a la cuenta del gimnasio
+**Estado:** aceptado (riesgos asumidos a propósito); pendiente la prueba guiada (Parte 9 de `docs/mercadopago-tienda.md`)
+**Impacto:** el 2026-10-19 el dueño del producto levantó la regla «las cuotas no se cobran por Mercado Pago». Desde el 2026-10-20 el alumno puede pagar su cuota con un link a la cuenta MP del PROPIO gimnasio (OAuth, la misma de la tienda; cualquier gimnasio, con o sin el add-on), con el monto que sale del precio del gimnasio o del precio propio del alumno. La plata nunca pasa por la cuenta de la plataforma. Cuelga de la misma bandera que el MP de la tienda (apagada) y del interruptor `cuotas_con_mercadopago` de «Mi gimnasio». El débito automático sigue afuera. Diseño en `ARQUITECTURA.md` § «Cuotas por Mercado Pago».
+**Resolución / próximo paso:**
+
+*Riesgos aceptados*
+- **Una devolución no re-bloquea sola.** Un pago de cuota devuelto (o un contracargo) deja el intento DEVUELTO y la cuota PAGADA, con revisión y aviso al staff; la cuota vuelve a impaga sólo si el staff toca «Volver a impaga» (puede estar compensada en efectivo). Mientras tanto la plata devuelta suma en los ingresos y el alumno sigue desbloqueado.
+- **Cambio de cuenta de MP.** Los tokens viejos se pisan al instante, así que nada de la cuenta anterior se refleja solo. Por eso el callback frena el cambio con links de cuota vivos, revisiones pendientes o cuotas cobradas en los últimos 7 días (además de los pedidos). Pasado eso, un reintegro tardío de la cuenta vieja no llega.
+- **La bandera se llama `TIENDA_MP_ENABLED` y gobierna también las cuotas** (y las vistas OAuth viven en `tienda/`). Renombrarla tocaba settings, workflows y los tests de la bandera; no compensa. Leela como «Mercado Pago del gimnasio».
+- **Test cambiado a propósito:** `tienda.tests_mercadopago_cuenta.ConectarTests.test_sin_el_add_on_cartel_200` pasó a `test_sin_el_add_on_conecta_y_vuelve_a_mi_gimnasio`: conectar la cuenta ya no exige el add-on. También cambiaron a propósito `BotonTests.test_todo_ok_hay_boton_con_boost_apagado_en_el_inicio` y `HomeViewAlumnoTests.test_cuota_pendiente_con_monto_muestra_monto_y_alias_activos` (formato del monto de la cuota en el portal).
+- **Con la cuenta del gimnasio en `ALUMNOS_BLOQUEADOS` el alumno no puede pagar**: `PlataformaMiddleware` no lo deja llegar al botón ni al retorno. No se tocó la allowlist; lo ya pagado lo acreditan el webhook y la reconciliación. Fijado en `pagos.tests_pagar_mp` (`test_con_alumnos_bloqueados_no_llega_comportamiento_conocido`).
+- **El importador de alumnos no importa `precio_cuota`** (el exportador sí lo escribe): un padrón reimportado vuelve sin precios propios y hay que cargarlos desde la ficha.
+- **Doble click en Postgres cancela el primer link**: el lock serializa los dos requests; el segundo encuentra el link del primero todavía sin `init_point`, lo cancela y crea el suyo, y el primero termina en «La cuota cambió mientras abríamos Mercado Pago». No se cobra dos veces.
+- **Pendiente de probar contra Postgres:** los `select_for_update` de cuota e intentos no hacen nada en SQLite; la protección en la suite son los UPDATE condicionales. Las carreras reales no se midieron.
+
+*Pendiente (pedido del usuario: la portada va después)*
+- `templates/tenants/portada.html` todavía no menciona el pago de cuotas por Mercado Pago: ~:153 («Las cuotas se generan solas, vos confirmás el pago») y ~:196 («Él sube el comprobante… y vos confirmás») describen sólo el cobro manual, y ~:340 menciona Mercado Pago sólo para la tienda. Los tests de ese texto están en `tenants/tests.py` ~:561-569 (`test_portada_con_mercado_pago_apagado_dice_solo_transferencia` / `..._prendido_lo_menciona`). Actualizar texto y tests juntos cuando se retome la portada.
+
 ## [2026-10-18] Tienda: Mercado Pago del gimnasio (Hito 2), construido y apagado
 **Estado:** aceptado (riesgos asumidos a propósito); pendiente la prueba guiada con cuentas de prueba
 **Impacto:** la tienda puede cobrar por Mercado Pago a la cuenta del propio gimnasio (OAuth). Todo depende de 4 variables (`MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_OAUTH_REDIRECT_URI`, `MP_TOKEN_ENCRYPTION_KEY`): sin ellas no se ve nada y la tienda cobra sólo por transferencia. Diseño en `ARQUITECTURA.md` («Mercado Pago de la tienda»); pasos y checklist en `docs/mercadopago-tienda.md`.
@@ -40,6 +58,7 @@ del log.
 **Estado:** aceptado
 **Impacto:** el principio «pagos simples, sin Mercado Pago» tenía una sola excepción (la suscripción a la plataforma); ahora tiene dos y puede leerse como puerta abierta.
 **Resolución / próximo paso:** la excepción es sólo la tienda (`tienda/`, Hito 2, a la cuenta de MP del gimnasio). Las cuotas (`pagos`) siguen sin MP y las confirma el staff. `CLAUDE.md` § Principios, `PRODUCT.md` y `ROADMAP.md` lo dicen igual.
+**Actualización (2026-10-20):** ya no vale para las cuotas. El dueño del producto levantó la regla el 2026-10-19 y las cuotas se pueden pagar por Mercado Pago a la misma cuenta del gimnasio (ver la entrada «[2026-10-20] Cuotas: Mercado Pago a la cuenta del gimnasio»). Lo que sigue afuera es el débito automático, y la plata del alumno nunca va a la cuenta de la plataforma.
 
 ## [2026-10-15] Importar alumnos desde Excel/CSV y acciones en lote: riesgos aceptados y deuda conocida
 **Estado:** aceptado (riesgo asumido a propósito); una verificación pendiente contra Postgres
