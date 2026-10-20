@@ -277,7 +277,7 @@ class PrepararFotoDraftTests(TestCase):
 
 class FotoTests(_BaseStaff):
     def crear_foto(self, producto, posicion=0):
-        foto = FotoProducto(producto=producto, posicion=posicion)
+        foto = FotoProducto(producto=producto, posicion=posicion, aprobada=True)
         foto.imagen.save("f.jpg", jpeg(400, 400))
         return foto
 
@@ -345,7 +345,7 @@ class GaleriaDeFotosTests(_BaseStaff):
         producto, variante = self.crear_producto()
         fotos = []
         for i in range(cantidad):
-            foto = FotoProducto(producto=producto, posicion=i)
+            foto = FotoProducto(producto=producto, posicion=i, aprobada=True)
             foto.imagen.save(f"f{i}.jpg", jpeg(400, 400))
             fotos.append(foto)
         return producto, variante, fotos

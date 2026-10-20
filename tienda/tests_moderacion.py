@@ -4,6 +4,7 @@ que deja aprobado todo lo que ya estaba a la venta."""
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.core.files.base import ContentFile
 from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
@@ -13,7 +14,7 @@ from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
 from tienda.models import DenunciaProducto, FotoProducto, Pedido, Producto, Variante, q_vendible
 from tienda import services, tests_vistas_alumno
-from tienda.testing import crear_foto, crear_producto
+from tienda.testing import PNG, crear_foto, crear_producto
 
 
 class _Base(TestCase):
@@ -230,3 +231,97 @@ class VentaTests(tests_vistas_alumno._BaseAlumno):
         self.assertIn(buena.url_cacheable.replace("&", "&amp;"), html)
         self.assertNotIn(mala.url_cacheable.replace("&", "&amp;"), html)
         self.assertNotIn("2 fotos", html)
+
+
+class FotoModosTests(_Base):
+    """Tarea 4: la foto aprobada de un producto aprobado es pública e
+    `immutable`; cualquier otra sólo la ven el staff del gimnasio y el
+    superadmin, sin caché."""
+
+    def setUp(self):
+        super().setUp()
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(tienda_habilitada=True)
+        self.staff = User.objects.create_user("staff", password="c-123456")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.producto = crear_producto(gimnasio=self.gimnasio, nombre="P", precio=1)
+
+    def _foto(self, producto=None, aprobada=True):
+        foto = FotoProducto(producto=producto or self.producto, posicion=0, aprobada=aprobada)
+        foto.imagen.save("f.png", ContentFile(PNG))
+        return foto
+
+    def _entrar(self, usuario):
+        self.client.force_login(usuario)
+
+    def test_aprobada_es_publica_e_immutable_sin_cookie(self):
+        from plataforma.models import ActividadDiaria
+
+        foto = self._foto()
+        self._entrar(self.staff)
+        r = self.client.get(foto.url_cacheable)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Cache-Control"], "public, max-age=31536000, immutable")
+        self.assertEqual(list(r.cookies.keys()), [])
+        self.assertFalse(ActividadDiaria.objects.exists())
+
+    def test_sin_aprobar_da_404_no_store_al_anonimo(self):
+        foto = self._foto(aprobada=False)
+        r = self.client.get(foto.url_cacheable)
+        self.assertEqual(r.status_code, 404)
+        self.assertIn("no-store", r["Cache-Control"])
+
+    def test_sin_aprobar_la_ve_el_staff_del_gimnasio_sin_cache(self):
+        foto = self._foto(aprobada=False)
+        self._entrar(self.staff)
+        r = self.client.get(foto.url_cacheable)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Cache-Control"], "private, no-store")
+
+    def test_sin_aprobar_no_la_ve_el_staff_de_otro_gimnasio(self):
+        foto = self._foto(aprobada=False)
+        otro = Gimnasio.objects.create(nombre="B", slug="b", tienda_habilitada=True)
+        ajeno = User.objects.create_user("ajeno", password="c-123456")
+        Perfil.objects.create(usuario=ajeno, gimnasio=otro, rol=Perfil.Rol.STAFF)
+        self._entrar(ajeno)
+        r = self.client.get(foto.url_cacheable)
+        self.assertEqual(r.status_code, 404)
+        self.assertIn("no-store", r["Cache-Control"])
+
+    def test_sin_aprobar_no_la_ve_un_alumno_del_gimnasio(self):
+        foto = self._foto(aprobada=False)
+        usuario = User.objects.create_user("alu", password="c-123456")
+        Perfil.objects.create(usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
+        self._entrar(usuario)
+        self.assertEqual(self.client.get(foto.url_cacheable).status_code, 404)
+
+    def test_de_un_producto_bajado_da_404_aunque_este_aprobada(self):
+        foto = self._foto()
+        Producto.objects.filter(pk=self.producto.pk).update(moderacion=Producto.Moderacion.BAJADO)
+        self.assertEqual(self.client.get(foto.url_cacheable).status_code, 404)
+
+    def test_de_un_producto_pendiente_por_denuncias_da_404_aunque_este_aprobada(self):
+        foto = self._foto()
+        Producto.objects.filter(pk=self.producto.pk).update(
+            moderacion=Producto.Moderacion.PENDIENTE
+        )
+        self.assertEqual(self.client.get(foto.url_cacheable).status_code, 404)
+
+    def test_un_usuario_sin_perfil_recibe_404(self):
+        foto = self._foto(aprobada=False)
+        self._entrar(User.objects.create_user("sinperfil", password="c-123456"))
+        self.assertEqual(self.client.get(foto.url_cacheable).status_code, 404)
+
+    def test_el_staff_de_un_gimnasio_suspendido_recibe_404(self):
+        foto = self._foto(aprobada=False)
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            estado_cuenta=Gimnasio.EstadoCuenta.SUSPENDIDA
+        )
+        self._entrar(self.staff)
+        self.assertEqual(self.client.get(foto.url_cacheable).status_code, 404)
+
+    def test_el_superadmin_ve_una_sin_aprobar(self):
+        foto = self._foto(aprobada=False)
+        self._entrar(User.objects.create_superuser("root", password="c-123456"))
+        r = self.client.get(foto.url_cacheable)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Cache-Control"], "private, no-store")

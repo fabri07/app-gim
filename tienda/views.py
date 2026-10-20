@@ -12,7 +12,7 @@ from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.db.models import Count, Q
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseNotFound, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.http import urlencode
@@ -25,7 +25,9 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView,
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
 from pagos.models import MedioCobro
+from plataforma.middleware import sin_acceso
 from tenants import suplantacion
+from tenants.models import Perfil
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tienda import analitica, pagos_mp, services
 from tienda.codigos import normalizar
@@ -570,28 +572,70 @@ class ConfiguracionView(TiendaStaffMixin, UpdateView):
 
 
 class FotoProductoView(View):
-    """Pública y en `URLS_SIN_BLOQUEO` (sin cookie en una respuesta que se
-    cachea un año). La foto de un suplemento no es dato sensible; no se exige
-    `publicado` para que el staff vea sus borradores. A diferencia del logo
+    """Dos modos, según la moderación (ver `Producto.Moderacion`).
+
+    **Público**: foto aprobada de un producto APROBADO. Es el de siempre: la
+    ruta está en `URLS_SIN_BLOQUEO` (sin cookie en una respuesta que se cachea
+    un año) y la vista no toca la sesión. No se exige `publicado`, para que el
+    staff vea los borradores de lo ya aprobado. A diferencia del logo
     (`ArchivoDeGimnasioView`, que aparece en todas las páginas), no se cachea
     el contenido en LocMem: son muchas fotos de hasta 1200 px por proceso, y
-    con `immutable` el navegador ya no las vuelve a pedir."""
+    con `immutable` el navegador ya no las vuelve a pedir.
+
+    **Privado**: cualquier otra (sin aprobar, o de un producto pendiente o
+    bajado). La ven sólo el staff de ese gimnasio, si su cuenta tiene acceso, y
+    el superadmin, con `private, no-store`: ninguna caché puede guardarla. Es
+    el único camino que lee `request.user`. Para todos los demás es un 404 con
+    `no-store`, así una caché intermedia no guarda el «no existe» y la foto
+    sigue oculta después de aprobarla. Es `HttpResponseNotFound` y no `Http404`
+    justamente para poder ponerle la cabecera."""
 
     def get(self, request, pk, foto_pk):
-        foto = get_object_or_404(
+        foto = (
             FotoProducto.objects.filter(
                 Q(producto__gimnasio__es_demo=True) | Q(producto__gimnasio__tienda_habilitada=True),
                 producto__gimnasio__activo=True,
-            ),
-            pk=foto_pk,
-            producto_id=pk,
+                pk=foto_pk,
+                producto_id=pk,
+            )
+            .select_related("producto")
+            .first()
         )
+        if foto is None:
+            return self._no_existe()
+        if foto.aprobada and foto.producto.moderacion == Producto.Moderacion.APROBADO:
+            cache = "public, max-age=31536000, immutable"
+        elif self._puede_ver_sin_aprobar(request, foto):
+            cache = "private, no-store"
+        else:
+            return self._no_existe()
         with foto.imagen.open("rb") as archivo:
             contenido = archivo.read()
         tipo = mimetypes.guess_type(foto.imagen.name)[0] or "image/jpeg"
         respuesta = HttpResponse(contenido, content_type=tipo)
-        respuesta["Cache-Control"] = "public, max-age=31536000, immutable"
+        respuesta["Cache-Control"] = cache
         return respuesta
+
+    @staticmethod
+    def _no_existe():
+        respuesta = HttpResponseNotFound()
+        respuesta["Cache-Control"] = "no-store"
+        return respuesta
+
+    @staticmethod
+    def _puede_ver_sin_aprobar(request, foto):
+        usuario = request.user
+        if not usuario.is_authenticated:
+            return False
+        if usuario.is_superuser:
+            return usuario.is_active
+        perfil = getattr(usuario, "perfil", None)
+        return (
+            perfil is not None
+            and perfil.rol == Perfil.Rol.STAFF
+            and perfil.gimnasio_id == foto.producto.gimnasio_id
+            and not sin_acceso(perfil)
+        )
 
 
 # --- Alumno ------------------------------------------------------------
