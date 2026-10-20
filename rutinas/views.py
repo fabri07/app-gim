@@ -831,12 +831,21 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
         # impaga y hay algo concreto que puede hacer.
         bloqueo = acceso.bloqueo_de(self.alumno)
         if bloqueo is not None:
+            from pagos import cobro_mp
+            from tenants import suplantacion
+
             return render(
                 request,
                 "rutinas/bloqueado.html",
                 {
                     "bloqueo": bloqueo,
                     "gimnasio": self.gimnasio,
+                    # Pagar por Mercado Pago es la salida más rápida del
+                    # bloqueo (ver `pagos.views.PagarCuotaMPView`).
+                    "cobro_mp_disponible": (
+                        not suplantacion.esta_activa(request)
+                        and cobro_mp.cobro_online_disponible(self.gimnasio)
+                    ),
                     "cuotas_impagas": acceso.cuotas_impagas_de(self.alumno),
                     "medios_cobro": MedioCobro.objects.for_gimnasio(
                         self.gimnasio

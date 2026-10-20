@@ -130,7 +130,17 @@ class HomeView(LoginRequiredMixin, TemplateView):
         if perfil.rol == Perfil.Rol.STAFF:
             context.update(self._metricas_dashboard(perfil.gimnasio))
         elif perfil.rol == Perfil.Rol.ALUMNO:
+            from pagos import cobro_mp
+
             context.update(self._portal_alumno(perfil))
+            # «Pagar con Mercado Pago» y los textos que lo mencionan. Con la
+            # bandera apagada no cuesta ninguna query; suplantando, el staff
+            # no ve el botón (no paga por el alumno).
+            context["cobro_mp_disponible"] = (
+                context.get("alumno") is not None
+                and not suplantacion.esta_activa(self.request)
+                and cobro_mp.cobro_online_disponible(perfil.gimnasio)
+            )
         return context
 
     @staticmethod

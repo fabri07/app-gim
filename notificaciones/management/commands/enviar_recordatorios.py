@@ -29,8 +29,13 @@ class Command(BaseCommand):
         from turnos.models import Reserva
         from turnos.services import _ahora_local
         from notificaciones import services
+        from pagos import cobro_mp
 
         hoy = timezone.localdate()
+        # Los gimnasios cuyos alumnos pueden pagar la cuota por Mercado Pago:
+        # UNA query para todo el barrido (cero con la bandera apagada), nunca
+        # una por cuota.
+        con_cobro_online = cobro_mp.gimnasios_con_cobro_online()
         ahora = _ahora_local()
 
         novedades_notificadas = 0
@@ -76,7 +81,9 @@ class Command(BaseCommand):
                 )
                 .select_related("gimnasio", "alumno")
             ):
-                services.notificar_pago_por_vencer(pago)
+                services.notificar_pago_por_vencer(
+                    pago, cobro_online=pago.gimnasio_id in con_cobro_online
+                )
                 pagos_por_vencer += 1
 
 
@@ -84,7 +91,9 @@ class Command(BaseCommand):
         for pago in Cuota.objects.filter(
             estado=Cuota.Estado.VENCIDO, modificado__date=hoy
         ).select_related("gimnasio", "alumno"):
-            services.notificar_pago_vencido(pago)
+            services.notificar_pago_vencido(
+                pago, cobro_online=pago.gimnasio_id in con_cobro_online
+            )
             pagos_vencidos += 1
 
         # "Acceso bloqueado": las cuotas impagas que HOY cruzan el umbral de
@@ -103,7 +112,9 @@ class Command(BaseCommand):
                 periodo_inicio=hoy - timedelta(days=tolerancia),
                 periodo_inicio__gte=activacion,
             ).select_related("gimnasio", "alumno"):
-                services.notificar_acceso_bloqueado(pago)
+                services.notificar_acceso_bloqueado(
+                    pago, cobro_online=pago.gimnasio_id in con_cobro_online
+                )
                 accesos_bloqueados += 1
 
         ventana_fin = ahora + timedelta(minutes=MINUTOS_AVISO_TURNO)

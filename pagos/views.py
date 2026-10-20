@@ -9,12 +9,17 @@ La única acción de escritura del staff es confirmar un pago existente
 403 (Django resuelve `SingleObjectMixin.get_object` sobre ese queryset).
 """
 
+import logging
+
+from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
-
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.views import View
@@ -22,6 +27,7 @@ from django.views.generic import CreateView, DetailView, ListView, UpdateView
 
 
 from core.mixins import TenantScopedMixin
+from tenants import suplantacion
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from pagos.forms import (
     AlumnoComprobanteForm,
@@ -30,7 +36,9 @@ from pagos.forms import (
     MedioCobroForm,
 )
 from pagos import acceso, cobro
-from pagos.models import MedioCobro, Cuota
+from pagos.models import CobroOnlineCuota, Cuota, MedioCobro
+
+logger = logging.getLogger(__name__)
 
 
 def _fecha_o_nada(texto):
@@ -412,3 +420,144 @@ class MedioCobroUpdateView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
         response = super().form_valid(form)
         messages.success(self.request, "Medio de cobro actualizado correctamente.")
         return response
+
+
+# --- Cuotas por Mercado Pago (el alumno paga) ----------------------------------------
+
+
+class PagarCuotaMPView(AlumnoRequiredMixin, View):
+    """«Pagar con Mercado Pago»: genera (o reusa) el link de pago de la cuota
+    en la cuenta de MP del gimnasio y manda al alumno ahí.
+
+    Sólo POST (un GET es un 405: un link no puede abrir un cobro). Nunca un
+    4xx por una regla de negocio: bajo `hx-boost` sería un click mudo (el form
+    va con `hx-boost="false"`, pero un POST repetido desde una pestaña vieja
+    igual tiene que terminar en una pantalla que explique). Una cuota que no
+    es del alumno sí es un 404.
+
+    NO mira `acceso.bloqueo_de`: pagar es justamente la salida del bloqueo.
+    Mientras el staff suplanta al alumno no se paga nada: la plata sería del
+    staff, no del alumno."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        from pagos import cobro_mp
+
+        if self.alumno is None:
+            raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
+        cuota = get_object_or_404(
+            Cuota.objects.filter(gimnasio=self.gimnasio, alumno=self.alumno),
+            pk=kwargs["pk"],
+        )
+        if suplantacion.esta_activa(request):
+            messages.error(
+                request, "Mientras ves la app como un alumno no podés pagar sus cuotas."
+            )
+            return redirect("home")
+        try:
+            link = cobro_mp.link_de_pago(
+                cuota.pk,
+                self.alumno,
+                url_retorno_para=lambda referencia: request.build_absolute_uri(
+                    reverse("pagos:retorno_mp", args=[referencia])
+                ),
+                url_notificacion_para=lambda uuid_webhook: request.build_absolute_uri(
+                    reverse("tienda:mp_webhook", args=[uuid_webhook])
+                ),
+            )
+        except cobro_mp.NoSePuedePagar as error:
+            messages.error(request, error.mensaje)
+            return redirect("home")
+        return HttpResponseRedirect(link)
+
+
+@method_decorator(never_cache, name="dispatch")
+class RetornoCuotaMPView(AlumnoRequiredMixin, View):
+    """Adonde vuelve el navegador desde Mercado Pago después de pagar una
+    cuota. Siempre termina en el inicio, con un mensaje.
+
+    El querystring es dato del cliente: el `status` se IGNORA, la única
+    autoridad es leer el pago en la API con el token del gimnasio
+    (`cobro_mp.acreditar_cuota_por_id`). Si eso falla, «Estamos confirmando tu
+    pago»: el webhook y la reconciliación lo acreditan igual.
+
+    Con la cuenta del gimnasio en `ALUMNOS_BLOQUEADOS` el middleware de la
+    plataforma no deja llegar acá (comportamiento conocido y aceptado): el
+    pago lo acreditan el webhook y la reconciliación."""
+
+    http_method_names = ["get"]
+
+    def get(self, request, *args, **kwargs):
+        from pagos import cobro_mp
+        from tienda.models import CuentaMercadoPago
+
+        if self.alumno is None:
+            raise Http404
+        intento = get_object_or_404(
+            CobroOnlineCuota.objects.filter(
+                gimnasio=self.gimnasio, cuota__alumno=self.alumno
+            ),
+            referencia_externa=kwargs["referencia"],
+        )
+        payment_id = next(
+            (
+                valor.strip()
+                for valor in (
+                    request.GET.get("payment_id", ""),
+                    request.GET.get("collection_id", ""),
+                )
+                # Mercado Pago manda el texto «null» cuando no hubo pago.
+                if valor.strip() and valor.strip().lower() != "null"
+            ),
+            "",
+        )
+        if not payment_id:
+            messages.info(
+                request,
+                "No se registró ningún pago. Podés intentarlo de nuevo o subir el comprobante.",
+            )
+            return redirect("home")
+
+        confirmado = False
+        if settings.TIENDA_MP_ENABLED:
+            cuenta = CuentaMercadoPago.objects.filter(gimnasio=self.gimnasio).first()
+            if cuenta is not None and cuenta.access_token:
+                try:
+                    cobro_mp.acreditar_cuota_por_id(cuenta, payment_id)
+                    confirmado = True
+                except Exception as exc:  # noqa: BLE001 - lo acreditan el webhook y la reconciliación
+                    logger.warning(
+                        "No se pudo acreditar al volver de Mercado Pago el cobro de cuota %s: %s",
+                        intento.pk, type(exc).__name__,
+                    )
+        if not confirmado:
+            messages.info(
+                request, "Estamos confirmando tu pago. Te avisamos cuando se acredite."
+            )
+            return redirect("home")
+
+        intento.refresh_from_db()
+        cuota = Cuota.objects.get(pk=intento.cuota_id)
+        _E = CobroOnlineCuota.Estado
+        if intento.estado == _E.PAGADO and cuota.estado == Cuota.Estado.PAGADO:
+            if acceso.bloqueo_de(self.alumno) is None:
+                messages.success(request, "¡Listo, tu cuota quedó paga!")
+            else:
+                messages.warning(
+                    request,
+                    "Tu cuota quedó paga, pero tenés otra cuota impaga que sigue "
+                    "pausando tu acceso. Pagala para volver a entrenar.",
+                )
+        elif intento.estado in (_E.REVISAR, _E.DUPLICADO):
+            messages.info(
+                request,
+                "Recibimos tu pago. El gimnasio lo tiene que revisar antes de "
+                "darlo por bueno.",
+            )
+        else:
+            messages.info(
+                request,
+                "No se registró ningún pago. Podés intentarlo de nuevo o subir el comprobante.",
+            )
+        return redirect("home")

@@ -26,9 +26,11 @@ importa dentro de las funciones.
 
 import logging
 import uuid
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
-from django.db import transaction
+from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -426,3 +428,219 @@ def acreditar_cuota_por_id(cuenta, payment_id):
     if referencia_de(pago) is None:
         return None
     return acreditar_cuota_leida(cuenta, pago)
+
+
+# --- Pagar (el alumno abre el link) -----------------------------------------------
+
+#: Cuánto vive el link de pago de una cuota. Corto a propósito: no hay stock
+#: que reservar (la tienda usa la vigencia del pedido), y cada hora de link
+#: abierto es una hora en la que el alumno puede pagar en el mostrador y
+#: DESPUÉS por el link que le quedó en otra pestaña (un pago duplicado que el
+#: gimnasio tiene que devolver). Dos horas alcanzan para cargar una tarjeta.
+HORAS_VALIDEZ_LINK_CUOTA = 2
+
+#: Un link vivo sólo se reusa si le quedan más de estos minutos (mismo
+#: criterio que `suscripcion.services.MINUTOS_MINIMOS_PARA_REUSAR`): con
+#: menos, Mercado Pago lo rechazaría a mitad de la carga de la tarjeta.
+MINUTOS_MINIMOS_PARA_REUSAR = 30
+
+#: Largo del título del ítem en Mercado Pago: el nombre del gimnasio es libre
+#: y MP rechaza títulos muy largos.
+LARGO_TITULO = 120
+
+MENSAJES_PAGAR = {
+    "no_disponible": "Este gimnasio no cobra las cuotas por Mercado Pago. Subí el comprobante.",
+    "ya_no_impaga": "Esta cuota ya no está pendiente de pago.",
+    "sin_monto": "Esta cuota no tiene un monto para cobrar. Consultalo con el gimnasio.",
+    "mp_fallo": "No pudimos abrir Mercado Pago, probá de nuevo o subí el comprobante.",
+    "en_curso": "Ya estamos abriendo Mercado Pago para esta cuota: probá de nuevo en unos segundos.",
+    "cambio": "La cuota cambió mientras abríamos Mercado Pago. Revisá su estado antes de pagar.",
+}
+
+
+class NoSePuedePagar(Exception):
+    """No hay link de pago para darle al alumno. `motivo` es una clave de
+    `MENSAJES_PAGAR` (lo que ve en pantalla)."""
+
+    def __init__(self, motivo):
+        super().__init__(motivo)
+        self.motivo = motivo
+
+    @property
+    def mensaje(self):
+        return MENSAJES_PAGAR[self.motivo]
+
+
+def _cuentas_cobrando():
+    from tienda.models import CuentaMercadoPago
+
+    # Un token vacío no se cifra: `""` en la base es «sin token». Uno
+    # ilegible (clave rotada) se detecta al usarlo (`marcar_reconectar`).
+    return CuentaMercadoPago.objects.filter(
+        estado=CuentaMercadoPago.Estado.CONECTADA
+    ).exclude(access_token="")
+
+
+def cobro_online_disponible(gimnasio):
+    """LA regla de si los alumnos de `gimnasio` pueden pagar sus cuotas por
+    Mercado Pago: la bandera, que no sea la demo, el interruptor de «Mi
+    gimnasio» y una cuenta CONECTADA con token.
+
+    La query a la cuenta va SÓLO si lo demás es verdadero: con la bandera
+    apagada (hoy, en producción) no agrega ninguna query al portal."""
+    if not settings.TIENDA_MP_ENABLED:
+        return False
+    if gimnasio.es_demo or not gimnasio.cuotas_con_mercadopago:
+        return False
+    return _cuentas_cobrando().filter(gimnasio_id=gimnasio.pk).exists()
+
+
+def gimnasios_con_cobro_online():
+    """Los ids de los gimnasios para los que `cobro_online_disponible` da
+    verdadero, en UNA query (cero con la bandera apagada). Para los barridos
+    sobre muchas cuotas (`enviar_recordatorios`): nunca una query por cuota."""
+    if not settings.TIENDA_MP_ENABLED:
+        return frozenset()
+    return frozenset(
+        _cuentas_cobrando()
+        .filter(gimnasio__es_demo=False, gimnasio__cuotas_con_mercadopago=True)
+        .values_list("gimnasio_id", flat=True)
+    )
+
+
+def _reusable(intento, cuenta, monto, ahora):
+    return (
+        bool(intento.init_point)
+        and intento.expira is not None
+        and intento.expira >= ahora + timedelta(minutes=MINUTOS_MINIMOS_PARA_REUSAR)
+        and intento.monto == monto
+        and intento.mp_user_id == str(cuenta.mp_user_id or "")
+    )
+
+
+def _link_vivo(cuota_pk):
+    """El intento CREADO de la cuota (hay uno como máximo: unique parcial)."""
+    return CobroOnlineCuota.objects.filter(
+        cuota_id=cuota_pk, estado=CobroOnlineCuota.Estado.CREADO
+    ).first()
+
+
+def _preparar_intento(cuota_pk, alumno, cuenta, ahora):
+    """Bajo lock (cuota → intentos): `(intento, link_para_reusar)`.
+
+    Vence perezosamente los links CREADO ya expirados; reusa el vivo si le
+    queda tiempo y cobra lo mismo, con la misma cuenta; si no, lo cancela
+    ANTES de crear el nuevo (el unique parcial «un link vivo por cuota» daría
+    un 500)."""
+    with transaction.atomic():
+        cobro._bloquear(cuota_pk)
+        cuota = Cuota.objects.filter(
+            pk=cuota_pk, gimnasio_id=alumno.gimnasio_id, alumno=alumno
+        ).first()
+        if cuota is None or cuota.estado not in Cuota.ESTADOS_IMPAGOS:
+            raise NoSePuedePagar("ya_no_impaga")
+        if cuota.monto <= 0:
+            raise NoSePuedePagar("sin_monto")
+
+        CobroOnlineCuota.objects.filter(
+            cuota_id=cuota_pk, estado=_I.CREADO, expira__lt=ahora
+        ).update(estado=_I.VENCIDO, modificado=ahora)
+        abierto = _link_vivo(cuota_pk)
+        if abierto is not None:
+            if _reusable(abierto, cuenta, cuota.monto, ahora):
+                return abierto, abierto.init_point
+            CobroOnlineCuota.objects.filter(pk=abierto.pk, estado=_I.CREADO).update(
+                estado=_I.CANCELADO, modificado=ahora
+            )
+
+        try:
+            with transaction.atomic():
+                intento = CobroOnlineCuota.objects.create(
+                    gimnasio_id=cuota.gimnasio_id,
+                    cuota=cuota,
+                    monto=cuota.monto,
+                    mp_user_id=str(cuenta.mp_user_id or ""),
+                    expira=ahora + timedelta(hours=HORAS_VALIDEZ_LINK_CUOTA),
+                )
+        except IntegrityError:
+            # Doble click sin lock (SQLite) o en la misma fracción de segundo:
+            # el otro request ya creó el link vivo. Se reusa si ya tiene link.
+            otro = _link_vivo(cuota_pk)
+            if otro is not None and _reusable(otro, cuenta, cuota.monto, ahora):
+                return otro, otro.init_point
+            raise NoSePuedePagar("en_curso") from None
+    return intento, None
+
+
+def link_de_pago(cuota_pk, alumno, *, url_retorno_para, url_notificacion_para, ahora=None):
+    """El `init_point` para que `alumno` pague su cuota `cuota_pk` en la
+    cuenta de Mercado Pago DE SU GIMNASIO. `NoSePuedePagar` si no.
+
+    `url_retorno_para(referencia_externa)` y `url_notificacion_para(uuid_webhook)`
+    devuelven URLs absolutas (las arma la vista, que tiene el `request`).
+
+    La preferencia se crea FUERA del lock (la red nunca va con filas
+    bloqueadas) y el link se guarda con un UPDATE condicional a que el intento
+    siga CREADO: si en esos segundos el staff cobró la cuota (y canceló el
+    link), el alumno no va a Mercado Pago a pagarla dos veces."""
+    from tienda import cuenta_mp
+    from tienda.models import CuentaMercadoPago
+
+    ahora = ahora or timezone.now()
+    gimnasio = alumno.gimnasio
+    if not cobro_online_disponible(gimnasio):
+        raise NoSePuedePagar("no_disponible")
+    cuenta = CuentaMercadoPago.objects.filter(
+        gimnasio_id=gimnasio.pk, estado=CuentaMercadoPago.Estado.CONECTADA
+    ).first()
+    if cuenta is None:
+        raise NoSePuedePagar("no_disponible")
+    if not cuenta.access_token:
+        # Ilegible (clave rotada o ausente): «reconectar» sin llamar a MP.
+        cuenta_mp.marcar_reconectar(cuenta.pk, cuenta.token_expira)
+        raise NoSePuedePagar("mp_fallo")
+
+    intento, link = _preparar_intento(cuota_pk, alumno, cuenta, ahora)
+    if link:
+        return link
+
+    try:
+        preferencia = mercadopago.crear_preferencia(
+            titulo=f"Cuota del {intento.cuota.periodo_inicio:%d/%m} — {gimnasio.nombre}"[
+                :LARGO_TITULO
+            ],
+            monto_ars=intento.monto,
+            referencia_externa=intento.referencia_mp,
+            url_retorno=url_retorno_para(intento.referencia_externa),
+            url_notificacion=url_notificacion_para(cuenta.uuid_webhook),
+            expira=intento.expira,
+            # El token DEL GIMNASIO: sin él, la plata del alumno iría a la
+            # cuenta de la plataforma (`pagos/tests_token_del_gimnasio.py`).
+            token=Secreto(cuenta.access_token),
+            sandbox=cuenta.es_de_prueba,
+            # Sin «TUGIMAPP» en el resumen de la tarjeta del alumno: lo define
+            # la cuenta del gimnasio.
+            statement_descriptor=None,
+        )
+    except mercadopago.ErrorDeMercadoPago as exc:
+        logger.warning(
+            "No se pudo crear la preferencia del cobro de cuota %s: %s (codigo=%s)",
+            intento.pk, type(exc).__name__, exc.codigo,
+        )
+        CobroOnlineCuota.objects.filter(
+            pk=intento.pk, estado=CobroOnlineCuota.Estado.CREADO
+        ).update(estado=CobroOnlineCuota.Estado.CANCELADO, modificado=timezone.now())
+        if exc.codigo == 401:
+            cuenta_mp.marcar_reconectar(cuenta.pk, cuenta.token_expira)
+        raise NoSePuedePagar("mp_fallo") from None
+
+    guardado = CobroOnlineCuota.objects.filter(
+        pk=intento.pk, estado=CobroOnlineCuota.Estado.CREADO, preference_id=""
+    ).update(
+        preference_id=preferencia["id"],
+        init_point=preferencia["init_point"],
+        modificado=timezone.now(),
+    )
+    if not guardado:
+        raise NoSePuedePagar("cambio")
+    return preferencia["init_point"]

@@ -17,10 +17,18 @@ rompió, cuando lo que pasa es que hay algo concreto que puede hacer.
       {{ bloqueo.dias_de_atraso }} día{{ bloqueo.dias_de_atraso|pluralize }}
       (la del {{ bloqueo.cuota.periodo_inicio|date:"d/m/Y" }}).
     </p>
-    <p>
-      Subí el comprobante y el gimnasio te reactiva la rutina y los turnos
-      apenas lo confirme. Si ya pagaste, avisale al gimnasio.
-    </p>
+    {% if cobro_mp_disponible %}
+      <p>
+        Pagá con Mercado Pago y tu acceso vuelve al instante, o subí el
+        comprobante y el gimnasio te reactiva la rutina y los turnos apenas lo
+        confirme. Si ya pagaste, avisale al gimnasio.
+      </p>
+    {% else %}
+      <p>
+        Subí el comprobante y el gimnasio te reactiva la rutina y los turnos
+        apenas lo confirme. Si ya pagaste, avisale al gimnasio.
+      </p>
+    {% endif %}
 
     {% include 'partials/cuotas_impagas.html' %}
 

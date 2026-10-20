@@ -980,10 +980,18 @@
           (la del {{ bloqueo.cuota.periodo_inicio|date:"d/m/Y" }}), así que la
           rutina y los turnos quedaron en pausa.
         </p>
-        <p>
-          Subí el comprobante acá abajo y el gimnasio te reactiva todo apenas
-          lo confirme. Si ya pagaste, avisale al gimnasio.
-        </p>
+        {% if cobro_mp_disponible %}
+          <p>
+            Pagá con Mercado Pago acá abajo y se reactiva todo al instante, o
+            subí el comprobante y el gimnasio lo reactiva apenas lo confirme.
+            Si ya pagaste, avisale al gimnasio.
+          </p>
+        {% else %}
+          <p>
+            Subí el comprobante acá abajo y el gimnasio te reactiva todo apenas
+            lo confirme. Si ya pagaste, avisale al gimnasio.
+          </p>
+        {% endif %}
       </div>
     {% endif %}
 
@@ -1021,7 +1029,8 @@
       {% if bloqueo %}
         <p class="texto-suave">
           Vas a volver a ver tu rutina cuando el gimnasio registre el pago de
-          tu cuota.
+          tu cuota.{% if cobro_mp_disponible %} Si la pagás con Mercado Pago,
+          se habilita al instante.{% endif %}
         </p>
       {% elif rutina_actual %}
         <p><strong>{{ rutina_actual.nombre_snapshot }}</strong></p>

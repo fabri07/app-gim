@@ -16,6 +16,8 @@ from pagos.views import (
     MedioCobroListView,
     MedioCobroUpdateView,
     CuotaListView,
+    PagarCuotaMPView,
+    RetornoCuotaMPView,
 )
 
 app_name = "pagos"
@@ -32,6 +34,12 @@ urlpatterns = [
         "<int:pk>/volver-a-impaga/",
         CuotaVolverAImpagaView.as_view(),
         name="volver_a_impaga",
+    ),
+    path("<int:pk>/mercadopago/", PagarCuotaMPView.as_view(), name="pagar_mp"),
+    path(
+        "mercadopago/retorno/<uuid:referencia>/",
+        RetornoCuotaMPView.as_view(),
+        name="retorno_mp",
     ),
     path(
         "<int:pk>/comprobante/",

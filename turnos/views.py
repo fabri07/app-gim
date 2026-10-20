@@ -314,10 +314,15 @@ class ReservarView(AlumnoRequiredMixin, View):
         # vieja. CancelarReservaView NO lleva este corte a propósito -- un
         # alumno bloqueado tiene que poder liberar el cupo que ya ocupaba.
         if acceso.bloqueo_de(self.alumno) is not None:
-            raise PermissionDenied(
+            from pagos import cobro_mp
+
+            mensaje = (
                 "Tu acceso a los turnos está pausado hasta que se registre el "
                 "pago de tu cuota."
             )
+            if cobro_mp.cobro_online_disponible(self.gimnasio):
+                mensaje += " Si la pagás con Mercado Pago, se habilita al instante."
+            raise PermissionDenied(mensaje)
 
         form = ReservaForm(request.POST)
         if form.is_valid():
