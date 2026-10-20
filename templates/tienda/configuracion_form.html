@@ -8,6 +8,8 @@
     <a class="boton-secundario" href="{% url 'tienda:productos' %}">Volver a la tienda</a>
   </div>
 
+  {% include 'tienda/_clausula_uso.html' %}
+
   <form method="post">
     {% csrf_token %}
     {% for campo in form %}{% include 'partials/campo_form.html' with campo=campo %}{% endfor %}

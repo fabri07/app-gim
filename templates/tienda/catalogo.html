@@ -51,6 +51,9 @@
         {% if not p.hay_stock %}<p class="texto-suave">Agotado</p>{% endif %}
         <button type="submit" class="boton w-full mt-2" {% if not p.hay_stock %}disabled{% endif %}>Agregar al carrito</button>
       </form>
+      <p class="texto-suave mt-2">
+        {% if p.pk in denunciados %}Ya lo denunciaste{% else %}<a href="{% url 'tienda:denunciar' p.pk %}">Denunciar</a>{% endif %}
+      </p>
     </div>
   {% endfor %}
   </div>

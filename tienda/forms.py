@@ -15,6 +15,7 @@ from tienda.models import (
     CategoriaProducto,
     ConfiguracionTienda,
     CuentaMercadoPago,
+    DenunciaProducto,
     FotoProducto,
     ItemPedido,
     Producto,
@@ -627,6 +628,17 @@ class ConfiguracionTiendaForm(TenantScopedModelForm):
 
 class MotivoForm(forms.Form):
     motivo = forms.CharField(max_length=MAX_LARGO_MOTIVO, required=False, label="Motivo")
+
+
+class DenunciaForm(forms.Form):
+    motivo = forms.ChoiceField(
+        label="Motivo", choices=[("", "Elegí un motivo")] + list(DenunciaProducto.Motivo.choices),
+    )
+    detalle = forms.CharField(
+        label="Detalle", required=False, max_length=500,
+        widget=forms.Textarea(attrs={"rows": 4, "maxlength": 500}),
+        help_text="Opcional. Contanos qué viste (hasta 500 caracteres).",
+    )
 
 
 TAMANIO_MAXIMO_COMPROBANTE = 5 * 1024 * 1024

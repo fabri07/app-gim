@@ -18,7 +18,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Count, F, Q, Sum, Value
+from django.db.models import Count, F, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -34,6 +34,7 @@ from tienda.models import (
     Pedido,
     Variante,
     obtener_configuracion,
+    q_vendible,
 )
 
 logger = logging.getLogger(__name__)
@@ -150,7 +151,7 @@ def _ahora(ahora):
 
 def _variantes_vendibles(gimnasio):
     return Variante.objects.filter(
-        producto__gimnasio=gimnasio, activa=True, producto__publicado=True
+        q_vendible("producto__"), producto__gimnasio=gimnasio, activa=True
     )
 
 
@@ -293,6 +294,13 @@ def _reservar_y_crear(gimnasio, alumno, carrito, variantes, config, ahora, medio
             ).update(stock=F("stock") - cantidad)
             if tocadas != 1:
                 raise ErrorDeTienda("sin_stock", str(variantes[variante_id]))
+        # Segunda mirada, con las variantes ya bloqueadas por los UPDATE de
+        # arriba (foco 6 de la moderación): una baja de la plataforma que
+        # entró entre la validación de `crear_pedido` y acá ya commiteó (o
+        # espera a que este `atomic` termine y cancela el pedido). Si algo
+        # dejó de ser vendible, se deshace todo, stock incluido.
+        if _variantes_vendibles(gimnasio).filter(pk__in=carrito).count() != len(carrito):
+            raise ErrorDeTienda("producto_no_disponible")
         total = sum(
             (variantes[i].producto.precio * n for i, n in carrito.items()), Decimal("0")
         )
@@ -379,6 +387,68 @@ def vencer_pedidos(*, gimnasio=None, ahora=None):
                     _devolver_stock([pk])
                     vencidos.append(pk)
         return vencidos
+
+
+def _pendientes_de_producto(producto_id):
+    """Los pedidos sin pagar con alguna variante del producto, bloqueados y
+    en orden de id (el `ordering` del modelo es `-creado`): dos bajas con
+    pedidos compartidos toman los locks en el mismo orden. `pk__in` con
+    subquery y NO `distinct()`: Postgres no admite `FOR UPDATE` con
+    `DISTINCT`."""
+    return list(
+        Pedido.objects.select_for_update()
+        .filter(
+            estado=_E.PENDIENTE_PAGO,
+            pk__in=Subquery(
+                ItemPedido.objects.filter(variante__producto_id=producto_id).values("pedido_id")
+            ),
+        )
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+
+
+def cancelar_pedidos_de_producto(producto_id, *, motivo, ahora=None):
+    """Cancela los pedidos `PENDIENTE_PAGO` que tienen alguna variante del
+    producto (el pedido ENTERO, y vuelve el stock de TODOS sus ítems) y
+    devuelve sus ids. Lo usa la baja de la plataforma
+    (`moderacion.bajar_producto`).
+
+    `cancelado_por_staff=True`: un pago tardío de Mercado Pago no lo revive
+    (va a REVISAR, ver `pagos_mp._aplicar`). Mismo esquema que
+    `vencer_pedidos`, que NO se toca: UPDATE masivo y, si tocó menos filas de
+    las que seleccionó, de a uno.
+
+    El `order_by("pk")` de `_pendientes_de_producto` sólo evita el deadlock
+    entre dos bajas que toman los pedidos en el mismo orden. NO evita el que
+    hay contra `vencer_pedidos`, `cancelar_por_alumno` o un checkout que
+    comparte pedidos: esos bloquean pedidos primero y variantes después, y la
+    baja al revés (a propósito, para cerrar la carrera con el checkout).
+    Postgres aborta una de las dos transacciones sin dejar nada inconsistente.
+    Riesgo aceptado: ver `ISSUES.md` (2026-10-19, moderación de la tienda)."""
+    ahora = _ahora(ahora)
+    campos = dict(
+        estado=_E.CANCELADO, cancelado_por_staff=True,
+        motivo=motivo[:MAX_LARGO_MOTIVO], modificado=ahora,
+    )
+    try:
+        with transaction.atomic():
+            ids = _pendientes_de_producto(producto_id)
+            if not ids:
+                return []
+            tocadas = Pedido.objects.filter(pk__in=ids, estado=_E.PENDIENTE_PAGO).update(**campos)
+            if tocadas != len(ids):
+                raise _Carrera
+            _devolver_stock(ids)
+            return ids
+    except _Carrera:
+        cancelados = []
+        for pk in ids:
+            with transaction.atomic():
+                if Pedido.objects.filter(pk=pk, estado=_E.PENDIENTE_PAGO).update(**campos):
+                    _devolver_stock([pk])
+                    cancelados.append(pk)
+        return cancelados
 
 
 def subir_comprobante(pedido, *, alumno, archivo, ahora=None):

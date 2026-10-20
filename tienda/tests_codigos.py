@@ -15,6 +15,7 @@ from tenants.models import Gimnasio, Perfil
 from tienda import services
 from tienda.codigos import codigo_interno, digito_verificador
 from tienda.models import CategoriaProducto, Producto, Variante
+from tienda.testing import crear_producto
 
 
 class _Base(TestCase):
@@ -28,7 +29,7 @@ class _Base(TestCase):
     def producto(self, nombre="Remera", gimnasio=None, variantes=(("M", ""),)):
         # Con «Talle» si alguna variante tiene nombre; sin características si
         # es la única «».
-        producto = Producto.objects.create(
+        producto = crear_producto(
             gimnasio=gimnasio or self.gimnasio, nombre=nombre, precio=Decimal("15000"),
             caracteristica_1="Talle" if any(n for n, _c in variantes) else "",
         )

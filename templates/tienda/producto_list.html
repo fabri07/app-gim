@@ -56,7 +56,13 @@
                 </div>
               {% endfor %}
             </td>
-            <td>{% if p.publicado %}<span class="badge badge--ok">Publicado</span>{% else %}<span class="badge badge--neutro">Oculto</span>{% endif %}</td>
+            <td>
+              {% if p.moderacion == "pendiente" %}<span class="badge badge--alerta">Esperando aprobación</span>
+              {% elif p.moderacion == "bajado" %}<span class="badge badge--riesgo">Dado de baja por la plataforma</span>
+              {% elif p.cambio_pendiente %}<span class="badge badge--alerta">Cambio en revisión</span>{% endif %}
+              {% if p.publicado %}<span class="badge badge--ok">Publicado</span>{% else %}<span class="badge badge--neutro">Oculto</span>{% endif %}
+              {% if p.moderacion_motivo %}<p class="texto-suave">{{ p.moderacion_motivo }}</p>{% endif %}
+            </td>
             <td>
               <a href="{% url 'tienda:producto_editar' p.pk %}">Editar</a>
               <a href="{% url 'tienda:producto_borrar' p.pk %}">Eliminar</a>

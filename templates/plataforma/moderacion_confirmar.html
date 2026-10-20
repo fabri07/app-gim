@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}Moderación · Plataforma{% endblock %}
+
+{% comment %}
+  Confirmación de las acciones de la cola. «Aprobar» manda como hidden lo que
+  esta pantalla mostró (`version`, `fotos_vistas`, `denuncias_vistas`): el
+  superadmin aprueba sólo lo que vio. `version` va con `isoformat` para que el
+  viaje de ida y vuelta conserve los microsegundos.
+{% endcomment %}
+
+{% block content %}
+<div class="tarjeta">
+  {% if accion == "rechazar_foto" %}
+    <h1>Rechazar la foto</h1>
+    <p>Se borra la foto de «{{ producto.nombre }}» ({{ producto.gimnasio.nombre }}) y el gimnasio ve un aviso en su listado.</p>
+    <a href="{% url 'plataforma:moderacion_foto' foto.pk %}" target="_blank" rel="noopener" hx-boost="false">
+      <img src="{% url 'plataforma:moderacion_foto' foto.pk %}" width="240" height="240" alt="Foto a rechazar">
+    </a>
+    <form method="post" action="{% url 'plataforma:moderacion_foto_accion' foto.pk 'rechazar' %}">
+      {% csrf_token %}
+      <button type="submit" class="boton-peligro">Sí, rechazar la foto</button>
+      <a class="boton-secundario" href="{% url 'plataforma:moderacion' %}">Cancelar</a>
+    </form>
+  {% else %}
+    <h1>{% if accion == "aprobar" %}Aprobar{% else %}Dar de baja{% endif %}: {{ producto.nombre }}</h1>
+    <p class="texto-suave">
+      <a href="{% url 'plataforma:gimnasio_detalle' producto.gimnasio.pk %}">{{ producto.gimnasio.nombre }}</a>
+      · ${{ producto.precio }}
+    </p>
+    {% if producto.descripcion %}<p>{{ producto.descripcion|linebreaksbr }}</p>{% endif %}
+    {% if variantes %}
+      <ul>
+        {% for v in variantes %}<li>{{ v.nombre|default:"Única" }} · stock {{ v.stock }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    {% if denuncias %}
+      <h2>Denuncias abiertas</h2>
+      <ul>
+        {% for d in denuncias %}
+          <li>
+            <strong>{{ d.get_motivo_display }}</strong>{% if d.detalle %}: {{ d.detalle }}{% endif %}
+            <span class="texto-suave">· {% if d.alumno %}{{ d.alumno.nombre }} {{ d.alumno.apellido }}{% else %}alumno borrado{% endif %}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+    <div class="acciones-lista">
+      {% for f in fotos %}
+        <div>
+          <a href="{% url 'plataforma:moderacion_foto' f.pk %}" target="_blank" rel="noopener" hx-boost="false">
+            <img src="{% url 'plataforma:moderacion_foto' f.pk %}" width="120" height="120" loading="lazy" alt="Foto de {{ producto.nombre }}">
+          </a>
+          <div>{% if f.aprobada %}<span class="badge badge--neutro">Aprobada</span>{% else %}<span class="badge badge--alerta">Nueva</span>{% endif %}</div>
+        </div>
+      {% endfor %}
+    </div>
+
+    {% if accion == "aprobar" %}
+      <p>Al aprobar, el producto y las fotos y denuncias que ves acá quedan resueltos.</p>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="version" value="{{ producto.modificado.isoformat }}">
+        {% for f in fotos %}<input type="hidden" name="fotos_vistas" value="{{ f.pk }}">{% endfor %}
+        {% for d in denuncias %}<input type="hidden" name="denuncias_vistas" value="{{ d.pk }}">{% endfor %}
+        <button type="submit" class="boton">Sí, aprobar</button>
+        <a class="boton-secundario" href="{% url 'plataforma:moderacion' %}">Cancelar</a>
+      </form>
+    {% else %}
+      <p>Sale de la venta para siempre: el gimnasio ya no lo puede editar ni borrar, y se cancelan sus pedidos sin pagar.</p>
+      <form method="post">
+        {% csrf_token %}
+        <label for="id_motivo">Motivo (lo ve el gimnasio)</label>
+        <textarea id="id_motivo" name="motivo" rows="3" maxlength="{{ largo_motivo }}">{{ motivo }}</textarea>
+        {% if error_motivo %}<p class="texto-error" role="alert">{{ error_motivo }}</p>{% endif %}
+        <button type="submit" class="boton-peligro">Sí, dar de baja</button>
+        <a class="boton-secundario" href="{% url 'plataforma:moderacion' %}">Cancelar</a>
+      </form>
+    {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

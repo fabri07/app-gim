@@ -27,6 +27,7 @@ urlpatterns = [
     path("v1/webhook/mercadopago/<uuid:uuid_webhook>/", views_mercadopago.webhook, name="mp_webhook"),
     # Alumno
     path("", views.CatalogoView.as_view(), name="catalogo"),
+    path("productos/<int:pk>/denunciar/", views.DenunciarView.as_view(), name="denunciar"),
     path("carrito/", views.CarritoView.as_view(), name="carrito"),
     path("carrito/confirmar/", views.CheckoutView.as_view(), name="checkout"),
     path("mis-pedidos/", views.MisPedidosView.as_view(), name="mis_pedidos"),

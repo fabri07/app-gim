@@ -19,6 +19,7 @@
       {% with foto=c.data.value.instance %}
       <div class="foto-fila">
         <img class="foto-fila__miniatura" src="{{ foto.url_cacheable }}" alt="Foto {{ forloop.counter }}" width="72" height="72" loading="lazy">
+        {% if not foto.aprobada %}<span class="badge badge--alerta">En revisión</span>{% endif %}
         <label class="foto-fila__opcion">
           <input type="radio" name="{{ form.principal.html_name }}" value="{{ foto.pk }}"{% if form.principal.value|stringformat:"s" == foto.pk|stringformat:"s" %} checked{% endif %}>
           Principal

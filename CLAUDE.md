@@ -123,6 +123,7 @@ tocar un área, leé su sección** (`grep -n '^## ' ARQUITECTURA.md` da el
 | Mercado Pago, `suscripcion/`, webhook | Cobro online de la suscripción |
 | Molinete, QR, lectores, API `/ingreso/v1/` | Control de ingreso |
 | Tienda (add-on), productos, pedidos, stock | Tienda del gimnasio (`tienda/`) |
+| Moderación de la tienda (cola, denuncias, fotos sin aprobar) | Tienda del gimnasio → «Moderación» |
 | Mercado Pago de la tienda (OAuth, tokens, acreditar, webhook, «Revisar MP», prueba guiada) | Tienda del gimnasio → «Mercado Pago de la tienda» · `docs/mercadopago-tienda.md` |
 | Botones de borrar | Borrar: `core/borrado.py` |
 | Aviso de plan por vencer | Aviso de plan por vencer |

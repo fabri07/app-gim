@@ -14,3 +14,21 @@ def _png():
 
 
 PNG = _png()
+
+
+def crear_producto(**campos):
+    """`Producto.objects.create` ya aprobado: un producto nuevo nace
+    `pendiente` (ver `Producto.moderacion`), y casi todos los tests quieren
+    uno a la venta. Un `moderacion=` explícito gana."""
+    from tienda.models import Producto
+
+    campos.setdefault("moderacion", Producto.Moderacion.APROBADO)
+    return Producto.objects.create(**campos)
+
+
+def crear_foto(**campos):
+    """`FotoProducto.objects.create` ya aprobada (ver `crear_producto`)."""
+    from tienda.models import FotoProducto
+
+    campos.setdefault("aprobada", True)
+    return FotoProducto.objects.create(**campos)

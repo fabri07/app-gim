@@ -273,6 +273,7 @@
       </button>
     </form>
   </div>
+  {% include 'tienda/_clausula_uso.html' %}
   {% if tienda_pedidos_vivos %}<p class="texto-suave">{{ tienda_pedidos_vivos }} pedido{{ tienda_pedidos_vivos|pluralize }} de la tienda sin cerrar.</p>{% endif %}
   {% comment %}
     El caso en que se prende la exportación —un gimnasio que deja de pagar y

@@ -17,7 +17,7 @@ from tenants.models import Gimnasio
 from tienda import services
 from tienda.models import ItemPedido, Pedido, Producto, Variante, obtener_configuracion
 from tienda.services import ErrorDeTienda
-from tienda.testing import PNG
+from tienda.testing import PNG, crear_producto
 
 AHORA = timezone.make_aware(datetime(2026, 10, 20, 12, 0))
 
@@ -29,12 +29,12 @@ class _Base(TestCase):
         self.otro = Gimnasio.objects.create(nombre="B", slug="b", tienda_habilitada=True)
         self.alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="G")
         self.alumno2 = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Eva", apellido="R")
-        self.producto = Producto.objects.create(
+        self.producto = crear_producto(
             gimnasio=self.gimnasio, nombre="Remera", precio=Decimal("15000")
         )
         self.m = Variante.objects.create(producto=self.producto, nombre="M", stock=3)
         self.l = Variante.objects.create(producto=self.producto, nombre="L", stock=1)
-        ajeno = Producto.objects.create(gimnasio=self.otro, nombre="Ajena", precio=1)
+        ajeno = crear_producto(gimnasio=self.otro, nombre="Ajena", precio=1)
         self.ajena = Variante.objects.create(producto=ajeno, stock=10)
 
     def comprar(self, carrito, alumno=None, ahora=AHORA):

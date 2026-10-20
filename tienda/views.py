@@ -12,7 +12,7 @@ from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
 from django.db.models import Count, Q
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseNotFound, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.http import urlencode
@@ -25,9 +25,11 @@ from django.views.generic import CreateView, DetailView, ListView, TemplateView,
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
 from pagos.models import MedioCobro
+from plataforma.middleware import sin_acceso
 from tenants import suplantacion
+from tenants.models import Perfil
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
-from tienda import analitica, pagos_mp, services
+from tienda import analitica, moderacion, pagos_mp, services
 from tienda.codigos import normalizar
 from tienda.variantes import SUGERENCIAS
 from tienda.forms import (
@@ -35,6 +37,7 @@ from tienda.forms import (
     CategoriaProductoForm,
     ComprobanteForm,
     ConfiguracionTiendaForm,
+    DenunciaForm,
     MotivoForm,
     ProductoForm,
     VarianteFormSet,
@@ -42,12 +45,14 @@ from tienda.forms import (
 from tienda.models import (
     CategoriaProducto,
     CuentaMercadoPago,
+    DenunciaProducto,
     FotoProducto,
     ItemPedido,
     Pedido,
     Producto,
     Variante,
     obtener_configuracion,
+    q_vendible,
 )
 
 logger = logging.getLogger(__name__)
@@ -198,6 +203,13 @@ class ProductoListView(TiendaStaffMixin, ListView):
         return context
 
 
+# Lo que escribe la edición del staff: sólo lo que el form maneja (más
+# `modificado`, que `update_fields` no dispara solo). NUNCA los campos de
+# moderación: un `save()` completo pisaría con el valor viejo en memoria una
+# baja o una aprobación que entró mientras la pantalla estaba abierta.
+CAMPOS_EDITABLES_PRODUCTO = [*ProductoForm._meta.fields, "modificado"]
+
+
 class _ProductoFormMixin:
     """Form del producto + formset de variantes, validados JUNTOS: los errores
     de los dos se ven en el primer intento (antes el formset sólo se validaba
@@ -208,6 +220,9 @@ class _ProductoFormMixin:
     form_class = ProductoForm
     template_name = "tienda/producto_form.html"
     success_url = reverse_lazy("tienda:productos")
+    #: Se pone en `form_valid`: hay algo nuevo para la cola de moderación (alta,
+    #: texto cambiado o fotos nuevas en uno aprobado). Lo lee el aviso por mail.
+    entro_a_la_cola = False
 
     def _con_ventas(self):
         # Variantes que ya se vendieron: no se pueden borrar. Una query, no
@@ -300,8 +315,30 @@ class _ProductoFormMixin:
 
     def form_valid(self, form):
         formset = self._formset_valido
+        alta = form.instance.pk is None
+        manda_texto_a_revision = False
         with transaction.atomic():
-            self.object = form.save()
+            if alta:
+                self.object = form.save()
+            else:
+                # Sin `moderacion` en `update_fields`: la moderación es de la
+                # plataforma y el staff no la pisa.
+                self.object = form.save(commit=False)
+                self.object.save(update_fields=CAMPOS_EDITABLES_PRODUCTO)
+                if {"nombre", "descripcion"} & set(form.changed_data):
+                    # Contra la base y no contra `self.object.moderacion`
+                    # (puede estar vieja): si lo aprobaron mientras se
+                    # editaba, el texto nuevo igual tiene que revisarse.
+                    manda_texto_a_revision = bool(
+                        Producto.objects.filter(
+                            pk=self.object.pk, moderacion=Producto.Moderacion.APROBADO
+                        ).update(cambio_pendiente=True, moderacion_desde=timezone.now())
+                    )
+            # El staff ya vio el aviso de foto rechazada: al guardar se va
+            # (los otros motivos —baja, denuncias— son de la plataforma).
+            Producto.objects.filter(
+                pk=self.object.pk, moderacion_motivo=moderacion.AVISO_FOTO_RECHAZADA
+            ).update(moderacion_motivo="")
             form.guardar_fotos(self.object)
             formset.instance = self.object
             formset.save()
@@ -309,7 +346,36 @@ class _ProductoFormMixin:
             for f in formset.forms:
                 if f.instance.pk and f.instance.activa is False and f.cleaned_data.get("DELETE"):
                     f.instance.save(update_fields=["activa"])
-        messages.success(self.request, "Producto guardado.")
+            # Contra la base, UNA vez, y no contra `self.object.moderacion`
+            # (de cuando se abrió la pantalla): el superadmin puede haber
+            # aprobado mientras el staff editaba, y las fotos nuevas esperan.
+            moderacion_actual = (
+                Producto.objects.filter(pk=self.object.pk).values_list("moderacion", flat=True).get()
+            )
+        fotos_nuevas = (
+            not alta
+            and bool(form.cleaned_data.get("fotos_nuevas"))
+            and moderacion_actual == Producto.Moderacion.APROBADO
+        )
+        self.entro_a_la_cola = alta or manda_texto_a_revision or fotos_nuevas
+        if self.entro_a_la_cola:
+            moderacion.avisar_a_la_plataforma(
+                self.gimnasio,
+                url_cola=self.request.build_absolute_uri(reverse("plataforma:moderacion")),
+            )
+        if alta:
+            messages.info(self.request, "Producto guardado. Lo revisamos y lo publicamos en el día.")
+        elif manda_texto_a_revision:
+            messages.success(
+                self.request,
+                "Producto guardado. El cambio queda en revisión de la plataforma; mientras tanto sigue a la venta.",
+            )
+        elif fotos_nuevas:
+            messages.success(
+                self.request, "Las fotos nuevas se ven en la tienda cuando la plataforma las apruebe."
+            )
+        else:
+            messages.success(self.request, "Producto guardado.")
         return redirect(self.success_url)
 
 
@@ -318,7 +384,18 @@ class ProductoCreateView(TiendaStaffMixin, _ProductoFormMixin, CreateView):
 
 
 class ProductoUpdateView(TiendaStaffMixin, _ProductoFormMixin, UpdateView):
-    pass
+    def _bajado(self, request):
+        # Un cartel con redirect (no 403): bajo `hx-boost` un 4xx es un click mudo.
+        if self.get_object().moderacion != Producto.Moderacion.BAJADO:
+            return None
+        messages.error(request, "Este producto fue dado de baja por la plataforma y no se puede editar.")
+        return redirect("tienda:productos")
+
+    def get(self, request, *args, **kwargs):
+        return self._bajado(request) or super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        return self._bajado(request) or super().post(request, *args, **kwargs)
 
 
 class ProductoBorrarView(TiendaStaffMixin, BorrarConExplicacionView):
@@ -336,12 +413,27 @@ class ProductoBorrarView(TiendaStaffMixin, BorrarConExplicacionView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        if services.tiene_ventas(self.object):
+        if self._moderado(self.object):
+            context["bloqueos"] = "denuncias o una baja de la plataforma"
+        elif services.tiene_ventas(self.object):
             context["bloqueos"] = "pedidos de alumnos"
         return context
 
+    @staticmethod
+    def _moderado(producto):
+        return (
+            producto.moderacion == Producto.Moderacion.BAJADO
+            or producto.denuncias.exists()
+        )
+
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
+        if self._moderado(self.object):
+            messages.error(
+                request,
+                "No se puede eliminar: tiene denuncias o una baja de la plataforma. " + self.alternativa,
+            )
+            return redirect(request.path)
         if services.tiene_ventas(self.object):
             messages.error(request, "No se puede eliminar: tiene pedidos de alumnos. " + self.alternativa)
             return redirect(request.path)
@@ -569,28 +661,70 @@ class ConfiguracionView(TiendaStaffMixin, UpdateView):
 
 
 class FotoProductoView(View):
-    """Pública y en `URLS_SIN_BLOQUEO` (sin cookie en una respuesta que se
-    cachea un año). La foto de un suplemento no es dato sensible; no se exige
-    `publicado` para que el staff vea sus borradores. A diferencia del logo
+    """Dos modos, según la moderación (ver `Producto.Moderacion`).
+
+    **Público**: foto aprobada de un producto APROBADO. Es el de siempre: la
+    ruta está en `URLS_SIN_BLOQUEO` (sin cookie en una respuesta que se cachea
+    un año) y la vista no toca la sesión. No se exige `publicado`, para que el
+    staff vea los borradores de lo ya aprobado. A diferencia del logo
     (`ArchivoDeGimnasioView`, que aparece en todas las páginas), no se cachea
     el contenido en LocMem: son muchas fotos de hasta 1200 px por proceso, y
-    con `immutable` el navegador ya no las vuelve a pedir."""
+    con `immutable` el navegador ya no las vuelve a pedir.
+
+    **Privado**: cualquier otra (sin aprobar, o de un producto pendiente o
+    bajado). La ven sólo el staff de ese gimnasio, si su cuenta tiene acceso, y
+    el superadmin, con `private, no-store`: ninguna caché puede guardarla. Es
+    el único camino que lee `request.user`. Para todos los demás es un 404 con
+    `no-store`, así una caché intermedia no guarda el «no existe» y la foto
+    sigue oculta después de aprobarla. Es `HttpResponseNotFound` y no `Http404`
+    justamente para poder ponerle la cabecera."""
 
     def get(self, request, pk, foto_pk):
-        foto = get_object_or_404(
+        foto = (
             FotoProducto.objects.filter(
                 Q(producto__gimnasio__es_demo=True) | Q(producto__gimnasio__tienda_habilitada=True),
                 producto__gimnasio__activo=True,
-            ),
-            pk=foto_pk,
-            producto_id=pk,
+                pk=foto_pk,
+                producto_id=pk,
+            )
+            .select_related("producto")
+            .first()
         )
+        if foto is None:
+            return self._no_existe()
+        if foto.aprobada and foto.producto.moderacion == Producto.Moderacion.APROBADO:
+            cache = "public, max-age=31536000, immutable"
+        elif self._puede_ver_sin_aprobar(request, foto):
+            cache = "private, no-store"
+        else:
+            return self._no_existe()
         with foto.imagen.open("rb") as archivo:
             contenido = archivo.read()
         tipo = mimetypes.guess_type(foto.imagen.name)[0] or "image/jpeg"
         respuesta = HttpResponse(contenido, content_type=tipo)
-        respuesta["Cache-Control"] = "public, max-age=31536000, immutable"
+        respuesta["Cache-Control"] = cache
         return respuesta
+
+    @staticmethod
+    def _no_existe():
+        respuesta = HttpResponseNotFound()
+        respuesta["Cache-Control"] = "no-store"
+        return respuesta
+
+    @staticmethod
+    def _puede_ver_sin_aprobar(request, foto):
+        usuario = request.user
+        if not usuario.is_authenticated:
+            return False
+        if usuario.is_superuser:
+            return usuario.is_active
+        perfil = getattr(usuario, "perfil", None)
+        return (
+            perfil is not None
+            and perfil.rol == Perfil.Rol.STAFF
+            and perfil.gimnasio_id == foto.producto.gimnasio_id
+            and not sin_acceso(perfil)
+        )
 
 
 # --- Alumno ------------------------------------------------------------
@@ -630,10 +764,12 @@ class CatalogoView(TiendaAlumnoMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         productos = (
             Producto.objects.for_gimnasio(self.gimnasio)
-            .filter(publicado=True)
+            .filter(q_vendible())
             .select_related("categoria")
             .prefetch_related(
-                models.Prefetch("variantes", queryset=Variante.objects.filter(activa=True)), "fotos"
+                models.Prefetch("variantes", queryset=Variante.objects.filter(activa=True)),
+                # Sólo las fotos aprobadas: una sin aprobar no se ve en el catálogo.
+                models.Prefetch("fotos", queryset=FotoProducto.objects.filter(aprobada=True)),
             )
             .order_by("categoria__orden", "categoria__nombre", "orden", "nombre")
         )
@@ -649,9 +785,76 @@ class CatalogoView(TiendaAlumnoMixin, TemplateView):
                 nombre = producto.categoria.nombre if producto.categoria else "Otros"
                 grupos.setdefault(nombre, []).append(producto)
         context["grupos"] = list(grupos.items())
+        # UNA query: los productos que este alumno ya denunció (abiertas).
+        context["denunciados"] = set(
+            DenunciaProducto.objects.filter(
+                alumno=self.alumno, estado=DenunciaProducto.Estado.ABIERTA
+            ).values_list("producto_id", flat=True)
+        )
         context["unidades_en_carrito"] = sum(services.leer_carrito(self.request.session).values())
         context["umbral_pocas"] = services.UMBRAL_POCAS_UNIDADES
         return context
+
+
+class DenunciarView(TiendaAlumnoMixin, TemplateView):
+    """«Denunciar» un producto. Nunca un 404: bajo `hx-boost` es un click
+    mudo, así que un producto que ya no está a la venta (o que es de otro
+    gimnasio) avisa y vuelve al catálogo. Al staff no le llega quién denunció."""
+
+    template_name = "tienda/denunciar.html"
+
+    def _producto(self):
+        return (
+            Producto.objects.for_gimnasio(self.gimnasio)
+            .filter(q_vendible(), pk=self.kwargs["pk"])
+            .first()
+        )
+
+    def _desvio(self):
+        """Redirect si no se puede denunciar; `(redirect, producto)` si sí."""
+        if suplantacion.esta_activa(self.request):
+            messages.error(
+                self.request, "Mientras ves la app como un alumno no podés denunciar productos."
+            )
+            return redirect("tienda:catalogo"), None
+        producto = self._producto()
+        if producto is None:
+            messages.info(self.request, "Ese producto ya no está en la tienda.")
+            return redirect("tienda:catalogo"), None
+        return None, producto
+
+    def get(self, request, *args, **kwargs):
+        # El cartel de la mixin (sin ficha, tienda cerrada) va primero.
+        cartel = self._cartel()
+        if cartel:
+            return cartel
+        desvio, producto = self._desvio()
+        if desvio:
+            return desvio
+        return self.render_to_response(
+            self.get_context_data(producto=producto, form=DenunciaForm())
+        )
+
+    def procesar(self, request, *args, **kwargs):
+        desvio, producto = self._desvio()
+        if desvio:
+            return desvio
+        form = DenunciaForm(request.POST)
+        if not form.is_valid():
+            return self.render_to_response(self.get_context_data(producto=producto, form=form))
+        nueva = moderacion.registrar_denuncia(
+            producto=producto, alumno=self.alumno,
+            motivo=form.cleaned_data["motivo"], detalle=form.cleaned_data["detalle"],
+        )
+        if nueva:
+            moderacion.avisar_a_la_plataforma(
+                self.gimnasio,
+                url_cola=request.build_absolute_uri(reverse("plataforma:moderacion")),
+            )
+            messages.success(request, "Gracias. La plataforma va a revisar este producto.")
+        else:
+            messages.info(request, "Ya lo denunciaste: lo estamos revisando.")
+        return redirect("tienda:catalogo")
 
 
 class CarritoView(TiendaAlumnoMixin, TemplateView):

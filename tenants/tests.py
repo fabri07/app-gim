@@ -3890,6 +3890,31 @@ class SembrarDemoTests(TestCase):
         self.assertEqual(Producto.objects.for_gimnasio(self.gimnasio).count(), productos)
         self.assertEqual(Variante.objects.filter(producto__gimnasio=self.gimnasio).count(), variantes)
 
+    def test_la_tienda_demo_se_siembra_aprobada(self):
+        """Sin esto el visitante de la demo vería «Esperando aprobación» en
+        cada producto. Y aprobar no pisa una baja del superadmin."""
+        from tienda.models import Producto, q_vendible
+
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(es_demo=True)
+        self._sembrar(alumnos=4, meses=1)
+        productos = Producto.objects.for_gimnasio(self.gimnasio)
+
+        self.assertGreater(productos.count(), 0)
+        self.assertFalse(productos.exclude(moderacion=Producto.Moderacion.APROBADO).exists())
+        self.assertEqual(productos.filter(q_vendible()).count(), productos.count())
+
+        # Un producto que sobrevivió a `--borrar` en pendiente se aprueba, pero
+        # uno bajado por el superadmin sigue bajado.
+        whey = productos.get(nombre="Proteína whey 1 kg")
+        creatina = productos.get(nombre="Creatina 300 g")
+        Producto.objects.filter(pk=whey.pk).update(moderacion=Producto.Moderacion.PENDIENTE)
+        Producto.objects.filter(pk=creatina.pk).update(moderacion=Producto.Moderacion.BAJADO)
+        self._sembrar(alumnos=4, meses=1, confirmar=True)
+        whey.refresh_from_db()
+        creatina.refresh_from_db()
+        self.assertEqual(whey.moderacion, Producto.Moderacion.APROBADO)
+        self.assertEqual(creatina.moderacion, Producto.Moderacion.BAJADO)
+
     def test_la_tienda_demo_se_siembra_con_caracteristicas(self):
         from tienda.models import Producto, Variante
 
@@ -4231,6 +4256,25 @@ class SembrarDemoAccesosTests(TestCase):
 
         self.assertEqual(Pedido.objects.count(), 0)
 
+    def test_sembrar_demo_borrar_con_una_denuncia_no_revienta(self):
+        """`DenunciaProducto.producto` es PROTECT y `alumno` SET_NULL: `--borrar`
+        tiene que poder sacar alumnos y productos de demo con una denuncia."""
+        from tienda.models import DenunciaProducto, Producto
+
+        self._sembrar(alumnos=2, meses=1)
+        alumno = Alumno.objects.for_gimnasio(self.gimnasio).filter(observaciones="[demo]").first()
+        producto = Producto.objects.create(
+            gimnasio=self.gimnasio, nombre="Remera", precio=Decimal("1000")
+        )
+        DenunciaProducto.objects.create(
+            gimnasio=self.gimnasio, producto=producto, alumno=alumno,
+            motivo=DenunciaProducto.Motivo.OTRO,
+        )
+
+        self._sembrar(borrar=True)
+
+        self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 0)
+
     def test_borrar_no_toca_el_acceso_de_un_alumno_real(self):
         """El mismo resguardo que ya tenía `--borrar` sobre los alumnos, pero
         para los accesos: perder el login de un alumno que paga sería peor que
@@ -4468,6 +4512,7 @@ def _ensuciar(gimnasio, staff, marca="X"):
         CategoriaProducto,
         ConfiguracionTienda,
         CuentaMercadoPago,
+        DenunciaProducto,
         ItemPedido,
         Pedido,
         Producto,
@@ -4493,6 +4538,11 @@ def _ensuciar(gimnasio, staff, marca="X"):
     ItemPedido.objects.create(
         pedido=pedido, variante=variante, nombre=f"Remera {marca} · M",
         precio_unitario=Decimal("15000"), cantidad=1,
+    )
+    # La denuncia protege al producto (PROTECT): va antes de borrarlo.
+    DenunciaProducto.objects.create(
+        gimnasio=gimnasio, producto=producto, alumno=alumno,
+        motivo=DenunciaProducto.Motivo.OTRO,
     )
     return alumno
 

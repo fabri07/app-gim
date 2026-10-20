@@ -385,6 +385,12 @@ _AVISOS_ALUMNO = {
         "El gimnasio rechazó el comprobante del pedido #{pk}. Subí otro desde tu pedido.",
     ),
     "cancelado": ("Pedido cancelado", "El gimnasio canceló tu pedido #{pk}."),
+    # La baja de un producto por la plataforma (`tienda.moderacion`): decir
+    # «El gimnasio canceló» sería falso.
+    "cancelado_plataforma": (
+        "Pedido cancelado",
+        "La plataforma dio de baja un producto de tu pedido #{pk} y lo canceló.",
+    ),
     "revisar_mp": (
         "Recibimos tu pago",
         "Recibimos el pago del pedido #{pk}: el gimnasio te va a contactar.",

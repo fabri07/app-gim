@@ -19,6 +19,9 @@
   <a class="boton-secundario" href="{% url 'plataforma:solicitud_lista' %}">
     Solicitudes{% if solicitudes_pendientes %} <span class="badge badge--alerta">{{ solicitudes_pendientes }}</span>{% endif %}
   </a>
+  <a class="boton-secundario" href="{% url 'plataforma:moderacion' %}">
+    Moderación{% if moderacion_para_revisar %} <span class="badge badge--alerta">{{ moderacion_para_revisar }}</span>{% endif %}
+  </a>
   <a class="boton-secundario" href="{% url 'suscripcion:cobros_con_problema' %}">Cobros con problema</a>
   {% if SENTRY_PANEL_URL %}
     <a class="boton-secundario" href="{{ SENTRY_PANEL_URL }}" target="_blank" rel="noopener" hx-boost="false">Errores (Sentry)</a>
@@ -31,6 +34,16 @@
     <p class="texto-suave">
       {{ solicitudes_pendientes }} solicitud{{ solicitudes_pendientes|pluralize:"es" }} esperando tu decisión.
       <a href="{% url 'plataforma:solicitud_lista' %}">Verlas</a>.
+    </p>
+  </div>
+{% endif %}
+
+{% if moderacion_para_revisar %}
+  <div class="tarjeta aviso-urgente">
+    <h2>Productos por revisar</h2>
+    <p class="texto-suave">
+      {{ moderacion_para_revisar }} producto{{ moderacion_para_revisar|pluralize }} de la tienda esperando tu decisión.
+      <a href="{% url 'plataforma:moderacion' %}">Verlos</a>.
     </p>
   </div>
 {% endif %}

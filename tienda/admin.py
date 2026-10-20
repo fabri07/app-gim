@@ -7,6 +7,7 @@ from tienda.models import (
     CategoriaProducto,
     ConfiguracionTienda,
     CuentaMercadoPago,
+    DenunciaProducto,
     ItemPedido,
     Pedido,
     Producto,
@@ -97,9 +98,29 @@ class VarianteInline(admin.TabularInline):
 
 @admin.register(Producto)
 class ProductoAdmin(admin.ModelAdmin):
-    list_display = ("nombre", "gimnasio", "precio", "publicado")
-    list_filter = ("gimnasio", "publicado")
+    list_display = ("nombre", "gimnasio", "precio", "publicado", "moderacion")
+    list_filter = ("gimnasio", "publicado", "moderacion")
+    # La moderación la mueven las transiciones de `tienda/moderacion.py`
+    # (cola de la plataforma): a mano acá se saltearían los pedidos y el stock.
+    readonly_fields = ("moderacion", "cambio_pendiente", "moderacion_motivo", "moderacion_desde")
     inlines = [VarianteInline]
+
+
+@admin.register(DenunciaProducto)
+class DenunciaProductoAdmin(admin.ModelAdmin):
+    """Sólo para mirar: las denuncias las crea el alumno y las resuelve la cola."""
+
+    list_display = ("producto", "gimnasio", "motivo", "estado", "creado")
+    list_filter = ("estado", "motivo")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class ItemPedidoInline(admin.TabularInline):

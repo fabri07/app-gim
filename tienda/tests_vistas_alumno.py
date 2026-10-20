@@ -13,7 +13,7 @@ from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
 from tienda import services
 from tienda.models import Pedido, Producto, Variante, obtener_configuracion
-from tienda.testing import PNG
+from tienda.testing import PNG, crear_foto, crear_producto
 
 
 class _BaseAlumno(TestCase):
@@ -26,7 +26,7 @@ class _BaseAlumno(TestCase):
         perfil = Perfil.objects.create(usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO)
         self.alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="G", perfil=perfil)
         self.client.force_login(usuario)
-        self.producto = Producto.objects.create(gimnasio=self.gimnasio, nombre="Remera", precio=Decimal("15000"))
+        self.producto = crear_producto(gimnasio=self.gimnasio, nombre="Remera", precio=Decimal("15000"))
         self.variante = Variante.objects.create(producto=self.producto, nombre="M", stock=2)
 
     def agregar(self, cantidad=1, variante=None):
@@ -262,7 +262,7 @@ class ArrepentimientoVisibleTests(_BaseAlumno):
 
 class CatalogoVarianteUnicaTests(_BaseAlumno):
     def test_una_sola_variante_sin_nombre_va_en_un_hidden_sin_select(self):
-        creatina = Producto.objects.create(gimnasio=self.gimnasio, nombre="Creatina", precio=Decimal("21000"))
+        creatina = crear_producto(gimnasio=self.gimnasio, nombre="Creatina", precio=Decimal("21000"))
         unica = Variante.objects.create(producto=creatina, nombre="", stock=10)
         r = self.client.get(reverse("tienda:catalogo"))
         self.assertContains(r, f'<input type="hidden" name="variante" value="{unica.pk}">', html=False)
@@ -271,7 +271,7 @@ class CatalogoVarianteUnicaTests(_BaseAlumno):
         self.assertContains(r, 'aria-label="Variante de Remera"')
 
     def test_comprar_con_la_variante_unica_funciona(self):
-        creatina = Producto.objects.create(gimnasio=self.gimnasio, nombre="Creatina", precio=Decimal("21000"))
+        creatina = crear_producto(gimnasio=self.gimnasio, nombre="Creatina", precio=Decimal("21000"))
         unica = Variante.objects.create(producto=creatina, nombre="", stock=10)
         self.agregar(1, variante=unica)
         self.assertContains(self.client.get(reverse("tienda:carrito")), "Creatina")
@@ -282,7 +282,7 @@ class CatalogoGaleriaTests(_BaseAlumno):
         from tienda.models import FotoProducto
 
         return [
-            FotoProducto.objects.create(
+            crear_foto(
                 producto=producto, imagen=f"tienda/productos/g{producto.pk}-{i}.jpg", posicion=i,
             )
             for i in range(cantidad)
@@ -321,15 +321,20 @@ class CatalogoGaleriaTests(_BaseAlumno):
 
 class CatalogoEscalaTests(_BaseAlumno):
     def _cargar(self, cantidad):
-        from tienda.models import FotoProducto
+        from tienda.models import DenunciaProducto
 
         for _ in range(cantidad):
-            producto = Producto.objects.create(gimnasio=self.gimnasio, nombre="P", precio=Decimal("100"), publicado=True)
+            producto = crear_producto(gimnasio=self.gimnasio, nombre="P", precio=Decimal("100"), publicado=True)
             Variante.objects.create(producto=producto, nombre="M", stock=3)
             for i in range(2):
-                FotoProducto.objects.create(
+                crear_foto(
                     producto=producto, imagen=f"tienda/productos/{producto.pk}-{i}.jpg", posicion=i,
                 )
+            # Una denuncia abierta del alumno por producto: «Ya lo denunciaste»
+            # no puede costar una query por tarjeta.
+            DenunciaProducto.objects.create(
+                gimnasio=self.gimnasio, producto=producto, alumno=self.alumno, motivo="otro",
+            )
 
     def _queries(self):
         from django.db import connection
@@ -343,6 +348,10 @@ class CatalogoEscalaTests(_BaseAlumno):
         self._cargar(2)
         self._queries()  # calienta lo que se cachea en la primera request
         pocos = self._queries()
+        # Que el catálogo no esté vacío: si no, el test compara nada con nada.
+        r = self.client.get(reverse("tienda:catalogo"))
+        self.assertContains(r, "Agregar al carrito", count=3)  # los 2 cargados + el del setUp
+        self.assertContains(r, "Ya lo denunciaste", count=2)
         self._cargar(2)
         muchos = self._queries()
         self.assertEqual(pocos, muchos)

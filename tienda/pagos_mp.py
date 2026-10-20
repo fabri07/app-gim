@@ -25,7 +25,7 @@ from django.utils import timezone
 from suscripcion import mercadopago
 from suscripcion.mercadopago import ErrorDeMercadoPago, Secreto
 from tienda import cuenta_mp, services
-from tienda.models import CuentaMercadoPago, Pedido, obtener_configuracion
+from tienda.models import CuentaMercadoPago, ItemPedido, Pedido, obtener_configuracion, q_vendible
 
 logger = logging.getLogger(__name__)
 
@@ -262,12 +262,22 @@ def _re_reservar(pedido, campos, ahora):
     transición y DESPUÉS los UPDATE de stock (orden pedido -> variantes, como
     `vencer_pedidos`): dos llamadas del mismo pago no reservan dos veces,
     porque la segunda ya no encuentra el pedido en VENCIDO/CANCELADO. Sin
-    stock: se deshace el savepoint, se relee y va a REVISAR."""
+    stock: se deshace el savepoint, se relee y va a REVISAR.
+
+    Un producto que ya no se vende (bajado o pendiente de la moderación, o
+    despublicado) va a REVISAR por la misma rama, sin re-reservar: revivir el
+    pedido le vendería algo que la plataforma sacó de la venta."""
     origen = [_E.VENCIDO, _E.CANCELADO]
     # Un CANCELADO por el staff no se revive (`_aplicar`).
     filtro = Q(estado=_E.VENCIDO) | Q(cancelado_por_staff=False)
     try:
         with transaction.atomic():
+            if (
+                ItemPedido.objects.filter(pedido_id=pedido.pk)
+                .exclude(q_vendible("variante__producto__"))
+                .exists()
+            ):
+                raise services.ErrorDeTienda("producto_no_disponible")
             _transicionar(
                 pedido, origen, ahora, filtro=filtro,
                 estado=_E.PAGADO, pagado_en=ahora, motivo="", **campos,

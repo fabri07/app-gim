@@ -1,0 +1,65 @@
+{% comment %}
+  Una tarjeta de la cola. Recibe `p` (producto con `fotos_nuevas` y
+  `denuncias_abiertas`). Las miniaturas abren la foto en grande en otra
+  pestaña: `hx-boost="false"` porque es una respuesta de imagen, no una página.
+{% endcomment %}
+<div class="tarjeta">
+  <h3>{{ p.nombre }}</h3>
+  <p class="texto-suave">
+    <a href="{% url 'plataforma:gimnasio_detalle' p.gimnasio.pk %}">{{ p.gimnasio.nombre }}</a>
+    · ${{ p.precio }}{% if p.categoria %} · {{ p.categoria.nombre }}{% endif %}
+  </p>
+  <p>
+    {% if p.cambio_pendiente %}<span class="badge badge--alerta">Texto cambiado</span>{% endif %}
+    {% if p.fotos_nuevas %}<span class="badge badge--alerta">{{ p.fotos_nuevas }} foto{{ p.fotos_nuevas|pluralize:"s" }} nueva{{ p.fotos_nuevas|pluralize:"s" }}</span>{% endif %}
+    {% if p.denuncias_abiertas %}<span class="badge badge--alerta">{{ p.denuncias_abiertas|length }} denuncia{{ p.denuncias_abiertas|length|pluralize:"s" }}</span>{% endif %}
+    {% if p.moderacion_motivo %}<span class="texto-suave">{{ p.moderacion_motivo }}</span>{% endif %}
+  </p>
+  {% if p.descripcion %}<p>{{ p.descripcion|linebreaksbr }}</p>{% endif %}
+  {% if p.variantes.all %}
+    <ul>
+      {% for v in p.variantes.all %}
+        <li>{{ v.nombre|default:"Única" }} · stock {{ v.stock }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if p.denuncias_abiertas %}
+    <ul>
+      {% for d in p.denuncias_abiertas %}
+        <li>
+          <strong>{{ d.get_motivo_display }}</strong>{% if d.detalle %}: {{ d.detalle }}{% endif %}
+          <span class="texto-suave">· {% if d.alumno %}{{ d.alumno.nombre }} {{ d.alumno.apellido }}{% else %}alumno borrado{% endif %}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <div class="acciones-lista">
+    {% for f in p.fotos.all %}
+      <div>
+        <a href="{% url 'plataforma:moderacion_foto' f.pk %}" target="_blank" rel="noopener" hx-boost="false">
+          <img src="{% url 'plataforma:moderacion_foto' f.pk %}" width="120" height="120" loading="lazy" alt="Foto de {{ p.nombre }}">
+        </a>
+        <div>
+          {% if f.aprobada %}<span class="badge badge--neutro">Aprobada</span>{% else %}<span class="badge badge--alerta">Nueva</span>{% endif %}
+        </div>
+        <div class="acciones-lista">
+          {% if not f.aprobada %}
+            <form method="post" action="{% url 'plataforma:moderacion_foto_accion' f.pk 'aprobar' %}">
+              {% csrf_token %}
+              <button type="submit" class="boton-secundario">Aprobar foto</button>
+            </form>
+          {% endif %}
+          <a class="boton-secundario" href="{% url 'plataforma:moderacion_foto_accion' f.pk 'rechazar' %}">Rechazar foto…</a>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="acciones-lista">
+    <a class="boton" href="{% url 'plataforma:moderacion_producto' p.pk 'aprobar' %}">Aprobar…</a>
+    <a class="boton-secundario" href="{% url 'plataforma:moderacion_producto' p.pk 'bajar' %}">Bajar…</a>
+    <a class="boton-secundario" href="{% url 'plataforma:estado_cuenta' p.gimnasio.pk 'suspendida' %}">Suspender el gimnasio…</a>
+  </div>
+</div>
