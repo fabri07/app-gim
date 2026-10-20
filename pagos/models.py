@@ -16,6 +16,7 @@ un `Cuota` a mano. Esa autogeneración vive acá (funciones de módulo,
 no una capa de "servicios" separada: el proyecto es chico y no lo justifica).
 """
 
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 
@@ -455,3 +456,138 @@ def regimenes_de_pago():
         regimenes[(tolerancia, activacion)].append(gimnasio_id)
     return regimenes
 
+
+
+#: Largo máximo del id de usuario de Mercado Pago que se guarda en el intento.
+#: Es un `CharField`: SQLite no valida el largo y Postgres sí, así que se
+#: valida en Python (`CobroOnlineCuota.save`) para que la suite vea el error.
+LARGO_MP_USER_ID = 40
+
+
+class CobroOnlineCuota(TenantOwnedModel):
+    """Un intento de cobro de una cuota por Mercado Pago (un link de pago).
+
+    Es el molde de `suscripcion.IntentoDeCobro` y de los campos MP de
+    `tienda.Pedido`, pero un intento POR LINK y no columnas en `Cuota`:
+    `crear_preferencia` usa la `external_reference` como `X-Idempotency-Key`,
+    así que si el staff corrige el monto hace falta una referencia NUEVA (con
+    la vieja, MP devolvería la preferencia con el monto viejo).
+
+    `Cuota` no gana columnas: una cuota cobrada por MP queda PAGADA con
+    `medio_pago_texto="Mercado Pago"` y un intento PAGADO. Para saber si una
+    cuota se cobró por MP se mira el intento (`Exists(... PAGADO)`), nunca el
+    texto del medio: los gimnasios ya escriben «Mercado Pago» a mano para las
+    transferencias a su alias.
+
+    **Sin FK a `User`** (ver `suscripcion/models.py`): `vaciar_gimnasio` borra
+    los usuarios de la demo cada 6 h. Tampoco FK a `tienda.CuentaMercadoPago`
+    (la app `tienda` carga después que `pagos`): la cuenta que cobró queda como
+    texto en `mp_user_id`.
+
+    `cuota` es PROTECT: un registro de plata no se borra en cascada. Los que
+    borran cuotas en lote (`tenants.demo.vaciar_gimnasio` / `borrar_demo`)
+    borran los intentos ANTES.
+    """
+
+    #: A Mercado Pago la referencia va con este prefijo: es lo que permite que
+    #: el webhook de la tienda (que recibe los pagos de la misma cuenta) sepa
+    #: que el pago es de una cuota y no de un pedido.
+    PREFIJO_REFERENCIA = "cuota-"
+
+    class Estado(models.TextChoices):
+        CREADO = "creado", "Link generado"
+        PAGADO = "pagado", "Pagado"
+        RECHAZADO = "rechazado", "Rechazado"
+        VENCIDO = "vencido", "Link vencido"
+        CANCELADO = "cancelado", "Cancelado"
+        REVISAR = "revisar", "A revisar"
+        DUPLICADO = "duplicado", "Pago duplicado"
+        DEVUELTO = "devuelto", "Devuelto"
+
+    class MotivoRevision(models.TextChoices):
+        MONTO_DISTINTO = "monto_distinto", "Mercado Pago cobró otro monto"
+        CUOTA_YA_PAGADA = "cuota_ya_pagada", "La cuota ya estaba pagada"
+        CUOTA_ANULADA = "cuota_anulada", "La cuota estaba anulada"
+        MONTO_CORREGIDO = "monto_corregido", "El monto se corrigió con el link abierto"
+        DEVUELTO = "devuelto", "El pago se devolvió"
+
+    cuota = models.ForeignKey(
+        Cuota, on_delete=models.PROTECT, related_name="cobros_online"
+    )
+    referencia_externa = models.UUIDField(
+        default=uuid.uuid4, unique=True, editable=False
+    )
+    #: Congelado al generar el link: es lo que se le cobra al alumno, aunque
+    #: el staff corrija después el monto de la cuota.
+    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    #: La cuenta de MP del gimnasio que generó el link (texto, sin FK).
+    mp_user_id = models.CharField(
+        max_length=LARGO_MP_USER_ID, blank=True, default="", db_default=""
+    )
+    preference_id = models.TextField(blank=True, default="", db_default="")
+    init_point = models.TextField(blank=True, default="", db_default="")
+    payment_id = models.TextField(blank=True, default="", db_default="")
+    expira = models.DateTimeField(null=True, blank=True)
+    estado = models.CharField(
+        max_length=12, choices=Estado.choices,
+        default=Estado.CREADO, db_default=Estado.CREADO,
+    )
+    motivo_revision = models.CharField(
+        max_length=20, choices=MotivoRevision.choices,
+        blank=True, default="", db_default="",
+    )
+    estado_mp = models.TextField(blank=True, default="", db_default="")
+    #: Sólo `resumen_de_pago` (nunca la respuesta cruda de MP) y la lista de
+    #: pagos adicionales. Nunca se exporta.
+    respuesta_mp = models.JSONField(default=dict, blank=True)
+    acreditado_en = models.DateTimeField(null=True, blank=True)
+    #: «Hay algo que el staff tiene que mirar»: alimenta la pestaña «Revisar MP».
+    revision_pendiente = models.BooleanField(default=False, db_default=False)
+    revision_resuelta_en = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "cobro online de cuota"
+        verbose_name_plural = "cobros online de cuotas"
+        ordering = ["-creado", "-id"]
+        indexes = [
+            models.Index(fields=["gimnasio", "estado"], name="cobro_cuota_gim_estado"),
+        ]
+        # Condiciones con literales: dentro de la `Meta` anidada no se ve
+        # `Estado` (mismo criterio que `suscripcion.IntentoDeCobro`).
+        constraints = [
+            # Un solo link vivo por cuota: el segundo click reusa el link en
+            # vez de abrir un segundo cobro de la misma cuota.
+            models.UniqueConstraint(
+                fields=["cuota"],
+                condition=models.Q(estado="creado"),
+                name="cobro_cuota_un_link_vivo",
+            ),
+            # Un pago de MP acredita un solo intento.
+            models.UniqueConstraint(
+                fields=["payment_id"],
+                condition=~models.Q(payment_id=""),
+                name="cobro_cuota_payment_id_unico",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.cuota} · {self.get_estado_display()}"
+
+    @property
+    def referencia_mp(self):
+        """La `external_reference` que viaja a Mercado Pago."""
+        return f"{self.PREFIJO_REFERENCIA}{self.referencia_externa}"
+
+    def clean(self):
+        super().clean()
+        if self.gimnasio_id and self.cuota_id:
+            validar_gimnasio_de(self.gimnasio, cuota=self.cuota)
+
+    def save(self, *args, **kwargs):
+        # SQLite no valida el largo de un `varchar` y Postgres sí: sin esto el
+        # error aparece recién en producción.
+        if len(self.mp_user_id or "") > LARGO_MP_USER_ID:
+            raise ValueError(
+                f"mp_user_id supera los {LARGO_MP_USER_ID} caracteres."
+            )
+        super().save(*args, **kwargs)

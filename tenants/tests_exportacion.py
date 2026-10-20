@@ -244,6 +244,27 @@ class ContenidoDelZipTests(ExportacionBase):
             self.assertNotIn(secreto, todo)
         self.assertNotIn("cuenta", "\n".join(n for n in zf.namelist() if "tienda" in n))
 
+    def test_cobros_online_de_cuotas_exportan_el_pago_pero_nunca_la_respuesta(self):
+        from pagos.models import CobroOnlineCuota
+
+        _ensuciar_para_exportar(self.gimnasio, self.staff)
+        CobroOnlineCuota.objects.filter(gimnasio=self.gimnasio).update(
+            payment_id="888000222", estado_mp="approved",
+            estado=CobroOnlineCuota.Estado.PAGADO,
+            respuesta_mp={"payer": {"email": "pagador-cuota@example.com"}},
+        )
+
+        zf, _ = _exportar(self.gimnasio)
+        filas = _filas(zf, "para-importar/cuotas_pagos_online.csv", ",")
+        todo = "\n".join(_textos(zf).values())
+
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]["payment_id"], "888000222")
+        self.assertEqual(filas[0]["estado"], "Pagado")
+        self.assertEqual(filas[0]["monto"], "28000.00")
+        self.assertNotIn("respuesta_mp", filas[0])
+        self.assertNotIn("pagador-cuota@example.com", todo)
+
     def test_las_dos_carpetas_formatean_distinto_los_mismos_datos(self):
         _ensuciar_para_exportar(self.gimnasio, self.staff)
         zf, _ = _exportar(self.gimnasio)

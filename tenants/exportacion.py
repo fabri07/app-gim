@@ -127,6 +127,24 @@ HOJAS = (
         ),
     ),
     Hoja(
+        "cuotas_pagos_online", "pagos.CobroOnlineCuota", "gimnasio",
+        "Cada link de pago de una cuota por Mercado Pago y cómo terminó. "
+        "`cuota_id` es el `id` de cuotas.csv.",
+        (
+            ("id", "id"), ("cuota_id", "cuota_id"),
+            ("alumno_apellido", "cuota__alumno__apellido"),
+            ("alumno_nombre", "cuota__alumno__nombre"),
+            ("monto", "monto"), ("estado", "estado"),
+            ("motivo_revision", "motivo_revision"),
+            # De Mercado Pago sólo el id y el estado del pago: `respuesta_mp`
+            # (datos del pagador) NUNCA sale.
+            ("payment_id", "payment_id"), ("estado_mp", "estado_mp"),
+            ("acreditado_en", "acreditado_en"),
+            ("revision_resuelta_en", "revision_resuelta_en"),
+            ("creado", "creado"),
+        ),
+    ),
+    Hoja(
         "medios_de_cobro", "pagos.MedioCobro", "gimnasio",
         "Alias/CBU que el gimnasio muestra a sus alumnos para pagar.",
         (

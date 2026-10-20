@@ -803,6 +803,52 @@ class TenantIsolationTests(TestCase):
         self.assertNotEqual(perfil.gimnasio, gimnasio_b)
 
 
+class CobroOnlineCuotaAislamientoTests(TestCase):
+    """`pagos.CobroOnlineCuota`: un gimnasio no ve los cobros online de otro, y
+    un cobro no se puede colgar de la cuota de otro gimnasio."""
+
+    def setUp(self):
+        from pagos.models import CobroOnlineCuota
+
+        self.gimnasio_a = Gimnasio.objects.create(nombre="A", slug="a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="B", slug="b")
+        alumno_a = Alumno.objects.create(gimnasio=self.gimnasio_a, nombre="Ana", apellido="A")
+        alumno_b = Alumno.objects.create(gimnasio=self.gimnasio_b, nombre="Bea", apellido="B")
+        self.cuota_a = crear_cuota(
+            gimnasio=self.gimnasio_a, alumno=alumno_a, inicio=date(2026, 3, 1)
+        )
+        self.cuota_b = crear_cuota(
+            gimnasio=self.gimnasio_b, alumno=alumno_b, inicio=date(2026, 3, 1)
+        )
+        self.cobro_a = CobroOnlineCuota.objects.create(
+            gimnasio=self.gimnasio_a, cuota=self.cuota_a, monto=Decimal("100")
+        )
+        self.cobro_b = CobroOnlineCuota.objects.create(
+            gimnasio=self.gimnasio_b, cuota=self.cuota_b, monto=Decimal("200")
+        )
+
+    def test_cada_gimnasio_ve_solo_sus_cobros_online(self):
+        from pagos.models import CobroOnlineCuota
+
+        self.assertEqual(
+            list(CobroOnlineCuota.objects.for_gimnasio(self.gimnasio_a)), [self.cobro_a]
+        )
+        self.assertEqual(
+            list(CobroOnlineCuota.objects.for_gimnasio(self.gimnasio_b)), [self.cobro_b]
+        )
+
+    def test_no_se_puede_colgar_de_la_cuota_de_otro_gimnasio(self):
+        from django.core.exceptions import ValidationError
+
+        from pagos.models import CobroOnlineCuota
+
+        cobro = CobroOnlineCuota(
+            gimnasio=self.gimnasio_a, cuota=self.cuota_b, monto=Decimal("1")
+        )
+        with self.assertRaises(ValidationError):
+            cobro.full_clean()
+
+
 class TourOnboardingDisponibleTests(TestCase):
     """`Perfil.creado` (auto_now_add) es la única señal server-side del tour
     de bienvenida: perfiles de staff creados antes de TOUR_ONBOARDING_DESDE
@@ -4256,6 +4302,23 @@ class SembrarDemoAccesosTests(TestCase):
 
         self.assertEqual(Pedido.objects.count(), 0)
 
+    def test_borrar_no_revienta_si_una_cuota_de_demo_tiene_un_cobro_online(self):
+        """`CobroOnlineCuota.cuota` es PROTECT: sin sacar los cobros online
+        antes que las cuotas, `--borrar` levanta `ProtectedError`."""
+        from pagos.models import CobroOnlineCuota
+
+        self._sembrar(alumnos=2, meses=1)
+        cuota = Cuota.objects.filter(
+            gimnasio=self.gimnasio, alumno__observaciones="[demo]"
+        ).first()
+        CobroOnlineCuota.objects.create(
+            gimnasio=self.gimnasio, cuota=cuota, monto=Decimal("28000")
+        )
+
+        self._sembrar(borrar=True)
+
+        self.assertEqual(CobroOnlineCuota.objects.count(), 0)
+
     def test_sembrar_demo_borrar_con_una_denuncia_no_revienta(self):
         """`DenunciaProducto.producto` es PROTECT y `alumno` SET_NULL: `--borrar`
         tiene que poder sacar alumnos y productos de demo con una denuncia."""
@@ -4422,7 +4485,7 @@ def _ensuciar(gimnasio, staff, marca="X"):
     )
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
-    from pagos.models import Cuota, MedioCobro
+    from pagos.models import CobroOnlineCuota, Cuota, MedioCobro
     from rutinas.models import RutinaAsignada, RutinaPlantilla, RutinaPlantillaItem
     from tenants.models import RegistroSuplantacion
     from turnos.models import (
@@ -4477,11 +4540,17 @@ def _ensuciar(gimnasio, staff, marca="X"):
         gimnasio=gimnasio, plantilla=plantilla, alumno=alumno,
         fecha_inicio=timezone.localdate(),
     )
-    crear_cuota(
+    cuota = crear_cuota(
         gimnasio=gimnasio,
         alumno=alumno,
         inicio=timezone.localdate() - timedelta(days=3),
         estado=Cuota.Estado.PENDIENTE,
+    )
+    # El cobro online protege a la cuota (PROTECT): ejercita que
+    # `vaciar_gimnasio` y `borrar_demo` lo borren ANTES que las cuotas.
+    CobroOnlineCuota.objects.create(
+        gimnasio=gimnasio, cuota=cuota, monto=Decimal("28000"),
+        mp_user_id=f"mp-{marca}",
     )
     Reserva.objects.create(
         gimnasio=gimnasio, alumno=alumno,

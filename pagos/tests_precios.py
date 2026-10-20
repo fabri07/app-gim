@@ -126,6 +126,30 @@ class AplicarPrecioAImpagasTests(TestCase):
             cuota.refresh_from_db()
             self.assertEqual(cuota.monto, Decimal(esperado))
 
+    def test_no_toca_una_cuota_con_un_link_de_pago_vivo(self):
+        """Un link CREADO cobra el monto con el que se generó: la cuota no
+        puede cambiar de monto por debajo. Uno ya cancelado no frena nada."""
+        from pagos.models import CobroOnlineCuota
+
+        con_link = self._cuota()
+        con_link_cancelado = self._cuota(inicio=self.inicio - timedelta(days=28))
+        CobroOnlineCuota.objects.create(
+            gimnasio=self.gimnasio, cuota=con_link, monto=Decimal("1")
+        )
+        CobroOnlineCuota.objects.create(
+            gimnasio=self.gimnasio, cuota=con_link_cancelado, monto=Decimal("1"),
+            estado=CobroOnlineCuota.Estado.CANCELADO,
+        )
+        self.gimnasio.precio_cuota = Decimal("30000")
+        self.gimnasio.save()
+
+        self.assertEqual(aplicar_precio_a_impagas_sin_monto(self.gimnasio), 1)
+
+        con_link.refresh_from_db()
+        con_link_cancelado.refresh_from_db()
+        self.assertEqual(con_link.monto, Decimal("0"))
+        self.assertEqual(con_link_cancelado.monto, Decimal("30000"))
+
     def test_el_precio_del_gimnasio_no_pisa_al_alumno_con_precio_propio(self):
         self.alumno.precio_cuota = Decimal("9000")
         self.alumno.save()

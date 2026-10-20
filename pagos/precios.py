@@ -11,20 +11,27 @@ cron con un precio anterior, o a mano por el staff) NUNCA se pisa, y una
 pagada o anulada no se toca.
 """
 
-from django.db.models import Case, F, Value, When
+from django.db.models import Case, Exists, F, OuterRef, Value, When
 from django.utils import timezone
 
-from pagos.models import Cuota
+from pagos.models import CobroOnlineCuota, Cuota
 
 
 def _impagas_sin_monto():
     """Las cuotas a las que les corresponde un precio recién guardado.
 
-    T2 (cobro online de cuotas) le agrega «sin intento de cobro online vivo»:
-    una cuota con un link de pago abierto no puede cambiar de monto por
-    debajo del link. Ese filtro va ACÁ, así cubre los dos caminos.
+    Sin intento de cobro online vivo (CREADO): una cuota con un link de pago
+    abierto no puede cambiar de monto por debajo del link, que cobra el monto
+    con el que se generó. Con monto 0 no debería haber link (pagar exige
+    monto > 0), así que es defensa en profundidad. El filtro va ACÁ, así cubre
+    los dos caminos (gimnasio y alumno).
     """
-    return Cuota.objects.filter(estado__in=Cuota.ESTADOS_IMPAGOS, monto=0)
+    link_vivo = CobroOnlineCuota.objects.filter(
+        cuota=OuterRef("pk"), estado=CobroOnlineCuota.Estado.CREADO
+    )
+    return Cuota.objects.filter(
+        estado__in=Cuota.ESTADOS_IMPAGOS, monto=0
+    ).filter(~Exists(link_vivo))
 
 
 def aplicar_precio_a_impagas_sin_monto(gimnasio, alumno=None):
