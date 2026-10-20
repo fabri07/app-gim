@@ -4231,6 +4231,25 @@ class SembrarDemoAccesosTests(TestCase):
 
         self.assertEqual(Pedido.objects.count(), 0)
 
+    def test_sembrar_demo_borrar_con_una_denuncia_no_revienta(self):
+        """`DenunciaProducto.producto` es PROTECT y `alumno` SET_NULL: `--borrar`
+        tiene que poder sacar alumnos y productos de demo con una denuncia."""
+        from tienda.models import DenunciaProducto, Producto
+
+        self._sembrar(alumnos=2, meses=1)
+        alumno = Alumno.objects.for_gimnasio(self.gimnasio).filter(observaciones="[demo]").first()
+        producto = Producto.objects.create(
+            gimnasio=self.gimnasio, nombre="Remera", precio=Decimal("1000")
+        )
+        DenunciaProducto.objects.create(
+            gimnasio=self.gimnasio, producto=producto, alumno=alumno,
+            motivo=DenunciaProducto.Motivo.OTRO,
+        )
+
+        self._sembrar(borrar=True)
+
+        self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 0)
+
     def test_borrar_no_toca_el_acceso_de_un_alumno_real(self):
         """El mismo resguardo que ya tenía `--borrar` sobre los alumnos, pero
         para los accesos: perder el login de un alumno que paga sería peor que
@@ -4468,6 +4487,7 @@ def _ensuciar(gimnasio, staff, marca="X"):
         CategoriaProducto,
         ConfiguracionTienda,
         CuentaMercadoPago,
+        DenunciaProducto,
         ItemPedido,
         Pedido,
         Producto,
@@ -4493,6 +4513,11 @@ def _ensuciar(gimnasio, staff, marca="X"):
     ItemPedido.objects.create(
         pedido=pedido, variante=variante, nombre=f"Remera {marca} · M",
         precio_unitario=Decimal("15000"), cantidad=1,
+    )
+    # La denuncia protege al producto (PROTECT): va antes de borrarlo.
+    DenunciaProducto.objects.create(
+        gimnasio=gimnasio, producto=producto, alumno=alumno,
+        motivo=DenunciaProducto.Motivo.OTRO,
     )
     return alumno
 

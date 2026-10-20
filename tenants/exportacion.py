@@ -395,6 +395,7 @@ EXCLUIDOS = {
     "tienda.CuentaMercadoPago": (
         "credenciales de Mercado Pago del gimnasio (nunca salen de la plataforma)"
     ),
+    "tienda.DenunciaProducto": "registros internos de revisión de la plataforma",
     "calendario.ReservaCalendarEvent": (
         "estado técnico de la sincronización con Google Calendar"
     ),

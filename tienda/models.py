@@ -530,3 +530,53 @@ class ItemPedido(models.Model):
     @property
     def subtotal(self):
         return self.precio_unitario * self.cantidad
+
+
+class DenunciaProducto(TenantOwnedModel):
+    """Una denuncia de un alumno sobre un producto de la tienda. La lee la
+    plataforma en la cola de moderación; el staff del gimnasio no la ve.
+
+    `alumno` es SET_NULL a propósito: con PROTECT o CASCADE, la pantalla de
+    borrar un alumno le diría al staff «tiene 1 denuncia» y delataría al
+    denunciante (y PROTECT impediría borrarlo)."""
+
+    class Motivo(models.TextChoices):
+        DROGAS = "drogas", "Drogas o medicamentos sin receta"
+        SEXUAL = "sexual", "Contenido o servicios sexuales"
+        ARMAS = "armas", "Armas"
+        TRATA = "trata", "Trata o explotación de personas"
+        ESTAFA = "estafa", "Estafa o producto falso"
+        OTRO = "otro", "Otro"
+
+    class Estado(models.TextChoices):
+        ABIERTA = "abierta", "Abierta"
+        RESUELTA = "resuelta", "Resuelta"
+
+    producto = models.ForeignKey(
+        Producto, on_delete=models.PROTECT, related_name="denuncias"
+    )
+    alumno = models.ForeignKey(
+        "alumnos.Alumno", on_delete=models.SET_NULL, null=True,
+        related_name="denuncias_tienda",
+    )
+    motivo = models.CharField(max_length=20, choices=Motivo)
+    detalle = models.TextField(blank=True, max_length=500)
+    estado = models.CharField(max_length=10, choices=Estado, default=Estado.ABIERTA)
+
+    class Meta:
+        verbose_name = "denuncia de producto"
+        verbose_name_plural = "denuncias de productos"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["producto", "alumno"],
+                condition=Q(estado="abierta"),
+                name="denuncia_abierta_unica",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Denuncia de {self.producto_id} ({self.motivo})"
+
+    def clean(self):
+        if self.gimnasio_id:
+            validar_gimnasio_de(self.gimnasio, producto=self.producto, alumno=self.alumno)

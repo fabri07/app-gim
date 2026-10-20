@@ -3,12 +3,15 @@ que deja aprobado todo lo que ya estaba a la venta."""
 
 from decimal import Decimal
 
-from django.db import connection
+from django.contrib.auth.models import User
+from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
+from django.urls import reverse
 
-from tenants.models import Gimnasio
-from tienda.models import FotoProducto, Producto, Variante, q_vendible
+from alumnos.models import Alumno
+from tenants.models import Gimnasio, Perfil
+from tienda.models import DenunciaProducto, FotoProducto, Producto, Variante, q_vendible
 from tienda.testing import crear_foto, crear_producto
 
 
@@ -121,3 +124,53 @@ class MigracionDeModeracionTests(TransactionTestCase):
         foto = apps.get_model("tienda", "FotoProducto").objects.get(pk=foto.pk)
         self.assertEqual(producto.moderacion, "aprobado")
         self.assertIs(foto.aprobada, True)
+
+
+class DenunciaModeloTests(_Base):
+    def setUp(self):
+        super().setUp()
+        self.producto = crear_producto(gimnasio=self.gimnasio, nombre="P", precio=1)
+        self.alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="Paz")
+
+    def _denunciar(self, **campos):
+        datos = dict(
+            gimnasio=self.gimnasio, producto=self.producto, alumno=self.alumno,
+            motivo=DenunciaProducto.Motivo.ESTAFA,
+        )
+        datos.update(campos)
+        return DenunciaProducto.objects.create(**datos)
+
+    def test_dos_abiertas_del_mismo_alumno_chocan(self):
+        self._denunciar()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._denunciar(motivo=DenunciaProducto.Motivo.OTRO)
+
+    def test_una_resuelta_no_impide_otra_abierta(self):
+        self._denunciar(estado=DenunciaProducto.Estado.RESUELTA)
+        self._denunciar()
+        self.assertEqual(DenunciaProducto.objects.count(), 2)
+
+    def test_aislamiento_por_gimnasio(self):
+        self._denunciar()
+        otro = Gimnasio.objects.create(nombre="B", slug="b")
+        self.assertEqual(DenunciaProducto.objects.for_gimnasio(otro).count(), 0)
+        self.assertEqual(DenunciaProducto.objects.for_gimnasio(self.gimnasio).count(), 1)
+
+    def test_borrar_un_alumno_que_denuncio_no_lo_delata(self):
+        """`alumno` es SET_NULL: la pantalla de borrar no puede mostrarle al
+        staff que ese alumno denunció algo, ni impedirle borrarlo."""
+        staff = User.objects.create_user("staff", password="c-123456")
+        Perfil.objects.create(usuario=staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.force_login(staff)
+        denuncia = self._denunciar()
+        url = reverse("alumnos:eliminar", args=[self.alumno.pk])
+
+        respuesta = self.client.get(url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotIn("denuncia", respuesta.content.decode().lower())
+
+        respuesta = self.client.post(url, follow=True)
+        self.assertNotIn("denuncia", respuesta.content.decode().lower())
+        self.assertFalse(Alumno.objects.filter(pk=self.alumno.pk).exists())
+        denuncia.refresh_from_db()
+        self.assertIsNone(denuncia.alumno)

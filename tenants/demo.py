@@ -739,6 +739,7 @@ def vaciar_gimnasio(*, gimnasio):
         CategoriaProducto,
         ConfiguracionTienda,
         CuentaMercadoPago,
+        DenunciaProducto,
         Pedido,
         Producto,
     )
@@ -787,6 +788,8 @@ def vaciar_gimnasio(*, gimnasio):
         # recién sin ítems se pueden borrar los productos (ItemPedido.variante
         # es PROTECT).
         Pedido.objects.for_gimnasio(gimnasio).delete()
+        # PROTECT hacia `Producto`: va antes de borrar los productos.
+        DenunciaProducto.objects.for_gimnasio(gimnasio).delete()
 
         # Cascadean solos desde `Alumno`, pero se borran explícitamente para no
         # depender de por dónde entra la cascada: `Reserva` arrastra su
