@@ -80,6 +80,7 @@
                   {% if pago.estado == "pagado" %}Editar{% else %}Confirmar{% endif %}
                 </a>
                 {% if pago.estado != "pagado" %}
+                  &middot; <a href="{% url 'pagos:monto' pago.pk %}">Corregir monto</a>
                   &middot; <a href="{% url 'pagos:anular' pago.pk %}">Anular</a>
                 {% endif %}
               {% endif %}

@@ -10,6 +10,8 @@ from pagos.views import (
     AlumnoComprobanteUpdateView,
     ConfirmarPagoView,
     CuotaAnularView,
+    CuotaMontoView,
+    CuotaVolverAImpagaView,
     MedioCobroCreateView,
     MedioCobroListView,
     MedioCobroUpdateView,
@@ -25,6 +27,12 @@ urlpatterns = [
     path("medios/<int:pk>/editar/", MedioCobroUpdateView.as_view(), name="medios_editar"),
     path("<int:pk>/confirmar/", ConfirmarPagoView.as_view(), name="confirmar"),
     path("<int:pk>/anular/", CuotaAnularView.as_view(), name="anular"),
+    path("<int:pk>/monto/", CuotaMontoView.as_view(), name="monto"),
+    path(
+        "<int:pk>/volver-a-impaga/",
+        CuotaVolverAImpagaView.as_view(),
+        name="volver_a_impaga",
+    ),
     path(
         "<int:pk>/comprobante/",
         AlumnoComprobanteUpdateView.as_view(),
