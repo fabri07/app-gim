@@ -10,6 +10,7 @@ import mimetypes
 
 from django.contrib import messages
 from django.http import Http404, HttpResponse
+from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.dateparse import parse_datetime
 from django.utils.decorators import method_decorator
@@ -18,7 +19,7 @@ from django.views.decorators.cache import never_cache
 
 from plataforma.mixins import SuperadminRequiredMixin
 from tienda import moderacion
-from tienda.models import DenunciaProducto, FotoProducto, Producto
+from tienda.models import DenunciaProducto, FotoProducto, FotoRetenida, Producto
 
 LARGO_MOTIVO = 300
 YA_NO_ESTABA_FOTO = "Esa foto ya no estaba en la cola."
@@ -65,13 +66,7 @@ class FotoModeracionView(SuperadminRequiredMixin, View):
     URL firmada que se re-firma en cada render) y nada que se cachee."""
 
     def get(self, request, pk):
-        foto = get_object_or_404(FotoProducto, pk=pk)
-        with foto.imagen.open("rb") as archivo:
-            contenido = archivo.read()
-        tipo = mimetypes.guess_type(foto.imagen.name)[0] or "image/jpeg"
-        respuesta = HttpResponse(contenido, content_type=tipo)
-        respuesta["Cache-Control"] = "private, no-store"
-        return respuesta
+        return _servir_imagen(get_object_or_404(FotoProducto, pk=pk).imagen)
 
 
 class ProductoModeracionView(SuperadminRequiredMixin, View):
@@ -226,8 +221,45 @@ class FotoModeracionAccionView(SuperadminRequiredMixin, View):
             else:
                 messages.info(request, YA_NO_ESTABA_FOTO)
         else:
-            if moderacion.rechazar_foto(pk):
+            if moderacion.rechazar_foto(pk, usuario=request.user):
                 messages.success(request, "Foto rechazada; le avisamos al gimnasio.")
             else:
                 messages.info(request, YA_NO_ESTABA_FOTO)
         return redirect("plataforma:moderacion")
+
+
+def _servir_imagen(imagen, cache="private, no-store"):
+    """Los bytes del storage, nunca `imagen.url` (en R2 es una URL firmada
+    que se re-firma en cada render). Por defecto, nada que se cachee."""
+    with imagen.open("rb") as archivo:
+        contenido = archivo.read()
+    tipo = mimetypes.guess_type(imagen.name)[0] or "image/jpeg"
+    respuesta = HttpResponse(contenido, content_type=tipo)
+    respuesta["Cache-Control"] = cache
+    return respuesta
+
+
+@method_decorator(never_cache, name="dispatch")
+class FotosRetenidasView(SuperadminRequiredMixin, View):
+    """Las fotos que se borraron (rechazadas, quitadas por el gimnasio o de
+    un producto borrado), la más reciente primero. Ver `FotoRetenida`."""
+
+    #: Cada miniatura es un request que lee el archivo de R2 en un worker
+    #: sync: pocas por página para no trabar la app de todos.
+    POR_PAGINA = 20
+
+    def get(self, request):
+        retenidas = FotoRetenida.objects.select_related("gimnasio", "usuario")
+        pagina = Paginator(retenidas, self.POR_PAGINA).get_page(request.GET.get("pagina"))
+        return render(request, "plataforma/fotos_retenidas.html", {"pagina": pagina})
+
+
+class FotoRetenidaView(SuperadminRequiredMixin, View):
+    """Una retenida nunca cambia (el archivo es un uuid que nadie reemplaza
+    ni borra): el navegador del superadmin la guarda un día, `private`
+    para que ninguna caché compartida la vea."""
+
+    def get(self, request, pk):
+        return _servir_imagen(
+            get_object_or_404(FotoRetenida, pk=pk).imagen, cache="private, max-age=86400"
+        )
