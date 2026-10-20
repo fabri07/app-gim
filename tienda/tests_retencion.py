@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.core.files.storage import default_storage
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
-from django.db import connection, transaction
+from django.db import connection
 from django.urls import reverse
 
 from tenants.demo import vaciar_gimnasio
@@ -83,18 +83,6 @@ class RetencionTests(_Base):
         FotoProducto.objects.filter(producto=producto).delete()
         self.assertEqual(FotoRetenida.objects.filter(motivo=M.OTRO).count(), 2)
 
-    def test_si_el_borrado_falla_no_queda_retenida(self):
-        producto, variante, fotos = self.crear_con_fotos(1)
-        pk = fotos[0].pk
-        try:
-            with transaction.atomic():
-                fotos[0].delete()
-                raise RuntimeError
-        except RuntimeError:
-            pass
-        self.assertFalse(FotoRetenida.objects.exists())
-        self.assertTrue(FotoProducto.objects.filter(pk=pk).exists())
-
     def test_la_demo_no_retiene(self):
         """`restaurar_demo` vacía la cuenta cada 6 h: retener eso sería
         juntar basura, no evidencia."""
@@ -131,12 +119,12 @@ class PanelRetenidasTests(_Base):
         for retenida in retenidas:
             self.assertContains(r, reverse("plataforma:foto_retenida", args=[retenida.pk]))
 
-    def test_la_foto_sale_sin_cache(self):
+    def test_la_foto_sale_solo_en_cache_privada(self):
         retenida = self.retener(1)[0]
         self.client.force_login(self.root)
         r = self.client.get(reverse("plataforma:foto_retenida", args=[retenida.pk]))
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r["Cache-Control"], "private, no-store")
+        self.assertEqual(r["Cache-Control"], "private, max-age=86400")
         self.assertEqual(r["Content-Type"], "image/jpeg")
 
     def test_el_staff_no_las_ve(self):

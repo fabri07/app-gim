@@ -66,7 +66,7 @@ class FotoModeracionView(SuperadminRequiredMixin, View):
     URL firmada que se re-firma en cada render) y nada que se cachee."""
 
     def get(self, request, pk):
-        return _servir_sin_cache(get_object_or_404(FotoProducto, pk=pk).imagen)
+        return _servir_imagen(get_object_or_404(FotoProducto, pk=pk).imagen)
 
 
 class ProductoModeracionView(SuperadminRequiredMixin, View):
@@ -228,14 +228,14 @@ class FotoModeracionAccionView(SuperadminRequiredMixin, View):
         return redirect("plataforma:moderacion")
 
 
-def _servir_sin_cache(imagen):
+def _servir_imagen(imagen, cache="private, no-store"):
     """Los bytes del storage, nunca `imagen.url` (en R2 es una URL firmada
-    que se re-firma en cada render) y nada que se cachee."""
+    que se re-firma en cada render). Por defecto, nada que se cachee."""
     with imagen.open("rb") as archivo:
         contenido = archivo.read()
     tipo = mimetypes.guess_type(imagen.name)[0] or "image/jpeg"
     respuesta = HttpResponse(contenido, content_type=tipo)
-    respuesta["Cache-Control"] = "private, no-store"
+    respuesta["Cache-Control"] = cache
     return respuesta
 
 
@@ -244,7 +244,9 @@ class FotosRetenidasView(SuperadminRequiredMixin, View):
     """Las fotos que se borraron (rechazadas, quitadas por el gimnasio o de
     un producto borrado), la más reciente primero. Ver `FotoRetenida`."""
 
-    POR_PAGINA = 60
+    #: Cada miniatura es un request que lee el archivo de R2 en un worker
+    #: sync: pocas por página para no trabar la app de todos.
+    POR_PAGINA = 20
 
     def get(self, request):
         retenidas = FotoRetenida.objects.select_related("gimnasio", "usuario")
@@ -253,5 +255,11 @@ class FotosRetenidasView(SuperadminRequiredMixin, View):
 
 
 class FotoRetenidaView(SuperadminRequiredMixin, View):
+    """Una retenida nunca cambia (el archivo es un uuid que nadie reemplaza
+    ni borra): el navegador del superadmin la guarda un día, `private`
+    para que ninguna caché compartida la vea."""
+
     def get(self, request, pk):
-        return _servir_sin_cache(get_object_or_404(FotoRetenida, pk=pk).imagen)
+        return _servir_imagen(
+            get_object_or_404(FotoRetenida, pk=pk).imagen, cache="private, max-age=86400"
+        )
