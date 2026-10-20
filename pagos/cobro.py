@@ -69,36 +69,73 @@ def cancelar_links_vivos(cuota_pk, ahora):
     ).update(estado=CobroOnlineCuota.Estado.CANCELADO, modificado=ahora)
 
 
+#: Lo que guarda «Confirmar pago» (los campos de `ConfirmarPagoForm`) más el
+#: estado y `modificado` (`auto_now` corre porque va en `update_fields`).
+CAMPOS_CONFIRMAR_PAGO = (
+    "monto", "fecha_pago", "medio_pago_texto", "comprobante", "estado", "modificado",
+)
+
+
+def _subir_comprobante(cuota):
+    """Sube el comprobante nuevo (si lo hay) ANTES de tomar los locks: subir
+    a R2 tarda, y con la cuota y sus intentos bloqueados la acreditación de
+    MP esperaría detrás. `pre_save` es lo que hace `save()` con un
+    `FileField`; el `save()` posterior ya no lo vuelve a subir. Devuelve el
+    archivo recién subido (para borrarlo si al final no se guarda) o `None`."""
+    campo = Cuota._meta.get_field("comprobante")
+    nuevo = bool(cuota.comprobante) and not cuota.comprobante._committed
+    archivo = campo.pre_save(cuota, add=False)
+    return archivo if nuevo else None
+
+
+def _borrar_subido(archivo):
+    if archivo is None:
+        return
+    try:
+        archivo.storage.delete(archivo.name)
+    except Exception:  # noqa: BLE001 - un huérfano en el bucket no es un error del staff
+        pass
+
+
 def marcar_pagada(cuota, *, desde=None, ahora=None, **campos):
     """Deja la cuota PAGADA y cancela sus links de pago vivos. Devuelve si la
     marcó.
 
-    - `desde=None` es el camino de «Confirmar pago» del staff: guarda la
-      instancia que trae el form con `save()` completo (el `FileField` del
-      comprobante sólo se sube así). Si la cuota ya fue cobrada por Mercado
-      Pago (un intento PAGADO) NO guarda y devuelve `False`: el staff estaba
-      registrando un cobro que, en el medio, ya entró por otro lado.
+    - `desde=None` es el camino de «Confirmar pago» del staff: sube el
+      comprobante ANTES del lock y guarda la instancia que trae el form con
+      `update_fields=CAMPOS_CONFIRMAR_PAGO`. Si la cuota ya fue cobrada por
+      Mercado Pago (un intento PAGADO) NO guarda, borra el comprobante recién
+      subido y devuelve `False`: el staff estaba registrando un cobro que, en
+      el medio, ya entró por otro lado.
     - `desde=<estados>` es el camino de Mercado Pago: un UPDATE condicional
       sobre la cuota (sólo si sigue en uno de esos estados) con `campos`, y
       `modificado` explícito porque `update()` no dispara `auto_now`.
     """
     ahora = ahora or timezone.now()
-    with transaction.atomic():
-        _bloquear(cuota.pk)
-        if desde is None:
-            if cobrada_por_mercadopago(cuota.pk):
-                return False
-            cuota.estado = Cuota.Estado.PAGADO
-            cuota.save()
-            marcada = True
-        else:
-            marcada = bool(
-                Cuota.objects.filter(pk=cuota.pk, estado__in=desde).update(
-                    estado=Cuota.Estado.PAGADO, modificado=ahora, **campos
+    subido = _subir_comprobante(cuota) if desde is None else None
+    try:
+        with transaction.atomic():
+            _bloquear(cuota.pk)
+            if desde is None:
+                if cobrada_por_mercadopago(cuota.pk):
+                    marcada = False
+                else:
+                    cuota.estado = Cuota.Estado.PAGADO
+                    cuota.save(update_fields=CAMPOS_CONFIRMAR_PAGO)
+                    marcada = True
+            else:
+                marcada = bool(
+                    Cuota.objects.filter(pk=cuota.pk, estado__in=desde).update(
+                        estado=Cuota.Estado.PAGADO, modificado=ahora, **campos
+                    )
                 )
-            )
-        if marcada:
-            cancelar_links_vivos(cuota.pk, ahora)
+            if marcada:
+                cancelar_links_vivos(cuota.pk, ahora)
+    except Exception:
+        _borrar_subido(subido)
+        raise
+    if not marcada:
+        _borrar_subido(subido)
     return marcada
 
 
@@ -178,7 +215,8 @@ def volver_a_impaga(cuota, ahora=None, hoy=None):
     sigue desbloqueado. Nunca pasa sola: la decide el staff (un devuelto puede
     estar ya compensado en efectivo). Vuelve a PENDIENTE, o a VENCIDO si su
     fecha límite ya pasó (la misma regla que `marcar_vencidos`), sin fecha de
-    pago ni medio. La revisión del intento devuelto queda resuelta.
+    pago ni medio. La revisión del intento devuelto queda resuelta, salvo
+    que tenga pagos adicionales sin devolver (siguen en «Revisar»).
     Devuelve si la cambió.
     """
     ahora = ahora or timezone.now()
@@ -198,11 +236,24 @@ def volver_a_impaga(cuota, ahora=None, hoy=None):
             )
         )
         if cambiada:
-            CobroOnlineCuota.objects.filter(
+            # El motivo propio (el devuelto) queda resuelto, pero un pago
+            # adicional sin devolver sigue siendo plata a devolver: esa fila
+            # sigue en «Revisar». Cuando llegue su devolución, la acreditación
+            # apaga la revisión sola (mira los adicionales y que el motivo
+            # propio ya tiene `revision_resuelta_en`). Los intentos ya están
+            # bloqueados por `_bloquear`.
+            from pagos.cobro_mp import adicionales_sin_resolver
+
+            for pk, respuesta in CobroOnlineCuota.objects.filter(
                 cuota_id=cuota.pk,
                 estado=CobroOnlineCuota.Estado.DEVUELTO,
                 revision_pendiente=True,
-            ).update(revision_pendiente=False, revision_resuelta_en=ahora, modificado=ahora)
+            ).values_list("pk", "respuesta_mp"):
+                CobroOnlineCuota.objects.filter(pk=pk).update(
+                    revision_pendiente=bool(adicionales_sin_resolver(respuesta)),
+                    revision_resuelta_en=ahora,
+                    modificado=ahora,
+                )
     return cambiada
 
 

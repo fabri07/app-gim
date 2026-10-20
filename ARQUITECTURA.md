@@ -175,7 +175,9 @@ ahora a la sección homónima de ESTE archivo.
   cierra, cada una con su test verificado en rojo sin el fix:
   - **Confirmar pago**: el form viaja con `estado_al_abrir`. Abierta impaga →
     `marcar_pagada(desde=None)`, que con lock NO guarda si MP ya la cobró (un
-    intento PAGADO): mensaje + redirect. Abierta pagada → `editar_pagada`, que
+    intento PAGADO): mensaje + redirect. El comprobante se sube a R2 ANTES de
+    tomar el lock (`pre_save`) y se guarda con `update_fields`; si no se
+    guarda, el archivo recién subido se borra. Abierta pagada → `editar_pagada`, que
     no guarda si en el medio dejó de estar pagada. Una cuota cobrada por MP no
     deja cambiar monto ni medio.
   - **Comprobante del alumno**: sube el archivo y guarda SÓLO `comprobante` +
@@ -3839,9 +3841,15 @@ cuotas a esta subsección:
   a diferencia de un pedido esperando el pago: el alumno vuelve a ver «subí el
   comprobante» y un pago ya empezado igual se acredita).
 - **El cambio de cuenta se frena también por cuotas**
-  (`_hay_cuotas_que_traban`): un link de cuota vivo, una revisión pendiente
-  (REVISAR/DUPLICADO/DEVUELTO) o una cuota cobrada (PAGADO/DUPLICADO) en los
-  últimos 7 días con la cuenta anterior; un link ya vencido no traba.
+  (`_freno_por_cuotas`): un link de cuota todavía pagable, una revisión
+  pendiente (REVISAR/DUPLICADO/DEVUELTO) o una cuota cobrada (PAGADO/DUPLICADO)
+  en los últimos 7 días con la cuenta anterior; un link ya vencido no traba.
+  **«Pagable» incluye CANCELADO y RECHAZADO** (con `preference_id` y `expira`
+  futura o nula): cancelar el intento —«Desconectar» lo hace— no vence la
+  preferencia en MP. Sin esto: desconectar → conectar otra cuenta → el alumno
+  que tenía el checkout abierto le paga a la vieja → el webhook lee con el
+  token nuevo (404) y la reconciliación lo saltea por `mp_user_id`: cuota
+  impaga con la plata cobrada. El mensaje dice hasta qué hora esperar.
 
 **Bandera.** `TIENDA_MP_ENABLED` = `_bandera_todo_o_nada` de `MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_OAUTH_REDIRECT_URI` y `MP_TOKEN_ENCRYPTION_KEY`, `and not TESTING` (los tests la prenden con `override_settings`). Apagada, nada se ve: el form de configuración no tiene los campos `acepta_*`/`minutos_reserva_mp` (se sacan de `self.fields`), no hay tarjeta, el carrito no ofrece elección y el webhook responde 503. En la demo (`es_demo`) tampoco se conecta nunca.
 
@@ -4082,6 +4090,8 @@ Los avisos salen por `on_commit` (`notificar_cuota_mp_al_staff`, siempre
   «Apps de dominio» → `pagos`). La devolución no la vuelve impaga sola porque
   puede estar compensada en efectivo; pero sin la acción la plata devuelta
   seguiría sumando en `ingresos_por_mes` y el alumno seguiría desbloqueado.
+  Resuelve el motivo propio (`revision_resuelta_en`), pero un intento con
+  pagos adicionales sin devolver sigue en «Revisar» (plata a devolver).
 - **Listado de cuotas**: badge «Mercado Pago» desde `Exists(intento PAGADO)`,
   banner «N pagos de Mercado Pago para revisar», link a la pantalla y
   «Corregir monto» en las impagas. **Panel**: alerta con el conteo, en una
@@ -4100,7 +4110,10 @@ GIMNASIO los pagos de los intentos CREADO/RECHAZADO/CANCELADO/VENCIDO de los
 últimos 7 días con preferencia — **por estado, nunca por `payment_id` vacío**
 (un rechazo deja su id y el reintento aprobado con el webhook perdido no se
 miraría), y un link cancelado o vencido sigue pagable hasta que vence la
-preferencia —, del más nuevo al más viejo con tope (`--limite`, 50). Saltea
+preferencia —, del más nuevo al más viejo con tope (`--limite`, 50). Un
+link cuyo `expira` pasó hace más de `GRACIA_RECONCILIACION_TRAS_EXPIRA` (1
+día) no entra: MP no acepta pagos después de `expires`, y sin el corte los
+links muertos de los 7 días (cada uno vive 2 h) se comían el tope. Saltea
 la cuenta sin tokens, la que dio 401 en la corrida (queda en «reconectar») y
 el link de otra cuenta de MP; un error no frena a los demás. Misma regla de
 salida que `reconciliar_pedidos`: bandera apagada → 0 «apagado», salvo que
@@ -4130,7 +4143,8 @@ haya una cuenta CONECTADA (→ 1, un secret olvidado).
 Están también en `ISSUES.md` (2026-10-20).
 - Una devolución no re-bloquea sola: el staff decide con «Volver a impaga».
 - Un cambio de cuenta pisa los tokens viejos al instante; por eso se frena
-  con links vivos, revisiones pendientes o cobros de los últimos 7 días.
+  con links pagables (también cancelados o rechazados sin vencer),
+  revisiones pendientes o cobros de los últimos 7 días.
 - La bandera se llama `TIENDA_MP_ENABLED` y gobierna también las cuotas.
 - Con la cuenta del gimnasio en `ALUMNOS_BLOQUEADOS` el alumno no llega a
   pagar ni al retorno; acreditan el webhook y la reconciliación.

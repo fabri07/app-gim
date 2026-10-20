@@ -196,7 +196,8 @@ class DesconectarDesdeMiGimnasioTests(_BaseMiGimnasio):
 
 @override_settings(**MP)
 class CambioDeCuentaConCuotasTests(_BaseMiGimnasio):
-    FRENO = "todavía hay cuotas con un link de pago abierto"
+    FRENO_LINK = "todavía se puede pagar"
+    FRENO_COBROS = "todavía hay cobros de cuotas para revisar"
 
     def cambiar(self):
         state = self.iniciar(desde_gimnasio=True)
@@ -205,9 +206,9 @@ class CambioDeCuentaConCuotasTests(_BaseMiGimnasio):
         self.assertRedirects(r, MI_GIMNASIO_MP, fetch_redirect_response=False)
         return self.client.get(MI_GIMNASIO)
 
-    def assertFrena(self):
+    def assertFrena(self, freno=FRENO_COBROS):
         r = self.cambiar()
-        self.assertContains(r, self.FRENO)
+        self.assertContains(r, freno)
         cuenta = CuentaMercadoPago.objects.get(gimnasio=self.gimnasio)
         self.assertEqual((cuenta.mp_user_id, cuenta.refresh_token), ("111", "REF-viejo"))
 
@@ -221,16 +222,25 @@ class CambioDeCuentaConCuotasTests(_BaseMiGimnasio):
         self.crear_cuenta(mp_user_id="111")
         self.ahora = timezone.now()
 
-    def test_link_vivo_frena(self):
-        self.crear_intento(expira=self.ahora + timedelta(hours=1))
-        self.assertFrena()
+    def test_link_vivo_frena_y_dice_hasta_que_hora(self):
+        expira = self.ahora + timedelta(hours=1)
+        self.crear_intento(preference_id="pref-1", expira=expira)
+        self.assertFrena(self.FRENO_LINK)
+        self.assertContains(
+            self.cambiar(), f"esperá hasta las {timezone.localtime(expira):%H:%M}"
+        )
 
     def test_link_sin_vencimiento_frena(self):
-        self.crear_intento(expira=None)
-        self.assertFrena()
+        self.crear_intento(preference_id="pref-1", expira=None)
+        self.assertFrena(self.FRENO_LINK)
+
+    def test_link_creado_sin_preferencia_no_frena(self):
+        """Un intento cuya preferencia nunca se creó no tiene link que pagar."""
+        self.crear_intento(preference_id="", expira=self.ahora + timedelta(hours=1))
+        self.assertPermite()
 
     def test_link_ya_vencido_aunque_siga_creado_no_frena(self):
-        self.crear_intento(expira=self.ahora - timedelta(minutes=1))
+        self.crear_intento(preference_id="pref-1", expira=self.ahora - timedelta(minutes=1))
         self.assertPermite()
 
     def test_revision_pendiente_frena_en_cada_estado(self):
@@ -258,6 +268,43 @@ class CambioDeCuentaConCuotasTests(_BaseMiGimnasio):
 
     def test_cobro_de_hace_8_dias_no_frena(self):
         self.crear_intento(estado=C.PAGADO, acreditado_en=self.ahora - timedelta(days=8))
+        self.assertPermite()
+
+    def test_desconectar_no_destraba_un_link_cancelado_que_sigue_pagable(self):
+        """Cancelar un intento no vence la preferencia en MP: el alumno que
+        ya tenía el checkout abierto puede pagarle a la cuenta vieja hasta
+        `expira`. Con otra cuenta conectada ese pago no lo vería nadie."""
+        vivo = self.crear_intento(
+            preference_id="pref-1", expira=self.ahora + timedelta(hours=1)
+        )
+        self.client.post(reverse("tienda:mp_desconectar"), {"desde": "gimnasio"})
+        vivo.refresh_from_db()
+        self.assertEqual(vivo.estado, C.CANCELADO)
+        r = self.cambiar()
+        self.assertContains(r, self.FRENO_LINK)
+        self.assertEqual(CuentaMercadoPago.objects.get(gimnasio=self.gimnasio).mp_user_id, "111")
+
+    def test_link_cancelado_o_rechazado_vivo_frena(self):
+        for estado in (C.CANCELADO, C.RECHAZADO):
+            with self.subTest(estado=estado):
+                intento = self.crear_intento(
+                    estado=estado, preference_id="pref-1",
+                    expira=self.ahora + timedelta(hours=1),
+                )
+                self.assertFrena(self.FRENO_LINK)
+                intento.delete()
+
+    def test_link_cancelado_vencido_o_sin_preferencia_no_frena(self):
+        self.crear_intento(
+            estado=C.CANCELADO, preference_id="pref-1",
+            expira=self.ahora - timedelta(minutes=1),
+        )
+        self.crear_intento(
+            estado=C.CANCELADO, preference_id="", expira=self.ahora + timedelta(hours=1)
+        )
+        self.crear_intento(
+            estado=C.RECHAZADO, preference_id="", expira=self.ahora + timedelta(hours=1)
+        )
         self.assertPermite()
 
     def test_cuotas_de_otro_gimnasio_no_frenan(self):

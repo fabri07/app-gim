@@ -102,6 +102,22 @@ class ReconciliarCuotasTests(_BaseReconciliar):
         self.assertEqual(set(self.refs()), candidatos)
         self.assertEqual(len(self.refs()), 4)
 
+    def test_un_link_vencido_hace_dias_no_gasta_el_tope(self):
+        """Un link vive 2 h y MP no acepta pagos después de `expires`: uno
+        vencido hace 3 días no se busca (si no, los links muertos de 7 días
+        consumen el tope de 50 y dejan afuera a los que importan). Uno
+        vencido hace 2 h sí (aprobación tardía, cron demorado)."""
+        ahora = timezone.now()
+        CobroOnlineCuota.objects.filter(pk=self.intento.pk).update(
+            estado=I.VENCIDO, expira=ahora - timedelta(days=3)
+        )
+        reciente = self.otra_cuota(1, estado=I.CANCELADO, expira=ahora - timedelta(hours=2))
+        sin_vencimiento = self.otra_cuota(2, estado=I.RECHAZADO, expira=None)
+        self.correr()
+        self.assertEqual(
+            set(self.refs()), {reciente.referencia_mp, sin_vencimiento.referencia_mp}
+        )
+
     def test_del_mas_nuevo_al_mas_viejo_con_tope(self):
         self.envejecer(self.intento, days=2)
         nuevo = self.otra_cuota(1, estado=I.CANCELADO)

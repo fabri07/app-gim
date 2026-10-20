@@ -25,7 +25,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core import signing
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Max, Q
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.urls import reverse
@@ -251,15 +251,9 @@ class CallbackView(_MercadoPagoStaffView):
                         "la cuenta anterior (las compras abandonadas no cuentan). "
                         "Terminá o cancelá esos pedidos antes de cambiar de cuenta.",
                     )
-                if _hay_cuotas_que_traban(self.gimnasio, ahora):
-                    return self._volver(
-                        messages.error,
-                        "Esa es otra cuenta de Mercado Pago y todavía hay cuotas con "
-                        "un link de pago abierto, cobros de cuotas para revisar o "
-                        "cuotas cobradas por Mercado Pago en los últimos 7 días con la "
-                        "cuenta anterior. Esperá a que venzan los links, resolvé lo "
-                        "pendiente y probá de nuevo pasados 7 días del último cobro.",
-                    )
+                freno = _freno_por_cuotas(self.gimnasio, ahora)
+                if freno:
+                    return self._volver(messages.error, freno)
             CuentaMercadoPago.objects.update_or_create(
                 gimnasio=self.gimnasio,
                 defaults={
@@ -282,22 +276,61 @@ class CallbackView(_MercadoPagoStaffView):
         return self._volver(messages.success, "Mercado Pago quedó conectado.")
 
 
-def _hay_cuotas_que_traban(gimnasio, ahora):
-    """¿Hay cobros de cuotas de la cuenta vieja que todavía importan?
-
-    Mismo criterio que los pedidos: un link vivo cobraría a la cuenta vieja;
-    una revisión pendiente o un cobro de los últimos 7 días puede volver como
-    reintegro o contracargo por esa cuenta, y con otra conectada nadie lo
-    vería. Un link ya vencido (aunque siga CREADO) no traba."""
+#: Un link de cuota que MP todavía cobra. CANCELADO y RECHAZADO también:
+#: cancelar el intento (desconectar, pagarla a mano, corregir el monto) no
+#: vence la preferencia en MP, y un pago rechazado deja reintentar con el mismo
+#: link. Sin `preference_id` no hay link que pagar.
+def _q_link_de_cuota_pagable(ahora):
     E = CobroOnlineCuota.Estado
-    return CobroOnlineCuota.objects.filter(gimnasio=gimnasio).filter(
-        (Q(estado=E.CREADO) & (Q(expira__isnull=True) | Q(expira__gt=ahora)))
-        | Q(estado__in=(E.REVISAR, E.DUPLICADO, E.DEVUELTO), revision_pendiente=True)
+    return (
+        Q(estado__in=(E.CREADO, E.CANCELADO, E.RECHAZADO))
+        & ~Q(preference_id="")
+        & (Q(expira__isnull=True) | Q(expira__gt=ahora))
+    )
+
+
+def _freno_por_cuotas(gimnasio, ahora):
+    """El mensaje que frena el cambio a OTRA cuenta de MP por los cobros de
+    cuotas de la cuenta vieja, o `None` si no hay nada que lo trabe.
+
+    Mismo criterio que los pedidos: un link todavía pagable cobraría a la
+    cuenta vieja (y el webhook, leyendo con el token nuevo, recibiría 404; la
+    reconciliación lo saltea por `mp_user_id`: la cuota quedaría impaga con la
+    plata cobrada); una revisión pendiente o un cobro de los últimos 7 días
+    puede volver como reintegro o contracargo por esa cuenta, y con otra
+    conectada nadie lo vería. Un link ya vencido (aunque siga CREADO) no
+    traba."""
+    E = CobroOnlineCuota.Estado
+    intentos = CobroOnlineCuota.objects.filter(gimnasio=gimnasio)
+    links = intentos.filter(_q_link_de_cuota_pagable(ahora)).aggregate(
+        total=Count("pk"),
+        sin_vencimiento=Count("pk", filter=Q(expira__isnull=True)),
+        hasta=Max("expira"),
+    )
+    if links["total"]:
+        if links["sin_vencimiento"] or links["hasta"] is None:
+            espera = "esperá a que venza"
+        else:
+            espera = f"esperá hasta las {timezone.localtime(links['hasta']):%H:%M}"
+        return (
+            "Esa es otra cuenta de Mercado Pago y hay un link de pago de cuota de "
+            "la cuenta anterior que todavía se puede pagar; "
+            f"{espera} y probá de nuevo."
+        )
+    if intentos.filter(
+        Q(estado__in=(E.REVISAR, E.DUPLICADO, E.DEVUELTO), revision_pendiente=True)
         | Q(
             estado__in=(E.PAGADO, E.DUPLICADO),
             acreditado_en__gte=ahora - VENTANA_CAMBIO_DE_CUENTA,
         )
-    ).exists()
+    ).exists():
+        return (
+            "Esa es otra cuenta de Mercado Pago y todavía hay cobros de cuotas "
+            "para revisar o cuotas cobradas por Mercado Pago en los últimos 7 "
+            "días con la cuenta anterior. Resolvé lo pendiente y probá de nuevo "
+            "pasados 7 días del último cobro."
+        )
+    return None
 
 
 def _avisar_conexion(gimnasio, quien):

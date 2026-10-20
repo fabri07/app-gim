@@ -31,6 +31,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -652,6 +653,14 @@ def link_de_pago(cuota_pk, alumno, *, url_retorno_para, url_notificacion_para, a
 #: `tienda.pagos_mp.DIAS_RECONCILIACION`).
 DIAS_RECONCILIACION = 7
 
+#: Cuánto después de su `expira` se sigue buscando un link. MP no acepta
+#: pagos sobre una preferencia vencida (`expires`), así que un link que venció
+#: hace días ya no puede traer plata nueva; el día extra cubre una aprobación
+#: tardía (un pago empezado antes de vencer que MP aprueba después) y un cron
+#: demorado (GitHub retrasa los `schedule` horas). Sin este corte, los links
+#: muertos de los 7 días (cada uno vive 2 h) se comen el tope de la corrida.
+GRACIA_RECONCILIACION_TRAS_EXPIRA = timedelta(days=1)
+
 
 def _ids_de_pagos(referencia, token):
     """Sólo los ids de la búsqueda: cada resultado trae los datos del pagador
@@ -675,7 +684,9 @@ def reconciliar_cuotas(*, limite=50, ahora=None):
     `DIAS_RECONCILIACION` días con preferencia: **se filtra por ESTADO, nunca
     por `payment_id` vacío** (un rechazo deja su id y el reintento aprobado,
     con el webhook perdido, no se miraría nunca), y un link cancelado o
-    vencido sigue pagable hasta que vence la preferencia. Del más nuevo al más
+    vencido sigue pagable hasta que vence la preferencia. Un link vencido hace
+    más de `GRACIA_RECONCILIACION_TRAS_EXPIRA` ya no se mira: MP no acepta
+    pagos después de `expires`, y no debe gastar el tope. Del más nuevo al más
     viejo, con tope (cada llamada espera hasta 5 s y el job tiene 15 min).
 
     **Siempre con el token DEL GIMNASIO** (`Secreto(cuenta.access_token)`):
@@ -697,6 +708,10 @@ def reconciliar_cuotas(*, limite=50, ahora=None):
         CobroOnlineCuota.objects.filter(
             estado__in=_SIN_PLATA,
             creado__gte=ahora - timedelta(days=DIAS_RECONCILIACION),
+        )
+        .filter(
+            Q(expira__isnull=True)
+            | Q(expira__gte=ahora - GRACIA_RECONCILIACION_TRAS_EXPIRA)
         )
         .exclude(preference_id="")
         .order_by("-creado", "-pk")

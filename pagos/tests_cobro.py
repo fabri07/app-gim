@@ -18,6 +18,7 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.contrib.messages import get_messages
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db.models.fields.files import FieldFile
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -99,6 +100,65 @@ class MarcarPagadaTests(_Base):
 
         self.cuota.refresh_from_db()
         self.assertEqual(self.cuota.monto, Decimal("28000"))
+
+    def _con_comprobante(self, cuota=None):
+        cuota = cuota or Cuota.objects.get(pk=self.cuota.pk)
+        cuota.comprobante = SimpleUploadedFile(
+            "comprobante.jpg", b"contenido", content_type="image/jpeg"
+        )
+        cuota.fecha_pago = self.hoy
+        cuota.medio_pago_texto = "Efectivo"
+        return cuota
+
+    def test_camino_staff_sube_el_comprobante_antes_de_tomar_los_locks(self):
+        """Subir a R2 tarda: no puede pasar con la cuota y sus intentos
+        bloqueados (la acreditación de MP esperaría detrás)."""
+        orden = []
+        subir_original = FieldFile.save
+        bloquear_original = cobro._bloquear
+
+        def subir(campo, *args, **kwargs):
+            orden.append("subir")
+            return subir_original(campo, *args, **kwargs)
+
+        def bloquear(cuota_pk):
+            orden.append("bloquear")
+            return bloquear_original(cuota_pk)
+
+        cuota = self._con_comprobante()
+        with patch.object(FieldFile, "save", autospec=True, side_effect=subir), \
+                patch.object(cobro, "_bloquear", side_effect=bloquear):
+            self.assertTrue(cobro.marcar_pagada(cuota))
+
+        self.assertEqual(orden, ["subir", "bloquear"])
+        self.cuota.refresh_from_db()
+        self.assertEqual(self.cuota.estado, Estado.PAGADO)
+        self.assertTrue(self.cuota.comprobante.name.startswith("comprobantes/"))
+        self.assertTrue(self.cuota.comprobante.storage.exists(self.cuota.comprobante.name))
+
+    def test_camino_staff_guarda_solo_los_campos_del_form(self):
+        """`update_fields`: lo que otro cambió en la fila mientras el form
+        estaba abierto (y no es del form) no se pisa."""
+        cuota = self._con_comprobante()
+        Cuota.objects.filter(pk=self.cuota.pk).update(observaciones="anotado en el medio")
+
+        self.assertTrue(cobro.marcar_pagada(cuota))
+
+        self.cuota.refresh_from_db()
+        self.assertEqual(self.cuota.observaciones, "anotado en el medio")
+        self.assertEqual(self.cuota.medio_pago_texto, "Efectivo")
+        self.assertEqual(self.cuota.fecha_pago, self.hoy)
+
+    def test_camino_staff_si_mp_la_cobro_borra_el_comprobante_recien_subido(self):
+        cuota = self._con_comprobante()
+        self._cobrar_por_mp()
+
+        self.assertFalse(cobro.marcar_pagada(cuota))
+
+        self.assertTrue(cuota.comprobante.name)
+        self.assertFalse(cuota.comprobante.storage.exists(cuota.comprobante.name))
+        self.cuota.refresh_from_db()
+        self.assertFalse(self.cuota.comprobante)
 
     def test_camino_mp_update_condicional(self):
         vivo = self._intento()
@@ -479,6 +539,46 @@ class VolverAImpagaTests(_Base):
         self.assertEqual(self.cuota.estado, Estado.PENDIENTE)
         self.assertIsNone(self.cuota.fecha_pago)
         self.assertEqual(self.cuota.medio_pago_texto, "")
+        self.assertFalse(intento.revision_pendiente)
+        self.assertIsNotNone(intento.revision_resuelta_en)
+
+    def test_un_pago_adicional_sin_devolver_sigue_en_revisar(self):
+        """P1 pagó la cuota y P2 quedó como adicional (hay que devolverlo);
+        P1 se devolvió. «Volver a impaga» resuelve el motivo propio (el
+        devuelto) pero P2 sigue siendo plata a devolver: no sale de Revisar."""
+        intento = self._devolver()
+        CobroOnlineCuota.objects.filter(pk=intento.pk).update(
+            respuesta_mp={
+                cobro.CLAVE_PAGOS_ADICIONALES: [
+                    {"payment_id": "502", "estado_mp": "approved"},
+                    {"payment_id": "503", "estado_mp": "approved", "resuelto": "2026-10-01"},
+                ]
+            }
+        )
+
+        self.client.post(self.url)
+
+        self.cuota.refresh_from_db()
+        intento.refresh_from_db()
+        self.assertEqual(self.cuota.estado, Estado.PENDIENTE)
+        self.assertTrue(intento.revision_pendiente)
+        # El motivo propio (el devuelto) sí quedó resuelto: cuando después
+        # llegue la devolución de P2, la revisión se apaga sola.
+        self.assertIsNotNone(intento.revision_resuelta_en)
+
+    def test_adicionales_ya_resueltos_no_la_dejan_en_revisar(self):
+        intento = self._devolver()
+        CobroOnlineCuota.objects.filter(pk=intento.pk).update(
+            respuesta_mp={
+                cobro.CLAVE_PAGOS_ADICIONALES: [
+                    {"payment_id": "502", "estado_mp": "approved", "resuelto": "2026-10-01"},
+                ]
+            }
+        )
+
+        self.client.post(self.url)
+
+        intento.refresh_from_db()
         self.assertFalse(intento.revision_pendiente)
         self.assertIsNotNone(intento.revision_resuelta_en)
 
