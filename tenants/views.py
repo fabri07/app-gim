@@ -55,6 +55,20 @@ def _contadores_tienda(gimnasio):
     return contadores
 
 
+def _cuotas_mp_a_revisar(gimnasio):
+    """Pagos de cuotas por Mercado Pago para revisar (alerta del panel). UNA
+    query, y sólo si puede haber cobros online
+    (`pagos.cobro.puede_haber_cobros_online`): con la bandera apagada y el
+    interruptor apagado, el panel tiene las mismas queries de siempre. Va
+    aparte de `tienda.services.contadores_panel`, que está fijado en una
+    query."""
+    from pagos import cobro
+
+    if not cobro.puede_haber_cobros_online(gimnasio):
+        return 0
+    return cobro.contadores_cobro_online(gimnasio)["a_revisar"]
+
+
 def _ventas_tienda(gimnasio):
     if not gimnasio.puede_usar_tienda:
         return None
@@ -320,6 +334,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
             # Tienda (add-on): una sola query agregada. Con el add-on apagado
             # pero pedidos vivos, la tarjeta sigue: el staff tiene que cerrarlos.
             "tienda_contadores": _contadores_tienda(gimnasio),
+            "cuotas_mp_a_revisar": _cuotas_mp_a_revisar(gimnasio),
             "cuotas_vigentes": Cuota.objects.for_gimnasio(gimnasio)
             .filter(periodo_inicio__lte=hoy, periodo_fin__gte=hoy)
             .exclude(estado=Cuota.Estado.ANULADO)

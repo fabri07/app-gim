@@ -15,6 +15,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Exists, OuterRef, Q
 from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse, reverse_lazy
@@ -67,7 +68,22 @@ class CuotaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         misma pregunta sin mentir. Las dos fechas son opcionales e
         independientes; una fecha mal tipeada se ignora en vez de dar 500.
         """
-        queryset = super().get_queryset().select_related("alumno")
+        # `pagada_online` sale de un intento PAGADO, nunca de
+        # `medio_pago_texto`: los gimnasios ya escriben «Mercado Pago» a mano
+        # para las transferencias a su alias. Un `Exists` en la misma query
+        # del listado: cero queries de más por fila.
+        queryset = (
+            super()
+            .get_queryset()
+            .select_related("alumno")
+            .annotate(
+                pagada_online=Exists(
+                    CobroOnlineCuota.objects.filter(
+                        cuota_id=OuterRef("pk"), estado=CobroOnlineCuota.Estado.PAGADO
+                    )
+                )
+            )
+        )
         self.desde = self.request.GET.get("desde", "")
         self.hasta = self.request.GET.get("hasta", "")
         self.estado = self.request.GET.get("estado", "")
@@ -90,7 +106,145 @@ class CuotaListView(StaffRequiredMixin, TenantScopedMixin, ListView):
         context["hasta_actual"] = self.hasta
         context["estado_actual"] = self.estado
         context["estados"] = Cuota.Estado.choices
+        # Banner «N pagos de Mercado Pago para revisar» y link a la pantalla:
+        # UNA query agregada. Con la bandera apagada sólo aparecen si hay
+        # intentos (plata cobrada no se esconde).
+        contadores = cobro.contadores_cobro_online(self.gimnasio)
+        context["cobro_online"] = (
+            contadores
+            if settings.TIENDA_MP_ENABLED or contadores["total"]
+            else None
+        )
         return context
+
+
+#: Lo que el staff tiene que hacer con un intento en revisión, en castellano
+#: llano, por `motivo_revision`. `{monto}` es lo que cobró Mercado Pago.
+EXPLICACION_REVISION = {
+    CobroOnlineCuota.MotivoRevision.MONTO_DISTINTO: (
+        "Mercado Pago cobró un monto distinto al de la cuota: revisalo y "
+        "devolvé o cobrá la diferencia."
+    ),
+    CobroOnlineCuota.MotivoRevision.CUOTA_YA_PAGADA: (
+        "La cuota ya estaba paga: este pago está de más, devolvelo desde "
+        "Mercado Pago."
+    ),
+    CobroOnlineCuota.MotivoRevision.CUOTA_ANULADA: (
+        "La cuota estaba anulada y Mercado Pago igual cobró: devolvé el pago "
+        "desde Mercado Pago, o reactivá la cuota y registrá el pago."
+    ),
+    CobroOnlineCuota.MotivoRevision.MONTO_CORREGIDO: (
+        "Corregiste el monto con el link de pago abierto: la cuota quedó paga "
+        "con lo que cobró Mercado Pago ($ {monto}). Si no era lo que "
+        "correspondía, devolvé o cobrá la diferencia."
+    ),
+    CobroOnlineCuota.MotivoRevision.DEVUELTO: (
+        "Mercado Pago devolvió este pago: si corresponde, volvé la cuota a impaga."
+    ),
+}
+
+#: Pestañas de `pagos:online`.
+FILTROS_COBRO_ONLINE = {
+    "todos": cobro.Q_PANTALLA_MP,
+    "revisar": cobro.Q_REVISAR_MP,
+}
+
+
+class CobroOnlineListView(StaffRequiredMixin, TenantScopedMixin, ListView):
+    """«Pagos con Mercado Pago» (`pagos:online`): los intentos de cobro de
+    cuotas que movieron plata, con lo que el staff tiene que hacer con cada
+    uno. Molde: la pestaña «Revisar MP» de la tienda.
+
+    Sin N+1: la cuota y el alumno vienen en el JOIN, «¿se puede volver a
+    impaga?» es un `Exists` anotado (la misma regla que
+    `cobro.puede_volver_a_impaga`, sin una query por fila) y los contadores
+    de las pestañas son una query agregada.
+
+    Con la bandera apagada se ve SÓLO si hay intentos: plata cobrada (o para
+    devolver) no se esconde por haber apagado Mercado Pago."""
+
+    model = CobroOnlineCuota
+    template_name = "pagos/cobro_online_list.html"
+    context_object_name = "intentos"
+    paginate_by = 20
+
+    def get(self, request, *args, **kwargs):
+        self.contadores = cobro.contadores_cobro_online(self.gimnasio)
+        if not settings.TIENDA_MP_ENABLED and not self.contadores["total"]:
+            messages.info(request, "Todavía no hay pagos con Mercado Pago.")
+            return redirect("pagos:listado")
+        return super().get(request, *args, **kwargs)
+
+    def get_queryset(self):
+        self.filtro = self.request.GET.get("filtro", "todos")
+        if self.filtro not in FILTROS_COBRO_ONLINE:
+            self.filtro = "todos"
+        _E = CobroOnlineCuota.Estado
+        de_la_cuota = CobroOnlineCuota.objects.filter(cuota_id=OuterRef("cuota_id"))
+        return (
+            super()
+            .get_queryset()
+            .filter(FILTROS_COBRO_ONLINE[self.filtro])
+            .select_related("cuota__alumno")
+            .annotate(
+                devuelto_en_la_cuota=Exists(de_la_cuota.filter(estado=_E.DEVUELTO)),
+                pagado_en_la_cuota=Exists(de_la_cuota.filter(estado=_E.PAGADO)),
+            )
+            .order_by("-creado", "-id")
+        )
+
+    def get_context_data(self, **kwargs):
+        from pagos import cobro_mp
+
+        context = super().get_context_data(**kwargs)
+        for intento in context["intentos"]:
+            # La misma regla que `cobro.puede_volver_a_impaga`, con lo anotado.
+            intento.puede_volver_a_impaga = (
+                intento.cuota.estado == Cuota.Estado.PAGADO
+                and intento.devuelto_en_la_cuota
+                and not intento.pagado_en_la_cuota
+            )
+            intento.explicacion = ""
+            intento.adicionales = []
+            if intento.revision_pendiente:
+                plantilla = EXPLICACION_REVISION.get(intento.motivo_revision, "")
+                intento.explicacion = plantilla.format(
+                    monto=_pesos(intento.monto)
+                ) if plantilla else ""
+                # Sólo el número de pago: nada del pagador.
+                intento.adicionales = [
+                    str(r.get("payment_id", ""))
+                    for r in cobro_mp.adicionales_sin_resolver(intento.respuesta_mp)
+                ]
+        context["filtro"] = self.filtro
+        context["contadores"] = self.contadores
+        return context
+
+
+def _pesos(monto):
+    """`28.000` o `28.000,50`, como en el resto de la app."""
+    from django.template.defaultfilters import floatformat
+
+    return floatformat(monto, "-2g")
+
+
+class CobroOnlineResueltoView(StaffRequiredMixin, TenantScopedMixin, View):
+    """«Ya lo resolví» (`pagos:online_resuelto`, sólo POST): saca el intento
+    de la pestaña «Revisar». Un intento de otro gimnasio o ya resuelto no se
+    toca: mensaje y redirect, nunca un 4xx (bajo `hx-boost` sería un click
+    mudo)."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        if cobro.marcar_revision_resuelta(pk, self.gimnasio):
+            messages.success(request, "Listo, lo marcamos como resuelto.")
+        else:
+            messages.info(request, "Ese pago ya no tenía nada pendiente de revisar.")
+        destino = reverse("pagos:online")
+        if request.POST.get("filtro") == "revisar":
+            destino += "?filtro=revisar"
+        return redirect(destino)
 
 
 class ConfirmarPagoView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
@@ -296,6 +450,10 @@ class CuotaVolverAImpagaView(StaffRequiredMixin, TenantScopedMixin, View):
                 f"La cuota del {cuota.periodo_inicio:%d/%m/%Y} de {cuota.alumno} "
                 f"no tiene un cobro de Mercado Pago devuelto: no se cambió.",
             )
+        # Desde «Pagos con Mercado Pago» se vuelve ahí (valor fijo, nunca una
+        # URL que venga del cliente).
+        if request.POST.get("volver_a") == "online":
+            return redirect("pagos:online")
         return redirect("pagos:listado")
 
 

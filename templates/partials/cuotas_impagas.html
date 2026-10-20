@@ -23,11 +23,11 @@ bajo el boost global no se sigue.
         {% else %}
           <span class="badge badge--alerta">Pendiente</span>
         {% endif %}
-        {% if cuota.monto > 0 %}<span>$ {{ cuota.monto }}</span>{% endif %}
+        {% if cuota.monto > 0 %}<span class="whitespace-nowrap">$ {{ cuota.monto|floatformat:"-2g" }}</span>{% endif %}
         {% if cobro_mp_disponible and cuota.monto > 0 %}
           <form method="post" action="{% url 'pagos:pagar_mp' cuota.pk %}" hx-boost="false">
             {% csrf_token %}
-            <button type="submit" class="boton">Pagar $ {{ cuota.monto }} con Mercado Pago</button>
+            <button type="submit" class="boton">Pagar $ {{ cuota.monto|floatformat:"-2g" }} con Mercado Pago</button>
           </form>
         {% endif %}
         <a class="boton-secundario" href="{% url 'pagos:comprobante_subir' cuota.pk %}">Subir comprobante</a>

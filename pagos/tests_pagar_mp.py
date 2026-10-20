@@ -119,7 +119,7 @@ class BotonTests(_Base):
         etiqueta = html[html.rindex("<form", 0, inicio):html.index(">", inicio)]
         self.assertIn('hx-boost="false"', etiqueta)
         self.assertIn('method="post"', etiqueta)
-        self.assertIn("Pagar $ 28000,00 con Mercado Pago", html)
+        self.assertIn("Pagar $ 28.000 con Mercado Pago", html)
         # El comprobante sigue al lado.
         self.assertIn(reverse("pagos:comprobante_subir", args=[self.cuota.pk]), html)
 

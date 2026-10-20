@@ -8,7 +8,16 @@
     <h1>Pagos</h1>
     <a class="boton-secundario" href="{% url 'pagos:medios_listado' %}">Medios de cobro</a>
     <a class="boton-secundario" href="{% url 'pagos:listado' %}?estado=deudores">Ver deudores</a>
+    {% if cobro_online %}<a class="boton-secundario" href="{% url 'pagos:online' %}">Pagos con Mercado Pago</a>{% endif %}
   </div>
+
+  {% if cobro_online.a_revisar %}
+    <div class="tarjeta aviso-urgente">
+      <p>
+        <a href="{% url 'pagos:online' %}?filtro=revisar">{{ cobro_online.a_revisar }} pago{{ cobro_online.a_revisar|pluralize }} de Mercado Pago para revisar</a>
+      </p>
+    </div>
+  {% endif %}
 
   <form method="get" class="filtros">
     {% comment %} Rango de fechas y no mes/año: con ciclos anclados a cada alumno, un ciclo que arranca el 28 de marzo cae casi entero en abril y "el mes" deja de ser una unidad de cobro. {% endcomment %}
@@ -57,6 +66,8 @@
             <td>
               {% if pago.estado == "pagado" %}
                 <span class="badge badge--ok">Pagado</span>
+                {% comment %} Del `Exists` de un intento PAGADO, nunca de `medio_pago_texto` (los gimnasios escriben «Mercado Pago» a mano para las transferencias). {% endcomment %}
+                {% if pago.pagada_online %}<span class="badge badge--neutro">Mercado Pago</span>{% endif %}
               {% elif pago.estado == "vencido" %}
                 <span class="badge badge--riesgo">Vencido</span>
               {% elif pago.estado == "anulado" %}

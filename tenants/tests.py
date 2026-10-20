@@ -1513,7 +1513,8 @@ class HomeViewAlumnoTests(TestCase):
         response = self.client.get(reverse("home"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "15000")
+        # Miles con punto y sin «,00» (T7 de cuotas por MP): «$ 15.000».
+        self.assertContains(response, "$ 15.000")
         self.assertContains(response, "gimnasio.alfa")
         self.assertContains(response, "Juan Pérez")
         self.assertContains(response, "Mercado Pago")

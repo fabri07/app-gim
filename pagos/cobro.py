@@ -22,7 +22,9 @@ el monto) cancela los links de pago vivos: un link abierto cobra el monto con
 el que se generó, que ya no es el que corresponde.
 """
 
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from pagos.models import CobroOnlineCuota, Cuota
@@ -198,3 +200,63 @@ def volver_a_impaga(cuota, ahora=None, hoy=None):
                 revision_pendiente=True,
             ).update(revision_pendiente=False, revision_resuelta_en=ahora, modificado=ahora)
     return cambiada
+
+
+# --- Pantalla «Pagos con Mercado Pago» del staff ---------------------------------
+
+#: Intentos sobre los que entró plata (o entró y se devolvió). Son los que
+#: lista `pagos:online`: un link generado que nadie pagó no le dice nada al
+#: staff.
+ESTADOS_CON_PLATA = (
+    CobroOnlineCuota.Estado.PAGADO,
+    CobroOnlineCuota.Estado.DUPLICADO,
+    CobroOnlineCuota.Estado.REVISAR,
+    CobroOnlineCuota.Estado.DEVUELTO,
+)
+
+#: Pestaña «Revisar»: hay algo que el staff tiene que mirar. Sólo el booleano
+#: y no también `estado=REVISAR`: todo intento que pasa a REVISAR prende
+#: `revision_pendiente` (`cobro_mp._con_revision`), y un REVISAR cuya plata ya
+#: se devolvió, o que el staff marcó «Ya lo resolví», tiene que salir de la
+#: pestaña (con el estado en el filtro no saldría nunca: el intento no tiene
+#: salida de REVISAR). La comparten la pestaña, el banner del listado, la
+#: alerta del panel y el push.
+Q_REVISAR_MP = Q(revision_pendiente=True)
+
+#: Todo lo que lista la pantalla.
+Q_PANTALLA_MP = Q(estado__in=ESTADOS_CON_PLATA) | Q_REVISAR_MP
+
+
+def contadores_cobro_online(gimnasio):
+    """`{"total", "a_revisar"}` de la pantalla `pagos:online`, en UNA query
+    agregada (sin filas: el costo no depende de cuántos intentos haya)."""
+    return CobroOnlineCuota.objects.for_gimnasio(gimnasio).aggregate(
+        total=Count("pk", filter=Q_PANTALLA_MP),
+        a_revisar=Count("pk", filter=Q_REVISAR_MP),
+    )
+
+
+def puede_haber_cobros_online(gimnasio):
+    """¿Vale la pena preguntarle a la base por los cobros online del
+    gimnasio? Sin query: la bandera prendida, o el interruptor de «Mi
+    gimnasio» prendido (con la bandera apagada el form no lo muestra, así que
+    no cambia: si quedó prendido es que se cobró o se pudo cobrar).
+
+    Es lo que mantiene el panel del staff en las mismas queries de siempre con
+    la bandera apagada (hoy, en producción) y sin dejar escondida plata para
+    revisar si la bandera se apaga después de haber cobrado."""
+    return settings.TIENDA_MP_ENABLED or gimnasio.cuotas_con_mercadopago
+
+
+def marcar_revision_resuelta(intento_pk, gimnasio, ahora=None):
+    """«Ya lo resolví»: el staff ya hizo lo que pedía la revisión (devolvió el
+    pago, cobró la diferencia...). UPDATE condicional a que siga pendiente y
+    sea del gimnasio; `modificado` explícito, que es además lo que hace que
+    una acreditación concurrente (`cobro_mp._transicionar`) relea y decida de
+    nuevo en vez de pisarlo. Devuelve si lo marcó."""
+    ahora = ahora or timezone.now()
+    return bool(
+        CobroOnlineCuota.objects.filter(
+            pk=intento_pk, gimnasio=gimnasio, revision_pendiente=True
+        ).update(revision_pendiente=False, revision_resuelta_en=ahora, modificado=ahora)
+    )

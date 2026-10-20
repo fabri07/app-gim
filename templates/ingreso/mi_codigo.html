@@ -23,8 +23,9 @@
         <p>
           Tenés una cuota pendiente, así que
           <strong>la puerta no te va a dejar pasar</strong>
-          hasta que el gimnasio registre el pago. Tu código sigue siendo este:
-          no hace falta pedir otro.
+          hasta que el gimnasio registre el pago.{% if cobro_mp_disponible %} Si
+          la pagás con Mercado Pago, se habilita al instante.{% endif %} Tu código
+          sigue siendo este: no hace falta pedir otro.
         </p>
         <a href="{% url 'home' %}">Ver tu cuota</a>
       </div>

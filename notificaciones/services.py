@@ -581,9 +581,10 @@ def notificar_cuota_mp_al_staff(intento, aviso) -> None:
             inicio=f"{cuota.periodo_inicio:%d/%m}",
             monto=floatformat(intento.monto, "2g"),
         ),
-        # TODO(T7): apuntar a `reverse("pagos:online")` con el filtro
-        # («revisar» para todo menos `pago_mp`) cuando exista la pantalla.
-        "url": reverse("pagos:listado"),
+        # Un pago normal lleva a la pantalla; todo lo demás, a lo que hay
+        # que revisar.
+        "url": reverse("pagos:online")
+        + ("" if aviso == "pago_mp" else "?filtro=revisar"),
         "icon": _icono_url(intento.gimnasio),
     }
     # `rol` explícito SIEMPRE: el default `None` le avisa también a los alumnos.

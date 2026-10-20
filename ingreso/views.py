@@ -889,10 +889,22 @@ class MiCodigoView(AlumnoRequiredMixin, TemplateView):
             aviso = presentacion.la_puerta_rechaza_por_deuda(self.gimnasio) and bool(
                 acceso.bloqueo_de(alumno, hoy=timezone.localdate())
             )
+        cobro_mp_disponible = False
+        if aviso:
+            # Sólo con el aviso en pantalla, y sin query con la bandera
+            # apagada (`cobro_online_disponible`). Suplantando, el staff no
+            # paga por el alumno: el texto no lo ofrece.
+            from pagos import cobro_mp
+            from tenants import suplantacion
+
+            cobro_mp_disponible = not suplantacion.esta_activa(
+                self.request
+            ) and cobro_mp.cobro_online_disponible(self.gimnasio)
         context.update(
             gimnasio=self.gimnasio,
             codigo=codigo,
             aviso_deuda_en_puerta=aviso,
+            cobro_mp_disponible=cobro_mp_disponible,
             estados=presentacion.Estado,
         )
         return context

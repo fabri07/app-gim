@@ -8,6 +8,8 @@ from django.urls import path
 
 from pagos.views import (
     AlumnoComprobanteUpdateView,
+    CobroOnlineListView,
+    CobroOnlineResueltoView,
     ConfirmarPagoView,
     CuotaAnularView,
     CuotaMontoView,
@@ -34,6 +36,12 @@ urlpatterns = [
         "<int:pk>/volver-a-impaga/",
         CuotaVolverAImpagaView.as_view(),
         name="volver_a_impaga",
+    ),
+    path("mercadopago/", CobroOnlineListView.as_view(), name="online"),
+    path(
+        "mercadopago/<int:pk>/resuelto/",
+        CobroOnlineResueltoView.as_view(),
+        name="online_resuelto",
     ),
     path("<int:pk>/mercadopago/", PagarCuotaMPView.as_view(), name="pagar_mp"),
     path(
