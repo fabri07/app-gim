@@ -11,10 +11,11 @@ from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
-from tienda.models import DenunciaProducto, FotoProducto, Producto, Variante
+from tienda.models import DenunciaProducto, FotoProducto, Pedido, Producto, Variante
 from tienda.testing import PNG, crear_producto
 
 
@@ -167,16 +168,41 @@ class AccionesTests(_Base):
 
     def test_bajar_con_motivo_cancela_y_redirige(self):
         producto = self.producto()
+        variante = producto.variantes.get()
+        alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="Ana", apellido="Paz")
+        # Stock ya descontado, como lo deja el checkout.
+        Variante.objects.filter(pk=variante.pk).update(stock=0)
+        pedido = Pedido.objects.create(
+            gimnasio=self.gimnasio, alumno=alumno, estado=Pedido.Estado.PENDIENTE_PAGO,
+            total=Decimal("2"), reservado_hasta=timezone.now() + timedelta(hours=24),
+        )
+        pedido.items.create(variante=variante, nombre="x", precio_unitario=1, cantidad=2)
         r = self.client.post(self._url(producto, "bajar"), {"motivo": "Es una estafa"})
         self.assertRedirects(r, reverse("plataforma:moderacion"))
         producto.refresh_from_db()
         self.assertEqual(producto.moderacion, Producto.Moderacion.BAJADO)
         self.assertEqual(producto.moderacion_motivo, "Es una estafa")
+        pedido.refresh_from_db()
+        self.assertEqual(pedido.estado, Pedido.Estado.CANCELADO)
+        variante.refresh_from_db()
+        self.assertEqual(variante.stock, 2)
         self.assertEqual(
-            self.mensajes(r), ["Remera quedó dado de baja. Se cancelaron 0 pedido(s) sin pagar."]
+            self.mensajes(r), ["Remera quedó dado de baja. Se cancelaron 1 pedido(s) sin pagar."]
         )
         r = self.client.post(self._url(producto, "bajar"), {"motivo": "otra vez"})
         self.assertEqual(self.mensajes(r), ["Este producto ya no estaba en la cola."])
+
+    def test_foto_inexistente_avisa_en_vez_de_404(self):
+        foto = _foto(self.producto())
+        pk = foto.pk
+        foto.delete()
+        for accion in ("aprobar", "rechazar"):
+            r = self.client.post(reverse("plataforma:moderacion_foto_accion", args=[pk, accion]))
+            self.assertRedirects(r, reverse("plataforma:moderacion"), fetch_redirect_response=False)
+            self.assertEqual(self.mensajes(r)[-1], "Esa foto ya no estaba en la cola.", accion)
+        r = self.client.get(reverse("plataforma:moderacion_foto_accion", args=[pk, "rechazar"]))
+        self.assertRedirects(r, reverse("plataforma:moderacion"), fetch_redirect_response=False)
+        self.assertEqual(self.mensajes(r)[-1], "Esa foto ya no estaba en la cola.")
 
     def test_accion_desconocida_da_404(self):
         producto = self.producto()

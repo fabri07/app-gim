@@ -21,6 +21,7 @@ from tienda import moderacion
 from tienda.models import DenunciaProducto, FotoProducto, Producto
 
 LARGO_MOTIVO = 300
+YA_NO_ESTABA_FOTO = "Esa foto ya no estaba en la cola."
 YA_NO_ESTABA = "Este producto ya no estaba en la cola."
 
 
@@ -206,7 +207,11 @@ class FotoModeracionAccionView(SuperadminRequiredMixin, View):
         if accion == "aprobar":
             # Aprobar no tiene pantalla: un GET no puede aplicar el cambio.
             return redirect("plataforma:moderacion")
-        foto = get_object_or_404(FotoProducto.objects.select_related("producto__gimnasio"), pk=pk)
+        foto = FotoProducto.objects.select_related("producto__gimnasio").filter(pk=pk).first()
+        if foto is None:
+            # Cola abierta en otra pestaña, o el staff la borró: cartel, no 404.
+            messages.info(request, YA_NO_ESTABA_FOTO)
+            return redirect("plataforma:moderacion")
         return render(
             request,
             "plataforma/moderacion_confirmar.html",
@@ -215,15 +220,14 @@ class FotoModeracionAccionView(SuperadminRequiredMixin, View):
 
     def post(self, request, pk, accion):
         accion = self._accion()
-        get_object_or_404(FotoProducto, pk=pk)
         if accion == "aprobar":
             if moderacion.aprobar_foto(pk):
                 messages.success(request, "Foto aprobada.")
             else:
-                messages.info(request, "Esa foto ya no estaba en la cola.")
+                messages.info(request, YA_NO_ESTABA_FOTO)
         else:
             if moderacion.rechazar_foto(pk):
                 messages.success(request, "Foto rechazada; le avisamos al gimnasio.")
             else:
-                messages.info(request, "Esa foto ya no estaba en la cola.")
+                messages.info(request, YA_NO_ESTABA_FOTO)
         return redirect("plataforma:moderacion")
