@@ -580,3 +580,49 @@ class DenunciaProducto(TenantOwnedModel):
     def clean(self):
         if self.gimnasio_id:
             validar_gimnasio_de(self.gimnasio, producto=self.producto, alumno=self.alumno)
+
+
+class FotoRetenida(models.Model):
+    """Copia del registro de una foto de producto que se borró: qué gimnasio
+    la subió, para qué producto, cuándo y por qué se fue. El archivo es el
+    MISMO de R2 (nadie borra archivos), así que no ocupa espacio de más.
+
+    Dato de la PLATAFORMA, no `TenantOwnedModel`: lo escribe una señal (ver
+    `tienda/retencion.py`), lo lee sólo el superadmin, no va a la exportación
+    del gimnasio ni lo borra `vaciar_gimnasio`. Existe por protección de
+    datos y como evidencia: un gimnasio que sube algo ilegal y lo quita antes
+    de la revisión deja el rastro igual (pedido del dueño del producto,
+    2026-10-20). `gimnasio` es PROTECT a propósito: con fotos retenidas, el
+    gimnasio no se borra por accidente.
+
+    Sin FK a `Producto`: el producto puede haberse borrado; `producto_original`
+    es su pk de entonces y `producto_nombre` su nombre de entonces."""
+
+    class Motivo(models.TextChoices):
+        RECHAZADA = "rechazada", "Rechazada por la plataforma"
+        QUITADA = "quitada", "Quitada por el gimnasio al editar"
+        PRODUCTO_BORRADO = "producto_borrado", "El gimnasio borró el producto"
+        OTRO = "otro", "Borrada por otro camino (admin, consola)"
+
+    gimnasio = models.ForeignKey(
+        "tenants.Gimnasio", on_delete=models.PROTECT, related_name="fotos_retenidas"
+    )
+    producto_original = models.PositiveBigIntegerField()
+    producto_nombre = models.CharField(max_length=120)
+    imagen = models.ImageField(upload_to="tienda/productos/")
+    estaba_aprobada = models.BooleanField()
+    subida = models.DateTimeField()
+    motivo = models.CharField(max_length=20, choices=Motivo.choices)
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+    retenida = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "foto retenida"
+        verbose_name_plural = "fotos retenidas"
+        ordering = ["-retenida", "-pk"]
+
+    def __str__(self):
+        return f"Foto retenida de «{self.producto_nombre}» ({self.get_motivo_display()})"

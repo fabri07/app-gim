@@ -19,11 +19,12 @@ from django.db.models import Case, Exists, OuterRef, Prefetch, Q, Value, When
 from django.template.loader import render_to_string
 from django.utils import timezone
 
-from tienda import services
+from tienda import retencion, services
 from tienda.models import (
     ConfiguracionTienda,
     DenunciaProducto,
     FotoProducto,
+    FotoRetenida,
     Pedido,
     Producto,
     Variante,
@@ -206,8 +207,9 @@ def aprobar_foto(foto_id):
     )
 
 
-def rechazar_foto(foto_id):
-    """Borra la FILA (el archivo queda en R2, como logos y comprobantes) y le
+def rechazar_foto(foto_id, usuario=None):
+    """Borra la FILA (el archivo queda en R2, como logos y comprobantes, y el
+    registro queda en `FotoRetenida` con quién la rechazó) y le
     deja el aviso al staff en el producto. También vale para una foto ya
     aprobada (decisión 6): las copias que bajaron los navegadores no se
     pueden borrar. El aviso no pisa otro motivo (p. ej. el de denuncias)."""
@@ -220,7 +222,8 @@ def rechazar_foto(foto_id):
         )
         if producto_id is None:
             return False
-        borradas, _ = FotoProducto.objects.filter(pk=foto_id).delete()
+        with retencion.motivo(FotoRetenida.Motivo.RECHAZADA, usuario):
+            borradas, _ = FotoProducto.objects.filter(pk=foto_id).delete()
         if not borradas:
             return False
         Producto.objects.filter(pk=producto_id).filter(

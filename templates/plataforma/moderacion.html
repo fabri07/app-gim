@@ -5,7 +5,8 @@
 {% block content %}
 <h1>Moderación de la tienda</h1>
 <p class="texto-suave">Lo que los gimnasios cargaron y todavía no se aprobó, y lo
-  que está a la venta con algo para mirar.</p>
+  que está a la venta con algo para mirar.
+  <a href="{% url 'plataforma:fotos_retenidas' %}">Fotos borradas (retenidas)</a></p>
 
 {% if not pendientes and not a_la_venta %}
   <p class="texto-suave">No hay nada para revisar.</p>

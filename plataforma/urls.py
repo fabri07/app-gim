@@ -22,6 +22,8 @@ from plataforma.views import (
 from plataforma.views_moderacion import (
     FotoModeracionAccionView,
     FotoModeracionView,
+    FotoRetenidaView,
+    FotosRetenidasView,
     ModeracionView,
     ProductoModeracionView,
 )
@@ -113,5 +115,11 @@ urlpatterns = [
         "moderacion/fotos/<int:pk>/<str:accion>/",
         FotoModeracionAccionView.as_view(),
         name="moderacion_foto_accion",
+    ),
+    path("moderacion/retenidas/", FotosRetenidasView.as_view(), name="fotos_retenidas"),
+    path(
+        "moderacion/retenidas/<int:pk>/foto/",
+        FotoRetenidaView.as_view(),
+        name="foto_retenida",
     ),
 ]

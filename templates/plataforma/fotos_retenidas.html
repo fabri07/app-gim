@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}Fotos retenidas · Plataforma{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<h1>Fotos retenidas</h1>
+<p class="texto-suave">Toda foto de producto que se borró, con el gimnasio que la
+  subió y por qué se fue. El gimnasio y sus alumnos no ven esta pantalla.
+  <a href="{% url 'plataforma:moderacion' %}">Volver a la moderación</a></p>
+
+{% if not pagina.object_list %}
+  <p class="texto-suave">Todavía no se borró ninguna foto.</p>
+{% else %}
+  <div class="acciones-lista">
+    {% for r in pagina %}
+      <div class="tarjeta">
+        <a href="{% url 'plataforma:foto_retenida' r.pk %}" target="_blank" rel="noopener" hx-boost="false">
+          <img src="{% url 'plataforma:foto_retenida' r.pk %}" width="120" height="120" loading="lazy" alt="Foto de {{ r.producto_nombre }}">
+        </a>
+        <p><strong>{{ r.producto_nombre }}</strong></p>
+        <p class="texto-suave">
+          <a href="{% url 'plataforma:gimnasio_detalle' r.gimnasio.pk %}">{{ r.gimnasio.nombre }}</a><br>
+          {{ r.get_motivo_display }}{% if r.usuario %} · {{ r.usuario.get_username }}{% endif %}<br>
+          Subida {{ r.subida|date:"d/m/Y H:i" }} · borrada {{ r.retenida|date:"d/m/Y H:i" }}<br>
+          {% if r.estaba_aprobada %}Estaba aprobada{% else %}No estaba aprobada{% endif %}
+        </p>
+      </div>
+    {% endfor %}
+  </div>
+  {% if pagina.paginator.num_pages > 1 %}
+    <nav class="acciones-lista" aria-label="Paginación">
+      {% if pagina.has_previous %}<a href="?pagina={{ pagina.previous_page_number }}">Anterior</a>{% endif %}
+      <span class="texto-suave">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</span>
+      {% if pagina.has_next %}<a href="?pagina={{ pagina.next_page_number }}">Siguiente</a>{% endif %}
+    </nav>
+  {% endif %}
+{% endif %}
+{% endblock %}

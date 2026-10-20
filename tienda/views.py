@@ -29,7 +29,7 @@ from plataforma.middleware import sin_acceso
 from tenants import suplantacion
 from tenants.models import Perfil
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
-from tienda import analitica, moderacion, pagos_mp, services
+from tienda import analitica, moderacion, pagos_mp, retencion, services
 from tienda.codigos import normalizar
 from tienda.variantes import SUGERENCIAS
 from tienda.forms import (
@@ -47,6 +47,7 @@ from tienda.models import (
     CuentaMercadoPago,
     DenunciaProducto,
     FotoProducto,
+    FotoRetenida,
     ItemPedido,
     Pedido,
     Producto,
@@ -339,7 +340,8 @@ class _ProductoFormMixin:
             Producto.objects.filter(
                 pk=self.object.pk, moderacion_motivo=moderacion.AVISO_FOTO_RECHAZADA
             ).update(moderacion_motivo="")
-            form.guardar_fotos(self.object)
+            with retencion.motivo(FotoRetenida.Motivo.QUITADA, self.request.user):
+                form.guardar_fotos(self.object)
             formset.instance = self.object
             formset.save()
             # Las desactivadas en `_should_delete_form` (tenían ventas).
@@ -437,7 +439,8 @@ class ProductoBorrarView(TiendaStaffMixin, BorrarConExplicacionView):
         if services.tiene_ventas(self.object):
             messages.error(request, "No se puede eliminar: tiene pedidos de alumnos. " + self.alternativa)
             return redirect(request.path)
-        return super().post(request, *args, **kwargs)
+        with retencion.motivo(FotoRetenida.Motivo.PRODUCTO_BORRADO, request.user):
+            return super().post(request, *args, **kwargs)
 
 
 class VarianteAjustarView(TiendaStaffMixin, View):
