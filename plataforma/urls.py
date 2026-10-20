@@ -19,6 +19,13 @@ from plataforma.views import (
     TiendaToggleView,
 )
 
+from plataforma.views_moderacion import (
+    FotoModeracionAccionView,
+    FotoModeracionView,
+    ModeracionView,
+    ProductoModeracionView,
+)
+
 app_name = "plataforma"
 
 urlpatterns = [
@@ -89,5 +96,22 @@ urlpatterns = [
         "solicitudes/<int:pk>/reenviar/",
         SolicitudReenviarInvitacionView.as_view(),
         name="solicitud_reenviar",
+    ),
+    # Cola de moderación de la tienda.
+    path("moderacion/", ModeracionView.as_view(), name="moderacion"),
+    path(
+        "moderacion/fotos/<int:pk>/",
+        FotoModeracionView.as_view(),
+        name="moderacion_foto",
+    ),
+    path(
+        "moderacion/productos/<int:pk>/<str:accion>/",
+        ProductoModeracionView.as_view(),
+        name="moderacion_producto",
+    ),
+    path(
+        "moderacion/fotos/<int:pk>/<str:accion>/",
+        FotoModeracionAccionView.as_view(),
+        name="moderacion_foto_accion",
     ),
 ]

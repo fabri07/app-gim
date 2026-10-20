@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Moderación · Plataforma{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<h1>Moderación de la tienda</h1>
+<p class="texto-suave">Lo que los gimnasios cargaron y todavía no se aprobó, y lo
+  que está a la venta con algo para mirar.</p>
+
+{% if not pendientes and not a_la_venta %}
+  <p class="texto-suave">No hay nada para revisar.</p>
+{% endif %}
+
+{% if pendientes %}
+  <h2>Productos nuevos para aprobar</h2>
+  {% for p in pendientes %}{% include 'plataforma/_moderacion_tarjeta.html' %}{% endfor %}
+{% endif %}
+
+{% if a_la_venta %}
+  <h2>A la venta con algo para revisar</h2>
+  {% for p in a_la_venta %}{% include 'plataforma/_moderacion_tarjeta.html' %}{% endfor %}
+{% endif %}
+
+{% if demo %}
+  <details>
+    <summary>Cuenta demo ({{ demo|length }})</summary>
+    {% for p in demo %}{% include 'plataforma/_moderacion_tarjeta.html' %}{% endfor %}
+  </details>
+{% endif %}
+{% endblock %}

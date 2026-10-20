@@ -64,6 +64,9 @@ class InicioView(SuperadminRequiredMixin, TemplateView):
                 SolicitudAcceso.Estado.LISTA_ESPERA,
             ]
         ).count()
+        from tienda import moderacion
+
+        context["moderacion_para_revisar"] = moderacion.contador()
         return context
 
 
