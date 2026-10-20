@@ -8,7 +8,7 @@
     <a class="boton-secundario" href="{% url 'tienda:productos' %}">Volver a la tienda</a>
   </div>
 
-  <p class="texto-suave">Está prohibido vender drogas o medicamentos sin receta, armas, contenido o servicios sexuales, o cualquier cosa ilegal. La plataforma revisa cada producto antes de publicarlo y puede darlo de baja, cancelar sus pedidos sin pagar y suspender la cuenta del gimnasio.</p>
+  {% include 'tienda/_clausula_uso.html' %}
 
   <form method="post">
     {% csrf_token %}

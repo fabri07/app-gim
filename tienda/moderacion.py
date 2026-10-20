@@ -15,7 +15,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.core.mail import EmailMessage
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, Prefetch, Q
+from django.db.models import Case, Exists, OuterRef, Prefetch, Q, Value, When
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -117,7 +117,14 @@ def aprobar_producto(producto_id, *, version, fotos_vistas, denuncias_vistas, ah
         tocadas = Producto.objects.filter(
             pk=producto_id, moderacion__in=[_M.PENDIENTE, _M.APROBADO], modificado=version
         ).update(
-            moderacion=_M.APROBADO, cambio_pendiente=False, moderacion_motivo="",
+            moderacion=_M.APROBADO, cambio_pendiente=False,
+            # El aviso de foto rechazada SOBREVIVE a la aprobación (el staff
+            # tiene que enterarse de por qué desapareció la foto; lo limpia
+            # él al volver a guardar el producto). Cualquier otro motivo se va.
+            moderacion_motivo=Case(
+                When(moderacion_motivo=AVISO_FOTO_RECHAZADA, then=Value(AVISO_FOTO_RECHAZADA)),
+                default=Value(""),
+            ),
             moderacion_desde=ahora,
         )
         if not tocadas:

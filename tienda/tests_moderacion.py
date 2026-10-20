@@ -374,6 +374,28 @@ class StaffModeracionTests(TestCase):
             self._datos_edicion(variante, **extra), follow=follow,
         )
 
+    def test_guardar_el_producto_limpia_el_aviso_de_foto_rechazada_y_no_otros(self):
+        producto, variante = self._producto()
+        Producto.objects.filter(pk=producto.pk).update(
+            moderacion_motivo=moderacion.AVISO_FOTO_RECHAZADA
+        )
+        r = self.client.get(reverse("tienda:productos"))
+        self.assertContains(r, moderacion.AVISO_FOTO_RECHAZADA)
+
+        self._editar(producto, variante, precio="16000")
+
+        self.assertEqual(Producto.objects.get(pk=producto.pk).moderacion_motivo, "")
+        r = self.client.get(reverse("tienda:productos"))
+        self.assertNotContains(r, moderacion.AVISO_FOTO_RECHAZADA)
+
+        Producto.objects.filter(pk=producto.pk).update(
+            moderacion_motivo=moderacion.MOTIVO_POR_DENUNCIAS
+        )
+        self._editar(producto, variante, precio="17000")
+        self.assertEqual(
+            Producto.objects.get(pk=producto.pk).moderacion_motivo, moderacion.MOTIVO_POR_DENUNCIAS
+        )
+
     def test_el_alta_queda_pendiente_y_avisa(self):
         from tienda.tests_vistas_staff import datos_producto
 
@@ -710,6 +732,31 @@ class TransicionesTests(_BaseModeracion):
         self.assertEqual(
             self.recargar(self.producto).moderacion_motivo, moderacion.MOTIVO_POR_DENUNCIAS
         )
+
+    def test_aprobar_despues_de_rechazar_una_foto_conserva_el_aviso(self):
+        Producto.objects.filter(pk=self.producto.pk).update(moderacion=M.PENDIENTE)
+        mala = self.foto()
+        buena = self.foto()
+        moderacion.rechazar_foto(mala.pk)
+        self.recargar(self.producto)
+        moderacion.aprobar_producto(
+            self.producto.pk, version=self.producto.modificado,
+            fotos_vistas=[buena.pk], denuncias_vistas=[],
+        )
+        self.recargar(self.producto)
+        self.assertEqual(self.producto.moderacion, M.APROBADO)
+        self.assertEqual(self.producto.moderacion_motivo, moderacion.AVISO_FOTO_RECHAZADA)
+
+    def test_aprobar_limpia_el_motivo_de_denuncias(self):
+        Producto.objects.filter(pk=self.producto.pk).update(
+            moderacion=M.PENDIENTE, moderacion_motivo=moderacion.MOTIVO_POR_DENUNCIAS
+        )
+        self.recargar(self.producto)
+        moderacion.aprobar_producto(
+            self.producto.pk, version=self.producto.modificado,
+            fotos_vistas=[], denuncias_vistas=[],
+        )
+        self.assertEqual(self.recargar(self.producto).moderacion_motivo, "")
 
     def test_rechazar_foto_de_un_bajado_no_hace_nada(self):
         foto = self.foto()
@@ -1152,3 +1199,24 @@ class DenunciarVistaTests(tests_vistas_alumno._BaseAlumno):
         r = self.client.get(reverse("tienda:catalogo"))
         self.assertContains(r, "Ya lo denunciaste")
         self.assertNotContains(r, self.url())
+
+
+class ClausulaDeUsoTests(TestCase):
+    """La cláusula vive en UN parcial y las dos pantallas la incluyen."""
+
+    def test_las_dos_pantallas_la_muestran(self):
+        from django.template.loader import render_to_string
+
+        texto = render_to_string("tienda/_clausula_uso.html").strip()
+        self.assertIn("Está prohibido vender drogas", texto)
+        gimnasio = Gimnasio.objects.create(nombre="A", slug="a", tienda_habilitada=True)
+        staff = User.objects.create_user("staff", password="c-123456")
+        Perfil.objects.create(usuario=staff, gimnasio=gimnasio, rol=Perfil.Rol.STAFF)
+        self.client.force_login(staff)
+        r = self.client.get(reverse("tienda:configuracion"))
+        self.assertContains(r, texto, html=True)
+
+        root = User.objects.create_superuser("root", "r@x.com", "c-123456")
+        self.client.force_login(root)
+        r = self.client.get(reverse("plataforma:gimnasio_detalle", args=[gimnasio.pk]))
+        self.assertContains(r, texto, html=True)

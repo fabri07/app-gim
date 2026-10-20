@@ -3766,7 +3766,7 @@ Guía de la prueba con cuentas de prueba y checklist de lo no confirmado: `docs/
 
 Plan: `docs/superpowers/plans/2026-10-19-moderacion-tienda.md`; spec: `docs/superpowers/specs/2026-10-19-moderacion-tienda-design.md`. Objetivo: que nada nuevo se venda ni se vea sin que el superadmin lo apruebe, poder bajar un producto puntual y que el alumno pueda denunciar. Sin IA, sin servicio externo y sin cron. Las transiciones viven en `tienda/moderacion.py`; la cola, en el panel de plataforma.
 
-**Estados.** `Producto.moderacion`: `pendiente` («Esperando aprobación»), `aprobado`, `bajado`. `FotoProducto.aprobada` (bool). Más `Producto.cambio_pendiente` (aprobado con texto cambiado), `moderacion_motivo` (aviso al staff: foto rechazada, baja o denuncias; se limpia al aprobar) y `moderacion_desde`. Son datos de la PLATAFORMA: `editable=False`, fuera de `ProductoForm`, y la edición del staff guarda con `update_fields=CAMPOS_EDITABLES_PRODUCTO`, nunca un `save()` completo (pisaría con el valor viejo en memoria una baja o aprobación que entró mientras la pantalla estaba abierta). Todas las columnas llevan `db_default` (el `migrate` corre en el `buildCommand` con la versión vieja atendiendo); el de `moderacion` es `pendiente`, lo seguro. `tienda/0009` deja aprobado todo lo que ya existía.
+**Estados.** `Producto.moderacion`: `pendiente` («Esperando aprobación»), `aprobado`, `bajado`. `FotoProducto.aprobada` (bool). Más `Producto.cambio_pendiente` (aprobado con texto cambiado), `moderacion_motivo` (aviso al staff: foto rechazada, baja o denuncias; el aviso de foto rechazada sobrevive a la aprobación y se limpia cuando el staff vuelve a guardar el producto; cualquier otro motivo se limpia al aprobar) y `moderacion_desde`. Son datos de la PLATAFORMA: `editable=False`, fuera de `ProductoForm`, y la edición del staff guarda con `update_fields=CAMPOS_EDITABLES_PRODUCTO`, nunca un `save()` completo (pisaría con el valor viejo en memoria una baja o aprobación que entró mientras la pantalla estaba abierta). Las columnas no nulas llevan `db_default` (`moderacion_desde` y `ultimo_aviso_moderacion` son nulas y caen en NULL; el `migrate` corre en el `buildCommand` con la versión vieja atendiendo); el de `moderacion` es `pendiente`, lo seguro. `tienda/0009` deja aprobado todo lo que ya existía.
 
 **`q_vendible(prefijo="")` es la ÚNICA puerta** de «a la venta»: `publicado` Y `aprobado`. Catálogo, carrito, checkout, `DenunciarView` y `pagos_mp._re_reservar` filtran por ella (`q_vendible("producto__")` desde `Variante`). Un filtro `publicado=True` suelto en la tienda es un bug. El catálogo prefetchea sólo las fotos aprobadas.
 
@@ -3791,7 +3791,7 @@ Plan: `docs/superpowers/plans/2026-10-19-moderacion-tienda.md`; spec: `docs/supe
 2. «Sin pagar» son sólo los `PENDIENTE_PAGO`, como en `vencer_pedidos`.
 3. El superadmin aprueba sólo lo que vio (`version` + `fotos_vistas` + `denuncias_vistas`).
 4. La cola se agrupa por producto en dos secciones, «Productos nuevos para aprobar» y «A la venta con algo para revisar», con marcas (texto cambiado, N fotos nuevas, N denuncias). El contador cuenta productos y sale en UNA query.
-5. El aviso al staff de una foto rechazada va en `moderacion_motivo`, debajo del badge del listado; se limpia al aprobar.
+5. El aviso al staff de una foto rechazada va en `moderacion_motivo`, debajo del badge del listado. Aprobar NO lo limpia (`aprobar_producto` lo conserva con `Case/When` y borra cualquier otro motivo): se limpia cuando el staff vuelve a guardar el producto (`_ProductoFormMixin.form_valid`, un `update` condicional dentro del `atomic`).
 6. «Rechazar foto» vale también para una ya aprobada.
 7. `MigracionDeReferenciaExternaTests` ya migra a `leaf_nodes()`: sin cambios.
 8. Con 3 denuncias el producto sale de la venta pero sus pedidos sin pagar siguen vivos.
@@ -3799,7 +3799,7 @@ Plan: `docs/superpowers/plans/2026-10-19-moderacion-tienda.md`; spec: `docs/supe
 10. `DenunciaProducto.alumno` es `SET_NULL`.
 11. Una foto es pública sólo si está aprobada Y su producto está APROBADO.
 
-**Condiciones de uso.** Una cláusula (`<p class="texto-suave">`) en `templates/tienda/configuracion_form.html` y en `templates/plataforma/gimnasio_detalle.html`, junto al botón de habilitar la tienda: prohíbe vender drogas o medicamentos sin receta, armas, contenido o servicios sexuales y lo ilegal, y avisa que la plataforma revisa, da de baja, cancela pedidos sin pagar y puede suspender la cuenta. Si se cambia el texto, cambiarlo en las dos.
+**Condiciones de uso.** Una cláusula en el parcial `templates/tienda/_clausula_uso.html`, incluido desde `templates/tienda/configuracion_form.html` y `templates/plataforma/gimnasio_detalle.html`, junto al botón de habilitar la tienda: prohíbe vender drogas o medicamentos sin receta, armas, contenido o servicios sexuales y lo ilegal, y avisa que la plataforma revisa, da de baja, cancela pedidos sin pagar y puede suspender la cuenta. Si se cambia el texto, se cambia en el parcial (un test verifica que las dos pantallas lo muestran).
 
 **Casos aceptados** (el detalle está en `ISSUES.md`, 2026-10-19):
 - El logo, el fondo, las variantes, las categorías e `instrucciones_retiro` no se moderan.

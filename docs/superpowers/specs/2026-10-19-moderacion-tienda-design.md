@@ -111,7 +111,7 @@ drogas, servicios sexuales, armas, trata. Hoy no hay ninguna moderación:
 - El motivo se elige de un `select` (drogas, contenido sexual, armas, trata, estafa, otro) y hay
   un detalle opcional.
 - `DenunciaProducto(TenantOwnedModel)`:
-  - Campos: `producto` (PROTECT), `alumno` (PROTECT), `motivo`, `detalle`, `estado`
+  - Campos: `producto` (PROTECT), `alumno` (PROTECT; **reemplazado por la decisión 10 del plan: SET_NULL**, para no delatar al denunciante en la pantalla de borrar alumno), `motivo`, `detalle`, `estado`
     (abierta/resuelta) y `creado`.
   - `UniqueConstraint(condition=Q(estado="abierta"))` por alumno y producto. Se valida antes en
     Python y se captura el `IntegrityError`.

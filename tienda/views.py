@@ -334,6 +334,11 @@ class _ProductoFormMixin:
                             pk=self.object.pk, moderacion=Producto.Moderacion.APROBADO
                         ).update(cambio_pendiente=True, moderacion_desde=timezone.now())
                     )
+            # El staff ya vio el aviso de foto rechazada: al guardar se va
+            # (los otros motivos —baja, denuncias— son de la plataforma).
+            Producto.objects.filter(
+                pk=self.object.pk, moderacion_motivo=moderacion.AVISO_FOTO_RECHAZADA
+            ).update(moderacion_motivo="")
             form.guardar_fotos(self.object)
             formset.instance = self.object
             formset.save()

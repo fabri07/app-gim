@@ -273,7 +273,7 @@
       </button>
     </form>
   </div>
-  <p class="texto-suave">Está prohibido vender drogas o medicamentos sin receta, armas, contenido o servicios sexuales, o cualquier cosa ilegal. La plataforma revisa cada producto antes de publicarlo y puede darlo de baja, cancelar sus pedidos sin pagar y suspender la cuenta del gimnasio.</p>
+  {% include 'tienda/_clausula_uso.html' %}
   {% if tienda_pedidos_vivos %}<p class="texto-suave">{{ tienda_pedidos_vivos }} pedido{{ tienda_pedidos_vivos|pluralize }} de la tienda sin cerrar.</p>{% endif %}
   {% comment %}
     El caso en que se prende la exportación —un gimnasio que deja de pagar y
