@@ -478,26 +478,30 @@ def notificar_pedido_al_alumno(pedido, aviso) -> None:
 _AVISOS_CUENTA_MP = {
     "conectada": (
         "Mercado Pago conectado",
-        "{quien} conectó la cuenta de Mercado Pago de la tienda.",
+        "{quien} conectó la cuenta de Mercado Pago del gimnasio.",
     ),
     "reconectar": (
         "Hay que reconectar Mercado Pago",
-        "La conexión con Mercado Pago de la tienda dejó de funcionar: "
-        "reconectala desde la configuración de la tienda.",
+        "La conexión con Mercado Pago del gimnasio dejó de funcionar: "
+        "tocá acá para reconectarla.",
     ),
 }
 
 
 def notificar_cuenta_mp(gimnasio, aviso, quien="") -> None:
-    """Avisos de la cuenta de Mercado Pago de la tienda, a TODO el staff.
-    `rol` explícito SIEMPRE: el default `None` le avisa también a los alumnos.
-    Que cualquier staff pueda conectar la cuenta es la razón del aviso: nadie
-    desvía las ventas en silencio."""
+    """Avisos de la cuenta de Mercado Pago del gimnasio (la de la tienda y las
+    cuotas), a TODO el staff. `rol` explícito SIEMPRE: el default `None` le
+    avisa también a los alumnos. Que cualquier staff pueda conectar la cuenta
+    es la razón del aviso: nadie desvía los cobros en silencio. La URL es la
+    de `tienda.cuenta_mp.url_cuenta_mp`: sin el add-on, «Mi gimnasio»."""
+    # Import tardío: `tienda.cuenta_mp` importa este módulo.
+    from tienda.cuenta_mp import url_cuenta_mp
+
     titulo, cuerpo = _AVISOS_CUENTA_MP[aviso]
     payload = {
         "title": titulo,
         "body": cuerpo.format(quien=quien or "Alguien del equipo"),
-        "url": reverse("tienda:configuracion"),
+        "url": url_cuenta_mp(gimnasio),
         "icon": _icono_url(gimnasio),
     }
     notificar_a_gimnasio(gimnasio, payload, rol=Perfil.Rol.STAFF)

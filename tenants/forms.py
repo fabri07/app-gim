@@ -6,6 +6,7 @@ dejó de ser self-serve y se hace con `manage.py crear_gimnasio`.
 """
 
 from django import forms
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import PasswordResetForm
 from django.core.files.uploadedfile import UploadedFile
@@ -138,10 +139,10 @@ class GimnasioForm(forms.ModelForm):
             "link_whatsapp",
             "link_facebook",
             "dias_tolerancia_pago",
-            # `cuotas_con_mercadopago` NO va todavía: entra con la conexión de
-            # Mercado Pago desde «Mi gimnasio», junto con su validación (no se
-            # prende sin una cuenta CONECTADA).
             "precio_cuota",
+            # Sale del form con la bandera apagada o en la demo (`__init__`);
+            # no se prende sin una cuenta CONECTADA (`clean`).
+            "cuotas_con_mercadopago",
         ]
         widgets = {
             "fondo_tipo": forms.RadioSelect,
@@ -172,6 +173,16 @@ class GimnasioForm(forms.ModelForm):
         # ausencia de selección ya se resuelve con required=False (heredado
         # de blank=True) más la validación cruzada en clean().
         self.fields["fondo_doodle"].choices = Gimnasio.Doodle.choices
+        # Mismo criterio que `ConfiguracionTiendaForm.CAMPOS_MP`: con la
+        # bandera apagada (o en la demo) el form es el de siempre y un POST
+        # viejo no puede prender el cobro de cuotas.
+        if not settings.TIENDA_MP_ENABLED or self.instance.es_demo:
+            del self.fields["cuotas_con_mercadopago"]
+        else:
+            self.fields["cuotas_con_mercadopago"].help_text = (
+                "Tus alumnos ven un botón para pagar la cuota con Mercado Pago. "
+                "Mercado Pago te cobra su comisión."
+            )
         # `help_text` armado acá (no hardcodeado en el template) para que
         # los números mostrados nunca puedan desincronizarse de los
         # umbrales que `clean_logo`/`clean_fondo_imagen` realmente aplican
@@ -249,6 +260,25 @@ class GimnasioForm(forms.ModelForm):
                 "fondo_imagen",
                 "Subí una imagen para este modo de fondo (o elegí otro tipo).",
             )
+        # Sólo al PRENDERLO exige la cuenta conectada (molde de
+        # `ConfiguracionTiendaForm.clean`): si ya estaba prendido y la cuenta
+        # pasó a «reconectar», guardar otro campo no se traba.
+        if (
+            "cuotas_con_mercadopago" in self.fields
+            and "cuotas_con_mercadopago" in self.changed_data
+            and cleaned_data.get("cuotas_con_mercadopago")
+        ):
+            # Import tardío: `tienda` carga después que `tenants`.
+            from tienda.models import CuentaMercadoPago
+
+            conectada = CuentaMercadoPago.objects.filter(
+                gimnasio=self.instance, estado=CuentaMercadoPago.Estado.CONECTADA
+            ).exists()
+            if not conectada:
+                self.add_error(
+                    "cuotas_con_mercadopago",
+                    "Primero conectá tu cuenta de Mercado Pago.",
+                )
         return cleaned_data
 
 

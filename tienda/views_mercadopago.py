@@ -1,8 +1,13 @@
 """Conectar / desconectar la cuenta de Mercado Pago del gimnasio (OAuth + PKCE).
 
-Todo es del staff con la tienda habilitada, fuera de la cuenta demo y sólo con
-`settings.TIENDA_MP_ENABLED`. Los errores son mensaje + redirect a la
-configuración, nunca un 4xx: bajo `hx-boost` sería un click mudo.
+Todo es del staff, fuera de la cuenta demo y sólo con
+`settings.TIENDA_MP_ENABLED`. **No exige el add-on de la tienda**: la misma
+cuenta cobra las cuotas, y cualquier gimnasio puede conectarla desde «Mi
+gimnasio». Los errores son mensaje + redirect a donde arrancó el flujo
+(`_destino`), nunca un 4xx: bajo `hx-boost` sería un click mudo.
+
+La Redirect URI sigue siendo `/tienda/mercadopago/callback/` (está cargada en
+la app de Mercado Pago): sólo cambia a dónde se vuelve después.
 
 El `state` es un valor firmado (gimnasio, usuario, nonce) y además el nonce, el
 `code_verifier` y la hora viven en la sesión: el callback sólo vale para el
@@ -23,16 +28,19 @@ from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import redirect
+from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
+from core.mixins import TenantScopedMixin
 from notificaciones import services as avisos
+from pagos.models import CobroOnlineCuota
 from suscripcion.mercadopago import ErrorDeMercadoPago, Secreto, cuerpo_de_webhook, es_de_prueba
+from tenants.mixins import StaffRequiredMixin
 from tienda import cuenta_mp, mercadopago_oauth, pagos_mp, services
 from tienda.models import ESTADOS_QUE_RETIENEN, ConfiguracionTienda, CuentaMercadoPago, Pedido, obtener_configuracion
-from tienda.views import TiendaStaffMixin
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +48,9 @@ _SALT = "tienda.mercadopago.oauth"
 _SESION_NONCE = "tienda_mp_nonce"
 _SESION_VERIFIER = "tienda_mp_verifier"
 _SESION_TS = "tienda_mp_ts"
+#: «El OAuth arrancó desde Mi gimnasio»: el callback vuelve ahí.
+_SESION_DESDE = "tienda_mp_desde"
+_DESDE_GIMNASIO = "gimnasio"
 _STATE_MAX_SEGUNDOS = 600
 
 #: Un cambio de cuenta se rechaza si hay pedidos de Mercado Pago de la cuenta
@@ -51,7 +62,26 @@ def _nombre(usuario):
     return usuario.get_full_name() or usuario.get_username()
 
 
-class _MercadoPagoStaffView(TiendaStaffMixin, View):
+def _destino(request, gimnasio, *, desde_gimnasio=False):
+    """A dónde vuelve el flujo de la cuenta: a «Mi gimnasio» si arrancó desde
+    ahí o si el gimnasio no tiene la tienda (la configuración de la tienda le
+    mostraría el cartel del add-on); si no, a la configuración de la tienda."""
+    if desde_gimnasio:
+        return reverse("gimnasio_editar") + "#mercadopago"
+    return cuenta_mp.url_cuenta_mp(gimnasio)
+
+
+class _MercadoPagoStaffView(StaffRequiredMixin, TenantScopedMixin, View):
+    """Sin `TiendaHabilitadaMixin`: conectar la cuenta no depende del add-on."""
+
+    def _desde_gimnasio(self):
+        return False
+
+    def _destino(self):
+        return redirect(
+            _destino(self.request, self.gimnasio, desde_gimnasio=self._desde_gimnasio())
+        )
+
     def _no_disponible(self):
         """Mensaje + redirect si no se puede tocar Mercado Pago ahora."""
         if not settings.TIENDA_MP_ENABLED:
@@ -63,19 +93,27 @@ class _MercadoPagoStaffView(TiendaStaffMixin, View):
             )
         else:
             return None
-        return redirect("tienda:configuracion")
+        return self._destino()
 
 
 class ConectarView(_MercadoPagoStaffView):
     """Arranca el OAuth: guarda nonce + verifier + hora en la sesión y manda a
-    Mercado Pago a autorizar."""
+    Mercado Pago a autorizar. `?desde=gimnasio` (el botón de «Mi gimnasio»)
+    queda en la sesión para que el callback vuelva ahí."""
 
     http_method_names = ["get"]
+
+    def _desde_gimnasio(self):
+        return self.request.GET.get("desde") == _DESDE_GIMNASIO
 
     def get(self, request, *args, **kwargs):
         rechazo = self._no_disponible()
         if rechazo:
             return rechazo
+        if self._desde_gimnasio():
+            request.session[_SESION_DESDE] = _DESDE_GIMNASIO
+        else:
+            request.session.pop(_SESION_DESDE, None)
         verifier = secrets.token_urlsafe(64)
         challenge = (
             base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())
@@ -93,13 +131,19 @@ class ConectarView(_MercadoPagoStaffView):
 
 
 class CallbackView(_MercadoPagoStaffView):
-    """Vuelta de Mercado Pago. Siempre termina en la configuración."""
+    """Vuelta de Mercado Pago. Siempre termina donde arrancó el flujo
+    (`_destino`)."""
 
     http_method_names = ["get"]
 
+    _vino_desde_gimnasio = False
+
+    def _desde_gimnasio(self):
+        return self._vino_desde_gimnasio
+
     def _volver(self, nivel, texto):
         nivel(self.request, texto)
-        return redirect("tienda:configuracion")
+        return self._destino()
 
     def _state_valido(self, request):
         """Consume la sesión (una sola vez, válido o no)."""
@@ -123,6 +167,10 @@ class CallbackView(_MercadoPagoStaffView):
         )
 
     def get(self, request, *args, **kwargs):
+        # Se consume siempre (una sola vez, como el nonce).
+        self._vino_desde_gimnasio = (
+            request.session.pop(_SESION_DESDE, None) == _DESDE_GIMNASIO
+        )
         rechazo = self._no_disponible()
         if rechazo:
             return rechazo
@@ -203,6 +251,15 @@ class CallbackView(_MercadoPagoStaffView):
                         "la cuenta anterior (las compras abandonadas no cuentan). "
                         "Terminá o cancelá esos pedidos antes de cambiar de cuenta.",
                     )
+                if _hay_cuotas_que_traban(self.gimnasio, ahora):
+                    return self._volver(
+                        messages.error,
+                        "Esa es otra cuenta de Mercado Pago y todavía hay cuotas con "
+                        "un link de pago abierto, cobros de cuotas para revisar o "
+                        "cuotas cobradas por Mercado Pago en los últimos 7 días con la "
+                        "cuenta anterior. Esperá a que venzan los links, resolvé lo "
+                        "pendiente y probá de nuevo pasados 7 días del último cobro.",
+                    )
             CuentaMercadoPago.objects.update_or_create(
                 gimnasio=self.gimnasio,
                 defaults={
@@ -225,6 +282,24 @@ class CallbackView(_MercadoPagoStaffView):
         return self._volver(messages.success, "Mercado Pago quedó conectado.")
 
 
+def _hay_cuotas_que_traban(gimnasio, ahora):
+    """¿Hay cobros de cuotas de la cuenta vieja que todavía importan?
+
+    Mismo criterio que los pedidos: un link vivo cobraría a la cuenta vieja;
+    una revisión pendiente o un cobro de los últimos 7 días puede volver como
+    reintegro o contracargo por esa cuenta, y con otra conectada nadie lo
+    vería. Un link ya vencido (aunque siga CREADO) no traba."""
+    E = CobroOnlineCuota.Estado
+    return CobroOnlineCuota.objects.filter(gimnasio=gimnasio).filter(
+        (Q(estado=E.CREADO) & (Q(expira__isnull=True) | Q(expira__gt=ahora)))
+        | Q(estado__in=(E.REVISAR, E.DUPLICADO, E.DEVUELTO), revision_pendiente=True)
+        | Q(
+            estado__in=(E.PAGADO, E.DUPLICADO),
+            acreditado_en__gte=ahora - VENTANA_CAMBIO_DE_CUENTA,
+        )
+    ).exists()
+
+
 def _avisar_conexion(gimnasio, quien):
     try:
         avisos.notificar_cuenta_mp(gimnasio, "conectada", quien)
@@ -235,12 +310,18 @@ def _avisar_conexion(gimnasio, quien):
 class DesconectarView(_MercadoPagoStaffView):
     """Desconecta (POST). Con pedidos de Mercado Pago esperando el pago se
     rechaza: quedarían con un link que cobra a una cuenta que ya no se mira.
+    Los links de cuotas vivos NO frenan: se cancelan (el alumno vuelve a ver
+    «subí el comprobante»; un pago ya empezado igual se acredita).
+    `desde=gimnasio` en el POST vuelve a «Mi gimnasio».
 
     Los tokens se conservan 7 días (pagos tardíos de pedidos vencidos siguen
     verificables); `refrescar_cuentas_mp` los borra pasado el plazo. Nunca
     queda la tienda sin medio: se vuelve a aceptar transferencia."""
 
     http_method_names = ["post"]
+
+    def _desde_gimnasio(self):
+        return self.request.POST.get("desde") == _DESDE_GIMNASIO
 
     def post(self, request, *args, **kwargs):
         rechazo = self._no_disponible()
@@ -260,7 +341,7 @@ class DesconectarView(_MercadoPagoStaffView):
                     "Hay pedidos esperando el pago por Mercado Pago. Esperá a que "
                     "se paguen o venzan antes de desconectar la cuenta.",
                 )
-                return redirect("tienda:configuracion")
+                return self._destino()
             # `update()` y no `save()`: no toca las columnas de tokens (que
             # pueden ser ilegibles) ni `modificado` de nada que no corresponda.
             cambiadas = CuentaMercadoPago.objects.filter(
@@ -273,11 +354,16 @@ class DesconectarView(_MercadoPagoStaffView):
             ConfiguracionTienda.objects.filter(gimnasio=self.gimnasio).update(
                 acepta_mercadopago=False, acepta_transferencia=True
             )
+            # Sin lock de la cuota a propósito: es un UPDATE sobre los
+            # intentos solos (no toma cuota -> intentos al revés).
+            CobroOnlineCuota.objects.filter(
+                gimnasio=self.gimnasio, estado=CobroOnlineCuota.Estado.CREADO
+            ).update(estado=CobroOnlineCuota.Estado.CANCELADO, modificado=timezone.now())
         if cambiadas:
             messages.success(request, "Mercado Pago quedó desconectado.")
         else:
             messages.info(request, "No había una cuenta de Mercado Pago conectada.")
-        return redirect("tienda:configuracion")
+        return self._destino()
 
 
 @csrf_exempt

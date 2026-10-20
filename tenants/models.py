@@ -393,8 +393,8 @@ class Gimnasio(TimeStampedModel):
     #: Cobrar las cuotas por Mercado Pago, a la cuenta MP que el gimnasio
     #: conecta por OAuth (la misma de la tienda). Apagado por default:
     #: conectar MP para la tienda no prende solo el cobro de cuotas (tiene
-    #: comisión). Todavía no está en ningún form: la validación (no se prende
-    #: sin cuenta CONECTADA) y la UI llegan con la conexión desde «Mi gimnasio».
+    #: comisión). Se prende en «Mi gimnasio» (`GimnasioForm`), sólo con una
+    #: cuenta CONECTADA; con la bandera apagada o en la demo no está en el form.
     cuotas_con_mercadopago = models.BooleanField(
         "Cobrar cuotas con Mercado Pago",
         default=False,

@@ -719,6 +719,7 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         context["fondo_imagen_url"] = (
             gimnasio.fondo_imagen.url if gimnasio.fondo_imagen else ""
         )
+        context.update(self._contexto_mercadopago(gimnasio))
         # `SOPORTE_CONTACTO` NO se inyecta acá: lo expone el context processor
         # `plataforma.context_processors.estado_cuenta`, que ya corre en toda
         # página. Dos nombres para el mismo dato (`soporte_contacto` acá,
@@ -726,6 +727,37 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         # bloqueada) es exactamente cómo dos pantallas terminan diciendo
         # contactos distintos cuando alguien cambia uno solo.
         return context
+
+    def _contexto_mercadopago(self, gimnasio):
+        """La tarjeta `#mercadopago` (la cuenta que cobra la tienda y las
+        cuotas). Con la bandera apagada no existe y no se hace NI UNA query a
+        la cuenta (mismo criterio que la configuración de la tienda); en la
+        demo, texto fijo sin botones ni query."""
+        if not settings.TIENDA_MP_ENABLED:
+            return {"mp_habilitado": False}
+        contexto = {"mp_habilitado": True, "mp_demo": gimnasio.es_demo}
+        if gimnasio.es_demo:
+            return contexto
+        # Import tardío: `tienda` carga después que `tenants`.
+        from tienda.models import CuentaMercadoPago
+
+        cuenta = (
+            CuentaMercadoPago.objects.filter(gimnasio=gimnasio)
+            .select_related("conectada_por")
+            .first()
+        )
+        estado = cuenta.estado if cuenta is not None else None
+        contexto.update(
+            cuenta_mp=cuenta,
+            mp_conectada=estado == CuentaMercadoPago.Estado.CONECTADA,
+            mp_reconectar=estado == CuentaMercadoPago.Estado.RECONECTAR,
+        )
+        if cuenta is not None and cuenta.conectada_por is not None:
+            contexto["mp_conectada_por"] = (
+                cuenta.conectada_por.get_full_name()
+                or cuenta.conectada_por.get_username()
+            )
+        return contexto
 
     def form_valid(self, form):
         from pagos.precios import (
