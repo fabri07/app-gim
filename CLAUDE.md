@@ -205,6 +205,7 @@ python manage.py generar_pagos       # autogenera pendientes del ciclo + vence a
 python manage.py expirar_solicitudes # cierra los leads que nunca verificaron el email
 python manage.py reconciliar_cobros  # acredita cobros online cuyo webhook se perdió
                                      # (falla con CommandError sin MERCADOPAGO_*)
+python manage.py reconciliar_cuotas_mp  # acredita cuotas pagadas por MP cuyo webhook se perdió
 python manage.py vencer_pedidos      # vence pedidos de la tienda sin comprobante + avisos
 python manage.py avisar_cobros       # mails de «por vencer/vence hoy/vencido» al staff
                                      # (idem; la 1ra corrida avisa a todos los ya vencidos)

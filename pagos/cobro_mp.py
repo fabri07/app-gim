@@ -52,7 +52,7 @@ ESTADOS_MP_APROBADO = frozenset({"approved"})
 ESTADOS_MP_RECHAZADO = frozenset({"rejected", "cancelled"})
 ESTADOS_MP_DEVUELTO = frozenset({"refunded", "charged_back"})
 TOLERANCIA_MONTO = Decimal("0.01")
-CLAVE_PAGOS_ADICIONALES = "pagos_adicionales"
+CLAVE_PAGOS_ADICIONALES = cobro.CLAVE_PAGOS_ADICIONALES
 MEDIO_MERCADO_PAGO = "Mercado Pago"
 
 #: Intentos cuyo pago (si lo hubo) NO movió plata: un aprobado los resuelve.
@@ -644,3 +644,112 @@ def link_de_pago(cuota_pk, alumno, *, url_retorno_para, url_notificacion_para, a
     if not guardado:
         raise NoSePuedePagar("cambio")
     return preferencia["init_point"]
+
+
+# --- Reconciliar (el cron, cuando el webhook se perdió) ----------------------------
+
+#: Cuántos días hacia atrás se miran los intentos (mismo criterio que
+#: `tienda.pagos_mp.DIAS_RECONCILIACION`).
+DIAS_RECONCILIACION = 7
+
+
+def _ids_de_pagos(referencia, token):
+    """Sólo los ids de la búsqueda: cada resultado trae los datos del pagador
+    y en una función aparte la lista muere con este frame (Sentry captura las
+    variables locales). `acreditar_cuota_por_id` vuelve a leer cada pago."""
+    return [
+        r["id"]
+        for r in mercadopago.buscar_pagos(str(referencia), token=token)
+        if isinstance(r, dict) and r.get("id") is not None
+    ]
+
+
+def reconciliar_cuotas(*, limite=50, ahora=None):
+    """Busca en Mercado Pago los pagos de los intentos de cobro de cuotas
+    recientes que no quedaron cobrados y los acredita (molde
+    `tienda.pagos_mp.reconciliar_pedidos`). Devuelve los contadores
+    `{"revisados", "acreditados", "errores", "salteados", "vencidos"}`.
+
+    Primero vence perezosamente los links CREADO ya expirados. Después mira
+    los intentos CREADO/RECHAZADO/CANCELADO/VENCIDO de los últimos
+    `DIAS_RECONCILIACION` días con preferencia: **se filtra por ESTADO, nunca
+    por `payment_id` vacío** (un rechazo deja su id y el reintento aprobado,
+    con el webhook perdido, no se miraría nunca), y un link cancelado o
+    vencido sigue pagable hasta que vence la preferencia. Del más nuevo al más
+    viejo, con tope (cada llamada espera hasta 5 s y el job tiene 15 min).
+
+    **Siempre con el token DEL GIMNASIO** (`Secreto(cuenta.access_token)`):
+    sin él `buscar_pagos` usa el de la plataforma. Se saltean la cuenta sin
+    tokens, la que ya dio 401 en esta corrida (queda en «reconectar») y el
+    intento cuyo link generó otra cuenta de MP. Un error se loguea y sigue:
+    la próxima corrida lo reintenta. Las cuentas se leen en UNA query."""
+    from tienda import cuenta_mp
+    from tienda.models import CuentaMercadoPago
+    from tienda.pagos_mp import AcreditacionReintentable
+
+    ahora = ahora or timezone.now()
+    resultado = {"revisados": 0, "acreditados": 0, "errores": 0, "salteados": 0}
+    resultado["vencidos"] = CobroOnlineCuota.objects.filter(
+        estado=_I.CREADO, expira__lt=ahora
+    ).update(estado=_I.VENCIDO, modificado=ahora)
+
+    intentos = list(
+        CobroOnlineCuota.objects.filter(
+            estado__in=_SIN_PLATA,
+            creado__gte=ahora - timedelta(days=DIAS_RECONCILIACION),
+        )
+        .exclude(preference_id="")
+        .order_by("-creado", "-pk")
+        .values_list("pk", "gimnasio_id", "referencia_externa", "mp_user_id")[:limite]
+    )
+    cuentas = {
+        c.gimnasio_id: c
+        for c in CuentaMercadoPago.objects.filter(
+            gimnasio_id__in={g for _, g, _, _ in intentos}
+        )
+    }
+    rechazadas = set()
+    for pk, gimnasio_id, referencia, mp_user_id in intentos:
+        cuenta = cuentas.get(gimnasio_id)
+        # Sin tokens (vacíos, ilegibles o desconectada hace más de 7 días):
+        # no hay con qué preguntar, y SIN token `buscar_pagos` usaría el de la
+        # plataforma. Una cuenta que ya dio 401 tampoco: daría 401 en cada
+        # intento. Un link de otra cuenta de MP (cambió de cuenta) no se
+        # busca con esta.
+        if (
+            cuenta is None
+            or not cuenta.access_token
+            or gimnasio_id in rechazadas
+            or (mp_user_id and mp_user_id != str(cuenta.mp_user_id or ""))
+        ):
+            resultado["salteados"] += 1
+            continue
+        resultado["revisados"] += 1
+        try:
+            ids = _ids_de_pagos(f"{PREFIJO}{referencia}", Secreto(cuenta.access_token))
+            for pago_id in ids:
+                acreditar_cuota_por_id(cuenta, pago_id)
+            # Un intento cuenta una vez, aunque traiga varios pagos.
+            if ids and CobroOnlineCuota.objects.filter(pk=pk, estado__in=_CON_PLATA).exists():
+                resultado["acreditados"] += 1
+        except mercadopago.ErrorDeMercadoPago as exc:
+            if exc.codigo == 401:
+                rechazadas.add(gimnasio_id)
+                cuenta_mp.marcar_reconectar(cuenta.pk, cuenta.token_expira)
+            logger.warning(
+                "Reconciliación de cuotas: no se pudo revisar el cobro %s: %s (codigo=%s)",
+                pk, type(exc).__name__, exc.codigo,
+            )
+            resultado["errores"] += 1
+        except AcreditacionReintentable as exc:
+            logger.warning(
+                "Reconciliación de cuotas: el cobro %s cambió mientras se acreditaba: %s",
+                pk, type(exc).__name__,
+            )
+            resultado["errores"] += 1
+        except Exception as exc:  # noqa: BLE001 - un intento no frena a los demás
+            logger.error(
+                "Reconciliación de cuotas: falló el cobro %s: %s", pk, type(exc).__name__
+            )
+            resultado["errores"] += 1
+    return resultado

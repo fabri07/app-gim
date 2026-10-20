@@ -107,6 +107,25 @@ jobs:
           VAPID_ADMIN_EMAIL: ${{ secrets.VAPID_ADMIN_EMAIL }}
         run: python manage.py reconciliar_pedidos
 
+      # Lo mismo para las cuotas cobradas por Mercado Pago (a la misma cuenta
+      # OAuth del gimnasio): intentos de los últimos 7 días que no quedaron
+      # cobrados; de paso vence los links expirados. Misma regla de salida:
+      # bandera apagada -> 0 «apagado», salvo que exista una cuenta conectada
+      # (-> 1). Las VAPID_* mandan los avisos de «cuota cobrada».
+      - name: Reconciliar cuotas cobradas por Mercado Pago
+        if: ${{ !cancelled() }}
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL_POOLED }}
+          DJANGO_DEBUG: "False"
+          MERCADOPAGO_CLIENT_ID: ${{ secrets.MERCADOPAGO_CLIENT_ID }}
+          MERCADOPAGO_CLIENT_SECRET: ${{ secrets.MERCADOPAGO_CLIENT_SECRET }}
+          MERCADOPAGO_OAUTH_REDIRECT_URI: ${{ secrets.MERCADOPAGO_OAUTH_REDIRECT_URI }}
+          MP_TOKEN_ENCRYPTION_KEY: ${{ secrets.MP_TOKEN_ENCRYPTION_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_ADMIN_EMAIL: ${{ secrets.VAPID_ADMIN_EMAIL }}
+        run: python manage.py reconciliar_cuotas_mp
+
       # Alerta por AUSENCIA de ping (mismo criterio que los otros crons). El
       # guard va adentro del paso: los secrets no se pueden evaluar en `if`.
       - name: Avisar a Healthchecks

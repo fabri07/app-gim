@@ -29,6 +29,10 @@ from django.utils import timezone
 
 from pagos.models import CobroOnlineCuota, Cuota
 
+#: Donde `pagos.cobro_mp` anota, en `respuesta_mp`, los pagos adicionales de
+#: un link pagado dos veces (hay que devolverlos).
+CLAVE_PAGOS_ADICIONALES = "pagos_adicionales"
+
 
 def _bloquear(cuota_pk):
     """Toma el lock de la cuota y DESPUÉS el de sus intentos de cobro online.
@@ -253,10 +257,45 @@ def marcar_revision_resuelta(intento_pk, gimnasio, ahora=None):
     pago, cobró la diferencia...). UPDATE condicional a que siga pendiente y
     sea del gimnasio; `modificado` explícito, que es además lo que hace que
     una acreditación concurrente (`cobro_mp._transicionar`) relea y decida de
-    nuevo en vez de pisarlo. Devuelve si lo marcó."""
+    nuevo en vez de pisarlo. Devuelve si lo marcó.
+
+    Marca además como resueltos TODOS los pagos adicionales anotados en
+    `respuesta_mp` (el staff los devolvió o los compensó): si no, cuando
+    después llega la devolución de UNO, la acreditación recalcula
+    `revision_pendiente` mirando los adicionales sin resolver y la volvería a
+    prender por los que el staff ya resolvió. El UPDATE va condicionado
+    también al `modificado` leído: si una acreditación cambió el intento en el
+    medio, se relee una vez."""
     ahora = ahora or timezone.now()
-    return bool(
-        CobroOnlineCuota.objects.filter(
-            pk=intento_pk, gimnasio=gimnasio, revision_pendiente=True
-        ).update(revision_pendiente=False, revision_resuelta_en=ahora, modificado=ahora)
-    )
+    for _ in range(2):
+        fila = (
+            CobroOnlineCuota.objects.filter(
+                pk=intento_pk, gimnasio=gimnasio, revision_pendiente=True
+            )
+            .values_list("respuesta_mp", "modificado")
+            .first()
+        )
+        if fila is None:
+            return False
+        respuesta, modificado = fila
+        respuesta = dict(respuesta) if isinstance(respuesta, dict) else respuesta
+        if isinstance(respuesta, dict) and isinstance(
+            respuesta.get(CLAVE_PAGOS_ADICIONALES), list
+        ):
+            respuesta[CLAVE_PAGOS_ADICIONALES] = [
+                dict(entrada, resuelto=entrada.get("resuelto") or ahora.isoformat())
+                if isinstance(entrada, dict)
+                else entrada
+                for entrada in respuesta[CLAVE_PAGOS_ADICIONALES]
+            ]
+        tocadas = CobroOnlineCuota.objects.filter(
+            pk=intento_pk, gimnasio=gimnasio, revision_pendiente=True, modificado=modificado
+        ).update(
+            revision_pendiente=False,
+            revision_resuelta_en=ahora,
+            respuesta_mp=respuesta,
+            modificado=ahora,
+        )
+        if tocadas:
+            return True
+    return False
