@@ -911,12 +911,13 @@ ve en el portal apenas entra.
 
 Módulo **Django-free a propósito** (sin ORM, sin `timezone`, sin settings),
 mismo criterio que `pagos.models.ciclo_vigente`: el «hoy» lo pasa siempre quien
-llama. Precio en USD por escalones de alumnos **activos** (hasta 100 → 10, 101
-a 300 → 15, más de 300 → 20; bordes inclusivos), `DIAS_GRATIS = 30` de prueba
+llama. Precio en USD por escalones de alumnos **activos** (hasta 100 → 15, 101
+a 300 → 20, más de 300 → 25; bordes inclusivos; eran 10/15/20 hasta el
+2026-10-20, ver `ISSUES.md [2026-10-20] Precios`), `DIAS_GRATIS = 30` de prueba
 desde `facturacion_inicio`, `DIAS_CICLO = 30` y `DIAS_AVISO_COBRO = 7`.
 
 **Precio de lista, sólo para mostrar** (2026-10-11): `PRECIOS_DE_LISTA_USD`
-(20 / 30 / 40, una clave por tope de `ESCALONES`, un test lo exige) es el
+(30 / 40 / 50 desde el 2026-10-20, una clave por tope de `ESCALONES`, un test lo exige) es el
 número que la portada tacha al lado de la oferta. **No entra a ningún cálculo
 de cobro** y no se tacha en «Mi suscripción», donde se cobra. El anual (10 de
 12 meses, `DESCUENTO_ANUAL_MESES = 2`, confirmado ese día) se muestra tachando

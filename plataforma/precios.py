@@ -10,9 +10,11 @@ sabe leerlo en hora local (ver `plataforma.facturacion`).
 El modelo comercial (decisión cerrada con el dueño del producto):
 
 - El precio es en USD y depende de la cantidad de alumnos **ACTIVOS** del
-  gimnasio, por escalones: hasta 100 → 10, 101 a 300 → 15, más de 300 → 20.
-  Los bordes son inclusivos: 100 alumnos exactos pagan 10 y 300 exactos pagan
-  15.
+  gimnasio, por escalones: hasta 100 → 15, 101 a 300 → 20, más de 300 → 25.
+  Los bordes son inclusivos: 100 alumnos exactos pagan 15 y 300 exactos pagan
+  20. Subieron de 10/15/20 el 2026-10-20, cuando el gimnasio pasó a poder
+  cobrar la cuota de sus alumnos por Mercado Pago (decisión del dueño del
+  producto).
 - El add-on de la tienda suma `PRECIO_TIENDA_USD` por mes al tramo (USD 20) y
   el anual es 10 meses (USD 200), igual que el resto. Se cobra desde el
   próximo pago de quien ya pagó; el anual congela tramo **y** tienda por 12
@@ -61,9 +63,9 @@ PRECIO_TIENDA_USD = 20
 #: `(tope de alumnos activos, precio en USD)`, de menor a mayor. El tope es
 #: INCLUSIVO y `None` significa "sin tope" (tiene que ser el último).
 ESCALONES = (
-    (100, 10),
-    (300, 15),
-    (None, 20),
+    (100, 15),
+    (300, 20),
+    (None, 25),
 )
 
 #: Precio de lista de cada escalón, el que la portada muestra TACHADO al lado
@@ -71,9 +73,9 @@ ESCALONES = (
 #: las claves coincidan). **Es sólo para mostrar: no entra a ningún cálculo de
 #: cobro.** Lo que se cobra sale siempre de `precio_usd`/`precio_usd_anual`.
 PRECIOS_DE_LISTA_USD = {
-    100: 20,
-    300: 30,
-    None: 40,
+    100: 30,
+    300: 40,
+    None: 50,
 }
 
 

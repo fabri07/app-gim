@@ -20,6 +20,18 @@ del log.
 
 ---
 
+## [2026-10-20] Precios: los tramos suben a USD 15 / 20 / 25
+**Estado:** resuelto (decisión comercial del dueño del producto)
+**Impacto:** con el cobro de la cuota por Mercado Pago la app vale más: los
+tramos pasan de 10/15/20 a **15/20/25** (`precios.ESCALONES`) y el precio de
+lista tachado de 20/30/40 a **30/40/50** (sigue «50% off»). La tienda sigue en
+USD 20 / mes aparte. **Se cobra desde el próximo pago**: lo ya pagado (incluido
+un anual en curso, que congela el tramo) no cambia, pero el link mensual de
+«Mi suscripción» y el precargado del pago manual del panel de plataforma ya
+calculan con los precios nuevos. **Avisarles a los gimnasios que pagan hoy
+(Vida Plena) antes de su próximo cobro.** El riesgo de la entrada del
+2026-10-11 sigue: los 30/40/50 tachados tienen que ser un precio real de lista.
+
 ## [2026-10-20] Cuotas: Mercado Pago a la cuenta del gimnasio
 **Estado:** aceptado (riesgos asumidos a propósito); pendiente la prueba guiada (Parte 9 de `docs/mercadopago-tienda.md`)
 **Impacto:** el 2026-10-19 el dueño del producto levantó la regla «las cuotas no se cobran por Mercado Pago». Desde el 2026-10-20 el alumno puede pagar su cuota con un link a la cuenta MP del PROPIO gimnasio (OAuth, la misma de la tienda; cualquier gimnasio, con o sin el add-on), con el monto que sale del precio del gimnasio o del precio propio del alumno. La plata nunca pasa por la cuenta de la plataforma. Cuelga de la misma bandera que el MP de la tienda (apagada) y del interruptor `cuotas_con_mercadopago` de «Mi gimnasio». El débito automático sigue afuera. Diseño en `ARQUITECTURA.md` § «Cuotas por Mercado Pago».
@@ -95,7 +107,7 @@ del log.
 ## [2026-10-11] Precios: lista tachada, anual a 10 meses y tramos automáticos en la portada
 **Estado:** aceptado (riesgo asumido a propósito)
 **Impacto:** la portada muestra en cada tramo un precio de lista tachado
-(USD 20 / 30 / 40, `precios.PRECIOS_DE_LISTA_USD`) con la oferta actual
+(USD 20 / 30 / 40 —30 / 40 / 50 desde el 2026-10-20—, `precios.PRECIOS_DE_LISTA_USD`) con la oferta actual
 (10 / 15 / 20) como «50% off», el anual a 10 de 12 meses tachando la suma de los
 12, y un párrafo + una pregunta frecuente que explican que el tramo se ajusta
 solo con los alumnos activos. «Mi suscripción» muestra el tramo del gimnasio y,

@@ -498,8 +498,8 @@ class PortadaViewTests(TestCase):
         # Los tres montos (el markup separa "USD" del número, así que se
         # verifica el número dentro de su span) y los tres tramos.
         # Se busca el número DENTRO de su span: con el precio de lista
-        # tachado (que también es 20) un ">20</span>" a secas pasaba igual.
-        for monto in (10, 15, 20):
+        # tachado (que también fue 20) un ">20</span>" a secas pasaba igual.
+        for monto in (15, 20, 25):
             self.assertContains(response, f'class="portada__precio-num">{monto}</span>')
         self.assertContains(response, "Hasta 100 alumnos")
         self.assertContains(response, "De 101 a 300 alumnos")
@@ -554,7 +554,7 @@ class PortadaViewTests(TestCase):
         )
         # Los tramos no cambian por el adicional.
         self.assertEqual(
-            [f["precio_usd"] for f in response.context["precios_filas"]], [10, 15, 20]
+            [f["precio_usd"] for f in response.context["precios_filas"]], [15, 20, 25]
         )
 
     @override_settings(TIENDA_MP_ENABLED=False)

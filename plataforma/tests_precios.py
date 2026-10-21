@@ -18,28 +18,28 @@ from plataforma.precios import EstadoPago
 
 class EscalonesDePrecioTests(SimpleTestCase):
     """Los bordes de los escalones son la parte que se discute con el usuario:
-    100 alumnos exactos paga 10 y 300 exactos paga 15 (decisión cerrada). Un
+    100 alumnos exactos paga 15 y 300 exactos paga 20 (decisión cerrada). Un
     `<` en vez de un `<=` mueve la factura de un cliente real."""
 
-    def test_hasta_cien_alumnos_paga_diez(self):
-        self.assertEqual(precios.precio_usd(0), 10)
-        self.assertEqual(precios.precio_usd(1), 10)
-        self.assertEqual(precios.precio_usd(100), 10)
+    def test_hasta_cien_alumnos_paga_quince(self):
+        self.assertEqual(precios.precio_usd(0), 15)
+        self.assertEqual(precios.precio_usd(1), 15)
+        self.assertEqual(precios.precio_usd(100), 15)
 
-    def test_ciento_uno_ya_paga_quince(self):
-        self.assertEqual(precios.precio_usd(101), 15)
+    def test_ciento_uno_ya_paga_veinte(self):
+        self.assertEqual(precios.precio_usd(101), 20)
 
-    def test_trescientos_exactos_todavia_paga_quince(self):
-        self.assertEqual(precios.precio_usd(300), 15)
+    def test_trescientos_exactos_todavia_paga_veinte(self):
+        self.assertEqual(precios.precio_usd(300), 20)
 
-    def test_trescientos_uno_paga_veinte(self):
-        self.assertEqual(precios.precio_usd(301), 20)
-        self.assertEqual(precios.precio_usd(5000), 20)
+    def test_trescientos_uno_paga_veinticinco(self):
+        self.assertEqual(precios.precio_usd(301), 25)
+        self.assertEqual(precios.precio_usd(5000), 25)
 
     def test_escalon_de_devuelve_tope_y_precio(self):
-        self.assertEqual(precios.escalon_de(100), (100, 10))
-        self.assertEqual(precios.escalon_de(150), (300, 15))
-        self.assertEqual(precios.escalon_de(500), (None, 20))
+        self.assertEqual(precios.escalon_de(100), (100, 15))
+        self.assertEqual(precios.escalon_de(150), (300, 20))
+        self.assertEqual(precios.escalon_de(500), (None, 25))
 
 
 class FinDePruebaTests(SimpleTestCase):
@@ -80,7 +80,7 @@ class PlanAnualTests(SimpleTestCase):
         self.assertEqual(precios.DIAS_ANIO, 360)
 
     def test_precio_anual_es_el_mensual_por_diez_en_cada_escalon(self):
-        for alumnos, esperado in [(0, 100), (100, 100), (101, 150), (300, 150), (301, 200)]:
+        for alumnos, esperado in [(0, 150), (100, 150), (101, 200), (300, 200), (301, 250)]:
             with self.subTest(alumnos=alumnos):
                 self.assertEqual(precios.precio_usd_anual(alumnos), esperado)
                 self.assertEqual(
@@ -251,7 +251,7 @@ class PrecioDeListaTests(SimpleTestCase):
                 )
 
     def test_precio_de_lista_por_escalon(self):
-        for alumnos, esperado in [(100, 20), (101, 30), (300, 30), (301, 40)]:
+        for alumnos, esperado in [(100, 30), (101, 40), (300, 40), (301, 50)]:
             with self.subTest(alumnos=alumnos):
                 self.assertEqual(precios.precio_lista_usd(alumnos), esperado)
 
