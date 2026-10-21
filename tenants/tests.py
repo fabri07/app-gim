@@ -3915,6 +3915,57 @@ class SembrarDemoTests(TestCase):
         self.assertTrue(Cuota.objects.for_gimnasio(self.gimnasio).exists())
         self.assertTrue(Reserva.objects.for_gimnasio(self.gimnasio).exists())
 
+    def test_siembra_cinco_planes_distintos_y_reparte_a_los_alumnos(self):
+        """Cinco planes completos (asignables: ningún item «a completar») y
+        los alumnos repartidos entre ellos, para que el portal no muestre a
+        todos el mismo. Los días entrenados son sólo días que el plan tiene:
+        un plan de 2 días no puede tener un «día 3» completado."""
+        from rutinas.models import (
+            RutinaAsignada, RutinaAsignadaDiaCompletado, RutinaPlantilla,
+        )
+
+        self._sembrar(alumnos=24, meses=2)
+
+        planes = RutinaPlantilla.objects.for_gimnasio(self.gimnasio)
+        self.assertEqual(planes.count(), 5)
+        self.assertEqual(
+            sorted(planes.values_list("dias_por_semana", flat=True)), [2, 3, 3, 3, 4]
+        )
+        for plan in planes:
+            with self.subTest(plan=plan.nombre):
+                self.assertEqual(
+                    sorted(set(plan.items.values_list("dia", flat=True))),
+                    list(range(1, plan.dias_por_semana + 1)),
+                )
+                self.assertFalse(
+                    plan.items.filter(series__isnull=True).exists()
+                    or plan.items.filter(repeticiones="").exists()
+                )
+        asignados = set(
+            RutinaAsignada.objects.for_gimnasio(self.gimnasio)
+            .values_list("nombre_snapshot", flat=True)
+        )
+        self.assertEqual(len(asignados), 5)
+        hechos = RutinaAsignadaDiaCompletado.objects.filter(
+            rutina_asignada__gimnasio=self.gimnasio
+        )
+        # El plan de 4 días también registra su día 4.
+        self.assertIn(4, set(hechos.values_list("dia", flat=True)))
+        for hecho in hechos:
+            self.assertIn(
+                hecho.dia,
+                set(hecho.rutina_asignada.items.values_list("dia", flat=True)),
+            )
+
+    def test_resembrar_no_duplica_los_planes(self):
+        from rutinas.models import RutinaPlantilla
+
+        self._sembrar(alumnos=5, meses=1)
+        self._sembrar(alumnos=5, meses=1, borrar=True)
+        self._sembrar(alumnos=5, meses=1)
+
+        self.assertEqual(RutinaPlantilla.objects.for_gimnasio(self.gimnasio).count(), 5)
+
     def test_se_niega_a_sembrar_sobre_un_gimnasio_con_alumnos_reales(self):
         """La única barrera entre "lleno la cuenta de prueba" y "le meto 24
         alumnos falsos al gimnasio de un cliente que paga"."""

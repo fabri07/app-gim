@@ -112,6 +112,111 @@ _EJERCICIOS = [
     ("Fondos en paralelas", "Empuje", "fondos en paralelas tecnica"),
     ("Curl de bíceps", "Accesorios", "curl de biceps tecnica"),
     ("Elevaciones laterales", "Accesorios", "elevaciones laterales tecnica"),
+    # Desde acá, los que usan los planes de `_PLANES_EXTRA`.
+    ("Sentadilla goblet", "Piernas", "sentadilla goblet tecnica"),
+    ("Prensa de piernas", "Piernas", "prensa de piernas tecnica"),
+    ("Peso muerto rumano", "Cadena posterior", "peso muerto rumano tecnica"),
+    ("Puente de glúteos", "Cadena posterior", "puente de gluteos tecnica"),
+    ("Patada de glúteo en polea", "Cadena posterior", "patada de gluteo en polea tecnica"),
+    ("Jalón al pecho", "Tracción", "jalon al pecho tecnica"),
+    ("Remo con mancuerna", "Tracción", "remo con mancuerna tecnica"),
+    ("Press inclinado con mancuernas", "Empuje", "press inclinado con mancuernas tecnica"),
+    ("Flexiones de brazos", "Empuje", "flexiones de brazos tecnica"),
+    ("Extensión de tríceps en polea", "Accesorios", "extension de triceps en polea tecnica"),
+    ("Burpees", "Funcional", "burpees tecnica"),
+    ("Kettlebell swing", "Funcional", "kettlebell swing tecnica"),
+    ("Saltos al cajón", "Funcional", "saltos al cajon tecnica"),
+    ("Soga", "Funcional", "saltar la soga tecnica"),
+    ("Mountain climbers", "Core", "mountain climbers tecnica"),
+    ("Bird dog", "Core", "bird dog ejercicio tecnica"),
+    ("Bicicleta fija", "Cardio", "bicicleta fija intervalos"),
+]
+
+#: Planes de muestra además del «Full body 3 días»: que la lista de planes y el
+#: portal de cada alumno no muestren siempre lo mismo. `(nombre, objetivo,
+#: nivel, días)` y, por día, `(nombre del día, [(ejercicio, series,
+#: repeticiones por semana, kilos de la semana 1, suba por semana, descanso)])`.
+#: Kilos `None` = peso corporal o tiempo. Sólo ejercicios de `_EJERCICIOS`.
+_PLANES_EXTRA = [
+    ("Hipertrofia torso / pierna 4 días", "Ganar masa muscular", "avanzado", [
+        ("Torso A", [
+            ("Press de banca", 4, ["10", "8", "8", "6"], 40, 2.5, "2 min"),
+            ("Remo con barra", 4, ["10", "8", "8", "6"], 35, 2.5, "2 min"),
+            ("Press inclinado con mancuernas", 3, ["12", "10", "10", "8"], 14, 2, "90s"),
+            ("Jalón al pecho", 3, ["12", "10", "10", "8"], 40, 5, "90s"),
+            ("Curl de bíceps", 3, ["12", "12", "10", "10"], 10, 1, "60s"),
+        ]),
+        ("Pierna A", [
+            ("Sentadilla con barra", 4, ["10", "8", "8", "6"], 50, 5, "2 min"),
+            ("Peso muerto rumano", 3, ["10", "10", "8", "8"], 40, 5, "2 min"),
+            ("Prensa de piernas", 3, ["12", "12", "10", "10"], 80, 10, "90s"),
+            ("Plancha", 3, ["40 s", "45 s", "50 s", "60 s"], None, 0, "45s"),
+        ]),
+        ("Torso B", [
+            ("Press militar", 4, ["10", "8", "8", "6"], 25, 2.5, "2 min"),
+            ("Dominadas", 4, ["6", "7", "8", "8"], None, 0, "2 min"),
+            ("Fondos en paralelas", 3, ["10", "10", "12", "12"], None, 0, "90s"),
+            ("Elevaciones laterales", 3, ["15", "15", "12", "12"], 6, 1, "60s"),
+            ("Extensión de tríceps en polea", 3, ["12", "12", "10", "10"], 15, 2.5, "60s"),
+        ]),
+        ("Pierna B", [
+            ("Peso muerto", 4, ["8", "6", "6", "5"], 60, 5, "2 min"),
+            ("Zancadas", 3, ["10", "10", "12", "12"], 10, 2, "90s"),
+            ("Hip thrust", 3, ["12", "10", "10", "8"], 50, 10, "90s"),
+            ("Mountain climbers", 3, ["30 s", "35 s", "40 s", "45 s"], None, 0, "45s"),
+        ]),
+    ]),
+    ("Funcional quemador 3 días", "Bajar de peso y mejorar el aire", "intermedio", [
+        ("Circuito 1", [
+            ("Kettlebell swing", 4, ["15", "15", "20", "20"], 12, 2, "30s"),
+            ("Burpees", 4, ["10", "12", "12", "15"], None, 0, "30s"),
+            ("Saltos al cajón", 4, ["10", "10", "12", "12"], None, 0, "30s"),
+            ("Mountain climbers", 4, ["30 s", "40 s", "40 s", "45 s"], None, 0, "60s"),
+        ]),
+        ("Circuito 2", [
+            ("Sentadilla goblet", 4, ["15", "15", "15", "20"], 12, 2, "30s"),
+            ("Flexiones de brazos", 4, ["10", "12", "12", "15"], None, 0, "30s"),
+            ("Remo con mancuerna", 4, ["12", "12", "12", "15"], 12, 2, "30s"),
+            ("Soga", 4, ["1 min", "1 min", "90 s", "90 s"], None, 0, "60s"),
+        ]),
+        ("Cardio y core", [
+            ("Bicicleta fija", 1, ["20 min", "25 min", "25 min", "30 min"], None, 0, "—"),
+            ("Plancha", 3, ["30 s", "40 s", "45 s", "60 s"], None, 0, "30s"),
+            ("Bird dog", 3, ["10", "12", "12", "15"], None, 0, "30s"),
+        ]),
+    ]),
+    ("Glúteos y piernas 3 días", "Fortalecer y tonificar el tren inferior", "intermedio", [
+        ("Glúteo", [
+            ("Hip thrust", 4, ["12", "10", "10", "8"], 40, 10, "90s"),
+            ("Patada de glúteo en polea", 3, ["15", "15", "12", "12"], 10, 2.5, "60s"),
+            ("Puente de glúteos", 3, ["20", "20", "25", "25"], None, 0, "45s"),
+        ]),
+        ("Cuádriceps", [
+            ("Sentadilla con barra", 4, ["12", "10", "10", "8"], 30, 5, "2 min"),
+            ("Prensa de piernas", 4, ["15", "12", "12", "10"], 60, 10, "90s"),
+            ("Zancadas", 3, ["12", "12", "14", "14"], 8, 2, "60s"),
+        ]),
+        ("Isquios y core", [
+            ("Peso muerto rumano", 4, ["12", "10", "10", "8"], 30, 5, "90s"),
+            ("Sentadilla goblet", 3, ["15", "15", "12", "12"], 14, 2, "60s"),
+            ("Plancha", 3, ["40 s", "45 s", "50 s", "60 s"], None, 0, "45s"),
+        ]),
+    ]),
+    ("Arranque para principiantes 2 días", "Aprender la técnica y ganar el hábito", "principiante", [
+        ("Día A", [
+            ("Sentadilla goblet", 3, ["12", "12", "12", "15"], 8, 2, "90s"),
+            ("Flexiones de brazos", 3, ["8", "8", "10", "10"], None, 0, "90s"),
+            ("Remo con mancuerna", 3, ["12", "12", "12", "15"], 8, 2, "90s"),
+            ("Plancha", 3, ["20 s", "25 s", "30 s", "35 s"], None, 0, "60s"),
+        ]),
+        ("Día B", [
+            ("Puente de glúteos", 3, ["15", "15", "15", "20"], None, 0, "60s"),
+            ("Jalón al pecho", 3, ["12", "12", "12", "15"], 25, 2.5, "90s"),
+            ("Press militar", 3, ["10", "10", "12", "12"], 10, 1, "90s"),
+            ("Bird dog", 3, ["8", "10", "10", "12"], None, 0, "45s"),
+            ("Bicicleta fija", 1, ["10 min", "12 min", "15 min", "15 min"], None, 0, "—"),
+        ]),
+    ]),
 ]
 
 _NOVEDADES = [
@@ -222,7 +327,35 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                             descanso="90s",
                             bloque=f"{'ABCD'[orden - 1]}1",
                         )
+        planes = [plantilla]
+        por_nombre = {e.nombre: e for e in ejercicios}
+        for nombre_plan, objetivo, nivel, dias in _PLANES_EXTRA:
+            extra, creada_extra = RutinaPlantilla.objects.get_or_create(
+                gimnasio=gimnasio, nombre=nombre_plan,
+                defaults={
+                    "objetivo": objetivo, "nivel": nivel,
+                    "dias_por_semana": len(dias),
+                },
+            )
+            if creada_extra:
+                for dia, (nombre_dia, items) in enumerate(dias, start=1):
+                    for semana in range(1, 5):
+                        for orden, (nombre_ej, series, reps, kilos, suba, descanso) in enumerate(items, start=1):
+                            if kilos is None:
+                                carga = "corporal"
+                            else:
+                                carga = f"{kilos + suba * (semana - 1):g} kg"
+                            RutinaPlantillaItem.objects.create(
+                                rutina=extra, ejercicio=por_nombre[nombre_ej],
+                                semana=semana, dia=dia, dia_nombre=nombre_dia,
+                                orden=orden,
+                                series=series, repeticiones=reps[semana - 1],
+                                kilos=carga, descanso=descanso,
+                                bloque=f"{'ABCDE'[orden - 1]}1",
+                            )
+            planes.append(extra)
         resumen["plantilla"] = plantilla.nombre
+        resumen["planes"] = len(planes)
 
         # --- Turnos ------------------------------------------------------
         ConfiguracionTurnos.objects.get_or_create(
@@ -319,7 +452,7 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
         for i, alumno in enumerate(activos):
             dias_desde_el_inicio = [26, 24, 21][i % 3] if i < 3 else azar.randint(1, 20)
             rutina = RutinaAsignada.crear_desde_plantilla(
-                gimnasio=gimnasio, alumno=alumno, plantilla=plantilla,
+                gimnasio=gimnasio, alumno=alumno, plantilla=planes[i % len(planes)],
                 fecha_inicio=hoy - timedelta(days=dias_desde_el_inicio),
             )
             rutinas.append(rutina)
@@ -345,8 +478,10 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                     item.rpe = azar.choice(opciones)
                     item.save(update_fields=["rpe", "modificado"])
                     calificados += 1
+            # Los días que tiene SU plan: hay planes de 2, 3 y 4 días.
+            dias_del_plan = sorted(set(rutina.items.values_list("dia", flat=True)))
             for semana in range(1, semanas_hechas):
-                for dia in (1, 2, 3):
+                for dia in dias_del_plan:
                     if azar.random() < 0.8:
                         RutinaAsignadaDiaCompletado.objects.get_or_create(
                             rutina_asignada=rutina, semana=semana, dia=dia
