@@ -366,6 +366,11 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                 gimnasio=gimnasio, dia_semana=dia_semana,
                 hora_desde=time(7, 0), hora_hasta=time(21, 0),
             )
+        # Sábado a la mañana: el horario reducido de un gimnasio de barrio.
+        HorarioAtencion.objects.get_or_create(
+            gimnasio=gimnasio, dia_semana=5,
+            hora_desde=time(9, 0), hora_hasta=time(13, 0),
+        )
 
         # --- Alumnos -----------------------------------------------------
         dominio = _dominio_demo(gimnasio)
@@ -374,7 +379,10 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
         usados = set()
         for i in range(cantidad_alumnos):
             nombre, genero = _NOMBRES[i % len(_NOMBRES)]
-            apellido = _APELLIDOS[(i * 7) % len(_APELLIDOS)]
+            # `i // 24` corre el apellido en cada vuelta de la lista de
+            # nombres: con 40 alumnos no hay dos «Sofía González». Para los
+            # primeros 24 vale 0, así que la demo de siempre no cambia.
+            apellido = _APELLIDOS[(i * 7 + i // len(_NOMBRES)) % len(_APELLIDOS)]
             # Las dos listas tienen 24 entradas y 24*7 % 24 == 0, así que a
             # partir del alumno 25 el par (nombre, apellido) se repite. El
             # sufijo lo desempata: sin él, `--alumnos 30` chocaba contra el
@@ -613,15 +621,19 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
         # semana, así que si hoy era miércoles solo tocaba lunes, martes y
         # miércoles: la grilla de calor mostraba jueves y viernes en CERO, que
         # en una captura se lee como que la app está rota.
-        for dias_atras in range(70):
+        # De 70 días atrás a 7 adelante: lo futuro es la agenda que el staff y
+        # el alumno ven como «reservado». El sábado abre de 9 a 13.
+        horas_sabado = [time(9, 0), time(10, 0), time(10, 0), time(11, 0), time(12, 0)]
+        for dias_atras in range(-7, 70):
             fecha = hoy - timedelta(days=dias_atras)
-            if fecha.weekday() > 4:  # sábado y domingo: el gimnasio no abre
+            if fecha.weekday() == 6:  # domingo: el gimnasio no abre
                 continue
+            sabado = fecha.weekday() == 5
             for alumno in activos:
-                if azar.random() < 0.35:
+                if azar.random() < (0.15 if sabado else 0.35):
                     _, creado = Reserva.objects.get_or_create(
                         gimnasio=gimnasio, alumno=alumno, fecha=fecha,
-                        hora_inicio=azar.choice(horas),
+                        hora_inicio=azar.choice(horas_sabado if sabado else horas),
                     )
                     reservas += bool(creado)
         resumen["reservas"] = reservas
@@ -637,11 +649,28 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
             )
         resumen["novedades"] = len(_NOVEDADES)
 
-        # --- Tienda (sólo la demo) -----------------------------------------
-        if gimnasio.es_demo:
+        # --- Tienda (la demo y las cuentas de prueba) ------------------------
+        # Nunca con alumnos reales (`--confirmar`): ahí publicaría productos
+        # inventados a la vista de sus alumnos. La habilitación del add-on es
+        # del superadmin y suma USD 20 a la factura: se prende sola sólo en
+        # una cuenta que no se factura (demo o `facturacion_exenta`).
+        if gimnasio.es_demo or not hay_alumnos_reales:
             productos, pedidos = _sembrar_tienda(gimnasio, alumnos)
             resumen["productos_tienda"] = productos
             resumen["pedidos_tienda"] = pedidos
+            if not gimnasio.tienda_habilitada and gimnasio.facturacion_exenta:
+                Gimnasio.objects.filter(pk=gimnasio.pk).update(tienda_habilitada=True)
+                gimnasio.tienda_habilitada = True
+            resumen["tienda_visible"] = gimnasio.puede_usar_tienda
+
+            # El cron emite las cuotas nuevas con este precio (el mismo de las
+            # sembradas); sin él nacerían en $0 y sin botón de Mercado Pago.
+            if gimnasio.precio_cuota is None:
+                Gimnasio.objects.filter(pk=gimnasio.pk).update(precio_cuota=Decimal("28000"))
+                gimnasio.precio_cuota = Decimal("28000")
+
+        # --- Control de ingreso ----------------------------------------------
+        resumen.update(_sembrar_ingreso(gimnasio, activos, hoy, azar))
 
     return resumen
 
@@ -679,10 +708,19 @@ def _sembrar_tienda(gimnasio, alumnos):
     ropa, _ = CategoriaProducto.objects.get_or_create(
         gimnasio=gimnasio, nombre="Ropa", defaults={"orden": 2}
     )
+    accesorios, _ = CategoriaProducto.objects.get_or_create(
+        gimnasio=gimnasio, nombre="Accesorios", defaults={"orden": 3}
+    )
     catalogo = [
         (suplementos, "Proteína whey 1 kg", Decimal("32000"), "Sabor", [("Chocolate", 8), ("Vainilla", 5)]),
         (suplementos, "Creatina 300 g", Decimal("21000"), "", [("", 12)]),
         (ropa, "Remera dry-fit", Decimal("15000"), "Talle", [("S", 4), ("M", 6), ("L", 3), ("XL", 0)]),
+        (suplementos, "Barra de proteína", Decimal("2500"), "Sabor", [("Chocolate", 30), ("Maní", 24), ("Frutos rojos", 0)]),
+        (suplementos, "Bebida isotónica 500 ml", Decimal("1800"), "", [("", 48)]),
+        (ropa, "Musculosa del gimnasio", Decimal("13000"), "Talle", [("S", 5), ("M", 8), ("L", 4)]),
+        (accesorios, "Shaker 700 ml", Decimal("6500"), "Color", [("Negro", 10), ("Verde", 6)]),
+        (accesorios, "Toalla de microfibra", Decimal("9000"), "", [("", 15)]),
+        (accesorios, "Guantes de entrenamiento", Decimal("11000"), "Talle", [("S", 2), ("M", 5), ("L", 3)]),
     ]
     variantes = []
     for categoria, nombre, precio, caracteristica, valores in catalogo:
@@ -743,6 +781,76 @@ def _sembrar_tienda(gimnasio, alumnos):
         Producto.objects.for_gimnasio(gimnasio).count(),
         Pedido.objects.for_gimnasio(gimnasio).count(),
     )
+
+
+def _sembrar_ingreso(gimnasio, activos, hoy, azar):
+    """QR para cada alumno activo, un molinete y dos semanas de ingresos.
+
+    El token del molinete se genera y se descarta: para conectar uno de verdad
+    el staff lo rota desde «Control de ingreso» y ve el nuevo una sola vez.
+    El que tiene la cuota que lo bloquea queda rechazado por deuda (con la
+    configuración que pide la cuota al día), así el listado muestra los dos
+    casos. Los eventos cuelgan del alumno (CASCADE): `borrar_demo` se los
+    lleva con él.
+    """
+    from ingreso import tokens
+    from ingreso.models import ConfiguracionIngreso, Credencial, Dispositivo, EventoIngreso
+    from ingreso.services import generar_credenciales_en_bloque
+    from pagos.acceso import bloqueo_de
+
+    ConfiguracionIngreso.objects.get_or_create(
+        gimnasio=gimnasio, defaults={"bloquea_por_deuda": True}
+    )
+    codigos = generar_credenciales_en_bloque(gimnasio, alumno_ids=[a.pk for a in activos])
+    molinete = Dispositivo.objects.filter(
+        gimnasio=gimnasio, nombre__iexact="Molinete de la entrada"
+    ).first()
+    if molinete is None:
+        molinete = Dispositivo.objects.create(
+            gimnasio=gimnasio, nombre="Molinete de la entrada",
+            tipo=Dispositivo.Tipo.QR, token_hash=tokens.hash_de(tokens.generar()),
+        )
+    qr_de = {
+        c.alumno_id: c
+        for c in Credencial.objects.for_gimnasio(gimnasio).filter(
+            tipo=Credencial.Tipo.QR, alumno__in=activos
+        )
+    }
+    bloqueados = {a.pk for a in activos if bloqueo_de(a, hoy=hoy) is not None}
+    horas = [hora for hora, peso in _FRANJAS for _ in range(peso)]
+    ahora = timezone.now()
+    eventos = []
+    for dias_atras in range(13, -1, -1):
+        fecha = hoy - timedelta(days=dias_atras)
+        if fecha.weekday() == 6:
+            continue
+        for alumno in activos:
+            if azar.random() > 0.45:
+                continue
+            hora = horas[azar.randrange(len(horas))] if fecha.weekday() < 5 else time(9 + azar.randrange(4), 0)
+            momento = timezone.make_aware(
+                datetime.combine(fecha, hora) + timedelta(minutes=azar.randrange(-10, 15))
+            )
+            if momento > ahora:
+                continue
+            resultado = (
+                EventoIngreso.Resultado.DEUDA if alumno.pk in bloqueados
+                else EventoIngreso.Resultado.PERMITIDO
+            )
+            eventos.append(EventoIngreso(
+                gimnasio=gimnasio, dispositivo=molinete, alumno=alumno,
+                credencial=qr_de.get(alumno.pk), resultado=resultado, momento=momento,
+            ))
+            # De vez en cuando el lector lee dos veces el mismo celular.
+            if resultado == EventoIngreso.Resultado.PERMITIDO and azar.random() < 0.05:
+                eventos.append(EventoIngreso(
+                    gimnasio=gimnasio, dispositivo=molinete, alumno=alumno,
+                    credencial=qr_de.get(alumno.pk),
+                    resultado=EventoIngreso.Resultado.DUPLICADO,
+                    momento=momento + timedelta(seconds=20),
+                ))
+    EventoIngreso.objects.bulk_create(eventos)
+    return {"codigos_qr": codigos, "ingresos": len(eventos)}
 
 
 def borrar_demo(*, gimnasio):

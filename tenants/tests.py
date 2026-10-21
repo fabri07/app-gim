@@ -3983,14 +3983,67 @@ class SembrarDemoTests(TestCase):
         # Y no escribió NADA antes de negarse.
         self.assertEqual(Alumno.objects.for_gimnasio(self.gimnasio).count(), 1)
 
-    def test_la_tienda_no_se_siembra_en_un_gimnasio_que_no_es_demo(self):
+    def test_la_tienda_no_se_siembra_con_alumnos_reales(self):
         """`--confirmar` siembra sobre gimnasios con alumnos reales: ahí la
         tienda publicaría productos inventados a la vista de sus alumnos."""
+        from alumnos.models import Alumno
         from tienda.models import Producto
 
-        self._sembrar(alumnos=4, meses=1)
+        Alumno.objects.create(gimnasio=self.gimnasio, nombre="Real", apellido="Cliente")
+        self._sembrar(alumnos=4, meses=1, confirmar=True)
 
         self.assertFalse(Producto.objects.for_gimnasio(self.gimnasio).exists())
+        self.gimnasio.refresh_from_db()
+        self.assertIsNone(self.gimnasio.precio_cuota)
+
+    def test_una_cuenta_de_prueba_recibe_tienda_ingreso_y_precio(self):
+        """Sin alumnos reales es una cuenta de prueba: tienda con productos,
+        QR para cada activo, ingresos (con algún rechazo por deuda) y el precio
+        de la cuota. La tienda se habilita sola sólo si no se factura."""
+        from alumnos.models import Alumno
+        from ingreso.models import Credencial, EventoIngreso
+        from tienda.models import Producto
+
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(facturacion_exenta=True)
+        self._sembrar(alumnos=24, meses=2)
+
+        self.gimnasio.refresh_from_db()
+        self.assertTrue(self.gimnasio.tienda_habilitada)
+        self.assertEqual(self.gimnasio.precio_cuota, Decimal("28000"))
+        self.assertGreaterEqual(Producto.objects.for_gimnasio(self.gimnasio).count(), 9)
+        activos = Alumno.objects.for_gimnasio(self.gimnasio).filter(
+            estado=Alumno.Estado.ACTIVO
+        )
+        self.assertEqual(
+            Credencial.objects.for_gimnasio(self.gimnasio)
+            .filter(tipo=Credencial.Tipo.QR).count(),
+            activos.count(),
+        )
+        resultados = set(
+            EventoIngreso.objects.for_gimnasio(self.gimnasio)
+            .values_list("resultado", flat=True)
+        )
+        self.assertIn(EventoIngreso.Resultado.PERMITIDO, resultados)
+        self.assertIn(EventoIngreso.Resultado.DEUDA, resultados)
+
+    def test_la_tienda_no_se_habilita_sola_en_una_cuenta_que_se_factura(self):
+        """Habilitar la tienda suma USD 20 a la factura: es decisión del
+        superadmin, no de una siembra."""
+        self._sembrar(alumnos=4, meses=1)
+
+        self.gimnasio.refresh_from_db()
+        self.assertFalse(self.gimnasio.tienda_habilitada)
+
+    def test_cuarenta_alumnos_sin_nombres_repetidos(self):
+        from alumnos.models import Alumno
+
+        self._sembrar(alumnos=40, meses=1)
+
+        nombres = list(
+            Alumno.objects.for_gimnasio(self.gimnasio).values_list("nombre", "apellido")
+        )
+        self.assertEqual(len(nombres), 40)
+        self.assertEqual(len(set(nombres)), 40)
 
     def test_la_tienda_se_siembra_en_la_demo_sin_duplicar(self):
         from tienda.models import FotoProducto, Pedido, Producto, Variante
@@ -4006,7 +4059,10 @@ class SembrarDemoTests(TestCase):
         self.assertFalse(FotoProducto.objects.filter(producto__gimnasio=self.gimnasio).exists())
         # Lo reservado sale del disponible: el chocolate se siembra con 8 y su
         # pedido en revisión retiene uno.
-        chocolate = Variante.objects.get(producto__gimnasio=self.gimnasio, nombre="Chocolate")
+        chocolate = Variante.objects.get(
+            producto__gimnasio=self.gimnasio, producto__nombre="Proteína whey 1 kg",
+            nombre="Chocolate",
+        )
         self.assertEqual(chocolate.stock + reservado_por_variante(self.gimnasio).get(chocolate.pk, 0), 8)
 
         self._sembrar(alumnos=4, meses=1, confirmar=True)
@@ -4191,17 +4247,29 @@ class SembrarDemoTests(TestCase):
             reserva.fecha.weekday()
             for reserva in Reserva.objects.for_gimnasio(self.gimnasio)
         }
-        self.assertEqual(dias, {0, 1, 2, 3, 4})
+        # Más el sábado, que abre de 9 a 13.
+        self.assertEqual(dias, {0, 1, 2, 3, 4, 5})
 
-    def test_no_siembra_reservas_de_fin_de_semana(self):
+    def test_no_siembra_reservas_el_domingo_y_los_sabados_solo_a_la_manana(self):
         from turnos.models import Reserva
 
         self._sembrar(alumnos=8, meses=1)
 
+        reservas = Reserva.objects.for_gimnasio(self.gimnasio)
+        self.assertFalse(reservas.filter(fecha__week_day=1).exists())  # domingo en Django
         self.assertFalse(
+            reservas.filter(fecha__week_day=7, hora_inicio__gte=time(13, 0)).exists()
+        )
+
+    def test_siembra_reservas_en_la_semana_que_viene(self):
+        """La agenda tiene que mostrar turnos ya tomados, no sólo historial."""
+        from turnos.models import Reserva
+
+        self._sembrar(alumnos=10, meses=1)
+
+        self.assertTrue(
             Reserva.objects.for_gimnasio(self.gimnasio)
-            .filter(fecha__week_day__in=[1, 7])  # domingo y sábado en Django
-            .exists()
+            .filter(fecha__gt=timezone.localdate()).exists()
         )
 
     def test_el_silenciado_no_queda_pegado(self):
