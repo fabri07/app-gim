@@ -234,7 +234,7 @@ _NOVEDADES = [
 _TOLERANCIA_DEMO = 5
 
 
-def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
+def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42, con_tienda=False):
     """Llena `gimnasio` con datos verosímiles y devuelve un resumen.
 
     `semilla` fija: dos corridas con los mismos parámetros dan el mismo
@@ -650,11 +650,13 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
         resumen["novedades"] = len(_NOVEDADES)
 
         # --- Tienda (la demo y las cuentas de prueba) ------------------------
-        # Nunca con alumnos reales (`--confirmar`): ahí publicaría productos
-        # inventados a la vista de sus alumnos. La habilitación del add-on es
+        # Con alumnos reales (`--confirmar`) sólo si además se pide a propósito
+        # (`con_tienda`, la cuenta de prueba con algún alumno cargado a mano):
+        # si no, publicaría productos inventados a la vista de sus alumnos.
+        # La habilitación del add-on es
         # del superadmin y suma USD 20 a la factura: se prende sola sólo en
         # una cuenta que no se factura (demo o `facturacion_exenta`).
-        if gimnasio.es_demo or not hay_alumnos_reales:
+        if gimnasio.es_demo or not hay_alumnos_reales or con_tienda:
             productos, pedidos = _sembrar_tienda(gimnasio, alumnos)
             resumen["productos_tienda"] = productos
             resumen["pedidos_tienda"] = pedidos
@@ -665,7 +667,7 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
 
             # El cron emite las cuotas nuevas con este precio (el mismo de las
             # sembradas); sin él nacerían en $0 y sin botón de Mercado Pago.
-            if gimnasio.precio_cuota is None:
+            if gimnasio.precio_cuota is None and not hay_alumnos_reales:
                 Gimnasio.objects.filter(pk=gimnasio.pk).update(precio_cuota=Decimal("28000"))
                 gimnasio.precio_cuota = Decimal("28000")
 

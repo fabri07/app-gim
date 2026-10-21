@@ -4026,6 +4026,15 @@ class SembrarDemoTests(TestCase):
         self.assertIn(EventoIngreso.Resultado.PERMITIDO, resultados)
         self.assertIn(EventoIngreso.Resultado.DEUDA, resultados)
 
+    def test_con_alumnos_reales_la_tienda_se_siembra_solo_si_se_pide(self):
+        from alumnos.models import Alumno
+        from tienda.models import Producto
+
+        Alumno.objects.create(gimnasio=self.gimnasio, nombre="Real", apellido="Cliente")
+        self._sembrar(alumnos=4, meses=1, confirmar=True, con_tienda=True)
+
+        self.assertTrue(Producto.objects.for_gimnasio(self.gimnasio).exists())
+
     def test_la_tienda_no_se_habilita_sola_en_una_cuenta_que_se_factura(self):
         """Habilitar la tienda suma USD 20 a la factura: es decisión del
         superadmin, no de una siembra."""

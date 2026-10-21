@@ -41,6 +41,14 @@ on:
         # que la opción se renderizaría como "false" y el default "no" no
         # matchearía ninguna opción de la lista.
         options: ["no", "si"]
+      tienda:
+        # Con alumnos reales la tienda NO se siembra salvo esta casilla: con
+        # las dos en «si» es la cuenta de prueba con algún alumno a mano.
+        description: "Sembrar la tienda aunque haya alumnos cargados a mano"
+        required: true
+        default: "no"
+        type: choice
+        options: ["no", "si"]
 
 permissions:
   contents: read
@@ -94,6 +102,7 @@ jobs:
           ACCION: ${{ inputs.accion }}
           ALUMNOS: ${{ inputs.alumnos }}
           CONFIRMAR: ${{ inputs.confirmar }}
+          TIENDA: ${{ inputs.tienda }}
         run: |
           if [ "$ACCION" = "borrar" ]; then
             python manage.py sembrar_demo --gimnasio "$GIMNASIO" --borrar
@@ -103,5 +112,8 @@ jobs:
           if [ "$CONFIRMAR" = "si" ]; then
             echo "::warning::Sembrando con --confirmar sobre «$GIMNASIO»: tiene alumnos cargados a mano."
             extra="--confirmar"
+            if [ "$TIENDA" = "si" ]; then
+              extra="$extra --con-tienda"
+            fi
           fi
           python manage.py sembrar_demo --gimnasio "$GIMNASIO" --alumnos "$ALUMNOS" $extra

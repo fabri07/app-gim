@@ -40,6 +40,11 @@ class Command(BaseCommand):
             help="Saca los datos de demo (y solo esos, con sus pedidos de la tienda) en vez de sembrar.",
         )
         parser.add_argument(
+            "--con-tienda", action="store_true",
+            help="Sembrar también la tienda aunque haya alumnos reales "
+                 "(sólo tiene efecto con --confirmar).",
+        )
+        parser.add_argument(
             "--confirmar", action="store_true",
             help="Sembrar aunque el gimnasio ya tenga alumnos reales.",
         )
@@ -90,6 +95,7 @@ class Command(BaseCommand):
                 gimnasio=gimnasio,
                 cantidad_alumnos=opciones["alumnos"],
                 meses=opciones["meses"],
+                con_tienda=opciones["con_tienda"],
             )
         for clave, valor in resumen.items():
             self.stdout.write(f"  {clave}: {valor}")
