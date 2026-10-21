@@ -112,6 +112,111 @@ _EJERCICIOS = [
     ("Fondos en paralelas", "Empuje", "fondos en paralelas tecnica"),
     ("Curl de bíceps", "Accesorios", "curl de biceps tecnica"),
     ("Elevaciones laterales", "Accesorios", "elevaciones laterales tecnica"),
+    # Desde acá, los que usan los planes de `_PLANES_EXTRA`.
+    ("Sentadilla goblet", "Piernas", "sentadilla goblet tecnica"),
+    ("Prensa de piernas", "Piernas", "prensa de piernas tecnica"),
+    ("Peso muerto rumano", "Cadena posterior", "peso muerto rumano tecnica"),
+    ("Puente de glúteos", "Cadena posterior", "puente de gluteos tecnica"),
+    ("Patada de glúteo en polea", "Cadena posterior", "patada de gluteo en polea tecnica"),
+    ("Jalón al pecho", "Tracción", "jalon al pecho tecnica"),
+    ("Remo con mancuerna", "Tracción", "remo con mancuerna tecnica"),
+    ("Press inclinado con mancuernas", "Empuje", "press inclinado con mancuernas tecnica"),
+    ("Flexiones de brazos", "Empuje", "flexiones de brazos tecnica"),
+    ("Extensión de tríceps en polea", "Accesorios", "extension de triceps en polea tecnica"),
+    ("Burpees", "Funcional", "burpees tecnica"),
+    ("Kettlebell swing", "Funcional", "kettlebell swing tecnica"),
+    ("Saltos al cajón", "Funcional", "saltos al cajon tecnica"),
+    ("Soga", "Funcional", "saltar la soga tecnica"),
+    ("Mountain climbers", "Core", "mountain climbers tecnica"),
+    ("Bird dog", "Core", "bird dog ejercicio tecnica"),
+    ("Bicicleta fija", "Cardio", "bicicleta fija intervalos"),
+]
+
+#: Planes de muestra además del «Full body 3 días»: que la lista de planes y el
+#: portal de cada alumno no muestren siempre lo mismo. `(nombre, objetivo,
+#: nivel, días)` y, por día, `(nombre del día, [(ejercicio, series,
+#: repeticiones por semana, kilos de la semana 1, suba por semana, descanso)])`.
+#: Kilos `None` = peso corporal o tiempo. Sólo ejercicios de `_EJERCICIOS`.
+_PLANES_EXTRA = [
+    ("Hipertrofia torso / pierna 4 días", "Ganar masa muscular", "avanzado", [
+        ("Torso A", [
+            ("Press de banca", 4, ["10", "8", "8", "6"], 40, 2.5, "2 min"),
+            ("Remo con barra", 4, ["10", "8", "8", "6"], 35, 2.5, "2 min"),
+            ("Press inclinado con mancuernas", 3, ["12", "10", "10", "8"], 14, 2, "90s"),
+            ("Jalón al pecho", 3, ["12", "10", "10", "8"], 40, 5, "90s"),
+            ("Curl de bíceps", 3, ["12", "12", "10", "10"], 10, 1, "60s"),
+        ]),
+        ("Pierna A", [
+            ("Sentadilla con barra", 4, ["10", "8", "8", "6"], 50, 5, "2 min"),
+            ("Peso muerto rumano", 3, ["10", "10", "8", "8"], 40, 5, "2 min"),
+            ("Prensa de piernas", 3, ["12", "12", "10", "10"], 80, 10, "90s"),
+            ("Plancha", 3, ["40 s", "45 s", "50 s", "60 s"], None, 0, "45s"),
+        ]),
+        ("Torso B", [
+            ("Press militar", 4, ["10", "8", "8", "6"], 25, 2.5, "2 min"),
+            ("Dominadas", 4, ["6", "7", "8", "8"], None, 0, "2 min"),
+            ("Fondos en paralelas", 3, ["10", "10", "12", "12"], None, 0, "90s"),
+            ("Elevaciones laterales", 3, ["15", "15", "12", "12"], 6, 1, "60s"),
+            ("Extensión de tríceps en polea", 3, ["12", "12", "10", "10"], 15, 2.5, "60s"),
+        ]),
+        ("Pierna B", [
+            ("Peso muerto", 4, ["8", "6", "6", "5"], 60, 5, "2 min"),
+            ("Zancadas", 3, ["10", "10", "12", "12"], 10, 2, "90s"),
+            ("Hip thrust", 3, ["12", "10", "10", "8"], 50, 10, "90s"),
+            ("Mountain climbers", 3, ["30 s", "35 s", "40 s", "45 s"], None, 0, "45s"),
+        ]),
+    ]),
+    ("Funcional quemador 3 días", "Bajar de peso y mejorar el aire", "intermedio", [
+        ("Circuito 1", [
+            ("Kettlebell swing", 4, ["15", "15", "20", "20"], 12, 2, "30s"),
+            ("Burpees", 4, ["10", "12", "12", "15"], None, 0, "30s"),
+            ("Saltos al cajón", 4, ["10", "10", "12", "12"], None, 0, "30s"),
+            ("Mountain climbers", 4, ["30 s", "40 s", "40 s", "45 s"], None, 0, "60s"),
+        ]),
+        ("Circuito 2", [
+            ("Sentadilla goblet", 4, ["15", "15", "15", "20"], 12, 2, "30s"),
+            ("Flexiones de brazos", 4, ["10", "12", "12", "15"], None, 0, "30s"),
+            ("Remo con mancuerna", 4, ["12", "12", "12", "15"], 12, 2, "30s"),
+            ("Soga", 4, ["1 min", "1 min", "90 s", "90 s"], None, 0, "60s"),
+        ]),
+        ("Cardio y core", [
+            ("Bicicleta fija", 1, ["20 min", "25 min", "25 min", "30 min"], None, 0, "—"),
+            ("Plancha", 3, ["30 s", "40 s", "45 s", "60 s"], None, 0, "30s"),
+            ("Bird dog", 3, ["10", "12", "12", "15"], None, 0, "30s"),
+        ]),
+    ]),
+    ("Glúteos y piernas 3 días", "Fortalecer y tonificar el tren inferior", "intermedio", [
+        ("Glúteo", [
+            ("Hip thrust", 4, ["12", "10", "10", "8"], 40, 10, "90s"),
+            ("Patada de glúteo en polea", 3, ["15", "15", "12", "12"], 10, 2.5, "60s"),
+            ("Puente de glúteos", 3, ["20", "20", "25", "25"], None, 0, "45s"),
+        ]),
+        ("Cuádriceps", [
+            ("Sentadilla con barra", 4, ["12", "10", "10", "8"], 30, 5, "2 min"),
+            ("Prensa de piernas", 4, ["15", "12", "12", "10"], 60, 10, "90s"),
+            ("Zancadas", 3, ["12", "12", "14", "14"], 8, 2, "60s"),
+        ]),
+        ("Isquios y core", [
+            ("Peso muerto rumano", 4, ["12", "10", "10", "8"], 30, 5, "90s"),
+            ("Sentadilla goblet", 3, ["15", "15", "12", "12"], 14, 2, "60s"),
+            ("Plancha", 3, ["40 s", "45 s", "50 s", "60 s"], None, 0, "45s"),
+        ]),
+    ]),
+    ("Arranque para principiantes 2 días", "Aprender la técnica y ganar el hábito", "principiante", [
+        ("Día A", [
+            ("Sentadilla goblet", 3, ["12", "12", "12", "15"], 8, 2, "90s"),
+            ("Flexiones de brazos", 3, ["8", "8", "10", "10"], None, 0, "90s"),
+            ("Remo con mancuerna", 3, ["12", "12", "12", "15"], 8, 2, "90s"),
+            ("Plancha", 3, ["20 s", "25 s", "30 s", "35 s"], None, 0, "60s"),
+        ]),
+        ("Día B", [
+            ("Puente de glúteos", 3, ["15", "15", "15", "20"], None, 0, "60s"),
+            ("Jalón al pecho", 3, ["12", "12", "12", "15"], 25, 2.5, "90s"),
+            ("Press militar", 3, ["10", "10", "12", "12"], 10, 1, "90s"),
+            ("Bird dog", 3, ["8", "10", "10", "12"], None, 0, "45s"),
+            ("Bicicleta fija", 1, ["10 min", "12 min", "15 min", "15 min"], None, 0, "—"),
+        ]),
+    ]),
 ]
 
 _NOVEDADES = [
@@ -222,7 +327,35 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                             descanso="90s",
                             bloque=f"{'ABCD'[orden - 1]}1",
                         )
+        planes = [plantilla]
+        por_nombre = {e.nombre: e for e in ejercicios}
+        for nombre_plan, objetivo, nivel, dias in _PLANES_EXTRA:
+            extra, creada_extra = RutinaPlantilla.objects.get_or_create(
+                gimnasio=gimnasio, nombre=nombre_plan,
+                defaults={
+                    "objetivo": objetivo, "nivel": nivel,
+                    "dias_por_semana": len(dias),
+                },
+            )
+            if creada_extra:
+                for dia, (nombre_dia, items) in enumerate(dias, start=1):
+                    for semana in range(1, 5):
+                        for orden, (nombre_ej, series, reps, kilos, suba, descanso) in enumerate(items, start=1):
+                            if kilos is None:
+                                carga = "corporal"
+                            else:
+                                carga = f"{kilos + suba * (semana - 1):g} kg"
+                            RutinaPlantillaItem.objects.create(
+                                rutina=extra, ejercicio=por_nombre[nombre_ej],
+                                semana=semana, dia=dia, dia_nombre=nombre_dia,
+                                orden=orden,
+                                series=series, repeticiones=reps[semana - 1],
+                                kilos=carga, descanso=descanso,
+                                bloque=f"{'ABCDE'[orden - 1]}1",
+                            )
+            planes.append(extra)
         resumen["plantilla"] = plantilla.nombre
+        resumen["planes"] = len(planes)
 
         # --- Turnos ------------------------------------------------------
         ConfiguracionTurnos.objects.get_or_create(
@@ -233,6 +366,11 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                 gimnasio=gimnasio, dia_semana=dia_semana,
                 hora_desde=time(7, 0), hora_hasta=time(21, 0),
             )
+        # Sábado a la mañana: el horario reducido de un gimnasio de barrio.
+        HorarioAtencion.objects.get_or_create(
+            gimnasio=gimnasio, dia_semana=5,
+            hora_desde=time(9, 0), hora_hasta=time(13, 0),
+        )
 
         # --- Alumnos -----------------------------------------------------
         dominio = _dominio_demo(gimnasio)
@@ -241,7 +379,10 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
         usados = set()
         for i in range(cantidad_alumnos):
             nombre, genero = _NOMBRES[i % len(_NOMBRES)]
-            apellido = _APELLIDOS[(i * 7) % len(_APELLIDOS)]
+            # `i // 24` corre el apellido en cada vuelta de la lista de
+            # nombres: con 40 alumnos no hay dos «Sofía González». Para los
+            # primeros 24 vale 0, así que la demo de siempre no cambia.
+            apellido = _APELLIDOS[(i * 7 + i // len(_NOMBRES)) % len(_APELLIDOS)]
             # Las dos listas tienen 24 entradas y 24*7 % 24 == 0, así que a
             # partir del alumno 25 el par (nombre, apellido) se repite. El
             # sufijo lo desempata: sin él, `--alumnos 30` chocaba contra el
@@ -319,7 +460,7 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
         for i, alumno in enumerate(activos):
             dias_desde_el_inicio = [26, 24, 21][i % 3] if i < 3 else azar.randint(1, 20)
             rutina = RutinaAsignada.crear_desde_plantilla(
-                gimnasio=gimnasio, alumno=alumno, plantilla=plantilla,
+                gimnasio=gimnasio, alumno=alumno, plantilla=planes[i % len(planes)],
                 fecha_inicio=hoy - timedelta(days=dias_desde_el_inicio),
             )
             rutinas.append(rutina)
@@ -345,8 +486,10 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
                     item.rpe = azar.choice(opciones)
                     item.save(update_fields=["rpe", "modificado"])
                     calificados += 1
+            # Los días que tiene SU plan: hay planes de 2, 3 y 4 días.
+            dias_del_plan = sorted(set(rutina.items.values_list("dia", flat=True)))
             for semana in range(1, semanas_hechas):
-                for dia in (1, 2, 3):
+                for dia in dias_del_plan:
                     if azar.random() < 0.8:
                         RutinaAsignadaDiaCompletado.objects.get_or_create(
                             rutina_asignada=rutina, semana=semana, dia=dia
@@ -478,15 +621,19 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
         # semana, así que si hoy era miércoles solo tocaba lunes, martes y
         # miércoles: la grilla de calor mostraba jueves y viernes en CERO, que
         # en una captura se lee como que la app está rota.
-        for dias_atras in range(70):
+        # De 70 días atrás a 7 adelante: lo futuro es la agenda que el staff y
+        # el alumno ven como «reservado». El sábado abre de 9 a 13.
+        horas_sabado = [time(9, 0), time(10, 0), time(10, 0), time(11, 0), time(12, 0)]
+        for dias_atras in range(-7, 70):
             fecha = hoy - timedelta(days=dias_atras)
-            if fecha.weekday() > 4:  # sábado y domingo: el gimnasio no abre
+            if fecha.weekday() == 6:  # domingo: el gimnasio no abre
                 continue
+            sabado = fecha.weekday() == 5
             for alumno in activos:
-                if azar.random() < 0.35:
+                if azar.random() < (0.15 if sabado else 0.35):
                     _, creado = Reserva.objects.get_or_create(
                         gimnasio=gimnasio, alumno=alumno, fecha=fecha,
-                        hora_inicio=azar.choice(horas),
+                        hora_inicio=azar.choice(horas_sabado if sabado else horas),
                     )
                     reservas += bool(creado)
         resumen["reservas"] = reservas
@@ -502,11 +649,28 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42):
             )
         resumen["novedades"] = len(_NOVEDADES)
 
-        # --- Tienda (sólo la demo) -----------------------------------------
-        if gimnasio.es_demo:
+        # --- Tienda (la demo y las cuentas de prueba) ------------------------
+        # Nunca con alumnos reales (`--confirmar`): ahí publicaría productos
+        # inventados a la vista de sus alumnos. La habilitación del add-on es
+        # del superadmin y suma USD 20 a la factura: se prende sola sólo en
+        # una cuenta que no se factura (demo o `facturacion_exenta`).
+        if gimnasio.es_demo or not hay_alumnos_reales:
             productos, pedidos = _sembrar_tienda(gimnasio, alumnos)
             resumen["productos_tienda"] = productos
             resumen["pedidos_tienda"] = pedidos
+            if not gimnasio.tienda_habilitada and gimnasio.facturacion_exenta:
+                Gimnasio.objects.filter(pk=gimnasio.pk).update(tienda_habilitada=True)
+                gimnasio.tienda_habilitada = True
+            resumen["tienda_visible"] = gimnasio.puede_usar_tienda
+
+            # El cron emite las cuotas nuevas con este precio (el mismo de las
+            # sembradas); sin él nacerían en $0 y sin botón de Mercado Pago.
+            if gimnasio.precio_cuota is None:
+                Gimnasio.objects.filter(pk=gimnasio.pk).update(precio_cuota=Decimal("28000"))
+                gimnasio.precio_cuota = Decimal("28000")
+
+        # --- Control de ingreso ----------------------------------------------
+        resumen.update(_sembrar_ingreso(gimnasio, activos, hoy, azar))
 
     return resumen
 
@@ -544,10 +708,19 @@ def _sembrar_tienda(gimnasio, alumnos):
     ropa, _ = CategoriaProducto.objects.get_or_create(
         gimnasio=gimnasio, nombre="Ropa", defaults={"orden": 2}
     )
+    accesorios, _ = CategoriaProducto.objects.get_or_create(
+        gimnasio=gimnasio, nombre="Accesorios", defaults={"orden": 3}
+    )
     catalogo = [
         (suplementos, "Proteína whey 1 kg", Decimal("32000"), "Sabor", [("Chocolate", 8), ("Vainilla", 5)]),
         (suplementos, "Creatina 300 g", Decimal("21000"), "", [("", 12)]),
         (ropa, "Remera dry-fit", Decimal("15000"), "Talle", [("S", 4), ("M", 6), ("L", 3), ("XL", 0)]),
+        (suplementos, "Barra de proteína", Decimal("2500"), "Sabor", [("Chocolate", 30), ("Maní", 24), ("Frutos rojos", 0)]),
+        (suplementos, "Bebida isotónica 500 ml", Decimal("1800"), "", [("", 48)]),
+        (ropa, "Musculosa del gimnasio", Decimal("13000"), "Talle", [("S", 5), ("M", 8), ("L", 4)]),
+        (accesorios, "Shaker 700 ml", Decimal("6500"), "Color", [("Negro", 10), ("Verde", 6)]),
+        (accesorios, "Toalla de microfibra", Decimal("9000"), "", [("", 15)]),
+        (accesorios, "Guantes de entrenamiento", Decimal("11000"), "Talle", [("S", 2), ("M", 5), ("L", 3)]),
     ]
     variantes = []
     for categoria, nombre, precio, caracteristica, valores in catalogo:
@@ -608,6 +781,76 @@ def _sembrar_tienda(gimnasio, alumnos):
         Producto.objects.for_gimnasio(gimnasio).count(),
         Pedido.objects.for_gimnasio(gimnasio).count(),
     )
+
+
+def _sembrar_ingreso(gimnasio, activos, hoy, azar):
+    """QR para cada alumno activo, un molinete y dos semanas de ingresos.
+
+    El token del molinete se genera y se descarta: para conectar uno de verdad
+    el staff lo rota desde «Control de ingreso» y ve el nuevo una sola vez.
+    El que tiene la cuota que lo bloquea queda rechazado por deuda (con la
+    configuración que pide la cuota al día), así el listado muestra los dos
+    casos. Los eventos cuelgan del alumno (CASCADE): `borrar_demo` se los
+    lleva con él.
+    """
+    from ingreso import tokens
+    from ingreso.models import ConfiguracionIngreso, Credencial, Dispositivo, EventoIngreso
+    from ingreso.services import generar_credenciales_en_bloque
+    from pagos.acceso import bloqueo_de
+
+    ConfiguracionIngreso.objects.get_or_create(
+        gimnasio=gimnasio, defaults={"bloquea_por_deuda": True}
+    )
+    codigos = generar_credenciales_en_bloque(gimnasio, alumno_ids=[a.pk for a in activos])
+    molinete = Dispositivo.objects.filter(
+        gimnasio=gimnasio, nombre__iexact="Molinete de la entrada"
+    ).first()
+    if molinete is None:
+        molinete = Dispositivo.objects.create(
+            gimnasio=gimnasio, nombre="Molinete de la entrada",
+            tipo=Dispositivo.Tipo.QR, token_hash=tokens.hash_de(tokens.generar()),
+        )
+    qr_de = {
+        c.alumno_id: c
+        for c in Credencial.objects.for_gimnasio(gimnasio).filter(
+            tipo=Credencial.Tipo.QR, alumno__in=activos
+        )
+    }
+    bloqueados = {a.pk for a in activos if bloqueo_de(a, hoy=hoy) is not None}
+    horas = [hora for hora, peso in _FRANJAS for _ in range(peso)]
+    ahora = timezone.now()
+    eventos = []
+    for dias_atras in range(13, -1, -1):
+        fecha = hoy - timedelta(days=dias_atras)
+        if fecha.weekday() == 6:
+            continue
+        for alumno in activos:
+            if azar.random() > 0.45:
+                continue
+            hora = horas[azar.randrange(len(horas))] if fecha.weekday() < 5 else time(9 + azar.randrange(4), 0)
+            momento = timezone.make_aware(
+                datetime.combine(fecha, hora) + timedelta(minutes=azar.randrange(-10, 15))
+            )
+            if momento > ahora:
+                continue
+            resultado = (
+                EventoIngreso.Resultado.DEUDA if alumno.pk in bloqueados
+                else EventoIngreso.Resultado.PERMITIDO
+            )
+            eventos.append(EventoIngreso(
+                gimnasio=gimnasio, dispositivo=molinete, alumno=alumno,
+                credencial=qr_de.get(alumno.pk), resultado=resultado, momento=momento,
+            ))
+            # De vez en cuando el lector lee dos veces el mismo celular.
+            if resultado == EventoIngreso.Resultado.PERMITIDO and azar.random() < 0.05:
+                eventos.append(EventoIngreso(
+                    gimnasio=gimnasio, dispositivo=molinete, alumno=alumno,
+                    credencial=qr_de.get(alumno.pk),
+                    resultado=EventoIngreso.Resultado.DUPLICADO,
+                    momento=momento + timedelta(seconds=20),
+                ))
+    EventoIngreso.objects.bulk_create(eventos)
+    return {"codigos_qr": codigos, "ingresos": len(eventos)}
 
 
 def borrar_demo(*, gimnasio):
