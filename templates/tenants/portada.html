@@ -150,7 +150,7 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
       <div class="portada__col portada__col--ahora">
         <p class="portada__col-titulo">Con TuGimApp</p>
         <ul>
-          <li>Las cuotas se generan solas, vos confirmás el pago</li>
+          <li>Las cuotas se generan solas{% if precios_tienda_mp %} y se pueden pagar con Mercado Pago{% else %}, vos confirmás el pago{% endif %}</li>
           <li>Cada alumno ve su rutina con video, por día y semana</li>
           <li>La ficha de cada alumno, siempre a mano</li>
           <li>Reservas de turnos con cupo automático</li>
@@ -193,7 +193,7 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
     <div class="funcion funcion--invertida">
       <div class="funcion__texto">
         <h3 class="funcion__titulo">Cobros sin planilla</h3>
-        <p>Cada ciclo la app genera la cuota de cada alumno. Él sube el comprobante desde su celular y vos confirmás el pago con un toque. Ves de un vistazo quién está al día, quién debe y cuánto facturaste en el mes.</p>
+        <p>Cada ciclo la app genera la cuota de cada alumno. {% if precios_tienda_mp %}Él la paga con Mercado Pago y queda paga sola, o sube el comprobante y vos confirmás con un toque{% else %}Él sube el comprobante desde su celular y vos confirmás el pago con un toque{% endif %}. Ves de un vistazo quién está al día, quién debe y cuánto facturaste en el mes.</p>
       </div>
       <div class="funcion__demo" data-demo aria-hidden="true">
         <div class="mini">
@@ -287,6 +287,89 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
     </ul>
   </section>
 
+  {# ================= Cobros online y tienda ================= #}
+  {% comment %}
+    Lo de Mercado Pago sale SOLO con `precios_tienda_mp` (= TIENDA_MP_ENABLED):
+    apagado, la portada no promete un cobro que todavía no anda, y la sección
+    queda en la tienda con transferencia. Verdades que el copy no puede romper:
+    la plata va a la cuenta MP del gimnasio (OAuth), TuGimApp no cobra
+    comisión (sin `marketplace_fee`), sin efectivo (ticket/atm excluidos), y
+    «queda paga sola» habla de la cuota, nunca de cuándo MP libera la plata.
+  {% endcomment %}
+  <section class="portada__seccion portada__inner" id="cobros">
+    {% if precios_tienda_mp %}
+      <h2 class="portada__h2 portada__h2--centro">Que te paguen desde el celular<span class="pt">,</span> directo a tu cuenta</h2>
+      <p class="portada__intro portada__intro--centro">Tus alumnos pagan la cuota (y, si sumás la tienda, lo que compran) con Mercado Pago. La plata entra en tu cuenta y la cuota queda paga sola.</p>
+
+      <div class="cobro-ruta" data-ruta data-demo>
+        <div class="cobro-ruta__escena" role="img" aria-label="Ejemplo: la alumna toca «Pagar $ 28.000 con Mercado Pago» en su celular, el pago entra en la cuenta de Mercado Pago del gimnasio y la cuota figura pagada en el panel.">
+          <div class="cobro-ruta__origen" aria-hidden="true">
+            <div class="disp-celu disp-celu--suelto">
+              <div class="disp-celu__pantalla">
+                <div class="app-alumno__top"><span class="app-logo app-logo--chico">GN</span>Gimnasio Norte</div>
+                <div class="app-alumno__cuerpo">
+                  <p class="app-alumno__hola">Tu cuota</p>
+                  <div class="app-ejercicio">
+                    <div class="app-ejercicio__cab"><span class="app-ejercicio__nombre">14/10 al 10/11</span><span class="badge badge--alerta">Pendiente</span></div>
+                    <span class="cobro-ruta__monto-celu">$ 28.000</span>
+                  </div>
+                  <span class="app-boton">Pagar $ 28.000 con Mercado Pago</span>
+                  <span class="cobro-ruta__secundario">Subir comprobante</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="cobro-ruta__camino" aria-hidden="true">
+            <span class="cobro-ruta__linea"><span class="cobro-ruta__punto"></span></span>
+            <span class="cobro-ruta__via">Mercado Pago</span>
+          </div>
+
+          <div class="cobro-ruta__destino" aria-hidden="true">
+            <div class="mini cobro-ruta__cuenta">
+              <p class="cobro-ruta__cuenta-t">Tu cuenta de Mercado Pago</p>
+              <p class="cobro-ruta__cuenta-monto">+ $ 28.000</p>
+            </div>
+            <div class="mini">
+              <div class="mini__fila"><span class="mini__nombre">Sofía Díaz</span><span class="badge badge--ok">Pagada</span></div>
+              <div class="mini__fila"><span class="mini__nombre cobro-ruta__medio">Mercado Pago · cuota del 14/10</span></div>
+            </div>
+          </div>
+        </div>
+
+        <p class="cobro-ruta__frase">Tu plata no pasa por nosotros<span class="pt">.</span></p>
+        <p class="cobro-ruta__aclara">Conectás tu propia cuenta de Mercado Pago desde «Mi gimnasio». Mercado Pago cobra su comisión de siempre; TuGimApp no se queda con nada.</p>
+      </div>
+      <p class="portada__ejemplo cobro-ruta__ejemplo">Nombres y montos de ejemplo.</p>
+
+      <ul class="portada__ingreso-puntos cobro-ruta__puntos">
+        <li><strong>La cuota se marca pagada sola.</strong> Cuando el pago se aprueba, la cuota queda pagada y, si era lo que lo tenía bloqueado, el alumno vuelve a entrar. Vos no confirmás nada.</li>
+        <li><strong>Un pago de más no se pierde.</strong> Si alguien paga de nuevo una cuota ya pagada o el monto no coincide, la app lo aparta y te avisa para que lo revises y lo devuelvas desde Mercado Pago.</li>
+        <li><strong>Lo prendés si querés.</strong> Sin Mercado Pago seguís cobrando como hoy: el alumno sube el comprobante y vos confirmás.</li>
+      </ul>
+    {% else %}
+      <h2 class="portada__h2 portada__h2--centro">Tu tienda<span class="pt">,</span> dentro de tu app</h2>
+    {% endif %}
+
+    <div class="funcion funcion--invertida">
+      <div class="funcion__texto">
+        <h3 class="funcion__titulo">Vendé en tu propia tienda</h3>
+        <p>Suplementos, ropa, lo que tengas en el mostrador. Cargás cada producto con sus talles o sabores y su stock; tus alumnos lo piden desde el celular, pagan por transferencia{% if precios_tienda_mp %} o con Mercado Pago{% endif %} y lo retiran en el gimnasio. Es opcional: USD&nbsp;{{ precios_tienda_usd }} por mes.</p>
+      </div>
+      <div class="funcion__demo" data-demo aria-hidden="true">
+        <div class="mini">
+          <div class="mini__fila"><span class="mini__nombre">Whey 1 kg · Chocolate</span><span class="mini__num">$ 32.000</span></div>
+          <div class="mini__fila cobro-tienda__estado"><span class="badge badge--ok">Pagado, para retirar</span><span class="mini__dato">{% if precios_tienda_mp %}Mercado Pago{% else %}Transferencia{% endif %}</span></div>
+          <div class="mini__fila"><span class="mini__nombre">Remera del gimnasio · Talle M</span><span class="mini__num">$ 15.000</span></div>
+          <div class="mini__fila cobro-tienda__estado"><span class="badge badge--alerta">Comprobante en revisión</span><span class="mini__dato">Transferencia</span></div>
+          <div class="mini__fila"><span class="mini__nombre">Shaker 700 ml</span><span class="mini__num">$ 6.500</span></div>
+          <div class="mini__fila cobro-tienda__estado"><span class="badge badge--neutro">Entregado</span><span class="mini__dato">Transferencia</span></div>
+        </div>
+        <p class="portada__ejemplo cobro-tienda__ejemplo">Productos y precios de ejemplo.</p>
+      </div>
+    </div>
+  </section>
+
   {# ================= Cómo empezás ================= #}
   <section class="portada__seccion portada__inner">
     <h2 class="portada__h2 portada__h2--centro">Cómo empezás</h2>
@@ -363,7 +446,9 @@ nunca en `:root`. Ningún tramo de precio va resaltado: el tramo no se elige.
         <p>Sí. Tu logo, tus colores y el nombre de tu gimnasio en toda la app: para tus alumnos es «tu» app, no una plataforma genérica.</p></details>
       <details><summary>¿Funciona con el molinete de mi gimnasio?</summary>
         <p>Funciona con molinetes y lectores de QR o de reconocimiento facial que se conectan a internet. Tu instalador los conecta con TuGimApp siguiendo nuestra guía, y el control de ingreso viene incluido en cualquier plan. El equipo no lo vendemos nosotros: si todavía no lo compraste, consultanos antes y vemos juntos cuál te sirve.</p></details>
-      <details><summary>¿Sirve para entrenadores sin local?</summary>
+      {% if precios_tienda_mp %}<details><summary>¿La plata de Mercado Pago pasa por ustedes?</summary>
+        <p>No. Conectás tu propia cuenta de Mercado Pago y lo que pagan tus alumnos, la cuota o la tienda, entra directo en ella. Mercado Pago te cobra su comisión de siempre; nosotros no nos quedamos con ningún porcentaje. Es opcional: si no lo conectás, cobrás por transferencia como hasta ahora.</p></details>
+      {% endif %}<details><summary>¿Sirve para entrenadores sin local?</summary>
         <p>Sí. Funciona igual para un entrenador que arma rutinas personalizadas, aunque no tenga un gimnasio físico.</p></details>
       <details><summary>¿Cómo me dan de alta?</summary>
         <p>Dejás una solicitud y te contactamos para activarte. Todavía no hay autoservicio: nos aseguramos de que arranques bien.</p></details>

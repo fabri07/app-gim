@@ -6,6 +6,7 @@
  *     el hero, las cuatro funciones y el control de ingreso), nunca `:root` -- la página en sí sigue
  *     siendo de TuGimApp. Es el único momento animado de la página.
  *  2. Nav fija: se marca al dejar el tope.
+ *  3. La ruta del pago de la sección de cobros: una sola pasada al verse.
  *
  * Idempotente: htmx vuelve a ejecutar los <script> de un swap boosteado, así
  * que cada nodo se marca como inicializado.
@@ -44,9 +45,26 @@
     marcar();
   }
 
+  // 3. La ruta del pago (sección de cobros): el punto recorre la línea una
+  //    sola vez, cuando la escena entra en pantalla.
+  function iniciarRuta() {
+    var ruta = document.querySelector("[data-ruta]");
+    if (!ruta || ruta.dataset.listo || !("IntersectionObserver" in window)) return;
+    ruta.dataset.listo = "1";
+    var observador = new IntersectionObserver(function (entradas) {
+      entradas.forEach(function (entrada) {
+        if (!entrada.isIntersecting) return;
+        ruta.classList.add("is-visible");
+        observador.disconnect();
+      });
+    }, { threshold: 0.45 });
+    observador.observe(ruta);
+  }
+
   function iniciar() {
     iniciarPaisajes();
     iniciarNav();
+    iniciarRuta();
   }
 
   if (document.readyState === "loading") {

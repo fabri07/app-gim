@@ -669,6 +669,20 @@ resuelve al paisaje Bosque del `:root` y usa el canvas atmosférico de `body`.
   Ningún tramo se destaca: el tramo no se elige, lo define la cantidad de
   alumnos activos, y resaltar uno sería un «Popular» sin datos que lo
   respalden. Montos en `tabular-nums`, USD y su equivalente en pesos.
+- **Cobros online y tienda (`#cobros`, 2026-10-20):** con Mercado Pago
+  prendido (`precios_tienda_mp`), una escena `.cobro-ruta` sobre un campo
+  `2xl` del primario al 13%: el celular del alumno con «Pagar $ 28.000 con
+  Mercado Pago» → una línea punteada con la píldora blanca «Mercado Pago» →
+  la tarjeta «Tu cuenta de Mercado Pago» y la cuota «Pagada». Un punto del
+  secundario recorre la línea **una sola vez** al entrar en pantalla
+  (`portada.js`, IntersectionObserver); la escena quieta ya muestra el estado
+  final, así que sin JS o con reduced-motion no falta nada. Vertical en
+  celular, horizontal desde `md`. Debajo, la frase en Headline de producto
+  «Tu plata no pasa por nosotros.» (texto real en grises: el `[data-demo]` va en todo `.cobro-ruta` para que el campo también cambie de paisaje, y la frase no usa los tokens del paisaje) y
+  tres puntos con el trazo de los del control de ingreso. Sin el logo ni el
+  celeste de Mercado Pago: se nombra en texto, la marca de la escena es la
+  del gimnasio. Apagado, la sección queda sólo en la tienda y la página no
+  dice «Mercado Pago» en ningún lado (lo fija un test).
 - **Login (`.auth-card`):** tarjeta `2xl` blanca con `shadow-sm`, formulario
   campo por campo (label 700, input `md` con `px-4 py-3`, foco de 2px en el
   primario), error general visible en `.auth-card__error` (rojo de riesgo,

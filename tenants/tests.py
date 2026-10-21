@@ -568,6 +568,31 @@ class PortadaViewTests(TestCase):
         response = self.client.get(reverse("home"))
         self.assertContains(response, "con cobro por transferencia o Mercado Pago.</p>")
 
+    @override_settings(TIENDA_MP_ENABLED=True)
+    def test_con_mercado_pago_vende_el_cobro_directo_a_la_cuenta_del_gimnasio(self):
+        """La sección de cobros: la plata va a la cuenta del gimnasio y
+        TuGimApp no cobra comisión (no hay `marketplace_fee`). Si un día se
+        cobra comisión, esta frase miente: cambiarla junto con el código."""
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, 'id="cobros"')
+        self.assertContains(response, "Pagar $ 28.000 con Mercado Pago")
+        self.assertContains(response, "Tu plata no pasa por nosotros")
+        self.assertContains(response, "TuGimApp no se queda con nada")
+        self.assertContains(response, "¿La plata de Mercado Pago pasa por ustedes?")
+        self.assertContains(response, "Las cuotas se generan solas y se pueden pagar con Mercado Pago")
+        self.assertContains(response, "Él la paga con Mercado Pago y queda paga sola")
+
+    @override_settings(TIENDA_MP_ENABLED=False)
+    def test_sin_mercado_pago_la_seccion_es_solo_la_tienda_y_no_promete_cobro_online(self):
+        """Apagado (como en producción hasta la prueba guiada) la portada no
+        promete un cobro que todavía no anda."""
+        response = self.client.get(reverse("home"))
+        self.assertContains(response, 'id="cobros"')
+        self.assertContains(response, "Tu tienda<span")
+        self.assertContains(response, "Vendé en tu propia tienda")
+        self.assertNotContains(response, "Mercado Pago")
+        self.assertContains(response, "Las cuotas se generan solas, vos confirmás el pago")
+
     def test_sin_cotizacion_no_muestra_pesos(self):
         """Bajo TESTING `cotizacion_dolar` devuelve None, así que la landing
         muestra solo USD (mismo contrato que el panel)."""

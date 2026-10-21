@@ -47,8 +47,7 @@ calculan con los precios nuevos. **Avisarles a los gimnasios que pagan hoy
 - **Doble click en Postgres cancela el primer link**: el lock serializa los dos requests; el segundo encuentra el link del primero todavía sin `init_point`, lo cancela y crea el suyo, y el primero termina en «La cuota cambió mientras abríamos Mercado Pago». No se cobra dos veces.
 - **Pendiente de probar contra Postgres:** los `select_for_update` de cuota e intentos no hacen nada en SQLite; la protección en la suite son los UPDATE condicionales. Las carreras reales no se midieron.
 
-*Pendiente (pedido del usuario: la portada va después)*
-- `templates/tenants/portada.html` todavía no menciona el pago de cuotas por Mercado Pago: ~:153 («Las cuotas se generan solas, vos confirmás el pago») y ~:196 («Él sube el comprobante… y vos confirmás») describen sólo el cobro manual, y ~:340 menciona Mercado Pago sólo para la tienda. Los tests de ese texto están en `tenants/tests.py` ~:561-569 (`test_portada_con_mercado_pago_apagado_dice_solo_transferencia` / `..._prendido_lo_menciona`). Actualizar texto y tests juntos cuando se retome la portada.
+*Portada (2026-10-20, hecho):* sección `#cobros` con la ruta del pago y la tienda; las líneas de cuotas y la pregunta frecuente mencionan Mercado Pago sólo con `TIENDA_MP_ENABLED` (tests `test_con_mercado_pago_vende_…` / `test_sin_mercado_pago_la_seccion_…`). Con la bandera apagada la portada no nombra Mercado Pago.
 
 ## [2026-10-18] Tienda: Mercado Pago del gimnasio (Hito 2), construido y apagado
 **Estado:** aceptado (riesgos asumidos a propósito); pendiente la prueba guiada con cuentas de prueba
