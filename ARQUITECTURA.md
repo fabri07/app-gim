@@ -133,6 +133,65 @@ ahora a la sección homónima de ESTE archivo.
   terminar el ciclo. Hay un test que recorre 70 días × 5 tolerancias comparando
   las dos versiones: **si tocás una, la otra tiene que seguirla.**
 
+  **Precio de la cuota** (2026-10-20, para el cobro por Mercado Pago, pero vale
+  sin él). `Gimnasio.precio_cuota` (en «Mi gimnasio» → «Cobros») y
+  `Alumno.precio_cuota` (ficha y form del alumno), los dos `Decimal(10,2)`
+  opcionales y `>= 0`. Vacío en el alumno = usa el del gimnasio; vacíos los
+  dos, la cuota sale en $0 como antes y el staff carga el monto al confirmar.
+  `generar_pagos_pendientes` resuelve el monto en la MISMA query de alumnos
+  con `Coalesce("precio_cuota", "gimnasio__precio_cuota", Value(Decimal("0")),
+  output_field=DecimalField(10, 2))` — el costo sigue constante — y **lo
+  congela en la cuota al emitir**: cambiar un precio no mueve cuotas con monto
+  ya puesto. Un `0` del alumno es un valor (el `Coalesce` sólo salta NULL).
+  - **Aplicar el precio a las impagas en $0** (`pagos/precios.py`): al guardar
+    un precio (gimnasio o alumno) se completan con UNA `UPDATE` las cuotas
+    IMPAGAS con `monto=0` y sin link de pago vivo; nunca pisa un monto puesto
+    ni toca pagadas o anuladas. Sin esto el gimnasio que carga su precio por
+    primera vez seguiría viendo en $0 la cuota vigente y la pre-emitida, y el
+    botón de pagar (exige monto > 0) tardaría hasta un ciclo en aparecer. Desde
+    el gimnasio sólo alcanza a los alumnos SIN precio propio. `modificado` se
+    escribe a mano **salvo en las VENCIDAS**: `enviar_recordatorios` manda «tu
+    cuota está vencida» a las `estado=VENCIDO, modificado__date=hoy`, así que
+    re-estamparlas al cargar un precio dispararía ese push sobre vencidas
+    viejas. El staff ve cuántas completó (`aviso_cuotas_completadas`).
+  - **Precio 0 ≠ becado**: una cuota de $0 igual cuenta como impaga y bloquea
+    si el gimnasio tiene tolerancia. Para no cobrarle a alguien se anula; el
+    texto de «Mi gimnasio» lo dice.
+  - `pagos:monto` («Corregir monto», `CuotaMontoView`) cambia el monto de una
+    cuota impaga sin registrar un cobro (una pagada o anulada da 404).
+  - El importador de alumnos NO lee `precio_cuota` (el exportador sí lo
+    escribe): un padrón reimportado vuelve sin precios propios.
+
+  **`pagos/cobro.py` es el ÚNICO lugar que marca PAGADA una cuota** (y el que
+  la anula, reactiva, le corrige el monto o la vuelve a impaga). Dominio puro,
+  sin Mercado Pago. Existe porque con el cobro online la cuota deja de cambiar
+  sólo por manos humanas: antes cada vista hacía `save()` completo de lo que
+  había leído al principio del request y pisaba sin enterarse un cobro que
+  hubiera entrado en el medio. Reglas: cambiar el estado es un UPDATE
+  condicional (`filter(estado__in=...)`) que devuelve si tocó la fila; **orden
+  de locks SIEMPRE cuota → intentos** (`_bloquear`, el mismo que toma la
+  acreditación); todo lo que saca a una cuota de impaga cancela sus links de
+  pago vivos (cobran el monto con el que se generaron). Las carreras que
+  cierra, cada una con su test verificado en rojo sin el fix:
+  - **Confirmar pago**: el form viaja con `estado_al_abrir`. Abierta impaga →
+    `marcar_pagada(desde=None)`, que con lock NO guarda si MP ya la cobró (un
+    intento PAGADO): mensaje + redirect. El comprobante se sube a R2 ANTES de
+    tomar el lock (`pre_save`) y se guarda con `update_fields`; si no se
+    guarda, el archivo recién subido se borra. Abierta pagada → `editar_pagada`, que
+    no guarda si en el medio dejó de estar pagada. Una cuota cobrada por MP no
+    deja cambiar monto ni medio.
+  - **Comprobante del alumno**: sube el archivo y guarda SÓLO `comprobante` +
+    `modificado` con un UPDATE condicional a que siga impaga (el `save()`
+    completo podía devolver a PENDIENTE una cuota recién pagada); si ya no
+    está impaga, borra el archivo recién subido y lo dice.
+  - **Anular / reactivar**: UPDATE condicional; si se pagó en el medio, no se
+    anula y se dice. Anular cancela los links vivos.
+  - **Corregir monto**: sólo impagas, cancela los links vivos.
+  - **Volver a impaga** (`pagos:volver_a_impaga`, POST): sólo una PAGADA con
+    un intento DEVUELTO y ninguno PAGADO. Vuelve a PENDIENTE (o VENCIDO si su
+    fecha límite ya pasó) sin fecha ni medio de pago y deja resuelta la
+    revisión. Ver «Cuotas por Mercado Pago».
+
 
   **De dónde sale `Alumno.fecha_inicio_ciclo`** (lo más delicado de todo esto):
   - **Alumnos que ya existían**: la migración `pagos/0006` los ancla en el
@@ -213,8 +272,9 @@ vista lo avisa con un `messages.warning` y guarda igual: la fecha es válida.
 
 **Hay DOS bloqueos en el producto y NO tienen las mismas reglas.** Éste es el
 del GIMNASIO contra su alumno que no pagó la cuota: busca cobrarle, así que
-deja siempre abiertas las dos puertas que necesita para ponerse al día —
-**cancelar una reserva y subir el comprobante NUNCA se bloquean**. El otro es
+deja siempre abiertas las puertas que necesita para ponerse al día —
+**cancelar una reserva y subir el comprobante NUNCA se bloquean** (y, con el
+cobro online prendido, pagar por Mercado Pago tampoco). El otro es
 el de la PLATAFORMA contra el gimnasio que no paga la app
 (`Gimnasio.estado_cuenta`, ver «Panel de plataforma» más abajo): ése SÍ corta
 esas dos cosas, a propósito, porque es la palanca del dueño del producto y
@@ -281,6 +341,18 @@ turnos. `pagos/acceso.py` es el ÚNICO lugar donde vive esa regla —
   marcando PAGADO. `ConfirmarPagoView` avisa si el alumno sigue bloqueado por
   otra cuota; «Pago confirmado» a secas sobre alguien que sigue sin acceso es
   una mentira que el staff descubre por el reclamo.
+- **Pagar por Mercado Pago SÍ desbloquea** (2026-10-20): no es el alumno
+  avisando que pagó, es la plata acreditada. La acreditación marca la cuota
+  PAGADA por `pagos.cobro.marcar_pagada`, y `bloqueo_de` deja de verla. Subir
+  el comprobante sigue sin desbloquear (no toca `estado`). **El bloqueado
+  puede pagar**: `PagarCuotaMPView` no mira `bloqueo_de` (pagar es la salida)
+  y el botón sale también en `rutinas/bloqueado.html`. El retorno dice «quedó
+  paga» sólo si además `bloqueo_de` da `None`; si otra cuota sigue bloqueando,
+  lo dice. Una devolución NO re-bloquea sola: el staff decide con «Volver a
+  impaga». **Excepción de la plataforma**: con la cuenta del gimnasio en
+  `ALUMNOS_BLOQUEADOS`, `PlataformaMiddleware` no deja al alumno llegar ni al
+  botón ni al retorno; lo que ya se pagó lo acreditan el webhook y la
+  reconciliación (que no pasan por el middleware). Aceptado, fijado en un test.
 - **El contador del panel es una query agregada**, nunca `bloqueo_de` por fila:
   es exactamente el N+1 que este proyecto ya pagó con un 502 en producción.
 - **`marcar_vencidos` escribe `modificado` explícitamente**: `QuerySet.update()`
@@ -839,12 +911,13 @@ ve en el portal apenas entra.
 
 Módulo **Django-free a propósito** (sin ORM, sin `timezone`, sin settings),
 mismo criterio que `pagos.models.ciclo_vigente`: el «hoy» lo pasa siempre quien
-llama. Precio en USD por escalones de alumnos **activos** (hasta 100 → 10, 101
-a 300 → 15, más de 300 → 20; bordes inclusivos), `DIAS_GRATIS = 30` de prueba
+llama. Precio en USD por escalones de alumnos **activos** (hasta 100 → 15, 101
+a 300 → 20, más de 300 → 25; bordes inclusivos; eran 10/15/20 hasta el
+2026-10-20, ver `ISSUES.md [2026-10-20] Precios`), `DIAS_GRATIS = 30` de prueba
 desde `facturacion_inicio`, `DIAS_CICLO = 30` y `DIAS_AVISO_COBRO = 7`.
 
 **Precio de lista, sólo para mostrar** (2026-10-11): `PRECIOS_DE_LISTA_USD`
-(20 / 30 / 40, una clave por tope de `ESCALONES`, un test lo exige) es el
+(30 / 40 / 50 desde el 2026-10-20, una clave por tope de `ESCALONES`, un test lo exige) es el
 número que la portada tacha al lado de la oferta. **No entra a ningún cálculo
 de cobro** y no se tacha en «Mi suscripción», donde se cobra. El anual (10 de
 12 meses, `DESCUENTO_ANUAL_MESES = 2`, confirmado ese día) se muestra tachando
@@ -1004,8 +1077,11 @@ cada vez y no se lo come la inflación) y el pago se acredita solo. **El registr
 manual no se eliminó**: queda para el que transfiere o paga en efectivo, y
 `PagoPlataforma.origen` (`MANUAL`/`ONLINE`) distingue los dos caminos.
 
-**Alcance: SÓLO plataforma → gimnasio.** El cobro del gimnasio a sus alumnos
-(`pagos`) no se tocó; ver el matiz en «Principios no negociables» #3. Spec en
+**Alcance: plataforma → gimnasio, con la credencial de la plataforma.** El
+cobro del gimnasio a sus alumnos no pasa por acá: la tienda (2026-10-18) y las
+cuotas (2026-10-20, «Cuotas por Mercado Pago») cobran a la cuenta OAuth del
+PROPIO gimnasio y sólo reusan el cliente HTTP de `suscripcion/mercadopago.py`
+pasándole `token=`. Ver el principio #3 de `CLAUDE.md`. Spec en
 `docs/superpowers/specs/2026-09-29-cobro-online-suscripcion-design.md` (su
 sección final «Decisiones de ejecución» manda sobre el resto).
 
@@ -1160,9 +1236,16 @@ atrapan ésa. `TIMEOUT = 5` y cero reintentos internos: el reintento es MP a los
 - `init_point` vs `sandbox_init_point` se elige por el prefijo `TEST-` del
   token, en el módulo: el riesgo concreto es desplegarle un link de sandbox a un
   cliente real.
-- **Una sola credencial, la de la plataforma**; no hay OAuth por gimnasio. El
-  día que `pagos` (gimnasio → alumno) tenga MP, necesita credenciales POR
-  gimnasio y cifradas con `EncryptedTextField`: este módulo no sirve tal cual.
+- **Sin `token=`, la credencial de la plataforma** (`MERCADOPAGO_ACCESS_TOKEN`).
+  Lo que esta nota pedía para cobrar gimnasio → alumno (credenciales POR
+  gimnasio, cifradas con `EncryptedTextField`) ya existe: es
+  `tienda.CuentaMercadoPago` (OAuth), y la usan la tienda y las cuotas
+  pasando `token=Secreto(cuenta.access_token)` a `crear_preferencia`,
+  `consultar_pago` y `buscar_pagos`. El riesgo es el default: una llamada sin
+  `token=` cobraría o leería con la cuenta de la plataforma. Por eso
+  `pagos/tests_token_del_gimnasio.py` recorre por AST el código no-test de
+  `tienda/` y `pagos/` y falla si alguna de esas tres llamadas no lleva
+  `token=` (o lo pasa como `None`).
 - `binary_mode` + `ticket`/`atm` excluidos: un pago no puede quedar «en
   revisión» ni pagarse en un Rapipago a los 3 días con el tipo de cambio de
   hace 3 días. Costo asumido: se pierde al que paga en efectivo (le queda el
@@ -3678,7 +3761,7 @@ para que un dueño nuevo entienda la app en ~5 minutos sin tocar `/admin/`.
 
 Diseño completo y decisiones tomadas: `docs/superpowers/specs/2026-10-17-tienda-design.md` (incluye «Ajustes del 17-10» y «Decisiones de ejecución»). Esto es lo que hay que saber para tocar el código.
 
-**Qué es.** Un add-on: el dueño del producto lo habilita por gimnasio (`Gimnasio.tienda_habilitada`, sólo desde el panel de plataforma; `puede_usar_tienda` es la puerta y la cuenta demo siempre la pasa) y se cobra aparte (USD 20 por mes, o 10 meses al año; **Hito 3 hecho el 2026-10-18**: se suma a la suscripción sólo si `gimnasio.tienda_habilitada`, nunca por `puede_usar_tienda`, que es verdadera en la demo; ver «Precios, ciclo y prueba», «Panel de plataforma» y «Cobro online de la suscripción». **Se cobra desde el próximo pago**: prenderla a un gimnasio que ya pagó no toca lo pagado, y apagarla a mitad de período no devuelve nada). El gimnasio vende productos con variantes (talles, sabores) a sus alumnos, que reservan, pagan y retiran en el gimnasio. **Hito 1: transferencia. Hito 2 (hecho el 2026-10-18, APAGADO hasta la prueba guiada): Mercado Pago a la cuenta del propio gimnasio**, ver «Mercado Pago de la tienda» más abajo; el principio #3 de `CLAUDE.md` lo abre sólo para la tienda, las cuotas (`pagos`) siguen sin MP.
+**Qué es.** Un add-on: el dueño del producto lo habilita por gimnasio (`Gimnasio.tienda_habilitada`, sólo desde el panel de plataforma; `puede_usar_tienda` es la puerta y la cuenta demo siempre la pasa) y se cobra aparte (USD 20 por mes, o 10 meses al año; **Hito 3 hecho el 2026-10-18**: se suma a la suscripción sólo si `gimnasio.tienda_habilitada`, nunca por `puede_usar_tienda`, que es verdadera en la demo; ver «Precios, ciclo y prueba», «Panel de plataforma» y «Cobro online de la suscripción». **Se cobra desde el próximo pago**: prenderla a un gimnasio que ya pagó no toca lo pagado, y apagarla a mitad de período no devuelve nada). El gimnasio vende productos con variantes (talles, sabores) a sus alumnos, que reservan, pagan y retiran en el gimnasio. **Hito 1: transferencia. Hito 2 (hecho el 2026-10-18, APAGADO hasta la prueba guiada): Mercado Pago a la cuenta del propio gimnasio**, ver «Mercado Pago de la tienda» más abajo; el principio #3 de `CLAUDE.md` lo abrió primero para la tienda; desde el 2026-10-20 la misma cuenta cobra también las cuotas (ver «Cuotas por Mercado Pago»).
 
 **Modelos** (`tienda/models.py`; `TenantOwnedModel` salvo `Variante`, `FotoProducto` e `ItemPedido`, que cuelgan de su padre): `ConfiguracionTienda` (una por gimnasio vía `obtener_configuracion`: `publicada`, `horas_reserva_transferencia`, `max_pedidos_activos`, `instrucciones_retiro`), `CategoriaProducto`, `Producto` (`publicado`; su columna `foto` quedó muerta, ver `ISSUES.md` 2026-10-17), `FotoProducto` (hasta 5 por producto, `posicion` 0 = principal; hija de `Producto` como `Variante`, no `TenantOwnedModel`), `Variante` (`stock`, `activa`, `codigo`, nombre calculado de `valor_1/2`; ver «Variantes por características»), `Pedido` e `ItemPedido` (snapshot de nombre y precio). Los tres lugares de la regla transversal (`vaciar_gimnasio`, `_ensuciar`, `HOJAS`/`EXCLUIDOS`) están cubiertos.
 
@@ -3730,6 +3813,44 @@ Diseño completo y decisiones tomadas: `docs/superpowers/specs/2026-10-17-tienda
 ### Mercado Pago de la tienda (Hito 2, 2026-10-18)
 
 Guía de la prueba con cuentas de prueba y checklist de lo no confirmado: `docs/mercadopago-tienda.md`. **Está construido y APAGADO**: se prende cuando están las 4 variables en Render (y los mismos 4 secrets en GitHub). Diseño base en la spec («Mercado Pago del gimnasio»); lo de acá es lo que quedó en el código.
+
+**La cuenta es del GIMNASIO, no de la tienda** (2026-10-20). La misma
+`CuentaMercadoPago` cobra la tienda y las cuotas (ver «Cuotas por Mercado
+Pago»), y **conectarla no exige el add-on**: las vistas OAuth pasaron de
+`TiendaStaffMixin` a `StaffRequiredMixin` + `TenantScopedMixin` (siguen la
+bandera y la demo), y «Mi gimnasio» tiene su tarjeta `#mercadopago`, sección
+HERMANA del form principal (un form de Desconectar no se puede anidar). La
+Redirect URI y los nombres de URL no cambiaron. A dónde se vuelve lo decide
+`_destino()`: a «Mi gimnasio»#mercadopago si el flujo arrancó ahí
+(`?desde=gimnasio` en Conectar, guardado en la sesión y consumido por el
+callback; `desde=gimnasio` en el POST de Desconectar) o si el gimnasio no
+puede usar la tienda; si no, a la configuración de la tienda. Cubre los cinco
+redirects (`_no_disponible`, `CallbackView._volver`, los dos de
+`DesconectarView` y el push de `notificar_cuenta_mp`, que usa
+`tienda.cuenta_mp.url_cuenta_mp` y ya no dice «de la tienda»). El test
+`ConectarTests.test_sin_el_add_on_cartel_200` cambió a propósito por
+`test_sin_el_add_on_conecta_y_vuelve_a_mi_gimnasio`. Lo que agregan las
+cuotas a esta subsección:
+- **Desvío por prefijo dentro de `acreditar_pedido`**: los pagos de cuotas
+  llegan por el MISMO webhook (misma cuenta, misma `notification_url`). Después
+  de leer el pago y antes del `uuid.UUID` de la referencia, si la
+  `external_reference` empieza con `cuota-` se llama a
+  `pagos.cobro_mp.acreditar_cuota_leida` y se devuelve `None`. Va ADENTRO y no
+  en el webhook porque varios tests parchean `acreditar_pedido` directo; el
+  webhook, el retorno de la tienda y `reconciliar_pedidos` no cambian.
+- **Desconectar** cancela los links de cuotas CREADO del gimnasio (no frena,
+  a diferencia de un pedido esperando el pago: el alumno vuelve a ver «subí el
+  comprobante» y un pago ya empezado igual se acredita).
+- **El cambio de cuenta se frena también por cuotas**
+  (`_freno_por_cuotas`): un link de cuota todavía pagable, una revisión
+  pendiente (REVISAR/DUPLICADO/DEVUELTO) o una cuota cobrada (PAGADO/DUPLICADO)
+  en los últimos 7 días con la cuenta anterior; un link ya vencido no traba.
+  **«Pagable» incluye CANCELADO y RECHAZADO** (con `preference_id` y `expira`
+  futura o nula): cancelar el intento —«Desconectar» lo hace— no vence la
+  preferencia en MP. Sin esto: desconectar → conectar otra cuenta → el alumno
+  que tenía el checkout abierto le paga a la vieja → el webhook lee con el
+  token nuevo (404) y la reconciliación lo saltea por `mp_user_id`: cuota
+  impaga con la plata cobrada. El mensaje dice hasta qué hora esperar.
 
 **Bandera.** `TIENDA_MP_ENABLED` = `_bandera_todo_o_nada` de `MERCADOPAGO_CLIENT_ID`, `MERCADOPAGO_CLIENT_SECRET`, `MERCADOPAGO_OAUTH_REDIRECT_URI` y `MP_TOKEN_ENCRYPTION_KEY`, `and not TESTING` (los tests la prenden con `override_settings`). Apagada, nada se ve: el form de configuración no tiene los campos `acepta_*`/`minutos_reserva_mp` (se sacan de `self.fields`), no hay tarjeta, el carrito no ofrece elección y el webhook responde 503. En la demo (`es_demo`) tampoco se conecta nunca.
 
@@ -3810,6 +3931,230 @@ Plan: `docs/superpowers/plans/2026-10-19-moderacion-tienda.md`; spec: `docs/supe
 - Deadlock posible en Postgres entre `bajar_producto` (variantes y después pedidos) y `vencer_pedidos` / `cancelar_por_alumno` / checkout (al revés). Postgres aborta una transacción sin dejar nada inconsistente; el costo es un 500 raro.
 - Dos denuncias simultáneas pueden contar 2 y no llegar al umbral: vuelve a pendiente con la cuarta.
 - Si el `cf-cache-status` de la foto da HIT (Tarea 10), hay que purgar la URL al bajar.
+
+## Cuotas por Mercado Pago (`pagos/cobro_mp.py`, 2026-10-20)
+
+El alumno paga su cuota con un link de Checkout Pro **a la cuenta de Mercado
+Pago del propio gimnasio**, la misma que conecta por OAuth para la tienda
+(`tienda.CuentaMercadoPago`). La plata nunca pasa por la cuenta de la
+plataforma. Decisiones del dueño del producto: el 2026-10-19 levantó la regla
+«las cuotas no se cobran por Mercado Pago»; el 2026-10-20 fijó que el monto es
+el precio del gimnasio más un precio propio opcional por alumno (ver «Apps de
+dominio» → `pagos`), que **cualquier gimnasio** (con o sin el add-on de la
+tienda) puede conectar MP y cobrar cuotas, y que cuelga de la MISMA bandera
+`TIENDA_MP_ENABLED`. El débito automático sigue afuera. Lo demás del cobro de
+cuotas no cambió: el staff sigue confirmando a mano lo que entra por otro
+medio. La prueba con cuentas de prueba es la Parte 9 de
+`docs/mercadopago-tienda.md`.
+
+**Dónde vive cada pieza.** `pagos/cobro.py` (dominio, sin MP: las
+transiciones de la cuota, ver «Apps de dominio» → `pagos`);
+`pagos/cobro_mp.py` (disponibilidad, link, acreditar, reconciliar);
+`pagos/precios.py`; las vistas en `pagos/views.py`; el desvío en
+`tienda/pagos_mp.py::acreditar_pedido`; la tarjeta y el interruptor en «Mi
+gimnasio». `tienda` carga después que `pagos` (`config/settings.py`), así que
+todo lo de `tienda` se importa dentro de las funciones, y el intento guarda la
+cuenta como texto (`mp_user_id`), sin FK.
+
+### `CobroOnlineCuota`: un intento por link, no columnas en `Cuota`
+
+`pagos.CobroOnlineCuota(TenantOwnedModel)` es un link de pago: `cuota` (FK
+**PROTECT**, `related_name="cobros_online"`), `referencia_externa` (UUID
+único; a MP viaja como `cuota-<uuid>`, `referencia_mp`), `monto` congelado al
+generar el link, `mp_user_id`, `preference_id`, `init_point`, `payment_id`,
+`expira`, `estado`, `motivo_revision`, `estado_mp`, `respuesta_mp` (sólo
+`resumen_de_pago` y la lista de pagos adicionales, nunca la respuesta cruda),
+`acreditado_en`, `revision_pendiente`, `revision_resuelta_en`.
+
+- **Por qué un modelo aparte**: `crear_preferencia` usa la
+  `external_reference` como `X-Idempotency-Key`. Con una referencia por cuota,
+  si el staff corrige el monto MP devolvería la preferencia vieja con el monto
+  viejo. Una referencia por LINK lo evita.
+- `Cuota` no gana columnas: una cuota cobrada por MP queda PAGADA con
+  `medio_pago_texto="Mercado Pago"` y un intento PAGADO.
+- Unique parciales: un solo link vivo por cuota (`cuota` con
+  `estado="creado"`) y un `payment_id` no vacío acredita un solo intento.
+- Sin FK a `User` (la demo borra usuarios cada 6 h) ni a la cuenta. El largo de
+  `mp_user_id` se valida en `save()` (SQLite no valida `varchar`).
+- Está en los tres lugares: `vaciar_gimnasio` y `borrar_demo` borran los
+  intentos ANTES que las cuotas (PROTECT), `_ensuciar` crea uno y la hoja
+  `cuotas_pagos_online` del exportador sale sin `respuesta_mp`. Admin de sólo
+  lectura.
+
+### Disponible, botón y pagar
+
+`cobro_online_disponible(gimnasio)` es LA regla: bandera ∧ no demo ∧
+`Gimnasio.cuotas_con_mercadopago` ∧ cuenta CONECTADA con token. La query a la
+cuenta va sólo si lo demás da verdadero: **con la bandera apagada el portal no
+suma queries**. `gimnasios_con_cobro_online()` resuelve lo mismo en UNA query
+para los barridos (`enviar_recordatorios`).
+
+- **El interruptor** `cuotas_con_mercadopago` (en «Cobros» de «Mi gimnasio»,
+  `db_default=False`) existe porque conectar MP para la tienda no tiene que
+  prender solo el cobro de cuotas (MP cobra comisión). Con la bandera apagada
+  o en la demo sale del form. Exige la cuenta CONECTADA **sólo en la
+  transición apagado → prendido** (`changed_data`): con la cuenta en
+  «reconectar», guardar otro campo no se traba.
+- **El botón** «Pagar $ X con Mercado Pago» está en
+  `partials/cuotas_impagas.html` (portal y `rutinas/bloqueado.html`) si está
+  disponible, la cuota tiene monto > 0 y no hay suplantación. Es un form POST
+  (un link no puede abrir un cobro) con `hx-boost="false"` (termina en otro
+  dominio). Los textos que dicen «subí el comprobante» o «cuando el gimnasio
+  registre el pago» (portal, bloqueo, reservas, push de bloqueo, recordatorios)
+  mencionan Mercado Pago sólo con el cobro disponible; sin él quedan idénticos
+  y sin queries.
+- **`PagarCuotaMPView`** (`pagos:pagar_mp`, POST `/pagos/<pk>/mercadopago/`):
+  cuota de otro alumno → 404; suplantando → mensaje (la plata sería del
+  staff); toda regla de negocio es mensaje + redirect al inicio, nunca un 4xx.
+  **No mira `bloqueo_de`**: pagar es la salida del bloqueo.
+- **`link_de_pago`**: bajo lock **cuota → intentos** vence perezosamente los
+  CREADO expirados y **reusa el link vivo** si tiene `init_point`, le quedan al
+  menos 30 minutos, cobra el mismo monto y es de la misma cuenta
+  (`mp_user_id`); si no, lo CANCELA antes de crear el nuevo (si no, el unique
+  parcial daría un 500). Un `IntegrityError` (doble click) reusa el del otro
+  request o dice «probá en unos segundos». El link vive **2 horas**
+  (`HORAS_VALIDEZ_LINK_CUOTA`): no hay stock que reservar, y cada hora de link
+  abierto es una hora en la que el alumno puede pagar en el mostrador y
+  después por el link (un duplicado que hay que devolver).
+- **La preferencia se crea FUERA del lock** (la red nunca va con filas
+  bloqueadas), con `token=Secreto(cuenta.access_token)`,
+  `sandbox=cuenta.es_de_prueba`, `notification_url` = webhook de la tienda
+  por `uuid_webhook` y **`statement_descriptor=None`** (con el default la cuota
+  saldría como «TUGIMAPP» en el resumen de la tarjeta del alumno). Si MP falla
+  el intento queda CANCELADO (un 401 pasa la cuenta a «reconectar»); un token
+  ilegible pasa a «reconectar» sin llamar a MP. El link se guarda con un
+  UPDATE condicional a que el intento siga CREADO: si el staff cobró la cuota
+  en esos segundos, el alumno no va a MP a pagarla dos veces.
+- **`RetornoCuotaMPView`** (`pagos:retorno_mp`, `never_cache`): **ignora el
+  `status` de la URL** y acredita leyendo el pago (`payment_id` o
+  `collection_id`) con el token del gimnasio. «¡Listo, tu cuota quedó paga!»
+  sólo si además `bloqueo_de` da `None`; si no, dice que otra cuota sigue
+  pausando el acceso. A revisar / confirmando / sin pago tienen su mensaje.
+
+### Acreditar: la máquina de estados
+
+`acreditar_cuota_leida(cuenta, pago)` (molde `tienda.pagos_mp._aplicar`) la
+llaman el webhook (vía el desvío de `acreditar_pedido`), el retorno y la
+reconciliación, en cualquier orden. Busca el intento por la referencia
+**dentro del gimnasio de la cuenta**; un link generado por OTRA cuenta de MP
+del gimnasio (`mp_user_id` distinto) se ignora con un warning sin datos del
+pagador. En un `atomic` con locks cuota → intento y un savepoint por vuelta:
+toda escritura es un UPDATE condicional y, si alguno no toca la fila, la
+vuelta se deshace (con sus avisos) y se decide de nuevo; dos carreras
+seguidas → `tienda.pagos_mp.AcreditacionReintentable` (el webhook responde
+500 y MP reintenta). Idempotente por `(payment_id, estado_mp)`, y para el
+mismo pago `estado_mp` no retrocede.
+
+**Se decide por el PAR estado del intento × estado de la cuota, y la plata
+manda**: un aprobado se registra aunque el link estuviera cancelado o vencido,
+aunque el gimnasio esté congelado, no tenga el interruptor ni el add-on o
+haya desconectado la cuenta (mientras queden tokens). Lo que nunca hace es
+cobrar dos veces una cuota ni escribir el monto que dice MP: se valida
+`transaction_amount` en ARS con ±0,01, no se copia.
+
+| Pago | Cuota | Resultado |
+|---|---|---|
+| `approved`, monto ok | impaga, mismo monto | intento PAGADO; `cobro.marcar_pagada` con el monto del intento, `fecha_pago` = `date_approved` en fecha local, medio «Mercado Pago»; push al staff y al alumno |
+| `approved`, monto ok | impaga, monto corregido con el link abierto | se paga con lo cobrado + revisión `monto_corregido` |
+| `approved`, monto ok | ya PAGADA | intento DUPLICADO + revisión `cuota_ya_pagada`; la cuota no se toca |
+| `approved`, monto ok | ANULADA | REVISAR `cuota_anulada` |
+| `approved`, monto o moneda distintos | cualquiera | REVISAR `monto_distinto`, la cuota no se toca |
+| otro `approved` sobre un intento que ya cobró | — | se anota en `respuesta_mp["pagos_adicionales"]` + revisión + push «cobrada dos veces» |
+| `rejected` / `cancelled` | — | sólo se anota `estado_mp`; el link sigue pagable (con `binary_mode`, rechazo + reintento aprobado es lo normal) |
+| `refunded` / `charged_back` del pago que pagó la cuota | PAGADA | intento DEVUELTO + revisión `devuelto`; **la cuota NO vuelve sola a impaga** |
+| `refunded` del duplicado, del adicional o del que estaba a revisar | — | resuelto, sin alarma |
+| `in_process`, `pending`, `authorized`, `in_mediation` | — | nada |
+
+Los avisos salen por `on_commit` (`notificar_cuota_mp_al_staff`, siempre
+`rol=STAFF`, y `notificar_cuota_mp_al_alumno`); un push caído no rompe nada.
+
+### La pantalla del staff y «Volver a impaga»
+
+- **`pagos:online`** («Pagos con Mercado Pago», `/pagos/mercadopago/`): los
+  intentos que movieron plata (PAGADO, DUPLICADO, REVISAR, DEVUELTO o con
+  `revision_pendiente`), de a 20, pestañas Todos / Revisar, una explicación en
+  castellano por `motivo_revision` y los números de los pagos adicionales sin
+  resolver (nada del pagador). Sin N+1: la cuota y el alumno en el JOIN,
+  «¿volver a impaga?» como dos `Exists` anotados y los contadores en una query
+  agregada (`cobro.contadores_cobro_online`). Con la bandera apagada se ve
+  sólo si hay intentos (plata cobrada no se esconde).
+- **La pestaña «Revisar» es sólo `revision_pendiente=True`**
+  (`cobro.Q_REVISAR_MP`), nunca `estado=REVISAR`: un intento no tiene salida
+  de REVISAR, así que con el estado en el filtro uno ya resuelto no saldría
+  nunca. La comparten la pestaña, el banner del listado, la alerta del panel y
+  el push.
+- **«Ya lo resolví»** (`pagos:online_resuelto`, POST): UPDATE condicional a que
+  siga pendiente (y al `modificado` leído, para que una acreditación
+  concurrente relea); marca resueltos también todos los pagos adicionales
+  anotados, si no la devolución posterior de uno reabriría la revisión.
+- **«Volver a impaga»**: para una cuota PAGADA cuyo cobro se devolvió (ver
+  «Apps de dominio» → `pagos`). La devolución no la vuelve impaga sola porque
+  puede estar compensada en efectivo; pero sin la acción la plata devuelta
+  seguiría sumando en `ingresos_por_mes` y el alumno seguiría desbloqueado.
+  Resuelve el motivo propio (`revision_resuelta_en`), pero un intento con
+  pagos adicionales sin devolver sigue en «Revisar» (plata a devolver).
+- **Listado de cuotas**: badge «Mercado Pago» desde `Exists(intento PAGADO)`,
+  banner «N pagos de Mercado Pago para revisar», link a la pantalla y
+  «Corregir monto» en las impagas. **Panel**: alerta con el conteo, en una
+  query que sólo corre si `cobro.puede_haber_cobros_online` (bandera o
+  interruptor prendidos): con los dos apagados el panel no suma queries. Va
+  fuera de `tienda.services.contadores_panel`, que está fijado en una query.
+
+### Reconciliar
+
+`cobro_mp.reconciliar_cuotas` (molde `reconciliar_pedidos`), comando
+`python manage.py reconciliar_cuotas_mp` y paso «Reconciliar cuotas cobradas
+por Mercado Pago» en `.github/workflows/reconciliar-cobros.yml`, antes del ping
+a Healthchecks, con las 4 variables y las `VAPID_*`. Primero vence
+perezosamente los links CREADO expirados; después busca con el token DEL
+GIMNASIO los pagos de los intentos CREADO/RECHAZADO/CANCELADO/VENCIDO de los
+últimos 7 días con preferencia — **por estado, nunca por `payment_id` vacío**
+(un rechazo deja su id y el reintento aprobado con el webhook perdido no se
+miraría), y un link cancelado o vencido sigue pagable hasta que vence la
+preferencia —, del más nuevo al más viejo con tope (`--limite`, 50). Un
+link cuyo `expira` pasó hace más de `GRACIA_RECONCILIACION_TRAS_EXPIRA` (1
+día) no entra: MP no acepta pagos después de `expires`, y sin el corte los
+links muertos de los 7 días (cada uno vive 2 h) se comían el tope. Saltea
+la cuenta sin tokens, la que dio 401 en la corrida (queda en «reconectar») y
+el link de otra cuenta de MP; un error no frena a los demás. Misma regla de
+salida que `reconciliar_pedidos`: bandera apagada → 0 «apagado», salvo que
+haya una cuenta CONECTADA (→ 1, un secret olvidado).
+
+### Trampas que mordieron
+
+- **Las carreras del `save()` completo**: confirmar, comprobante y anular
+  guardaban la instancia leída al principio del request y podían pisar un
+  cobro de MP que entró en el medio (el comprobante devolvía a PENDIENTE una
+  cuota recién pagada). Se cerraron con `pagos/cobro.py`.
+- **`Coalesce` con `0` entero**: mezclando `DecimalField` con un entero,
+  Django 5.2 tira `FieldError`. El default va como `Value(Decimal("0"))` con
+  `output_field` explícito.
+- **`medio_pago_texto` no sirve para saber si se cobró por MP**: los
+  gimnasios ya escriben «Mercado Pago» a mano para las transferencias a su
+  alias. El badge, los contadores y `cobro.cobrada_por_mercadopago` miran el
+  intento PAGADO.
+- **Precio 0 ≠ becado** (ver «Apps de dominio» → `pagos`).
+- **El token de la plataforma por default**: `suscripcion.mercadopago` usa
+  `MERCADOPAGO_ACCESS_TOKEN` si no recibe `token=`. Lo vigila
+  `pagos/tests_token_del_gimnasio.py` (verificado en rojo quitando el `token=`
+  de una llamada real).
+
+### Riesgos aceptados
+
+Están también en `ISSUES.md` (2026-10-20).
+- Una devolución no re-bloquea sola: el staff decide con «Volver a impaga».
+- Un cambio de cuenta pisa los tokens viejos al instante; por eso se frena
+  con links pagables (también cancelados o rechazados sin vencer),
+  revisiones pendientes o cobros de los últimos 7 días.
+- La bandera se llama `TIENDA_MP_ENABLED` y gobierna también las cuotas.
+- Con la cuenta del gimnasio en `ALUMNOS_BLOQUEADOS` el alumno no llega a
+  pagar ni al retorno; acreditan el webhook y la reconciliación.
+- El importador de alumnos no importa `precio_cuota`.
+- Doble click en Postgres: el lock serializa los dos requests y el segundo
+  puede cancelar el link del primero antes de que tenga `init_point` (el
+  primero termina en «La cuota cambió…»); el segundo sigue con su propio link.
+- `select_for_update` no hace nada en SQLite: las carreras reales no se
+  probaron contra Postgres.
 
 ## Deploy (Fase 5)
 

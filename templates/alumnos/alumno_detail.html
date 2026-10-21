@@ -36,6 +36,11 @@
         </span>
       </p>
     {% endif %}
+    {% if alumno.precio_cuota is not None %}
+      <p>Precio de la cuota: $ {{ alumno.precio_cuota }} <span class="texto-suave">(propio)</span></p>
+    {% else %}
+      <p>Precio de la cuota: <span class="texto-suave">el del gimnasio{% with precio_gimnasio=request.user.perfil.gimnasio.precio_cuota %}{% if precio_gimnasio is not None %} ($ {{ precio_gimnasio }}){% endif %}{% endwith %}</span></p>
+    {% endif %}
     {% if alumno.observaciones %}<p>Observaciones: {{ alumno.observaciones }}</p>{% endif %}
 
     <form method="post" action="{% url 'alumnos:activar' alumno.pk %}">

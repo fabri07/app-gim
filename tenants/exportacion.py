@@ -77,6 +77,8 @@ HOJAS = (
             ("texto_bienvenida", "texto_bienvenida"),
             ("tipo_publico", "tipo_publico"),
             ("dias_tolerancia_pago", "dias_tolerancia_pago"),
+            ("precio_cuota", "precio_cuota"),
+            ("cuotas_con_mercadopago", "cuotas_con_mercadopago"),
             ("logo_archivo", "logo"), ("creado", "creado"),
         ),
     ),
@@ -91,6 +93,11 @@ HOJAS = (
             ("fecha_nacimiento", "fecha_nacimiento"), ("sexo", "sexo"),
             ("estado", "estado"), ("fecha_inicio_ciclo", "fecha_inicio_ciclo"),
             ("fecha_baja", "fecha_baja"),
+            # Vacío = paga el precio del gimnasio (hoja `gimnasio`). Sale
+            # también en `para-importar/alumnos.csv`, pero el importador de
+            # alumnos de la app NO lo lee todavía: un padrón reimportado vuelve
+            # sin precios propios y hay que cargarlos desde la ficha.
+            ("precio_cuota", "precio_cuota"),
             ("actividad_fisica_previa", "actividad_fisica_previa"),
             ("frecuencia_actividad_previa", "frecuencia_actividad_previa"),
             ("deportes_practica", "deportes_practica"),
@@ -117,6 +124,24 @@ HOJAS = (
             ("medio_de_pago", "medio_pago_texto"),
             ("comprobante_archivo", "comprobante"),
             ("observaciones", "observaciones"), ("creado", "creado"),
+        ),
+    ),
+    Hoja(
+        "cuotas_pagos_online", "pagos.CobroOnlineCuota", "gimnasio",
+        "Cada link de pago de una cuota por Mercado Pago y cómo terminó. "
+        "`cuota_id` es el `id` de cuotas.csv.",
+        (
+            ("id", "id"), ("cuota_id", "cuota_id"),
+            ("alumno_apellido", "cuota__alumno__apellido"),
+            ("alumno_nombre", "cuota__alumno__nombre"),
+            ("monto", "monto"), ("estado", "estado"),
+            ("motivo_revision", "motivo_revision"),
+            # De Mercado Pago sólo el id y el estado del pago: `respuesta_mp`
+            # (datos del pagador) NUNCA sale.
+            ("payment_id", "payment_id"), ("estado_mp", "estado_mp"),
+            ("acreditado_en", "acreditado_en"),
+            ("revision_resuelta_en", "revision_resuelta_en"),
+            ("creado", "creado"),
         ),
     ),
     Hoja(

@@ -58,6 +58,15 @@ marca mes como pagado, guarda comprobante, muestra deudores, filtra por mes, reg
 observaciones. **Los pagos pendientes del mes se autogeneran (cron); el dueño confirma, no
 crea.** El comprobante lo sube el dueño en la v1.
 
+> **Actualizado (2026-10-20).** El dueño del producto levantó el 2026-10-19 la regla «las
+> cuotas no se cobran por Mercado Pago». El alumno puede pagar la cuota con un link de
+> Mercado Pago a la cuenta del PROPIO gimnasio (OAuth, la misma de la tienda; cualquier
+> gimnasio, tenga o no el add-on); la plata nunca pasa por la plataforma. El monto sale del
+> precio del gimnasio o del precio propio del alumno. Apagado con la misma bandera que el
+> Mercado Pago de la tienda hasta la prueba guiada (`docs/mercadopago-tienda.md`). Lo que
+> se paga por otro medio lo sigue confirmando el staff, y el débito automático sigue
+> afuera. Detalle en `ARQUITECTURA.md` § "Cuotas por Mercado Pago".
+
 ## 4. Seguridad desde el modelo de datos
 Aislamiento por gimnasio desde el primer modelo.
 > Ningún alumno, rutina, pago, comprobante o novedad puede existir sin estar asociado a un
@@ -83,18 +92,19 @@ nutrición, métricas deportivas, IA de rutinas, subdominios por gimnasio.
 > 2026-09-28: varios establecimientos se lo pidieron al dueño del producto, que decidió
 > construirlo. El detalle vive en `CLAUDE.md` § "Control de ingreso".
 
-> **Actualizado.** «Mercado Pago» sigue en esta lista para el cobro del gimnasio a sus
-> alumnos (§3, `pagos`, sin cambios), pero entró el 2026-09-29 **sólo** para que el gimnasio
-> le pague la suscripción a la plataforma: cobrar por transferencia y cargarlo a mano dejaba
-> bloqueado hasta el lunes al gimnasio que pagaba un domingo. El detalle vive en `CLAUDE.md`
-> § "Cobro online de la suscripción".
+> **Actualizado.** «Mercado Pago» ya no está en esta lista; «débitos automáticos», sí.
+> Entró el 2026-09-29 para que el gimnasio le pague la suscripción a la plataforma: cobrar
+> por transferencia y cargarlo a mano dejaba bloqueado hasta el lunes al gimnasio que pagaba
+> un domingo (ver `ARQUITECTURA.md` § "Cobro online de la suscripción"). Después llegó a la
+> tienda (2026-10-18) y a las cuotas (2026-10-20, ver §3), las dos a la cuenta del propio
+> gimnasio.
 
 > **Actualizado (2026-10-17).** La tienda del gimnasio (`tienda/`) es un **add-on** que el
 > dueño del producto habilita por gimnasio y que se cobra aparte (USD 20 por mes, o 10
 > meses al año). La facturación (Hito 3) está hecha desde el 2026-10-18: se suma a la
 > suscripción desde el próximo pago y la portada la lista como «Tienda online (opcional)».
-> El Hito 1 vende sólo por transferencia; Mercado Pago llega con el Hito 2, a la cuenta del propio gimnasio. Las
-> cuotas (`pagos`) siguen sin Mercado Pago. El detalle vive en `ARQUITECTURA.md` § "Tienda
+> El Hito 1 vende sólo por transferencia; Mercado Pago llega con el Hito 2, a la cuenta del propio gimnasio. Desde
+> el 2026-10-20 esa misma cuenta cobra también las cuotas (`pagos`, ver §3). El detalle vive en `ARQUITECTURA.md` § "Tienda
 > del gimnasio" y en `docs/superpowers/specs/2026-10-17-tienda-design.md`.
 
 ---
@@ -363,9 +373,11 @@ rutinas, WhatsApp API, nutrición, medidas corporales, gamificación.
 
 > **Actualizado.** «Mercado Pago» estaba en prioridad baja y se construyó el 2026-09-29,
 > **acotado** a la suscripción plataforma → gimnasio (link de Checkout Pro por ciclo, mensual
-> o anual, que se acredita solo y descongela la cuenta si la deja al día). El cobro del
-> gimnasio a sus alumnos (`pagos`) y el débito automático siguen en prioridad baja. Ver
-> `CLAUDE.md` § "Cobro online de la suscripción".
+> o anual, que se acredita solo y descongela la cuenta si la deja al día). Ver
+> `ARQUITECTURA.md` § "Cobro online de la suscripción". El cobro del gimnasio a sus alumnos
+> (`pagos`) llegó el 2026-10-20 con un link por cuota a la cuenta del propio gimnasio (ver
+> §3 y `ARQUITECTURA.md` § "Cuotas por Mercado Pago"). El débito automático sigue en
+> prioridad baja.
 
 ---
 

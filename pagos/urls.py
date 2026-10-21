@@ -8,12 +8,18 @@ from django.urls import path
 
 from pagos.views import (
     AlumnoComprobanteUpdateView,
+    CobroOnlineListView,
+    CobroOnlineResueltoView,
     ConfirmarPagoView,
     CuotaAnularView,
+    CuotaMontoView,
+    CuotaVolverAImpagaView,
     MedioCobroCreateView,
     MedioCobroListView,
     MedioCobroUpdateView,
     CuotaListView,
+    PagarCuotaMPView,
+    RetornoCuotaMPView,
 )
 
 app_name = "pagos"
@@ -25,6 +31,24 @@ urlpatterns = [
     path("medios/<int:pk>/editar/", MedioCobroUpdateView.as_view(), name="medios_editar"),
     path("<int:pk>/confirmar/", ConfirmarPagoView.as_view(), name="confirmar"),
     path("<int:pk>/anular/", CuotaAnularView.as_view(), name="anular"),
+    path("<int:pk>/monto/", CuotaMontoView.as_view(), name="monto"),
+    path(
+        "<int:pk>/volver-a-impaga/",
+        CuotaVolverAImpagaView.as_view(),
+        name="volver_a_impaga",
+    ),
+    path("mercadopago/", CobroOnlineListView.as_view(), name="online"),
+    path(
+        "mercadopago/<int:pk>/resuelto/",
+        CobroOnlineResueltoView.as_view(),
+        name="online_resuelto",
+    ),
+    path("<int:pk>/mercadopago/", PagarCuotaMPView.as_view(), name="pagar_mp"),
+    path(
+        "mercadopago/retorno/<uuid:referencia>/",
+        RetornoCuotaMPView.as_view(),
+        name="retorno_mp",
+    ),
     path(
         "<int:pk>/comprobante/",
         AlumnoComprobanteUpdateView.as_view(),

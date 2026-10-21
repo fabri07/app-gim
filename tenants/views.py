@@ -18,6 +18,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.mail import send_mail
+from django.db import transaction
 from django.db.models import Q
 from django.http import FileResponse, Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
@@ -52,6 +53,20 @@ def _contadores_tienda(gimnasio):
     ):
         return None
     return contadores
+
+
+def _cuotas_mp_a_revisar(gimnasio):
+    """Pagos de cuotas por Mercado Pago para revisar (alerta del panel). UNA
+    query, y sólo si puede haber cobros online
+    (`pagos.cobro.puede_haber_cobros_online`): con la bandera apagada y el
+    interruptor apagado, el panel tiene las mismas queries de siempre. Va
+    aparte de `tienda.services.contadores_panel`, que está fijado en una
+    query."""
+    from pagos import cobro
+
+    if not cobro.puede_haber_cobros_online(gimnasio):
+        return 0
+    return cobro.contadores_cobro_online(gimnasio)["a_revisar"]
 
 
 def _ventas_tienda(gimnasio):
@@ -129,7 +144,17 @@ class HomeView(LoginRequiredMixin, TemplateView):
         if perfil.rol == Perfil.Rol.STAFF:
             context.update(self._metricas_dashboard(perfil.gimnasio))
         elif perfil.rol == Perfil.Rol.ALUMNO:
+            from pagos import cobro_mp
+
             context.update(self._portal_alumno(perfil))
+            # «Pagar con Mercado Pago» y los textos que lo mencionan. Con la
+            # bandera apagada no cuesta ninguna query; suplantando, el staff
+            # no ve el botón (no paga por el alumno).
+            context["cobro_mp_disponible"] = (
+                context.get("alumno") is not None
+                and not suplantacion.esta_activa(self.request)
+                and cobro_mp.cobro_online_disponible(perfil.gimnasio)
+            )
         return context
 
     @staticmethod
@@ -309,6 +334,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
             # Tienda (add-on): una sola query agregada. Con el add-on apagado
             # pero pedidos vivos, la tarjeta sigue: el staff tiene que cerrarlos.
             "tienda_contadores": _contadores_tienda(gimnasio),
+            "cuotas_mp_a_revisar": _cuotas_mp_a_revisar(gimnasio),
             "cuotas_vigentes": Cuota.objects.for_gimnasio(gimnasio)
             .filter(periodo_inicio__lte=hoy, periodo_fin__gte=hoy)
             .exclude(estado=Cuota.Estado.ANULADO)
@@ -718,6 +744,7 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         context["fondo_imagen_url"] = (
             gimnasio.fondo_imagen.url if gimnasio.fondo_imagen else ""
         )
+        context.update(self._contexto_mercadopago(gimnasio))
         # `SOPORTE_CONTACTO` NO se inyecta acá: lo expone el context processor
         # `plataforma.context_processors.estado_cuenta`, que ya corre en toda
         # página. Dos nombres para el mismo dato (`soporte_contacto` acá,
@@ -726,9 +753,55 @@ class GimnasioUpdateView(StaffRequiredMixin, UpdateView):
         # contactos distintos cuando alguien cambia uno solo.
         return context
 
+    def _contexto_mercadopago(self, gimnasio):
+        """La tarjeta `#mercadopago` (la cuenta que cobra la tienda y las
+        cuotas). Con la bandera apagada no existe y no se hace NI UNA query a
+        la cuenta (mismo criterio que la configuración de la tienda); en la
+        demo, texto fijo sin botones ni query."""
+        if not settings.TIENDA_MP_ENABLED:
+            return {"mp_habilitado": False}
+        contexto = {"mp_habilitado": True, "mp_demo": gimnasio.es_demo}
+        if gimnasio.es_demo:
+            return contexto
+        # Import tardío: `tienda` carga después que `tenants`.
+        from tienda.models import CuentaMercadoPago
+
+        cuenta = (
+            CuentaMercadoPago.objects.filter(gimnasio=gimnasio)
+            .select_related("conectada_por")
+            .first()
+        )
+        estado = cuenta.estado if cuenta is not None else None
+        contexto.update(
+            cuenta_mp=cuenta,
+            mp_conectada=estado == CuentaMercadoPago.Estado.CONECTADA,
+            mp_reconectar=estado == CuentaMercadoPago.Estado.RECONECTAR,
+        )
+        if cuenta is not None and cuenta.conectada_por is not None:
+            contexto["mp_conectada_por"] = (
+                cuenta.conectada_por.get_full_name()
+                or cuenta.conectada_por.get_username()
+            )
+        return contexto
+
     def form_valid(self, form):
-        response = super().form_valid(form)
+        from pagos.precios import (
+            aplicar_precio_a_impagas_sin_monto,
+            aviso_cuotas_completadas,
+        )
+
+        with transaction.atomic():
+            response = super().form_valid(form)
+            # Sólo un CAMBIO de precio se aplica: guardar el form por otro
+            # campo no tiene por qué reescribir cuotas.
+            completadas = (
+                aplicar_precio_a_impagas_sin_monto(self.object)
+                if "precio_cuota" in form.changed_data
+                else 0
+            )
         messages.success(self.request, "Datos del gimnasio actualizados.")
+        if completadas:
+            messages.info(self.request, aviso_cuotas_completadas(completadas))
         return response
 
 

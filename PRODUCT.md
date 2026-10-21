@@ -36,12 +36,14 @@ rutina y su estado de cuenta sin explicación adicional.
 Una sola aplicación multi-tenant (nunca una copia del repo por gimnasio) con
 aislamiento de datos por fila y blanco-etiquetado real (logo, colores y
 tipografía por gimnasio) — se vende y se opera como "tu propia app", no como
-una cuenta más en una plataforma compartida y genérica. Sin cobro automático
-de cuotas (Mercado Pago, débitos): los pagos los confirma el propio staff, lo que
-mantiene el producto simple para un gimnasio de barrio y evita el costo y la
-fricción de integrarse a un gateway de pagos en esta etapa. La tienda del
-gimnasio es un add-on aparte: cobra por transferencia (y con Mercado Pago desde
-el Hito 2), sin tocar el cobro de las cuotas.
+una cuenta más en una plataforma compartida y genérica. Sin débito automático
+de cuotas: el gimnasio cobra como ya cobra (efectivo, transferencia) y el staff
+confirma, lo que mantiene el producto simple para un gimnasio de barrio. Si el
+gimnasio quiere, conecta su propia cuenta de Mercado Pago y el alumno paga la
+cuota con un link desde la app; la plata va directo a la cuenta del gimnasio,
+nunca a la de la plataforma, y la cuota queda paga sola (desde el 2026-10-20,
+apagado hasta la prueba guiada). La tienda del gimnasio es un add-on aparte:
+cobra por transferencia y con Mercado Pago a esa misma cuenta.
 
 ## Operating Context
 
@@ -58,10 +60,13 @@ mobile-first. No hay app nativa.
   ningún registro operativo existe sin un `gimnasio`.
 - Sin subdominios por gimnasio en el MVP — el tenant se resuelve por el
   usuario logueado.
-- Sin Mercado Pago ni integraciones financieras en las cuotas — los pendientes
-  del mes se autogeneran por cron, el staff confirma manualmente. Vale para
-  `pagos`; la tienda (add-on) cobra por transferencia y con Mercado Pago desde
-  el Hito 2.
+- Las cuotas se autogeneran por cron con el precio del gimnasio (o el propio
+  del alumno) y el staff confirma a mano lo que se paga por fuera de la app.
+  Mercado Pago es opcional y por gimnasio: con la cuenta conectada (OAuth, con
+  o sin el add-on de la tienda) y el cobro de cuotas prendido, el alumno paga
+  con un link y la cuota se acredita sola en la cuenta del gimnasio. Sin
+  débito automático. La tienda (add-on) cobra por transferencia y con Mercado
+  Pago a la misma cuenta.
 - El identificador de login (email o teléfono) es único a nivel global de la
   plataforma, no por gimnasio — una misma persona no puede tener una sola
   cuenta que cubra dos gimnasios distintos (riesgo aceptado y documentado).
@@ -101,7 +106,8 @@ mobile-first. No hay app nativa.
    ni datos que vivan fuera del sistema.
 4. Blanco-etiquetado real por gimnasio, no una plantilla compartida con un
    logo pegado encima.
-5. Simplicidad operativa por sobre integraciones — sin cobro automático, sin
+5. Simplicidad operativa por sobre integraciones — sin débito automático
+   (Mercado Pago es un link opcional por gimnasio, no una suscripción), sin
    subdominios, sin complejidad que un dueño de gimnasio de barrio no pidió.
 
 ## Accessibility & Inclusion

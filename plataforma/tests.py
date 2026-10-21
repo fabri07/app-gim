@@ -212,12 +212,12 @@ class FilasDelMonitorTests(TestCase):
 
         nuevo = self._fila_de(filas, "Nuevo")
         self.assertIs(nuevo.estado, EstadoPago.PRUEBA)
-        self.assertEqual(nuevo.precio_usd, 10)
+        self.assertEqual(nuevo.precio_usd, 15)
         self.assertEqual(nuevo.dias_de_atraso, 0)
 
         atrasado = self._fila_de(filas, "Atrasado")
         self.assertIs(atrasado.estado, EstadoPago.VENCIDA)
-        self.assertEqual(atrasado.precio_usd, 15)
+        self.assertEqual(atrasado.precio_usd, 20)
         self.assertEqual(atrasado.dias_de_atraso, 15)
 
     def test_la_cuenta_demo_queda_exenta(self):
@@ -238,7 +238,7 @@ class FilasDelMonitorTests(TestCase):
         kpis = facturacion.kpis(facturacion.filas_del_monitor(hoy=self.HOY))
 
         self.assertEqual(kpis["clientes"], 1)
-        self.assertEqual(kpis["ingreso_mensual_usd"], 15)
+        self.assertEqual(kpis["ingreso_mensual_usd"], 20)
         self.assertEqual(kpis["alumnos_activos"], 120)
         self.assertEqual(kpis["vencidos"], 1)
         self.assertEqual(kpis["por_vencer"], 0)

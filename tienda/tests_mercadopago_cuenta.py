@@ -268,11 +268,27 @@ class ConectarTests(_Base):
         self.assertContains(r, "En la cuenta de demostración no se conecta Mercado Pago")
         self.assertNotIn("tienda_mp_nonce", self.client.session)
 
-    def test_sin_el_add_on_cartel_200(self):
+    def test_sin_el_add_on_conecta_y_vuelve_a_mi_gimnasio(self):
+        """CAMBIÓ A PROPÓSITO (T4 de «cuotas por Mercado Pago», 2026-10-20).
+        Antes: sin el add-on de la tienda, «Conectar» mostraba el cartel del
+        add-on (200) y no arrancaba el OAuth. Ahora la misma cuenta cobra las
+        cuotas y cualquier gimnasio la conecta desde «Mi gimnasio»: sin el
+        add-on el OAuth arranca igual y, al volver, termina en «Mi gimnasio»
+        (la configuración de la tienda le mostraría el cartel)."""
         Gimnasio.objects.filter(pk=self.gimnasio.pk).update(tienda_habilitada=False)
         r = self.client.get(reverse("tienda:mp_conectar"))
-        self.assertEqual(r.status_code, 200)
-        self.assertNotIn("tienda_mp_nonce", self.client.session)
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(urlparse(r.url).netloc, "auth.mercadopago.com.ar")
+        self.assertIn("tienda_mp_nonce", self.client.session)
+        state = parse_qs(urlparse(r.url).query)["state"][0]
+        with mock.patch(CANJE, return_value=tokens()):
+            r = self.client.get(
+                reverse("tienda:mp_callback"), {"code": "TG-codigo", "state": state}
+            )
+        self.assertRedirects(
+            r, reverse("gimnasio_editar") + "#mercadopago", fetch_redirect_response=False
+        )
+        self.assertEqual(CuentaMercadoPago.objects.get(gimnasio=self.gimnasio).estado, E.CONECTADA)
 
     def test_un_alumno_no_puede(self):
         alumno = User.objects.create_user("alu", password="c-123456")

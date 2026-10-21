@@ -13,7 +13,7 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: código de Fases 0-6 completo en `main` y desplegado** (la tienda está en `main`: Hito 1, venta con transferencia, desplegado; el Mercado Pago de la tienda, Hito 2, mergeado el 2026-10-18 y apagado hasta la prueba guiada; el add-on se cobra a USD 20/mes sumado a la suscripción sólo si `tienda_habilitada`, desde el próximo pago; ver `ARQUITECTURA.md` «Tienda del gimnasio»). La app
+**Fase actual: código de Fases 0-6 completo en `main` y desplegado** (la tienda está en `main`: Hito 1, venta con transferencia, desplegado; el Mercado Pago de la tienda, Hito 2, mergeado el 2026-10-18 y apagado hasta la prueba guiada; el add-on se cobra a USD 20/mes sumado a la suscripción sólo si `tienda_habilitada`, desde el próximo pago; ver `ARQUITECTURA.md` «Tienda del gimnasio»; desde el 2026-10-20 el alumno también puede pagar la cuota por Mercado Pago a la misma cuenta del gimnasio, apagado con la misma bandera hasta la prueba guiada, ver «Cuotas por Mercado Pago»). La app
 vive en `https://www.tugimapp.com` (Render, free tier, dominio propio desde
 el 2026-08-19) y el bucket de
 Cloudflare R2 (`app-gim-media`) ya está creado y en uso — los pasos manuales
@@ -56,9 +56,14 @@ ya actualizados.
    pero está **apagado hasta la prueba con cuentas de prueba**
    (`docs/mercadopago-tienda.md`; se prende con 4 variables, ver "Mercado Pago
    de la tienda" en `ARQUITECTURA.md`); sin ellas cobra sólo por
-   transferencia. El cobro de
-   cuotas (`pagos`) sigue sin MP: el staff confirma. No leas esa entrada como
-   una puerta abierta para las cuotas.
+   transferencia. **Cuotas (desde el 2026-10-20):** el dueño del producto
+   levantó el 2026-10-19 la regla «las cuotas no se cobran por MP». Cualquier
+   gimnasio (con o sin el add-on) conecta su cuenta MP por OAuth y el alumno
+   paga la cuota con un link; la plata va a la cuenta del GIMNASIO, nunca a
+   la de la plataforma. Misma bandera `TIENDA_MP_ENABLED` (apagada hasta la
+   prueba guiada) más el interruptor `cuotas_con_mercadopago` de «Mi
+   gimnasio». El staff sigue confirmando a mano lo que se paga por otro
+   medio. El débito automático sigue afuera.
 4. Aislamiento por gimnasio desde el modelo de datos: ningún registro
    operativo existe sin `gimnasio`.
 5. Archivos de usuario (comprobantes, logos) van a Cloudflare R2, nunca al
@@ -125,6 +130,7 @@ tocar un área, leé su sección** (`grep -n '^## ' ARQUITECTURA.md` da el
 | Tienda (add-on), productos, pedidos, stock | Tienda del gimnasio (`tienda/`) |
 | Moderación de la tienda (cola, denuncias, fotos sin aprobar) | Tienda del gimnasio → «Moderación» |
 | Mercado Pago de la tienda (OAuth, tokens, acreditar, webhook, «Revisar MP», prueba guiada) | Tienda del gimnasio → «Mercado Pago de la tienda» · `docs/mercadopago-tienda.md` |
+| Cuotas por Mercado Pago (precio, botón, acreditar, pantalla del staff, reconciliar) | Cuotas por Mercado Pago · Apps de dominio → `pagos` · `docs/mercadopago-tienda.md` Parte 9 |
 | Botones de borrar | Borrar: `core/borrado.py` |
 | Aviso de plan por vencer | Aviso de plan por vencer |
 | Editor de plantillas, errores de formulario | Un formulario que rechaza sin que se note… (incluye «El editor de plantillas») |
@@ -179,6 +185,9 @@ El porqué de cada una está en `ARQUITECTURA.md`; acá va solo la regla.
   `fecha + columna` en el queryset.
 - **La suite no sale a la red** (`TESTING` apaga R2, push, Sentry, Mercado
   Pago). Un servicio externo nuevo se apaga igual.
+- **Toda llamada a `crear_preferencia`/`consultar_pago`/`buscar_pagos` en
+  `tienda/` y `pagos/` lleva `token=` del gimnasio** (sin token sale el de la
+  plataforma); lo vigila `pagos/tests_token_del_gimnasio.py`.
 - **Verificar en el navegador**: si un `.js`/`.css` no cambia, sospechá del
   service worker (cache-first de `/static/`) y de un `runserver` viejo.
 - **Nunca reintroducir registro self-service** de gimnasios ni de alumnos;
@@ -205,6 +214,7 @@ python manage.py generar_pagos       # autogenera pendientes del ciclo + vence a
 python manage.py expirar_solicitudes # cierra los leads que nunca verificaron el email
 python manage.py reconciliar_cobros  # acredita cobros online cuyo webhook se perdió
                                      # (falla con CommandError sin MERCADOPAGO_*)
+python manage.py reconciliar_cuotas_mp  # acredita cuotas pagadas por MP cuyo webhook se perdió
 python manage.py vencer_pedidos      # vence pedidos de la tienda sin comprobante + avisos
 python manage.py avisar_cobros       # mails de «por vencer/vence hoy/vencido» al staff
                                      # (idem; la 1ra corrida avisa a todos los ya vencidos)
@@ -248,7 +258,7 @@ npm run watch:css                    # lo mismo, en watch mode durante desarroll
 
 ## Qué NO construir todavía
 
-App nativa, Mercado Pago/débitos automáticos, chat interno, nutrición,
+App nativa, débitos automáticos, chat interno, nutrición,
 métricas deportivas, IA de rutinas, subdominios por gimnasio. Ver ROADMAP.md
 § "Fase 9" para la lista completa y cuándo sí tiene sentido evaluarlas (solo
 con clientes pagos).
@@ -259,5 +269,7 @@ producto (ver "Control de ingreso"). El modo kiosco de esa feature sigue sin con
 
 Mercado Pago salió de esta lista el 2026-09-29, **acotado**: sólo para el cobro
 de la suscripción de la plataforma al gimnasio (ver "Cobro online de la
-suscripción") y la tienda (`tienda/`; el MP de la tienda, Hito 2, está construido pero apagado hasta la prueba guiada). Para el cobro del gimnasio a sus
-alumnos (`pagos`) sigue acá, igual que el débito automático en los dos casos.
+suscripción") y la tienda (`tienda/`; el MP de la tienda, Hito 2, está construido pero apagado hasta la prueba guiada). El 2026-10-19 salió también
+para el cobro del gimnasio a sus alumnos (`pagos`, «Cuotas por Mercado Pago»,
+a la cuenta OAuth del gimnasio). El débito automático sigue acá en todos los
+casos.

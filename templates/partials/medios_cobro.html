@@ -11,8 +11,8 @@
       </li>
     {% endfor %}
   </ul>
-{% else %}
-  {% comment %} Sin alias cargado el alumno no tiene a dónde pagar: se le da el contacto del gimnasio, no un hueco. {% endcomment %}
+{% elif not cobro_mp_disponible %}
+  {% comment %} Sin alias cargado el alumno no tiene a dónde pagar: se le da el contacto del gimnasio, no un hueco. Con el botón de Mercado Pago sí tiene dónde, y «consultá cómo pagar» lo contradiría. {% endcomment %}
   <p class="texto-suave">
     El gimnasio todavía no cargó un alias para transferencias.
     {% if gimnasio.contacto %}Escribile a {{ gimnasio.contacto }} para coordinar el pago.

@@ -244,6 +244,27 @@ class ContenidoDelZipTests(ExportacionBase):
             self.assertNotIn(secreto, todo)
         self.assertNotIn("cuenta", "\n".join(n for n in zf.namelist() if "tienda" in n))
 
+    def test_cobros_online_de_cuotas_exportan_el_pago_pero_nunca_la_respuesta(self):
+        from pagos.models import CobroOnlineCuota
+
+        _ensuciar_para_exportar(self.gimnasio, self.staff)
+        CobroOnlineCuota.objects.filter(gimnasio=self.gimnasio).update(
+            payment_id="888000222", estado_mp="approved",
+            estado=CobroOnlineCuota.Estado.PAGADO,
+            respuesta_mp={"payer": {"email": "pagador-cuota@example.com"}},
+        )
+
+        zf, _ = _exportar(self.gimnasio)
+        filas = _filas(zf, "para-importar/cuotas_pagos_online.csv", ",")
+        todo = "\n".join(_textos(zf).values())
+
+        self.assertEqual(len(filas), 1)
+        self.assertEqual(filas[0]["payment_id"], "888000222")
+        self.assertEqual(filas[0]["estado"], "Pagado")
+        self.assertEqual(filas[0]["monto"], "28000.00")
+        self.assertNotIn("respuesta_mp", filas[0])
+        self.assertNotIn("pagador-cuota@example.com", todo)
+
     def test_las_dos_carpetas_formatean_distinto_los_mismos_datos(self):
         _ensuciar_para_exportar(self.gimnasio, self.staff)
         zf, _ = _exportar(self.gimnasio)
@@ -264,6 +285,27 @@ class ContenidoDelZipTests(ExportacionBase):
         self.assertTrue(alumno_importar["observaciones"].startswith("=HYPERLINK"))
         self.assertEqual(alumno_excel["tiene_discapacidad"], "No")
         self.assertEqual(alumno_importar["tiene_discapacidad"], "false")
+
+    def test_exporta_los_precios_de_la_cuota(self):
+        alumno = _ensuciar_para_exportar(self.gimnasio, self.staff)
+        alumno.precio_cuota = Decimal("15000.50")
+        alumno.save()
+        self.gimnasio.precio_cuota = Decimal("28000")
+        self.gimnasio.save()
+
+        zf, _ = _exportar(self.gimnasio)
+
+        gimnasio = _filas(zf, "para-importar/gimnasio.csv", ",")[0]
+        self.assertEqual(gimnasio["precio_cuota"], "28000.00")
+        self.assertEqual(gimnasio["cuotas_con_mercadopago"], "false")
+        self.assertEqual(
+            _filas(zf, "para-excel/gimnasio.csv", ";")[0]["precio_cuota"], "28000,00"
+        )
+        alumnos = _filas(zf, "para-importar/alumnos.csv", ",")
+        self.assertEqual(
+            {fila["id"]: fila["precio_cuota"] for fila in alumnos}[str(alumno.pk)],
+            "15000.50",
+        )
 
     def test_los_acentos_abren_bien_en_excel(self):
         """Sin BOM, Excel lee UTF-8 como Latin-1 y «Ñandú» sale «Ã‘andÃº»."""

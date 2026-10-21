@@ -37,6 +37,8 @@ drogas, servicios sexuales, armas, trata. Hoy no hay ninguna moderación:
 - No se modera el logo ni el fondo del gimnasio. Queda anotado en `ISSUES.md` como riesgo
   aceptado.
 - Las cuotas por Mercado Pago son un proyecto aparte y van después.
+  *(Actualización 2026-10-20: ese proyecto se construyó aparte, a la misma cuenta MP del
+  gimnasio; no cambia nada de esta spec. Ver `ARQUITECTURA.md` § «Cuotas por Mercado Pago».)*
 
 ## Anti-objetivos (fallaría aunque «ande»)
 

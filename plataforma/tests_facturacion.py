@@ -285,8 +285,8 @@ class KpiEnPesosTests(TestCase):
 
         kpis = facturacion.kpis(filas, cotizacion=self.COTIZACION)
 
-        self.assertEqual(kpis["ingreso_mensual_usd"], 10)
-        self.assertEqual(kpis["ingreso_mensual_ars"], Decimal("15000.00"))
+        self.assertEqual(kpis["ingreso_mensual_usd"], 15)
+        self.assertEqual(kpis["ingreso_mensual_ars"], Decimal("22500.00"))
 
 
 class RegistrarPagoViewTests(TestCase):
@@ -327,9 +327,9 @@ class RegistrarPagoViewTests(TestCase):
             inicial = self.client.get(self._url()).context["form"].initial
 
         self.assertEqual(inicial["alumnos_activos"], 120)
-        self.assertEqual(inicial["monto_usd"], 15)
+        self.assertEqual(inicial["monto_usd"], 20)
         self.assertEqual(inicial["tipo_cambio"], Decimal("1536.50"))
-        self.assertEqual(inicial["monto_ars"], Decimal("23047.50"))
+        self.assertEqual(inicial["monto_ars"], Decimal("30730.00"))
         self.assertEqual(inicial["periodo_desde"], date(2026, 5, 17))
         self.assertEqual(inicial["periodo_hasta"], date(2026, 6, 15))
 
@@ -337,7 +337,7 @@ class RegistrarPagoViewTests(TestCase):
         with patch("plataforma.cambio.cotizacion_dolar", return_value=None):
             inicial = self.client.get(self._url()).context["form"].initial
 
-        self.assertEqual(inicial["monto_usd"], 15)
+        self.assertEqual(inicial["monto_usd"], 20)
         self.assertIsNone(inicial.get("tipo_cambio"))
         self.assertIsNone(inicial.get("monto_ars"))
 

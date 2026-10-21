@@ -70,6 +70,13 @@
     </div>
   {% endif %}
 
+  {% if cuotas_mp_a_revisar %}
+    <div class="tarjeta aviso-urgente">
+      <h2>Cuotas pagadas con Mercado Pago</h2>
+      <p><a href="{% url 'pagos:online' %}?filtro=revisar">{{ cuotas_mp_a_revisar }} pago{{ cuotas_mp_a_revisar|pluralize }} de Mercado Pago para revisar</a></p>
+    </div>
+  {% endif %}
+
   {% if tienda_contadores %}
     <div class="tarjeta aviso-urgente">
       <h2>Pedidos de la tienda</h2>
@@ -980,10 +987,18 @@
           (la del {{ bloqueo.cuota.periodo_inicio|date:"d/m/Y" }}), así que la
           rutina y los turnos quedaron en pausa.
         </p>
-        <p>
-          Subí el comprobante acá abajo y el gimnasio te reactiva todo apenas
-          lo confirme. Si ya pagaste, avisale al gimnasio.
-        </p>
+        {% if cobro_mp_disponible %}
+          <p>
+            Pagá con Mercado Pago acá abajo y se reactiva todo al instante, o
+            subí el comprobante y el gimnasio lo reactiva apenas lo confirme.
+            Si ya pagaste, avisale al gimnasio.
+          </p>
+        {% else %}
+          <p>
+            Subí el comprobante acá abajo y el gimnasio te reactiva todo apenas
+            lo confirme. Si ya pagaste, avisale al gimnasio.
+          </p>
+        {% endif %}
       </div>
     {% endif %}
 
@@ -1001,7 +1016,7 @@
         <h2>Tu código para entrar</h2>
         {% if codigo_ingreso.vigente %}
           {% if aviso_deuda_en_puerta %}
-            <p>Con la cuota pendiente, la puerta no te va a dejar pasar hasta que el gimnasio registre el pago.</p>
+            <p>Con la cuota pendiente, la puerta no te va a dejar pasar hasta que el gimnasio registre el pago.{% if cobro_mp_disponible %} Si la pagás con Mercado Pago, se habilita al instante.{% endif %}</p>
           {% else %}
             <p class="texto-suave">Mostralo en el lector de la puerta.</p>
           {% endif %}
@@ -1021,7 +1036,8 @@
       {% if bloqueo %}
         <p class="texto-suave">
           Vas a volver a ver tu rutina cuando el gimnasio registre el pago de
-          tu cuota.
+          tu cuota.{% if cobro_mp_disponible %} Si la pagás con Mercado Pago,
+          se habilita al instante.{% endif %}
         </p>
       {% elif rutina_actual %}
         <p><strong>{{ rutina_actual.nombre_snapshot }}</strong></p>

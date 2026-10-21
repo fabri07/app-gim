@@ -127,7 +127,7 @@ class CrearIntentoTests(BaseServicios):
         self.assertEqual(intento.periodo_desde, hoy - timedelta(days=10))
         self.assertEqual(intento.periodo_hasta, hoy + timedelta(days=19))
         self.assertEqual(intento.monto_usd, Decimal(precios.precio_usd(5)))
-        self.assertEqual(intento.monto_ars, Decimal("12000.00"))
+        self.assertEqual(intento.monto_ars, Decimal("18000.00"))
         self.assertEqual(intento.tipo_cambio, Decimal("1200.00"))
         self.assertEqual(intento.alumnos_activos, 5)
         self.assertEqual(intento.preference_id, "pref-1")

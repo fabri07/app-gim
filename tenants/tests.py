@@ -498,8 +498,8 @@ class PortadaViewTests(TestCase):
         # Los tres montos (el markup separa "USD" del número, así que se
         # verifica el número dentro de su span) y los tres tramos.
         # Se busca el número DENTRO de su span: con el precio de lista
-        # tachado (que también es 20) un ">20</span>" a secas pasaba igual.
-        for monto in (10, 15, 20):
+        # tachado (que también fue 20) un ">20</span>" a secas pasaba igual.
+        for monto in (15, 20, 25):
             self.assertContains(response, f'class="portada__precio-num">{monto}</span>')
         self.assertContains(response, "Hasta 100 alumnos")
         self.assertContains(response, "De 101 a 300 alumnos")
@@ -554,7 +554,7 @@ class PortadaViewTests(TestCase):
         )
         # Los tramos no cambian por el adicional.
         self.assertEqual(
-            [f["precio_usd"] for f in response.context["precios_filas"]], [10, 15, 20]
+            [f["precio_usd"] for f in response.context["precios_filas"]], [15, 20, 25]
         )
 
     @override_settings(TIENDA_MP_ENABLED=False)
@@ -801,6 +801,52 @@ class TenantIsolationTests(TestCase):
 
         self.assertEqual(perfil.gimnasio, gimnasio_a)
         self.assertNotEqual(perfil.gimnasio, gimnasio_b)
+
+
+class CobroOnlineCuotaAislamientoTests(TestCase):
+    """`pagos.CobroOnlineCuota`: un gimnasio no ve los cobros online de otro, y
+    un cobro no se puede colgar de la cuota de otro gimnasio."""
+
+    def setUp(self):
+        from pagos.models import CobroOnlineCuota
+
+        self.gimnasio_a = Gimnasio.objects.create(nombre="A", slug="a")
+        self.gimnasio_b = Gimnasio.objects.create(nombre="B", slug="b")
+        alumno_a = Alumno.objects.create(gimnasio=self.gimnasio_a, nombre="Ana", apellido="A")
+        alumno_b = Alumno.objects.create(gimnasio=self.gimnasio_b, nombre="Bea", apellido="B")
+        self.cuota_a = crear_cuota(
+            gimnasio=self.gimnasio_a, alumno=alumno_a, inicio=date(2026, 3, 1)
+        )
+        self.cuota_b = crear_cuota(
+            gimnasio=self.gimnasio_b, alumno=alumno_b, inicio=date(2026, 3, 1)
+        )
+        self.cobro_a = CobroOnlineCuota.objects.create(
+            gimnasio=self.gimnasio_a, cuota=self.cuota_a, monto=Decimal("100")
+        )
+        self.cobro_b = CobroOnlineCuota.objects.create(
+            gimnasio=self.gimnasio_b, cuota=self.cuota_b, monto=Decimal("200")
+        )
+
+    def test_cada_gimnasio_ve_solo_sus_cobros_online(self):
+        from pagos.models import CobroOnlineCuota
+
+        self.assertEqual(
+            list(CobroOnlineCuota.objects.for_gimnasio(self.gimnasio_a)), [self.cobro_a]
+        )
+        self.assertEqual(
+            list(CobroOnlineCuota.objects.for_gimnasio(self.gimnasio_b)), [self.cobro_b]
+        )
+
+    def test_no_se_puede_colgar_de_la_cuota_de_otro_gimnasio(self):
+        from django.core.exceptions import ValidationError
+
+        from pagos.models import CobroOnlineCuota
+
+        cobro = CobroOnlineCuota(
+            gimnasio=self.gimnasio_a, cuota=self.cuota_b, monto=Decimal("1")
+        )
+        with self.assertRaises(ValidationError):
+            cobro.full_clean()
 
 
 class TourOnboardingDisponibleTests(TestCase):
@@ -1467,7 +1513,8 @@ class HomeViewAlumnoTests(TestCase):
         response = self.client.get(reverse("home"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "15000")
+        # Miles con punto y sin «,00» (T7 de cuotas por MP): «$ 15.000».
+        self.assertContains(response, "$ 15.000")
         self.assertContains(response, "gimnasio.alfa")
         self.assertContains(response, "Juan Pérez")
         self.assertContains(response, "Mercado Pago")
@@ -4256,6 +4303,23 @@ class SembrarDemoAccesosTests(TestCase):
 
         self.assertEqual(Pedido.objects.count(), 0)
 
+    def test_borrar_no_revienta_si_una_cuota_de_demo_tiene_un_cobro_online(self):
+        """`CobroOnlineCuota.cuota` es PROTECT: sin sacar los cobros online
+        antes que las cuotas, `--borrar` levanta `ProtectedError`."""
+        from pagos.models import CobroOnlineCuota
+
+        self._sembrar(alumnos=2, meses=1)
+        cuota = Cuota.objects.filter(
+            gimnasio=self.gimnasio, alumno__observaciones="[demo]"
+        ).first()
+        CobroOnlineCuota.objects.create(
+            gimnasio=self.gimnasio, cuota=cuota, monto=Decimal("28000")
+        )
+
+        self._sembrar(borrar=True)
+
+        self.assertEqual(CobroOnlineCuota.objects.count(), 0)
+
     def test_sembrar_demo_borrar_con_una_denuncia_no_revienta(self):
         """`DenunciaProducto.producto` es PROTECT y `alumno` SET_NULL: `--borrar`
         tiene que poder sacar alumnos y productos de demo con una denuncia."""
@@ -4422,7 +4486,7 @@ def _ensuciar(gimnasio, staff, marca="X"):
     )
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
-    from pagos.models import Cuota, MedioCobro
+    from pagos.models import CobroOnlineCuota, Cuota, MedioCobro
     from rutinas.models import RutinaAsignada, RutinaPlantilla, RutinaPlantillaItem
     from tenants.models import RegistroSuplantacion
     from turnos.models import (
@@ -4477,11 +4541,17 @@ def _ensuciar(gimnasio, staff, marca="X"):
         gimnasio=gimnasio, plantilla=plantilla, alumno=alumno,
         fecha_inicio=timezone.localdate(),
     )
-    crear_cuota(
+    cuota = crear_cuota(
         gimnasio=gimnasio,
         alumno=alumno,
         inicio=timezone.localdate() - timedelta(days=3),
         estado=Cuota.Estado.PENDIENTE,
+    )
+    # El cobro online protege a la cuota (PROTECT): ejercita que
+    # `vaciar_gimnasio` y `borrar_demo` lo borren ANTES que las cuotas.
+    CobroOnlineCuota.objects.create(
+        gimnasio=gimnasio, cuota=cuota, monto=Decimal("28000"),
+        mp_user_id=f"mp-{marca}",
     )
     Reserva.objects.create(
         gimnasio=gimnasio, alumno=alumno,
@@ -4929,6 +4999,28 @@ class RestaurarDemoTests(TestCase):
             "corrida.",
         )
         self.assertTrue(User.objects.filter(pk=self.staff.pk).exists())
+
+    def test_repone_el_precio_de_la_cuota_y_apaga_las_cuotas_por_mercadopago(self):
+        """El precio canónico es el de las cuotas que siembra `sembrar_demo`:
+        si un prospecto lo cambia, el siguiente vería un precio que no
+        coincide con ninguna cuota."""
+        from decimal import Decimal
+
+        from pagos.models import Cuota
+
+        self.demo.precio_cuota = Decimal("1")
+        self.demo.cuotas_con_mercadopago = True
+        self.demo.save()
+
+        self._restaurar(alumnos=3, meses=1)
+
+        self.demo.refresh_from_db()
+        self.assertEqual(self.demo.precio_cuota, Decimal("28000"))
+        self.assertFalse(self.demo.cuotas_con_mercadopago)
+        self.assertEqual(
+            set(Cuota.objects.for_gimnasio(self.demo).values_list("monto", flat=True)),
+            {Decimal("28000")},
+        )
 
     def test_no_toca_el_slug_ni_la_marca_de_demo(self):
         """El slug es la URL pública que se le pasa a los prospectos, y

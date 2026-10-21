@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% block title %}Pagos con Mercado Pago · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+{% comment %}
+Los cobros de cuotas por Mercado Pago que movieron plata (`pagos.views.CobroOnlineListView`).
+Las acciones son forms POST con su propio cartel: nunca un 4xx bajo `hx-boost`.
+Sin datos del pagador: sólo el número de pago de Mercado Pago.
+{% endcomment %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Pagos con Mercado Pago</h1>
+    <a class="boton-secundario" href="{% url 'pagos:listado' %}">Volver a pagos</a>
+  </div>
+
+  <p class="texto-suave">
+    Las cuotas que tus alumnos pagaron con Mercado Pago. Las devoluciones se
+    hacen desde tu cuenta de Mercado Pago; acá marcás lo que ya resolviste.
+  </p>
+
+  <nav class="acciones-lista" aria-label="Filtrar pagos con Mercado Pago">
+    <a class="{% if filtro == 'todos' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=todos">Todos ({{ contadores.total }})</a>
+    <a class="{% if filtro == 'revisar' %}boton{% else %}boton-secundario{% endif %}" href="?filtro=revisar">Revisar ({{ contadores.a_revisar }})</a>
+  </nav>
+
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Alumno</th>
+          <th>Período</th>
+          <th>Monto</th>
+          <th>Fecha</th>
+          <th>Estado</th>
+          <th>N° de pago</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for intento in intentos %}
+          <tr>
+            <td>{{ intento.cuota.alumno }}</td>
+            <td>{{ intento.cuota.periodo_inicio|date:"d/m/Y" }} al {{ intento.cuota.periodo_fin|date:"d/m/Y" }}</td>
+            <td><span class="tabular-nums whitespace-nowrap">$ {{ intento.monto|floatformat:"-2g" }}</span></td>
+            <td>{{ intento.acreditado_en|default:intento.creado|date:"d/m/Y H:i" }}</td>
+            <td>
+              {% if intento.estado == "pagado" %}
+                <span class="badge badge--ok">{{ intento.get_estado_display }}</span>
+              {% else %}
+                <span class="badge badge--alerta">{{ intento.get_estado_display }}</span>
+              {% endif %}
+              {% if intento.revision_pendiente %}<span class="badge badge--alerta">Para revisar</span>{% endif %}
+            </td>
+            <td>{{ intento.payment_id|default:"—" }}</td>
+            <td>
+              {% if intento.explicacion %}<p>{{ intento.explicacion }}</p>{% endif %}
+              {% for adicional in intento.adicionales %}
+                <p>El alumno pagó dos veces: devolvé el pago N° {{ adicional }} desde Mercado Pago.</p>
+              {% endfor %}
+              {% if intento.revision_pendiente %}
+                <form method="post" action="{% url 'pagos:online_resuelto' intento.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="filtro" value="{{ filtro }}">
+                  <button type="submit" class="boton-secundario">Ya lo resolví</button>
+                </form>
+              {% endif %}
+              {% if intento.puede_volver_a_impaga %}
+                <form method="post" action="{% url 'pagos:volver_a_impaga' intento.cuota_id %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="volver_a" value="online">
+                  <button type="submit" class="boton-secundario">Volver a impaga</button>
+                </form>
+              {% endif %}
+              {% if intento.cuota.estado == "anulado" %}
+                <a href="{% url 'pagos:anular' intento.cuota_id %}">Reactivar la cuota</a>
+              {% elif intento.cuota.estado == "pagado" %}
+                <a href="{% url 'pagos:confirmar' intento.cuota_id %}">Editar la cuota</a>
+              {% else %}
+                <a href="{% url 'pagos:confirmar' intento.cuota_id %}">Confirmar</a>
+                &middot; <a href="{% url 'pagos:monto' intento.cuota_id %}">Corregir monto</a>
+                &middot; <a href="{% url 'pagos:anular' intento.cuota_id %}">Anular</a>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="7" class="texto-suave">
+              {% if filtro == 'revisar' %}No hay pagos para revisar.{% else %}Todavía no hay pagos con Mercado Pago.{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+    <nav class="acciones-lista" aria-label="Paginación">
+      {% if page_obj.has_previous %}<a href="?filtro={{ filtro }}&amp;page={{ page_obj.previous_page_number }}">Anterior</a>{% endif %}
+      <span class="texto-suave">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}<a href="?filtro={{ filtro }}&amp;page={{ page_obj.next_page_number }}">Siguiente</a>{% endif %}
+    </nav>
+  {% endif %}
+</div>
+{% endblock %}

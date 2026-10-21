@@ -243,7 +243,24 @@ def notificar_comprobante_subido(pago) -> None:
     notificar_a_gimnasio(pago.gimnasio, payload, rol=Perfil.Rol.STAFF)
 
 
-def notificar_pago_por_vencer(pago) -> None:
+def _pesos(monto):
+    """`$ 28.000` (o `$ 28.000,50`): como se lee un precio en Argentina."""
+    entero = monto == monto.to_integral_value()
+    texto = f"{monto:,.0f}" if entero else f"{monto:,.2f}"
+    return "$ " + texto.replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def _con_mercadopago(pago, cobro_online):
+    """El agregado «$X · podés pagarla con Mercado Pago» de los avisos de
+    cuota. `cobro_online` lo calcula quien llama UNA vez por gimnasio
+    (`pagos.cobro_mp.gimnasios_con_cobro_online`), nunca una query por cuota.
+    Una cuota en $0 no tiene botón de pago: no se menciona."""
+    if not cobro_online or not pago.monto or pago.monto <= 0:
+        return ""
+    return f" {_pesos(pago.monto)} · podés pagarla con Mercado Pago."
+
+
+def notificar_pago_por_vencer(pago, *, cobro_online=False) -> None:
     # Orden a propósito: primero confirmar que se puede entregar (el alumno
     # tiene Perfil), recién después marcar "ya notificado". Si el dedup se
     # marcara antes, un alumno sin acceso al portal todavía quedaría sin
@@ -274,14 +291,17 @@ def notificar_pago_por_vencer(pago) -> None:
 
     payload = {
         "title": "Tu cuota está por vencer",
-        "body": f"La cuota del {pago.periodo_inicio:%d/%m} al {pago.periodo_fin:%d/%m}. {aviso}",
+        "body": (
+            f"La cuota del {pago.periodo_inicio:%d/%m} al {pago.periodo_fin:%d/%m}. {aviso}"
+            f"{_con_mercadopago(pago, cobro_online)}"
+        ),
         "url": "/",
         "icon": _icono_url(pago.gimnasio),
     }
     notificar_a_usuario(usuario, payload)
 
 
-def notificar_pago_vencido(pago) -> None:
+def notificar_pago_vencido(pago, *, cobro_online=False) -> None:
     if pago.alumno.perfil_id is None:
         return
     usuario = pago.alumno.perfil.usuario
@@ -292,6 +312,7 @@ def notificar_pago_vencido(pago) -> None:
         "body": (
             f"La cuota del {pago.periodo_inicio:%d/%m} al "
             f"{pago.periodo_fin:%d/%m} ya venció."
+            f"{_con_mercadopago(pago, cobro_online)}"
         ),
         "url": "/",
         "icon": _icono_url(pago.gimnasio),
@@ -299,7 +320,7 @@ def notificar_pago_vencido(pago) -> None:
     notificar_a_usuario(usuario, payload)
 
 
-def notificar_acceso_bloqueado(pago) -> None:
+def notificar_acceso_bloqueado(pago, *, cobro_online=False) -> None:
     """Le avisa al alumno el día que se le corta el acceso.
 
     Va aparte de `notificar_pago_vencido` porque son dos cosas distintas y en
@@ -314,12 +335,21 @@ def notificar_acceso_bloqueado(pago) -> None:
         pago.gimnasio, RecordatorioEnviado.Tipo.ACCESO_BLOQUEADO, pago.pk
     ):
         return
-    payload = {
-        "title": "Se pausó el acceso a tu rutina",
-        "body": (
+    mercadopago = _con_mercadopago(pago, cobro_online)
+    if mercadopago:
+        cuerpo = (
+            "Tenés una cuota sin pagar. Pagala desde la app y se reactiva al "
+            "instante, o subí el comprobante y el gimnasio te reactiva la rutina "
+            f"y los turnos.{mercadopago}"
+        )
+    else:
+        cuerpo = (
             "Tenés una cuota sin pagar. Subí el comprobante desde la app y el "
             "gimnasio te reactiva la rutina y los turnos."
-        ),
+        )
+    payload = {
+        "title": "Se pausó el acceso a tu rutina",
+        "body": cuerpo,
         "url": "/",
         "icon": _icono_url(pago.gimnasio),
     }
@@ -478,26 +508,100 @@ def notificar_pedido_al_alumno(pedido, aviso) -> None:
 _AVISOS_CUENTA_MP = {
     "conectada": (
         "Mercado Pago conectado",
-        "{quien} conectó la cuenta de Mercado Pago de la tienda.",
+        "{quien} conectó la cuenta de Mercado Pago del gimnasio.",
     ),
     "reconectar": (
         "Hay que reconectar Mercado Pago",
-        "La conexión con Mercado Pago de la tienda dejó de funcionar: "
-        "reconectala desde la configuración de la tienda.",
+        "La conexión con Mercado Pago del gimnasio dejó de funcionar: "
+        "tocá acá para reconectarla.",
     ),
 }
 
 
 def notificar_cuenta_mp(gimnasio, aviso, quien="") -> None:
-    """Avisos de la cuenta de Mercado Pago de la tienda, a TODO el staff.
-    `rol` explícito SIEMPRE: el default `None` le avisa también a los alumnos.
-    Que cualquier staff pueda conectar la cuenta es la razón del aviso: nadie
-    desvía las ventas en silencio."""
+    """Avisos de la cuenta de Mercado Pago del gimnasio (la de la tienda y las
+    cuotas), a TODO el staff. `rol` explícito SIEMPRE: el default `None` le
+    avisa también a los alumnos. Que cualquier staff pueda conectar la cuenta
+    es la razón del aviso: nadie desvía los cobros en silencio. La URL es la
+    de `tienda.cuenta_mp.url_cuenta_mp`: sin el add-on, «Mi gimnasio»."""
+    # Import tardío: `tienda.cuenta_mp` importa este módulo.
+    from tienda.cuenta_mp import url_cuenta_mp
+
     titulo, cuerpo = _AVISOS_CUENTA_MP[aviso]
     payload = {
         "title": titulo,
         "body": cuerpo.format(quien=quien or "Alguien del equipo"),
-        "url": reverse("tienda:configuracion"),
+        "url": url_cuenta_mp(gimnasio),
         "icon": _icono_url(gimnasio),
     }
     notificar_a_gimnasio(gimnasio, payload, rol=Perfil.Rol.STAFF)
+
+
+# --- Cuotas cobradas por Mercado Pago (`pagos.cobro_mp`, en `on_commit`) ------
+
+_AVISOS_CUOTA_MP_STAFF = {
+    "pago_mp": (
+        "Cuota pagada con Mercado Pago",
+        "{alumno} pagó con Mercado Pago la cuota del {inicio} ($ {monto}).",
+    ),
+    "revisar_mp": (
+        "Pago de cuota para revisar",
+        "Mercado Pago cobró la cuota del {inicio} de {alumno} pero hay algo para revisar.",
+    ),
+    "pago_duplicado": (
+        "Cuota cobrada dos veces",
+        "La cuota del {inicio} de {alumno} se cobró dos veces: devolvé uno desde Mercado Pago.",
+    ),
+    "devuelto_mp": (
+        "Pago de cuota devuelto",
+        "Mercado Pago devolvió el pago de la cuota del {inicio} de {alumno}.",
+    ),
+}
+
+_AVISOS_CUOTA_MP_ALUMNO = {
+    "pago_mp": (
+        "Recibimos el pago de tu cuota",
+        "Tu cuota del {inicio} al {fin} quedó paga.",
+    ),
+    "revisar": (
+        "Recibimos tu pago",
+        "Recibimos el pago de tu cuota por Mercado Pago: el gimnasio te va a contactar.",
+    ),
+}
+
+
+def notificar_cuota_mp_al_staff(intento, aviso) -> None:
+    """`intento` es un `pagos.CobroOnlineCuota` con la cuota y el alumno."""
+    titulo, cuerpo = _AVISOS_CUOTA_MP_STAFF[aviso]
+    cuota = intento.cuota
+    payload = {
+        "title": titulo,
+        "body": cuerpo.format(
+            alumno=cuota.alumno,
+            inicio=f"{cuota.periodo_inicio:%d/%m}",
+            monto=floatformat(intento.monto, "2g"),
+        ),
+        # Un pago normal lleva a la pantalla; todo lo demás, a lo que hay
+        # que revisar.
+        "url": reverse("pagos:online")
+        + ("" if aviso == "pago_mp" else "?filtro=revisar"),
+        "icon": _icono_url(intento.gimnasio),
+    }
+    # `rol` explícito SIEMPRE: el default `None` le avisa también a los alumnos.
+    notificar_a_gimnasio(intento.gimnasio, payload, rol=Perfil.Rol.STAFF)
+
+
+def notificar_cuota_mp_al_alumno(intento, aviso) -> None:
+    cuota = intento.cuota
+    if cuota.alumno.perfil_id is None:
+        return
+    titulo, cuerpo = _AVISOS_CUOTA_MP_ALUMNO[aviso]
+    payload = {
+        "title": titulo,
+        "body": cuerpo.format(
+            inicio=f"{cuota.periodo_inicio:%d/%m}", fin=f"{cuota.periodo_fin:%d/%m}"
+        ),
+        "url": "/",
+        "icon": _icono_url(intento.gimnasio),
+    }
+    notificar_a_usuario(cuota.alumno.perfil.usuario, payload)

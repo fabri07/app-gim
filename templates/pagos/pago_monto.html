@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Corregir monto · App Gimnasios{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Corregir monto</h1>
+  <p class="texto-suave">{{ cuota.alumno }} &middot; {{ cuota.periodo_inicio|date:"d/m/Y" }} al {{ cuota.periodo_fin|date:"d/m/Y" }}</p>
+  <p>
+    Cambia lo que se le cobra al alumno por esta cuota. Si tenía un link de
+    pago de Mercado Pago abierto, queda cancelado: el próximo que genere ya
+    cobra el monto nuevo.
+  </p>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div>
+      <label for="{{ form.monto.id_for_label }}">{{ form.monto.label }}</label>
+      {{ form.monto }}
+      {% if form.monto.errors %}<p class="config-error">{{ form.monto.errors.0 }}</p>{% endif %}
+    </div>
+    <button type="submit" class="boton">Guardar monto</button>
+    <a class="boton-secundario" href="{% url 'pagos:listado' %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}

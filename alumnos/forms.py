@@ -13,6 +13,7 @@ from core.forms import TenantScopedModelForm
 from alumnos import identidad
 from alumnos.ciclo import DIAS_MAX_INICIO_FUTURO, rango_inicio_ciclo
 from alumnos.models import Alumno
+from pagos.precios import precio_sin_centavos_en_cero
 
 AVISO_SIN_INICIO = (
     "Este alumno vino de una importación y todavía no tiene fecha de inicio: "
@@ -31,6 +32,7 @@ class AlumnoForm(TenantScopedModelForm):
             "fecha_nacimiento",
             "estado",
             "fecha_inicio_ciclo",
+            "precio_cuota",
             "sexo",
             "actividad_fisica_previa",
             "frecuencia_actividad_previa",
@@ -69,6 +71,11 @@ class AlumnoForm(TenantScopedModelForm):
         # que omita el campo falla de forma visible en vez de guardar a
         # medias.
         self.fields["fecha_inicio_ciclo"].required = True
+        # «28000» y no «28000.00» en el input (`precio_sin_centavos_en_cero`).
+        if not self.is_bound:
+            self.initial["precio_cuota"] = precio_sin_centavos_en_cero(
+                self.instance.precio_cuota
+            )
 
         # Un alumno importado nace SIN ancla, y la ficha la exige para guardar
         # cualquier otro dato. Sin explicarlo, el staff que solo quería

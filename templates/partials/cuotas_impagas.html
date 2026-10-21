@@ -5,7 +5,13 @@ Son TODAS las impagas y no solo la del ciclo en curso: si al alumno lo bloquea
 una cuota anterior y en pantalla solo aparece la actual, le sube el comprobante
 a la equivocada y sigue bloqueado sin entender por qué.
 
-Contexto esperado: `cuotas_impagas`, `medios_cobro`, `gimnasio`.
+Contexto esperado: `cuotas_impagas`, `medios_cobro`, `gimnasio` y
+`cobro_mp_disponible` (`pagos.cobro_mp.cobro_online_disponible`, falso si el
+staff está suplantando al alumno).
+
+«Pagar con Mercado Pago» es un form POST (un link no puede abrir un cobro) con
+`hx-boost="false"`: termina en un redirect a otro dominio (Mercado Pago), que
+bajo el boost global no se sigue.
 {% endcomment %}
 {% if cuotas_impagas %}
   <ul class="lista-cuotas">
@@ -17,7 +23,13 @@ Contexto esperado: `cuotas_impagas`, `medios_cobro`, `gimnasio`.
         {% else %}
           <span class="badge badge--alerta">Pendiente</span>
         {% endif %}
-        {% if cuota.monto > 0 %}<span>$ {{ cuota.monto }}</span>{% endif %}
+        {% if cuota.monto > 0 %}<span class="whitespace-nowrap">$ {{ cuota.monto|floatformat:"-2g" }}</span>{% endif %}
+        {% if cobro_mp_disponible and cuota.monto > 0 %}
+          <form method="post" action="{% url 'pagos:pagar_mp' cuota.pk %}" hx-boost="false">
+            {% csrf_token %}
+            <button type="submit" class="boton">Pagar $ {{ cuota.monto|floatformat:"-2g" }} con Mercado Pago</button>
+          </form>
+        {% endif %}
         <a class="boton-secundario" href="{% url 'pagos:comprobante_subir' cuota.pk %}">Subir comprobante</a>
       </li>
     {% endfor %}

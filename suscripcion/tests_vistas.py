@@ -266,8 +266,8 @@ class MiSuscripcionTests(_Base):
             respuesta = self.client.get(reverse("suscripcion:mi_suscripcion"))
 
         html = respuesta.content.decode()
-        # 10 USD (escalón de hasta 100 alumnos) × 1557.
-        self.assertIn("$ 15.570,00", html)
+        # 15 USD (escalón de hasta 100 alumnos) × 1557.
+        self.assertIn("$ 23.355,00", html)
         self.assertNotIn("Ahora mismo no podemos calcular", html)
         self.assertNotRegex(html, r'<button[^>]*id="pagar"[^>]*disabled')
 

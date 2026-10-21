@@ -755,7 +755,7 @@ class RutinaAsignadaPdfView(
         return response
 
 
-def _cortar_si_esta_bloqueado(alumno):
+def _cortar_si_esta_bloqueado(alumno, gimnasio):
     """403 si el alumno tiene el acceso pausado por una cuota impaga.
 
     Es la defensa del servidor, no la UX: las plantillas directamente NO
@@ -763,10 +763,16 @@ def _cortar_si_esta_bloqueado(alumno):
     POST se puede repetir desde el historial o desde una pestaña vieja.
     """
     if acceso.bloqueo_de(alumno) is not None:
-        raise PermissionDenied(
+        from pagos import cobro_mp
+
+        mensaje = (
             "Tu acceso a la rutina está pausado hasta que se registre el pago "
             "de tu cuota."
         )
+        # Sin query con la bandera apagada (`cobro_online_disponible`).
+        if cobro_mp.cobro_online_disponible(gimnasio):
+            mensaje += " Si la pagás con Mercado Pago, se habilita al instante."
+        raise PermissionDenied(mensaje)
 
 
 class RutinaAsignadaItemCalificarView(AlumnoRequiredMixin, View):
@@ -787,7 +793,7 @@ class RutinaAsignadaItemCalificarView(AlumnoRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         if self.alumno is None:
             raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
-        _cortar_si_esta_bloqueado(self.alumno)
+        _cortar_si_esta_bloqueado(self.alumno, self.gimnasio)
         # Se resuelve PRIMERO la rutina vigente y después el item dentro de
         # ella, en vez de filtrar los items por un flag: así el criterio de
         # vigencia vive en un solo lugar (`vigente_de`) y no se reimplementa
@@ -831,12 +837,21 @@ class RutinaMiDiaDetailView(AlumnoRequiredMixin, View):
         # impaga y hay algo concreto que puede hacer.
         bloqueo = acceso.bloqueo_de(self.alumno)
         if bloqueo is not None:
+            from pagos import cobro_mp
+            from tenants import suplantacion
+
             return render(
                 request,
                 "rutinas/bloqueado.html",
                 {
                     "bloqueo": bloqueo,
                     "gimnasio": self.gimnasio,
+                    # Pagar por Mercado Pago es la salida más rápida del
+                    # bloqueo (ver `pagos.views.PagarCuotaMPView`).
+                    "cobro_mp_disponible": (
+                        not suplantacion.esta_activa(request)
+                        and cobro_mp.cobro_online_disponible(self.gimnasio)
+                    ),
                     "cuotas_impagas": acceso.cuotas_impagas_de(self.alumno),
                     "medios_cobro": MedioCobro.objects.for_gimnasio(
                         self.gimnasio
@@ -916,7 +931,7 @@ class RutinaAsignadaDiaCompletadoToggleView(AlumnoRequiredMixin, View):
     def post(self, request, *args, **kwargs):
         if self.alumno is None:
             raise PermissionDenied("Todavía no tenés una ficha de alumno vinculada.")
-        _cortar_si_esta_bloqueado(self.alumno)
+        _cortar_si_esta_bloqueado(self.alumno, self.gimnasio)
         dia = kwargs["dia"]
         semana = kwargs["semana"]
         # `vigente_de` y no "la activa": un plan programado a futuro NO se

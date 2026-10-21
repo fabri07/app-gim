@@ -74,7 +74,10 @@ INSTALLED_APPS = [
     #   alumnos    -> Alumno (sin dependencias de dominio)
     #   rutinas    -> RutinaPlantilla/Item, RutinaAsignada/Item (FK a ejercicios y alumnos)
     #   importaciones -> Importacion (FK a gymnastasio, usuario)
-    #   pagos      -> Cuota (FK a alumnos)
+    #   pagos      -> Cuota (FK a alumnos) y CobroOnlineCuota (cuotas por
+    #                 Mercado Pago). Lee `tienda` (CuentaMercadoPago,
+    #                 AcreditacionReintentable) con import tardío, dentro de
+    #                 las funciones: `tienda` carga después.
     #   novedades  -> Novedad (sin dependencias de dominio)
     #   turnos     -> ConfiguracionTurnos/HorarioAtencion/CupoExcepcion/Reserva (FK a alumnos)
     #   ingreso    -> ConfiguracionIngreso (control de ingreso por molinete/
@@ -96,8 +99,9 @@ INSTALLED_APPS = [
     #                 Variante, Pedido). Lee `pagos.MedioCobro` (datos de
     #                 transferencia) y, desde el Hito 2, el cliente de
     #                 `suscripcion/mercadopago.py`, así que va después de las dos.
-    #                 `tenants.views`, `tenants.demo` y `plataforma.views` la leen
-    #                 con import tardío (dentro de la función).
+    #                 `tenants.views`, `tenants.forms`, `tenants.demo`,
+    #                 `plataforma.views` y `pagos` la leen con import tardío
+    #                 (dentro de la función).
     'core',
     'tenants',
     'ejercicios',

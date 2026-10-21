@@ -35,14 +35,14 @@ class TiendaEnElPrecioTests(SimpleTestCase):
         self.assertEqual(precios.precio_tienda_usd_anual(False), 0)
 
     def test_mensual_con_tienda_suma_al_tramo(self):
-        self.assertEqual(precios.precio_usd(50, tienda=True), 30)
-        self.assertEqual(precios.precio_usd(120, tienda=True), 35)
-        self.assertEqual(precios.precio_usd(400, tienda=True), 40)
+        self.assertEqual(precios.precio_usd(50, tienda=True), 35)
+        self.assertEqual(precios.precio_usd(120, tienda=True), 40)
+        self.assertEqual(precios.precio_usd(400, tienda=True), 45)
 
     def test_anual_con_tienda_congela_tramo_y_tienda(self):
-        self.assertEqual(precios.precio_usd_anual(120, tienda=True), 350)
-        self.assertEqual(precios.precio_usd_anual_sin_descuento(120, tienda=True), 420)
-        self.assertEqual(precios.precio_usd_anual_sin_descuento(50, tienda=True), 360)
+        self.assertEqual(precios.precio_usd_anual(120, tienda=True), 400)
+        self.assertEqual(precios.precio_usd_anual_sin_descuento(120, tienda=True), 480)
+        self.assertEqual(precios.precio_usd_anual_sin_descuento(50, tienda=True), 420)
 
     def test_sin_tienda_devuelve_lo_de_siempre(self):
         for n in (0, 100, 101, 300, 301):
@@ -71,18 +71,18 @@ class TiendaEnElMonitorTests(TestCase):
         self._con_alumnos(gim, 120)
         filas = facturacion.filas_del_monitor(hoy=HOY)
 
-        self.assertEqual(filas[0].precio_usd, 15)
+        self.assertEqual(filas[0].precio_usd, 20)
         self.assertEqual(filas[0].tienda_usd, 0)
-        self.assertEqual(facturacion.kpis(filas)["ingreso_mensual_usd"], 15)
+        self.assertEqual(facturacion.kpis(filas)["ingreso_mensual_usd"], 20)
 
     def test_con_tienda_la_fila_trae_el_total_y_la_parte_de_la_tienda(self):
         gim = _gimnasio("Con Tienda", 45, tienda_habilitada=True)
         self._con_alumnos(gim, 120)
         filas = facturacion.filas_del_monitor(hoy=HOY)
 
-        self.assertEqual(filas[0].precio_usd, 35)
+        self.assertEqual(filas[0].precio_usd, 40)
         self.assertEqual(filas[0].tienda_usd, 20)
-        self.assertEqual(facturacion.kpis(filas)["ingreso_mensual_usd"], 35)
+        self.assertEqual(facturacion.kpis(filas)["ingreso_mensual_usd"], 40)
 
     def test_la_demo_con_tienda_prendida_igual_no_factura(self):
         _gimnasio("Demo", 45, es_demo=True, tienda_habilitada=True)
@@ -143,13 +143,13 @@ class PagoManualConTiendaTests(TestCase):
 
     def test_sin_tienda_el_precargado_es_el_de_siempre(self):
         inicial = self._inicial()
-        self.assertEqual(inicial["monto_usd"], 15)
+        self.assertEqual(inicial["monto_usd"], 20)
         self.assertEqual(inicial["monto_tienda_usd"], 0)
 
     def test_con_tienda_precarga_el_total_y_la_parte_de_la_tienda(self):
         Gimnasio.objects.filter(pk=self.gimnasio.pk).update(tienda_habilitada=True)
         inicial = self._inicial()
-        self.assertEqual(inicial["monto_usd"], 35)
+        self.assertEqual(inicial["monto_usd"], 40)
         self.assertEqual(inicial["monto_tienda_usd"], 20)
 
     def test_un_gimnasio_exento_no_precarga_tienda(self):
@@ -195,14 +195,14 @@ class PagoManualConTiendaTests(TestCase):
         ficha = self.client.get(
             reverse("plataforma:gimnasio_detalle", args=[self.gimnasio.pk])
         )
-        self.assertContains(ficha, "USD 35")
-        self.assertContains(ficha, "USD 15 del tramo + USD 20 de la tienda")
+        self.assertContains(ficha, "USD 40")
+        self.assertContains(ficha, "USD 20 del tramo + USD 20 de la tienda")
 
     def test_la_ficha_sin_tienda_no_desglosa(self):
         ficha = self.client.get(
             reverse("plataforma:gimnasio_detalle", args=[self.gimnasio.pk])
         )
-        self.assertContains(ficha, "USD 15")
+        self.assertContains(ficha, "USD 20")
         self.assertNotContains(ficha, "del tramo +")
         self.assertNotContains(ficha, "de la tienda)")
 

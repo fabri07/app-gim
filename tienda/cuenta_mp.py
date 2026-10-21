@@ -13,6 +13,7 @@ from datetime import timedelta
 
 from django.db import transaction
 from django.db.models import Q
+from django.urls import reverse
 from django.utils import timezone
 
 from notificaciones import services as avisos
@@ -27,6 +28,16 @@ logger = logging.getLogger(__name__)
 PLAZO_TOKENS_DESCONECTADA = timedelta(days=7)
 #: Se refrescan las cuentas a las que les quedan menos de 30 días de token.
 VENTANA_REFRESCO = timedelta(days=30)
+
+
+def url_cuenta_mp(gimnasio):
+    """Dónde se administra la cuenta de Mercado Pago de ESTE gimnasio: la
+    configuración de la tienda si tiene el add-on, «Mi gimnasio» si no (la
+    tienda le mostraría el cartel del add-on). La usan las vistas de conexión
+    y el push de `notificar_cuenta_mp`."""
+    if gimnasio.puede_usar_tienda:
+        return reverse("tienda:configuracion")
+    return reverse("gimnasio_editar") + "#mercadopago"
 
 
 def _sanitizar(exc):
