@@ -618,7 +618,10 @@ def link_de_pago(cuota_pk, alumno, *, url_retorno_para, url_notificacion_para, a
             # El token DEL GIMNASIO: sin él, la plata del alumno iría a la
             # cuenta de la plataforma (`pagos/tests_token_del_gimnasio.py`).
             token=Secreto(cuenta.access_token),
-            sandbox=cuenta.es_de_prueba,
+            # Sin `sandbox=cuenta.es_de_prueba`: un vendedor de prueba conectado
+            # por OAuth trae token `APP_USR-` y el checkout de sandbox sólo anda
+            # con `TEST-` (falla con «algo anduvo mal» sin crear el pago). Decide
+            # el prefijo del token; con `APP_USR-` MP simula el pago de prueba.
             # Sin «TUGIMAPP» en el resumen de la tarjeta del alumno: lo define
             # la cuenta del gimnasio.
             statement_descriptor=None,

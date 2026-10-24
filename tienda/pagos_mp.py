@@ -96,7 +96,10 @@ def crear_link_de_pago(pedido, *, url_retorno_para, url_notificacion_para):
             url_notificacion=url_notificacion_para(cuenta.uuid_webhook),
             expira=pedido.vence_preferencia,
             token=Secreto(cuenta.access_token),
-            sandbox=cuenta.es_de_prueba,
+            # Sin `sandbox=cuenta.es_de_prueba`: un vendedor de prueba conectado
+            # por OAuth trae token `APP_USR-` y el checkout de sandbox sólo anda
+            # con `TEST-` (falla con «algo anduvo mal» sin crear el pago). Decide
+            # el prefijo del token; con `APP_USR-` MP simula el pago de prueba.
             statement_descriptor=None,
         )
     except ErrorDeMercadoPago as exc:

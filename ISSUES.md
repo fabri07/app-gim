@@ -20,6 +20,11 @@ del log.
 
 ---
 
+## [2026-10-24] Mercado Pago: el pago del alumno fallaba siempre con el vendedor de prueba
+**Estado:** resuelto en código; falta repetir la prueba guiada con el cambio desplegado
+**Impacto:** en la prueba guiada el gimnasio de prueba conectaba bien, pero todo pago del alumno (tienda o cuota) fallaba en la pantalla de Mercado Pago, con saldo o tarjeta y en incógnito. Sentry no veía nada porque el pago nunca se creaba: el error queda del lado de MP. Causa: la cuenta se marcaba «de prueba» por `live_mode=false` y con eso se abría `sandbox_init_point`, pero el token de un vendedor de prueba conectado por OAuth es `APP_USR-`, y el checkout de sandbox sólo anda con tokens `TEST-` de la aplicación.
+**Resolución / próximo paso:** `tienda/pagos_mp.py` y `pagos/cobro_mp.py` ya no pasan `sandbox=cuenta.es_de_prueba`: el link sale del prefijo del token (`APP_USR-` → `init_point`, donde MP simula el pago entre usuarios de prueba). `es_de_prueba` sigue sirviendo para el cartel «cuenta de prueba». Tests de regresión en los dos lados (fallan sin el arreglo). La fuente es el reporte de otro proyecto con el mismo síntoma, no la documentación oficial de MP, que no lo dice: confirmarlo con la prueba guiada.
+
 ## [2026-10-20] Precios: los tramos suben a USD 15 / 20 / 25
 **Estado:** resuelto (decisión comercial del dueño del producto)
 **Impacto:** con el cobro de la cuota por Mercado Pago la app vale más: los

@@ -345,6 +345,15 @@ class CheckoutMPTests(_Base):
     def checkout(self, medio="mercadopago", **kwargs):
         return self.client.post(reverse("tienda:checkout"), {"medio": medio}, **kwargs)
 
+    def test_vendedor_de_prueba_con_token_app_usr_usa_el_link_normal(self):
+        # Un vendedor de prueba conectado por OAuth trae `APP_USR-`: el link de
+        # sandbox sólo anda con `TEST-` y el pago fallaba sin crearse.
+        resp = {"id": "pref-1", "init_point": "https://real", "sandbox_init_point": "https://sandbox"}
+        with mock.patch("suscripcion.mercadopago._pedir", return_value=resp):
+            r = self.checkout()
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "https://real")
+
     def test_feliz_redirige_a_mercadopago(self):
         with mock.patch(CREAR, return_value=PREFERENCIA) as crear, \
                 mock.patch("notificaciones.services.notificar_pedido_al_staff") as push, \
@@ -361,7 +370,7 @@ class CheckoutMPTests(_Base):
         kw = crear.call_args.kwargs
         self.assertIsInstance(kw["token"], Secreto)
         self.assertEqual(kw["token"].valor, "APP_USR-acceso")
-        self.assertIs(kw["sandbox"], True)
+        self.assertNotIn("sandbox", kw)
         self.assertIsNone(kw["statement_descriptor"])
         self.assertEqual(kw["expira"], pedido.vence_preferencia)
         self.assertEqual(kw["monto_ars"], Decimal("30000"))
