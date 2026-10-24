@@ -30,6 +30,7 @@
         <p class="texto-suave">
           {% if mp_conectada_por %}La conectó {{ mp_conectada_por }}{% else %}Conectada{% endif %}{% if cuenta_mp.conectada_en %} el {{ cuenta_mp.conectada_en|date:"d/m/Y H:i" }}{% endif %}.
           La plata de las ventas va directo a esa cuenta.
+          Para cambiar de cuenta, desconectá y volvé a conectar con la otra.
         </p>
         <form method="post" action="{% url 'tienda:mp_desconectar' %}">
           {% csrf_token %}
@@ -43,6 +44,7 @@
         {% endif %}
         {% comment %}Redirige a mercadopago.com.ar: con hx-boost global sería un click mudo.{% endcomment %}
         <p><a class="boton" href="{% url 'tienda:mp_conectar' %}" hx-boost="false">Conectar Mercado Pago</a></p>
+        {% include 'partials/mp_como_conectar.html' %}
       {% endif %}
     {% endif %}
   </div>

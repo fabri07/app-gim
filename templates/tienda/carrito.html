@@ -49,7 +49,7 @@
             </label>
             <label class="selector-fondo-tipo__opcion">
               <input type="radio" name="medio" value="mercadopago">
-              <span><strong>Mercado Pago</strong>: pagás ahora, con tarjeta o dinero en cuenta.</span>
+              <span><strong>Mercado Pago</strong>: pagás ahora, con tarjeta o dinero en cuenta. No necesitás tener cuenta de Mercado Pago.</span>
             </label>
           </fieldset>
           {% if error_medio %}<p class="config-error">Elegí cómo pagar: ese medio de pago no está disponible.</p>{% endif %}
@@ -57,7 +57,7 @@
           <button type="submit" class="boton w-full mt-2" :disabled="enviando">Confirmar pedido</button>
         </form>
       {% elif con_mercadopago %}
-        <p class="texto-suave">Pagás con Mercado Pago: tenés {{ config.minutos_reserva_mp }} minutos; si no, el pedido se cancela solo.</p>
+        <p class="texto-suave">Pagás con Mercado Pago (con tarjeta o dinero en cuenta; no necesitás tener cuenta): tenés {{ config.minutos_reserva_mp }} minutos; si no, el pedido se cancela solo.</p>
         {% if error_medio %}<p class="config-error">Elegí cómo pagar: ese medio de pago no está disponible.</p>{% endif %}
         <form method="post" action="{% url 'tienda:checkout' %}" hx-boost="false"
           x-data="{ enviando: false }" @submit="enviando = true" @pageshow.window="enviando = false">

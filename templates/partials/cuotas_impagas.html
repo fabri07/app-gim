@@ -35,5 +35,12 @@ bajo el boost global no se sigue.
     {% endfor %}
   </ul>
 
+  {% if cobro_mp_disponible %}
+    <p class="texto-suave mt-2">
+      Para pagar con Mercado Pago no necesitás tener cuenta: podés usar tarjeta
+      de crédito o débito, o tu dinero en cuenta si tenés.
+    </p>
+  {% endif %}
+
   {% include 'partials/medios_cobro.html' %}
 {% endif %}

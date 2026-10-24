@@ -1,0 +1,28 @@
+{% comment %}
+Instructivo corto para conectar Mercado Pago, debajo del botón «Conectar» (en
+Mi gimnasio y en la configuración de la tienda). Sólo se muestra sin cuenta
+conectada. Sin queries: `SOPORTE_CONTACTO` sale del context processor.
+{% endcomment %}
+<div class="mt-4">
+  <p><strong>Cómo se conecta</strong></p>
+  <ol class="list-decimal pl-5 space-y-2 mt-2">
+    <li>Tocá <strong>Conectar Mercado Pago</strong>. Se abre la página de Mercado Pago.</li>
+    <li>
+      Iniciá sesión con la cuenta de Mercado Pago <strong>del gimnasio</strong>:
+      la que tiene que recibir la plata. Si en este navegador ya tenés abierta
+      otra cuenta (por ejemplo, la personal), cerrá esa sesión antes o hacelo
+      en una ventana de incógnito.
+    </li>
+    <li>Mercado Pago te pide permiso para que la app cree cobros a tu nombre. Aceptá.</li>
+    <li>Volvés acá y la tarjeta dice <strong>Conectada</strong>. Listo: no hay que cargar claves ni copiar nada.</li>
+  </ol>
+  <p class="texto-suave mt-2">
+    Tus alumnos no necesitan cuenta de Mercado Pago: pueden pagar con tarjeta
+    de crédito o débito, o con dinero en cuenta si la tienen.
+  </p>
+  <p class="texto-suave mt-2">
+    Si te muestra un error, probá de nuevo en una ventana de incógnito. Si
+    sigue fallando, escribinos{% if SOPORTE_CONTACTO %} a {{ SOPORTE_CONTACTO }}{% endif %}
+    con el mensaje que te apareció.
+  </p>
+</div>

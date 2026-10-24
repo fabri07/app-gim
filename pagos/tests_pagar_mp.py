@@ -232,6 +232,15 @@ class QueriesConLaBanderaApagadaTests(_Base):
 
 
 class PagarTests(_Base):
+    def test_vendedor_de_prueba_con_token_app_usr_usa_el_link_normal(self):
+        # `es_de_prueba=True` con `APP_USR-`: el link de sandbox sólo anda con
+        # `TEST-` y el pago del alumno fallaba sin crearse.
+        resp = {"id": "pref-1", "init_point": "https://real", "sandbox_init_point": "https://sandbox"}
+        with mock.patch("suscripcion.mercadopago._pedir", return_value=resp):
+            r = self.client.post(reverse("pagos:pagar_mp", args=[self.cuota.pk]))
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(r["Location"], "https://real")
+
     def test_crea_el_link_con_el_token_del_gimnasio(self):
         r = self.pagar()
         self.assertEqual(r.status_code, 302)
@@ -243,7 +252,7 @@ class PagarTests(_Base):
         self.assertEqual(kw["referencia_externa"], f"cuota-{intento.referencia_externa}")
         self.assertEqual(kw["monto_ars"], Decimal("28000"))
         self.assertIsNone(kw["statement_descriptor"])
-        self.assertIs(kw["sandbox"], True)
+        self.assertNotIn("sandbox", kw)
         self.assertIn(str(self.cuenta.uuid_webhook), kw["url_notificacion"])
         self.assertEqual(
             kw["url_notificacion"],

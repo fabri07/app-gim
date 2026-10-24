@@ -225,6 +225,7 @@
         <p class="texto-suave">
           {% if mp_conectada_por %}La conectó {{ mp_conectada_por }}{% else %}Conectada{% endif %}{% if cuenta_mp.conectada_en %} el {{ cuenta_mp.conectada_en|date:"d/m/Y H:i" }}{% endif %}.
           La plata va directo a tu cuenta de Mercado Pago; sirve para la tienda y para las cuotas.
+          Para cambiar de cuenta, desconectá y volvé a conectar con la otra.
         </p>
         <form method="post" action="{% url 'tienda:mp_desconectar' %}" class="mt-4">
           {% csrf_token %}
@@ -238,6 +239,7 @@
           <p class="texto-suave">Desconectada. Conectá tu cuenta de Mercado Pago para cobrar online: la plata va directo a tu cuenta de Mercado Pago; sirve para la tienda y para las cuotas.</p>
         {% endif %}
         <p class="mt-4"><a class="boton" href="{% url 'tienda:mp_conectar' %}?desde=gimnasio" hx-boost="false">{% if mp_reconectar %}Reconectar Mercado Pago{% else %}Conectar Mercado Pago{% endif %}</a></p>
+        {% include 'partials/mp_como_conectar.html' %}
       {% endif %}
     {% endif %}
   </section>
