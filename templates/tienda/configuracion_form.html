@@ -32,6 +32,10 @@
           La plata de las ventas va directo a esa cuenta.
           Para cambiar de cuenta, desconectá y volvé a conectar con la otra.
         </p>
+        {# Mismo caso que el interruptor de cuotas en Mi gimnasio: arranca apagado y sólo se prende con la cuenta conectada. #}
+        {% if form.acepta_mercadopago and not form.acepta_mercadopago.initial %}
+          <p class="config-error">Tus alumnos todavía no pueden pagar la tienda por Mercado Pago: tildá <a href="#id_acepta_mercadopago">«Aceptar Mercado Pago»</a> arriba y guardá.</p>
+        {% endif %}
         <form method="post" action="{% url 'tienda:mp_desconectar' %}">
           {% csrf_token %}
           <button type="submit" class="boton-secundario">Desconectar</button>
