@@ -227,6 +227,15 @@
           La plata va directo a tu cuenta de Mercado Pago; sirve para la tienda y para las cuotas.
           Para cambiar de cuenta, desconectá y volvé a conectar con la otra.
         </p>
+        {% comment %}
+          El interruptor arranca apagado y no se puede prender antes de conectar:
+          sin este aviso, un dueño que conecta y no vuelve a «Cobros» nunca les
+          muestra el botón a sus alumnos. `.initial` es lo guardado (no lo
+          tipeado en un POST inválido) y no cuesta una query.
+        {% endcomment %}
+        {% if form.cuotas_con_mercadopago and not form.cuotas_con_mercadopago.initial %}
+          <p class="config-error mt-2">Tus alumnos todavía no pueden pagar la cuota por Mercado Pago: tildá <a href="#id_cuotas_con_mercadopago">«Cobrar cuotas con Mercado Pago»</a> en Cobros y tocá Guardar cambios.</p>
+        {% endif %}
         <form method="post" action="{% url 'tienda:mp_desconectar' %}" class="mt-4">
           {% csrf_token %}
           <input type="hidden" name="desde" value="gimnasio">

@@ -233,6 +233,21 @@ class FormYTarjetaTests(_Base):
             r, "Mercado Pago no está disponible: tus alumnos ven sólo transferencia."
         )
 
+    def test_conectada_sin_aceptar_mp_avisa_que_falta_prenderlo(self):
+        self.crear_cuenta()
+        r = self.client.get(reverse("tienda:configuracion"))
+        self.assertContains(r, "Tus alumnos todavía no pueden pagar la tienda por Mercado Pago")
+        self.assertContains(r, 'href="#id_acepta_mercadopago"')
+        self.assertContains(r, 'id="id_acepta_mercadopago"')
+
+    def test_conectada_aceptando_mp_no_avisa(self):
+        self.crear_cuenta()
+        ConfiguracionTienda.objects.update_or_create(
+            gimnasio=self.gimnasio, defaults={"acepta_mercadopago": True}
+        )
+        r = self.client.get(reverse("tienda:configuracion"))
+        self.assertNotContains(r, "todavía no pueden pagar la tienda")
+
     def test_sin_aviso_cuando_esta_conectada(self):
         self.crear_cuenta()
         ConfiguracionTienda.objects.update_or_create(

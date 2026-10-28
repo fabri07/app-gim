@@ -13,7 +13,7 @@ El plan completo (fases, modelo de datos, criterios de salida, timeline
 comercial) vive en **`ROADMAP.md`** — léelo antes de tocar código nuevo. Este
 archivo es la foto rápida de "cómo está armado hoy", no reemplaza al roadmap.
 
-**Fase actual: código de Fases 0-6 completo en `main` y desplegado** (la tienda está en `main`: Hito 1, venta con transferencia, desplegado; el Mercado Pago de la tienda, Hito 2, mergeado el 2026-10-18 y apagado hasta la prueba guiada; el add-on se cobra a USD 20/mes sumado a la suscripción sólo si `tienda_habilitada`, desde el próximo pago; ver `ARQUITECTURA.md` «Tienda del gimnasio»; desde el 2026-10-20 el alumno también puede pagar la cuota por Mercado Pago a la misma cuenta del gimnasio, apagado con la misma bandera hasta la prueba guiada, ver «Cuotas por Mercado Pago»). La app
+**Fase actual: código de Fases 0-6 completo en `main` y desplegado** (la tienda está en `main`: Hito 1, venta con transferencia, desplegado; el Mercado Pago de la tienda, Hito 2, mergeado el 2026-10-18 y prendido en producción desde el 2026-10-21, sin ningún pago real probado todavía; el add-on se cobra a USD 20/mes sumado a la suscripción sólo si `tienda_habilitada`, desde el próximo pago; ver `ARQUITECTURA.md` «Tienda del gimnasio»; desde el 2026-10-20 el alumno también puede pagar la cuota por Mercado Pago a la misma cuenta del gimnasio, con la misma bandera, ver «Cuotas por Mercado Pago»). La app
 vive en `https://www.tugimapp.com` (Render, free tier, dominio propio desde
 el 2026-08-19) y el bucket de
 Cloudflare R2 (`app-gim-media`) ya está creado y en uso — los pasos manuales
@@ -53,15 +53,18 @@ ya actualizados.
    pague la suscripción a la plataforma (`suscripcion/`, ver "Cobro online de
    la suscripción"). Para la tienda (`tienda/`) **existe** (Hito 2, a la
    cuenta MP del propio gimnasio por OAuth, sólo para ventas de la tienda)
-   pero está **apagado hasta la prueba con cuentas de prueba**
-   (`docs/mercadopago-tienda.md`; se prende con 4 variables, ver "Mercado Pago
-   de la tienda" en `ARQUITECTURA.md`); sin ellas cobra sólo por
-   transferencia. **Cuotas (desde el 2026-10-20):** el dueño del producto
+   y está **prendido en producción desde el 2026-10-21** (4 variables, ver
+   "Mercado Pago de la tienda" en `ARQUITECTURA.md`; sin ellas cobra sólo por
+   transferencia). **Ningún pago real se probó todavía:** con usuarios de
+   prueba no se puede, porque la aplicación de MP de la plataforma es de una
+   cuenta real y MP rechaza la mezcla real/prueba (`ISSUES.md` 2026-10-24).
+   El primer gimnasio real que cobre es la prueba. **Cuotas (desde el
+   2026-10-20):** el dueño del producto
    levantó el 2026-10-19 la regla «las cuotas no se cobran por MP». Cualquier
    gimnasio (con o sin el add-on) conecta su cuenta MP por OAuth y el alumno
    paga la cuota con un link; la plata va a la cuenta del GIMNASIO, nunca a
-   la de la plataforma. Misma bandera `TIENDA_MP_ENABLED` (apagada hasta la
-   prueba guiada) más el interruptor `cuotas_con_mercadopago` de «Mi
+   la de la plataforma. Misma bandera `TIENDA_MP_ENABLED` más el
+   interruptor `cuotas_con_mercadopago` de «Mi
    gimnasio». El staff sigue confirmando a mano lo que se paga por otro
    medio. El débito automático sigue afuera.
 4. Aislamiento por gimnasio desde el modelo de datos: ningún registro
@@ -269,7 +272,7 @@ producto (ver "Control de ingreso"). El modo kiosco de esa feature sigue sin con
 
 Mercado Pago salió de esta lista el 2026-09-29, **acotado**: sólo para el cobro
 de la suscripción de la plataforma al gimnasio (ver "Cobro online de la
-suscripción") y la tienda (`tienda/`; el MP de la tienda, Hito 2, está construido pero apagado hasta la prueba guiada). El 2026-10-19 salió también
+suscripción") y la tienda (`tienda/`; el MP de la tienda, Hito 2, prendido en producción desde el 2026-10-21). El 2026-10-19 salió también
 para el cobro del gimnasio a sus alumnos (`pagos`, «Cuotas por Mercado Pago»,
 a la cuenta OAuth del gimnasio). El débito automático sigue acá en todos los
 casos.

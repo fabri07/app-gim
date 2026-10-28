@@ -443,6 +443,34 @@ class TarjetaTests(_BaseMiGimnasio):
         self.assertContains(r, '<input type="hidden" name="desde" value="gimnasio">', html=True)
         self.assertNotContains(r, "Conectar Mercado Pago")
 
+    def test_conectada_con_el_interruptor_apagado_avisa_que_falta_prenderlo(self):
+        self.crear_cuenta()
+        r = self.client.get(MI_GIMNASIO)
+        self.assertContains(r, "Tus alumnos todavía no pueden pagar la cuota por Mercado Pago")
+        self.assertContains(r, 'href="#id_cuotas_con_mercadopago"')
+        self.assertContains(r, 'id="id_cuotas_con_mercadopago"')
+
+    def test_conectada_con_el_interruptor_prendido_no_avisa(self):
+        self.crear_cuenta()
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(cuotas_con_mercadopago=True)
+        r = self.client.get(MI_GIMNASIO)
+        self.assertNotContains(r, "todavía no pueden pagar la cuota")
+
+    def test_el_aviso_mira_lo_guardado_y_no_lo_tipeado(self):
+        # Un POST inválido con el interruptor tildado no lo dio por prendido.
+        self.crear_cuenta()
+        datos = _datos_gimnasio(self.gimnasio, cuotas_con_mercadopago="on")
+        datos["nombre"] = ""
+        r = self.client.post(MI_GIMNASIO, datos)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "todavía no pueden pagar la cuota")
+
+    def test_sin_cuenta_el_instructivo_dice_que_hay_que_prender_el_cobro(self):
+        r = self.client.get(MI_GIMNASIO)
+        self.assertContains(r, "Cómo se conecta")
+        self.assertContains(r, "Hasta que no lo tildes, tus alumnos no ven el botón para pagar.")
+        self.assertNotContains(r, "todavía no pueden pagar la cuota")
+
     def test_reconectar_muestra_aviso_y_boton(self):
         self.crear_cuenta(estado=E.RECONECTAR)
         r = self.client.get(MI_GIMNASIO)

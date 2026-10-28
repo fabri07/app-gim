@@ -203,8 +203,8 @@ def crear_preferencia(
 
     `token` (`Secreto`) es el del gimnasio vendedor; `None`, el de la
     plataforma. `sandbox=None` decide por el prefijo del token (criterio de
-    siempre); la tienda pasa `cuenta.es_de_prueba` porque el token de un
-    vendedor de prueba puede no llevar `TEST-`. `statement_descriptor=None` no
+    siempre); la tienda y las cuotas no lo pasan: el token `APP_USR-` de un
+    vendedor de prueba conectado por OAuth abre `init_point`. `statement_descriptor=None` no
     se manda (en la tienda el resumen de la tarjeta lo define la cuenta del
     gimnasio).
     """
