@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 {% block title %}{% if object %}Editar{% else %}Nuevo{% endif %} producto · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
 
 {% block content %}
 <div class="tarjeta">
@@ -9,9 +10,11 @@
   <form method="post" enctype="multipart/form-data" novalidate hx-boost="false">
     {% csrf_token %}
     {{ form.non_field_errors }}
+    <div class="form-grid">
     {% for campo in form.campos_generales %}
       {% include 'partials/campo_form.html' with campo=campo %}
     {% endfor %}
+    </div>
 
     <h2>Fotos (hasta 5)</h2>
     {% if fotos_no_guardadas %}<p class="config-error" role="alert">Las fotos no se guardaron: volvé a elegirlas.</p>{% endif %}

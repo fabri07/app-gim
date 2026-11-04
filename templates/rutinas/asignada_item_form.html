@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}{% if object %}Editar{% else %}Agregar{% endif %} ejercicio · {{ asignada.alumno }} · App Gimnasios{% endblock %}
+{% block main_class %}contenido--formulario{% endblock %}
 
 {% comment %}
 Un solo template para editar y para agregar (ramifica por `object`), igual
