@@ -138,6 +138,24 @@
     @apply max-w-5xl mx-auto px-4 py-8;
   }
 
+  /* Pantallas de edición/alta (un formulario en una tarjeta): idéntica a
+     `.contenido` en celular (448 px) y desde `md` se abre a 768 px, para que
+     en la compu no quede una columna angosta de teléfono. Los formularios con
+     tablas o varias secciones usan `.contenido--ancho`. */
+  .contenido--formulario {
+    @apply max-w-md mx-auto px-4 py-8 md:max-w-3xl;
+  }
+
+  /* Campos en dos columnas desde `md` (la descripción, un textarea, ocupa las
+     dos). Hijos directos: los `.form-campo` de `partials/campo_form.html`. */
+  .form-grid {
+    @apply grid gap-x-4 md:grid-cols-2;
+  }
+
+  .form-grid > .form-campo:has(textarea) {
+    grid-column: 1 / -1;
+  }
+
   /* Pantallas del alumno que se adaptan a la compu: hasta `lg` son
      idénticas a `.contenido` (448 px; entre 640 y 1023 px los botones
      `w-full` no se agigantan) y desde `lg` se abren al ancho del staff. */
