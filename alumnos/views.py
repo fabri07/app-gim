@@ -697,8 +697,13 @@ class AlumnoFotoView(LoginRequiredMixin, View):
         )
         if alumno is None or not alumno.foto or not self._puede_ver(perfil, alumno):
             return self._no_existe()
-        with alumno.foto.open("rb") as archivo:
-            contenido = archivo.read()
+        # La fila puede nombrar un archivo que ya no está en el storage (borrado
+        # a mano del bucket): es una foto que no existe, no un 500.
+        try:
+            with alumno.foto.open("rb") as archivo:
+                contenido = archivo.read()
+        except FileNotFoundError:
+            return self._no_existe()
         tipo = mimetypes.guess_type(alumno.foto.name)[0] or "image/jpeg"
         respuesta = HttpResponse(contenido, content_type=tipo)
         respuesta["Cache-Control"] = "private, max-age=3600"
@@ -779,19 +784,25 @@ class MiPerfilView(AlumnoRequiredMixin, FormView):
     def form_valid(self, form):
         alumno = self.alumno
         archivo = form.cleaned_data["foto"]
-        if archivo:
-            try:
-                guardar_foto(alumno, archivo)
-            except forms.ValidationError as error:
-                form.add_error("foto", error)
-                return self.form_invalid(form)
-        elif form.cleaned_data["quitar_foto"]:
-            quitar_foto(alumno)
-        # `update()` y no `save()`, como en `alumnos.fotos`: no dispara las
-        # señales de `Alumno` por un cambio que no toca `estado`.
-        Alumno.objects.filter(pk=alumno.pk).update(
-            aparece_en_ranking=form.cleaned_data["aparece_en_ranking"],
-            modificado=timezone.now(),
-        )
+        # La foto y `aparece_en_ranking` se guardan juntas o ninguna: si la
+        # segunda escritura falla, la columna de la foto vuelve atrás y el
+        # borrado del archivo anterior (`on_commit`) no corre. Una foto
+        # inválida corta antes de escribir nada.
+        try:
+            with transaction.atomic():
+                if archivo:
+                    guardar_foto(alumno, archivo)
+                elif form.cleaned_data["quitar_foto"]:
+                    quitar_foto(alumno)
+                # `update()` y no `save()`, como en `alumnos.fotos`: no
+                # dispara las señales de `Alumno` por un cambio que no toca
+                # `estado`.
+                Alumno.objects.filter(pk=alumno.pk).update(
+                    aparece_en_ranking=form.cleaned_data["aparece_en_ranking"],
+                    modificado=timezone.now(),
+                )
+        except forms.ValidationError as error:
+            form.add_error("foto", error)
+            return self.form_invalid(form)
         messages.success(self.request, "Guardamos tu perfil.")
         return redirect("alumnos:mi_perfil")

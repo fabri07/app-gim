@@ -81,16 +81,26 @@ class FotoAlumnoTests(TestCase):
             "pesada.png", b"\x89PNG" + b"0" * (8 * 1024 * 1024 + 1),
             content_type="image/png",
         )
+        # El mensaje de cada caso fija QUÉ chequeo lo rechazó: sin él, el
+        # archivo pesado (bytes basura) se rechazaría igual por no ser imagen
+        # y el test pasaría sin el chequeo de tamaño.
         casos = {
-            "texto": SimpleUploadedFile("nota.png", b"esto no es una imagen"),
-            "chica": _imagen(lado=100),
-            "pesada": pesado,
+            "texto": (
+                SimpleUploadedFile("nota.png", b"esto no es una imagen"),
+                "El archivo no es una imagen válida.",
+            ),
+            "chica": (
+                _imagen(lado=100),
+                "La foto mide 100×100px y ningún lado puede ser menor a 300px.",
+            ),
+            "pesada": (pesado, "La foto pesa más de 8 MB."),
         }
         antes = _archivos_de_fotos()
-        for caso, archivo in casos.items():
+        for caso, (archivo, mensaje) in casos.items():
             with self.subTest(caso):
-                with self.assertRaises(forms.ValidationError):
+                with self.assertRaises(forms.ValidationError) as error:
                     guardar_foto(self.alumno, archivo)
+                self.assertEqual(error.exception.messages, [mensaje])
                 self.alumno.refresh_from_db()
                 self.assertEqual(self.alumno.foto.name, "")
                 self.assertEqual(_archivos_de_fotos(), antes)
@@ -276,6 +286,16 @@ class FotoAlumnoTests(TestCase):
             self.client.get(reverse("alumnos:foto_alumno", args=[999999]))
         )
 
+    def test_archivo_que_ya_no_esta_en_el_storage_da_404_no_store(self):
+        """La fila nombra un archivo que se borró del bucket (a mano, o un
+        borrado que confirmó antes que la fila): 404 como cualquier foto que
+        no existe, nunca 500."""
+        self._con_foto()
+        default_storage.delete(self.alumno.foto.name)
+        self.client.force_login(_staff(self.gimnasio))
+
+        self._assert_404_no_store(self.client.get(self._url()))
+
     def test_con_la_cuenta_congelada_responde_el_cartel_de_plataforma(self):
         self._con_foto()
         Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
@@ -367,6 +387,38 @@ class MiPerfilTests(TestCase):
         self.alumno.refresh_from_db()
         self.assertEqual(self.alumno.foto.name, "")
         self.assertFalse(default_storage.exists(nombre))
+
+    def test_si_falla_la_segunda_escritura_la_foto_no_cambia(self):
+        """La foto y `aparece_en_ranking` se guardan juntas o no se guarda
+        ninguna: si la segunda escritura falla, la columna de la foto sigue
+        apuntando a la anterior y el archivo anterior no se borra."""
+        from unittest.mock import patch
+
+        from django.db.models.query import QuerySet
+
+        self._con_foto()
+        anterior = self.alumno.foto.name
+        update_original = QuerySet.update
+
+        def update_que_falla_en_el_ranking(queryset, **campos):
+            if "aparece_en_ranking" in campos:
+                raise RuntimeError("falla simulada")
+            return update_original(queryset, **campos)
+
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            with patch.object(
+                QuerySet, "update", autospec=True,
+                side_effect=update_que_falla_en_el_ranking,
+            ):
+                with self.assertRaises(RuntimeError):
+                    self.client.post(
+                        self.url, {"foto": _imagen(), "aparece_en_ranking": "on"}
+                    )
+
+        self.assertEqual(callbacks, [])
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.foto.name, anterior)
+        self.assertTrue(default_storage.exists(anterior))
 
     def test_foto_invalida_responde_200_con_el_error_en_el_campo(self):
         self._con_foto()

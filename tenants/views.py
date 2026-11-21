@@ -1320,13 +1320,15 @@ class AceptarTerminosView(LoginRequiredMixin, View):
     middleware lo frenaría en todas las pantallas sin ninguna salida.
 
     Las reglas de quién debe aceptar son las de `debe_aceptar_terminos`; a
-    quien no debe (bandera apagada, ya aceptó, staff) el GET lo manda a
+    quien no debe (bandera apagada, ya aceptó, staff, superusuario) el GET lo manda a
     `home`. **Suplantando nunca se escribe**: el staff no puede dar el
     consentimiento del alumno.
     """
 
     def _perfil_que_debe_aceptar(self, request):
-        if suplantacion.esta_activa(request):
+        # El superusuario, igual que en `TerminosMiddleware`: nunca ve el
+        # cartel, así que tampoco deja escrito un consentimiento.
+        if request.user.is_superuser or suplantacion.esta_activa(request):
             return None
         perfil = getattr(request.user, "perfil", None)
         return perfil if debe_aceptar_terminos(perfil) else None

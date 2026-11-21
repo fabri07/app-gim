@@ -421,6 +421,9 @@ class Gimnasio(TimeStampedModel):
         "Ranking y premios para los alumnos",
         default=False,
         db_default=False,
+        help_text="Muestra a tus alumnos el ranking de ejercicios y los premios "
+        "por asistencia. Cada alumno acepta los términos la primera vez que "
+        "entra y puede dejar de aparecer.",
     )
 
     class Meta:

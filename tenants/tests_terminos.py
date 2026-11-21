@@ -9,6 +9,12 @@ from tenants.models import Gimnasio, Perfil
 
 CLAVE = "clave-123456"
 
+AYUDA_BANDERA = (
+    "Muestra a tus alumnos el ranking de ejercicios y los premios por "
+    "asistencia. Cada alumno acepta los términos la primera vez que entra y "
+    "puede dejar de aparecer."
+)
+
 
 def _gimnasio(**extra):
     return Gimnasio.objects.create(nombre="Vida Plena", slug="vida-plena", **extra)
@@ -51,6 +57,13 @@ class BanderaReconocimientosTests(TestCase):
 
     def test_default_apagada(self):
         self.assertIs(self.gimnasio.reconocimientos_habilitado, False)
+
+    def test_la_bandera_tiene_su_bloque_y_su_ayuda_en_mi_gimnasio(self):
+        respuesta = self.client.get(reverse("gimnasio_editar"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "<h2>Ranking y premios</h2>", html=True)
+        self.assertContains(respuesta, AYUDA_BANDERA)
 
     def test_el_dueño_la_prende_desde_mi_gimnasio(self):
         self._post(reconocimientos_habilitado="on")
@@ -202,6 +215,25 @@ class CartelTerminosTests(TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertNotContains(respuesta, CARTEL)
 
+    def test_el_superusuario_no_acepta_por_la_vista(self):
+        """Simétrico al middleware: el dueño del producto nunca ve el cartel,
+        así que tampoco puede dejar escrito un consentimiento desde un Perfil
+        de alumno colgado de un gimnasio."""
+        usuario = User.objects.create_superuser("jefe", password=CLAVE)
+        perfil = Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.force_login(usuario)
+
+        pantalla = self.client.get(reverse("terminos_aceptar"))
+        aceptar = self.client.post(reverse("terminos_aceptar"), {"acepto": "on"})
+
+        self.assertRedirects(pantalla, reverse("home"), fetch_redirect_response=False)
+        self.assertRedirects(aceptar, reverse("home"), fetch_redirect_response=False)
+        perfil.refresh_from_db()
+        self.assertIsNone(perfil.terminos_aceptados_en)
+        self.assertEqual(perfil.terminos_version, 0)
+
     def test_aceptar_guarda_fecha_y_version_y_no_vuelve_a_aparecer(self):
         from tenants.terminos import VERSION_TERMINOS
 
@@ -268,8 +300,11 @@ class CartelTerminosTests(TestCase):
         logueado = self.client.get(reverse("politica_privacidad"))
         self.assertContains(logueado, "Política de privacidad")
         self.assertNotContains(logueado, CARTEL)
+        # Logueado, el login redirige a `home` (`redirect_authenticated_user`):
+        # ese 302 prueba que el middleware lo dejó pasar, porque si lo frenara
+        # respondería el cartel con 200.
         login = self.client.get(reverse("login"))
-        self.assertNotContains(login, CARTEL, status_code=login.status_code)
+        self.assertRedirects(login, reverse("home"), fetch_redirect_response=False)
 
     def test_la_privacidad_cuenta_la_foto_y_el_ranking(self):
         respuesta = self.client.get(reverse("politica_privacidad"))
