@@ -4258,10 +4258,14 @@ todavía**: hoy `aparece_en_ranking` y la foto no se muestran en ninguna lista
 de compañeros. Spec: `docs/superpowers/specs/2026-11-21-reconocimientos-design.md`;
 plan: `docs/superpowers/plans/2026-11-21-reconocimientos-pieza-1-perfil-terminos-foto.md`.
 
-**La bandera.** `Gimnasio.reconocimientos_habilitado` (default apagada), la
-prende el dueño en «Mi gimnasio», bloque «Ranking y premios». Es un checkbox
-estándar: un POST del formulario que no la manda la apaga (igual que
-`cuotas_con_mercadopago`). Con la bandera apagada el alumno no ve nada: ni
+**La bandera.** `Gimnasio.reconocimientos_habilitado` (default apagada).
+**Hasta la Pieza 2 NO está en «Mi gimnasio»**: se sacó de
+`GimnasioForm.Meta.fields` y del template a propósito, porque prendida cada
+alumno ve un cartel que habla de un ranking y premios que todavía no existen y
+acepta un texto en borrador. Hoy se prende sólo por `/admin/` (Gimnasio) o
+shell; guardar «Mi gimnasio» no la toca (ni la prende ni la apaga). Con la
+Pieza 2 vuelve al form (bloque «Ranking y premios», con su `help_text` del
+modelo) como checkbox estándar. Con la bandera apagada el alumno no ve nada: ni
 cartel, ni «Mi perfil» (404), ni fotos de compañeros. `restaurar_demo` la
 vuelve a apagar (`_GIMNASIO_CANONICO`), y `sembrar_demo` deja a los alumnos
 demo con los términos vigentes ya aceptados.

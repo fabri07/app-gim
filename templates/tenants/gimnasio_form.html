@@ -183,10 +183,7 @@
         {% endif %}
       </div>
 
-      <div class="form-seccion">
-        <h2>Ranking y premios</h2>
-        {% include 'partials/campo_form.html' with campo=form.reconocimientos_habilitado %}
-      </div>
+      {# «Ranking y premios» (reconocimientos_habilitado) vuelve en la Pieza 2: sin ranking, el cartel de términos promete algo que no existe (ver GimnasioForm.Meta). #}
 
       <button type="submit" class="boton">Guardar cambios</button>
     </form>

@@ -57,26 +57,57 @@ class BanderaReconocimientosTests(TestCase):
 
     def test_default_apagada(self):
         self.assertIs(self.gimnasio.reconocimientos_habilitado, False)
+        campo = Gimnasio._meta.get_field("reconocimientos_habilitado")
+        self.assertIs(campo.default, False)
+        self.assertEqual(campo.help_text, AYUDA_BANDERA)
 
-    def test_la_bandera_tiene_su_bloque_y_su_ayuda_en_mi_gimnasio(self):
+    # Hasta la Pieza 2 (el ranking) la bandera NO está en «Mi gimnasio»: un
+    # dueño que la prendiera hoy frenaría a sus alumnos con un cartel que
+    # habla de un ranking que no existe. Se prende sólo por /admin/ o shell.
+
+    def test_mi_gimnasio_no_expone_la_bandera(self):
+        from tenants.forms import GimnasioForm
+
+        self.assertNotIn("reconocimientos_habilitado", GimnasioForm().fields)
         respuesta = self.client.get(reverse("gimnasio_editar"))
 
         self.assertEqual(respuesta.status_code, 200)
-        self.assertContains(respuesta, "<h2>Ranking y premios</h2>", html=True)
-        self.assertContains(respuesta, AYUDA_BANDERA)
+        self.assertNotContains(respuesta, "reconocimientos_habilitado")
+        self.assertNotContains(respuesta, "<h2>Ranking y premios</h2>", html=True)
 
-    def test_el_dueño_la_prende_desde_mi_gimnasio(self):
-        self._post(reconocimientos_habilitado="on")
+    def test_un_post_con_la_bandera_no_la_prende(self):
+        respuesta = self._post(reconocimientos_habilitado="on")
 
+        self.assertRedirects(
+            respuesta, reverse("gimnasio_editar"), fetch_redirect_response=False
+        )
+        self.gimnasio.refresh_from_db()
+        self.assertEqual(self.gimnasio.nombre, "Vida Plena")
+        self.assertIs(self.gimnasio.reconocimientos_habilitado, False)
+
+    def test_guardar_mi_gimnasio_no_apaga_la_bandera_prendida_por_admin(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            reconocimientos_habilitado=True
+        )
+
+        respuesta = self._post()
+
+        self.assertRedirects(
+            respuesta, reverse("gimnasio_editar"), fetch_redirect_response=False
+        )
         self.gimnasio.refresh_from_db()
         self.assertIs(self.gimnasio.reconocimientos_habilitado, True)
 
-    def test_un_post_sin_el_campo_la_apaga_como_cualquier_checkbox(self):
-        self._post(reconocimientos_habilitado="on")
-        self._post()
+    def test_el_admin_permite_prenderla(self):
+        superusuario = User.objects.create_superuser("jefe", password=CLAVE)
+        self.client.force_login(superusuario)
 
-        self.gimnasio.refresh_from_db()
-        self.assertIs(self.gimnasio.reconocimientos_habilitado, False)
+        respuesta = self.client.get(
+            reverse("admin:tenants_gimnasio_change", args=[self.gimnasio.pk])
+        )
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'name="reconocimientos_habilitado"')
 
 
 class DebeAceptarTerminosTests(TestCase):
@@ -313,6 +344,10 @@ class CartelTerminosTests(TestCase):
         self.assertContains(respuesta, "foto")
         self.assertContains(respuesta, "ranking")
         self.assertContains(respuesta, "Mi perfil")
+        # Opt-out, no opt-in: se aparece al aceptar y se deja de aparecer.
+        self.assertContains(respuesta, "elijas dejar de aparecer")
+        self.assertNotContains(respuesta, "elijas aparecer")
+        self.assertContains(respuesta, "hasta una hora")
 
     def test_suplantando_no_muestra_el_cartel_ni_deja_aceptar(self):
         self.client.force_login(_staff(self.gimnasio))
