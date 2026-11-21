@@ -23,7 +23,7 @@ del log.
 ## [2026-11-21] Pase visual con modern-web-guidance: qué se hizo y qué queda
 **Estado:** resuelto en lo hecho; pendientes abiertos abajo.
 **Impacto:** feedback de errores (antes todo ámbar), foco de teclado, controles nativos con la marca, objetivos táctiles, esperas sin señal en `hx-boost`.
-**Resolución / próximo paso:** hecho en `visual-fase-1` a `visual-fase-4` (mergeadas a `main`); detalle en `ARQUITECTURA.md` «Pase visual con `modern-web-guidance`» y en `DESIGN.md` (Estado, Inputs, Estados vacíos, Motion). Abierto: `srcset` en fotos de producto (el `size-adjust` de Google Fonts se hizo después, ver ARQUITECTURA), `.vacio` en el resto de los listados, y el límite de largo de línea en `p` (no medido). Riesgo aceptado: dos bordes laterales de acento (`.metrica--urgente`, `.aviso-urgente`, `.aviso-error`, lista del login) los marca el linter de Impeccable y se dejan a propósito (confirmado por el usuario).
+**Resolución / próximo paso:** hecho en `visual-fase-1` a `visual-fase-4` (mergeadas a `main`); detalle en `ARQUITECTURA.md` «Pase visual con `modern-web-guidance`» y en `DESIGN.md` (Estado, Inputs, Estados vacíos, Motion). Diferido a propósito (cierre del plan, 2026-11-21): `srcset` en fotos de producto (ya se reescalan a ≤1200 px; variantes piden campo nuevo, migración sobre datos reales y tocar la moderación), `.vacio` en el resto de los listados y el límite de largo de línea en `p` (no medido). El `size-adjust` de Google Fonts se hizo (ver ARQUITECTURA). Sigue el modo oscuro como proyecto aparte. Riesgo aceptado: dos bordes laterales de acento (`.metrica--urgente`, `.aviso-urgente`, `.aviso-error`, lista del login) los marca el linter de Impeccable y se dejan a propósito (confirmado por el usuario).
 
 ---
 
