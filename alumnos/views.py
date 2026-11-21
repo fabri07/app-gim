@@ -39,6 +39,7 @@ from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
+from tenants import suplantacion
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tenants.models import Perfil
 from alumnos import identidad, lote
@@ -718,6 +719,12 @@ class AlumnoFotoView(LoginRequiredMixin, View):
         return respuesta
 
 
+MENSAJE_SUPLANTANDO = (
+    "Estás viendo la cuenta del alumno: no se puede cambiar su foto ni su "
+    "privacidad."
+)
+
+
 class MiPerfilView(AlumnoRequiredMixin, FormView):
     """«Mi perfil» del alumno (reconocimientos): su foto y si aparece entre sus
     compañeros. Sólo existe con `reconocimientos_habilitado`; si no, 404.
@@ -744,6 +751,12 @@ class MiPerfilView(AlumnoRequiredMixin, FormView):
         self._exigir_bandera()
         if self.alumno is None:
             raise PermissionDenied("Tu usuario no tiene una ficha de alumno.")
+        # La foto y `aparece_en_ranking` son decisiones de privacidad del
+        # alumno: suplantando no se escribe nada (mismo criterio que
+        # `calendario.views._rechazar_si_suplanta`). El GET esconde el botón,
+        # así que a este 403 sólo se llega forzando el POST.
+        if suplantacion.esta_activa(request):
+            raise PermissionDenied(MENSAJE_SUPLANTANDO)
         return super().post(request, *args, **kwargs)
 
     def _exigir_bandera(self):
@@ -759,6 +772,8 @@ class MiPerfilView(AlumnoRequiredMixin, FormView):
     def get_context_data(self, **kwargs):
         contexto = super().get_context_data(**kwargs)
         contexto["alumno"] = self.alumno
+        if suplantacion.esta_activa(self.request):
+            contexto["aviso_suplantando"] = MENSAJE_SUPLANTANDO
         return contexto
 
     def form_valid(self, form):

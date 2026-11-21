@@ -33,7 +33,11 @@
         {% include 'partials/campo_form.html' with campo=form.quitar_foto %}
       {% endif %}
       {% include 'partials/campo_form.html' with campo=form.aparece_en_ranking %}
-      <button type="submit" class="boton">Guardar</button>
+      {% if aviso_suplantando %}
+        <p class="texto-suave">{{ aviso_suplantando }}</p>
+      {% else %}
+        <button type="submit" class="boton">Guardar</button>
+      {% endif %}
     </form>
   {% else %}
     <p>

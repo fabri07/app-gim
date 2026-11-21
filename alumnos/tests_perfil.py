@@ -439,6 +439,42 @@ class MiPerfilTests(TestCase):
         self.assertEqual(respuesta.status_code, 302)
         self.assertIn(reverse("login"), respuesta["Location"])
 
+    def _suplantar(self):
+        self.client.force_login(_staff(self.gimnasio))
+        respuesta = self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+        self.assertEqual(respuesta.status_code, 302)
+
+    def test_suplantando_el_post_no_cambia_nada(self):
+        """La foto y `aparece_en_ranking` son decisiones del alumno: el staff
+        que ve su cuenta no puede tomarlas por él."""
+        self._con_foto()
+        Alumno.objects.filter(pk=self.alumno.pk).update(aparece_en_ranking=False)
+        anterior = self.alumno.foto.name
+        archivos_antes = _archivos_de_fotos()
+        self._suplantar()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            respuesta = self.client.post(
+                self.url,
+                {"foto": _imagen(), "quitar_foto": "on", "aparece_en_ranking": "on"},
+            )
+
+        self.assertEqual(respuesta.status_code, 403)
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.foto.name, anterior)
+        self.assertIs(self.alumno.aparece_en_ranking, False)
+        self.assertEqual(_archivos_de_fotos(), archivos_antes)
+        self.assertTrue(default_storage.exists(anterior))
+
+    def test_suplantando_el_get_muestra_la_pantalla_sin_guardar(self):
+        self._suplantar()
+
+        respuesta = self.client.get(self.url)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Estás viendo la cuenta del alumno")
+        self.assertNotContains(respuesta, ">Guardar</button>")
+
     def test_el_formulario_sube_archivos_sin_hx_boost(self):
         respuesta = self.client.get(self.url)
 
