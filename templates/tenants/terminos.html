@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}Términos y condiciones · {{ gimnasio.nombre }}{% endblock %}
+{% block main_class %}contenido--lectura{% endblock %}
+
+{% comment %}
+Lo que ve el alumno de un gimnasio con los reconocimientos prendidos hasta que
+acepta los términos vigentes (`tenants.terminos.VERSION_TERMINOS`). Lo
+renderizan `plataforma/terminos.py` (cualquier GET) y `AceptarTerminosView`
+(el GET directo y el POST sin tildar), siempre con 200 y `no-store`.
+
+Sin el menú del alumno (`terminos_pendientes` en el contexto lo apaga en
+`base.html`): todos sus links terminarían acá mismo. Las únicas salidas son
+aceptar, la política de privacidad y «Salir».
+
+TEXTO A REVISAR POR EL DUEÑO DEL PRODUCTO ANTES DE PRENDER LA BANDERA EN
+PRODUCCIÓN. Es un borrador: qué se muestra, a quién, y cómo dejar de
+aparecer.
+{% endcomment %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>Términos y condiciones</h1>
+  <p>
+    <strong>{{ gimnasio.nombre }}</strong> sumó el ranking y los
+    reconocimientos a la app. Antes de seguir, leé qué se muestra y aceptalo.
+  </p>
+
+  <h2>Qué ven los demás alumnos</h2>
+  <ul>
+    <li>Tu nombre y la inicial de tu apellido (por ejemplo, «Ana P.»).</li>
+    <li>Tu foto de perfil, si cargaste una.</li>
+    <li>Tu lugar en el ranking y los reconocimientos que ganes.</li>
+  </ul>
+  <p>
+    Sólo lo ven los alumnos de {{ gimnasio.nombre }}, dentro de la app. Nunca
+    se muestra tu apellido completo, tu contacto ni tus pagos.
+  </p>
+
+  <h2>Podés dejar de aparecer</h2>
+  <p>
+    Cuando quieras, desde «Mi perfil» podés dejar de aparecer en el ranking y
+    los reconocimientos, o sacar tu foto.
+  </p>
+
+  <h2>Tus datos</h2>
+  <p>
+    Tus datos los trata {{ gimnasio.nombre }}. Más detalle en la
+    <a href="{% url 'politica_privacidad' %}">política de privacidad</a>.
+  </p>
+
+  <form method="post" action="{% url 'terminos_aceptar' %}" class="mt-4">
+    {% csrf_token %}
+    {% include 'partials/campo_form.html' with campo=form.acepto %}
+    <button type="submit" class="boton">Aceptar y seguir</button>
+  </form>
+</div>
+{% endblock %}

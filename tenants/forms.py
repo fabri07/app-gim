@@ -329,3 +329,18 @@ class ResetPasswordStaffForm(PasswordResetForm):
             }
         )
         return (u for u in activos if u.has_usable_password())
+
+
+class AceptarTerminosForm(forms.Form):
+    """La casilla del cartel de términos (`tenants/terminos.html`).
+
+    Un `BooleanField` obligatorio: sin tildar, el form no valida y la vista
+    responde 200 con el error debajo de la casilla (bajo el `hx-boost` global
+    un 4xx sería un click mudo).
+    """
+
+    acepto = forms.BooleanField(
+        label="Leí y acepto los términos",
+        required=True,
+        error_messages={"required": "Tenés que aceptar los términos para seguir."},
+    )

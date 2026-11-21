@@ -136,3 +136,268 @@ class DebeAceptarTerminosTests(TestCase):
 
         with self.assertNumQueries(0):
             debe_aceptar_terminos(perfil)
+
+
+CARTEL = "Términos y condiciones"
+NAV = 'id="nav-alumno"'
+HAMBURGUESA = 'aria-controls="nav-alumno"'
+
+
+class CartelTerminosTests(TestCase):
+    """El alumno de un gimnasio con reconocimientos prendidos acepta los
+    términos UNA vez antes de seguir usando la app."""
+
+    def setUp(self):
+        self.gimnasio = _gimnasio(reconocimientos_habilitado=True)
+        self.alumno, self.usuario = _alumno(self.gimnasio)
+
+    def _perfil(self):
+        return Perfil.objects.get(usuario=self.usuario)
+
+    def _login_alumno(self):
+        self.client.force_login(self.usuario)
+
+    def test_alumno_sin_aceptar_ve_el_cartel_en_cualquier_pantalla(self):
+        self._login_alumno()
+
+        for nombre, normal in (
+            ("home", "Hola, Ana"),
+            ("turnos:mis_turnos", "Mis turnos ·"),
+        ):
+            with self.subTest(nombre):
+                respuesta = self.client.get(reverse(nombre))
+
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertContains(respuesta, CARTEL)
+                self.assertNotContains(respuesta, normal)
+                self.assertIn("no-store", respuesta["Cache-Control"])
+
+    def test_bandera_apagada_no_muestra_nada(self):
+        self.gimnasio.reconocimientos_habilitado = False
+        self.gimnasio.save()
+        self._login_alumno()
+
+        respuesta = self.client.get(reverse("home"))
+
+        self.assertContains(respuesta, "Hola, Ana")
+        self.assertNotContains(respuesta, CARTEL)
+
+    def test_staff_nunca_ve_el_cartel(self):
+        self.client.force_login(_staff(self.gimnasio))
+
+        respuesta = self.client.get(reverse("home"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, CARTEL)
+
+    def test_superusuario_nunca_ve_el_cartel(self):
+        usuario = User.objects.create_superuser("jefe", password=CLAVE)
+        Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.force_login(usuario)
+
+        respuesta = self.client.get(reverse("home"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, CARTEL)
+
+    def test_aceptar_guarda_fecha_y_version_y_no_vuelve_a_aparecer(self):
+        from tenants.terminos import VERSION_TERMINOS
+
+        self._login_alumno()
+
+        respuesta = self.client.post(reverse("terminos_aceptar"), {"acepto": "on"})
+
+        self.assertRedirects(
+            respuesta, reverse("home"), fetch_redirect_response=False
+        )
+        perfil = self._perfil()
+        self.assertIsNotNone(perfil.terminos_aceptados_en)
+        self.assertEqual(perfil.terminos_version, VERSION_TERMINOS)
+        siguiente = self.client.get(reverse("home"))
+        self.assertEqual(siguiente.status_code, 200)
+        self.assertContains(siguiente, "Hola, Ana")
+        self.assertNotContains(siguiente, CARTEL)
+
+    def test_sin_tildar_responde_200_con_el_error_en_el_campo(self):
+        self._login_alumno()
+
+        respuesta = self.client.post(reverse("terminos_aceptar"), {})
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Tenés que aceptar los términos para seguir.")
+        self.assertContains(respuesta, 'class="config-error"')
+        perfil = self._perfil()
+        self.assertIsNone(perfil.terminos_aceptados_en)
+        self.assertEqual(perfil.terminos_version, 0)
+
+    def test_get_de_terminos_muestra_el_cartel_si_falta_aceptar(self):
+        self._login_alumno()
+
+        respuesta = self.client.get(reverse("terminos_aceptar"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, CARTEL)
+        self.assertIn("no-store", respuesta["Cache-Control"])
+        self.assertNotContains(respuesta, NAV)
+
+    def test_get_de_terminos_sin_nada_que_aceptar_redirige_a_home(self):
+        from tenants.terminos import VERSION_TERMINOS
+
+        perfil = self._perfil()
+        perfil.terminos_version = VERSION_TERMINOS
+        perfil.save()
+        staff = _staff(self.gimnasio)
+
+        for usuario in (self.usuario, staff):
+            with self.subTest(usuario.username):
+                self.client.force_login(usuario)
+
+                respuesta = self.client.get(reverse("terminos_aceptar"))
+
+                self.assertRedirects(
+                    respuesta, reverse("home"), fetch_redirect_response=False
+                )
+
+    def test_la_pantalla_de_login_y_la_privacidad_no_se_bloquean(self):
+        anonimo = self.client.get(reverse("politica_privacidad"))
+        self.assertContains(anonimo, "Política de privacidad")
+
+        self._login_alumno()
+        logueado = self.client.get(reverse("politica_privacidad"))
+        self.assertContains(logueado, "Política de privacidad")
+        self.assertNotContains(logueado, CARTEL)
+        login = self.client.get(reverse("login"))
+        self.assertNotContains(login, CARTEL, status_code=login.status_code)
+
+    def test_suplantando_no_muestra_el_cartel_ni_deja_aceptar(self):
+        self.client.force_login(_staff(self.gimnasio))
+        self.client.post(reverse("suplantar", args=[self.alumno.pk]))
+        self.assertIn("suplantacion", self.client.session)
+
+        respuesta = self.client.get(reverse("home"))
+
+        self.assertContains(respuesta, "Hola, Ana")
+        self.assertNotContains(respuesta, CARTEL)
+        self.client.post(reverse("terminos_aceptar"), {"acepto": "on"})
+        perfil = self._perfil()
+        self.assertIsNone(perfil.terminos_aceptados_en)
+        self.assertEqual(perfil.terminos_version, 0)
+
+    def test_cuenta_congelada_gana_el_cartel_de_bloqueo(self):
+        from django.utils import timezone
+
+        gimnasio = Gimnasio.objects.create(
+            nombre="Congelado",
+            slug="congelado",
+            reconocimientos_habilitado=True,
+            estado_cuenta=Gimnasio.EstadoCuenta.ALUMNOS_BLOQUEADOS,
+            estado_cuenta_desde=timezone.now(),
+        )
+        _, usuario = _alumno(gimnasio, username="alumno-congelado")
+        self.client.force_login(usuario)
+
+        respuesta = self.client.get(reverse("home"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTemplateUsed(respuesta, "plataforma/cuenta_bloqueada.html")
+        self.assertTemplateNotUsed(respuesta, "tenants/terminos.html")
+        self.assertNotContains(respuesta, CARTEL)
+
+    def test_el_cartel_no_trae_el_menu_del_alumno(self):
+        self._login_alumno()
+
+        respuesta = self.client.get(reverse("home"))
+
+        self.assertContains(respuesta, CARTEL)
+        self.assertNotContains(respuesta, NAV)
+        self.assertNotContains(respuesta, HAMBURGUESA)
+
+    def test_perfil_alumno_sin_ficha_puede_aceptar(self):
+        from tenants.terminos import VERSION_TERMINOS
+
+        usuario = User.objects.create_user("sin-ficha", password=CLAVE)
+        perfil = Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.client.force_login(usuario)
+
+        respuesta = self.client.post(reverse("terminos_aceptar"), {"acepto": "on"})
+
+        self.assertRedirects(
+            respuesta, reverse("home"), fetch_redirect_response=False
+        )
+        perfil.refresh_from_db()
+        self.assertIsNotNone(perfil.terminos_aceptados_en)
+        self.assertEqual(perfil.terminos_version, VERSION_TERMINOS)
+
+    def test_un_post_a_otra_ruta_con_terminos_pendientes_redirige_a_home(self):
+        self._login_alumno()
+
+        respuesta = self.client.post(reverse("turnos:mis_turnos"), {"acepto": "on"})
+
+        self.assertRedirects(
+            respuesta, reverse("home"), fetch_redirect_response=False
+        )
+        perfil = self._perfil()
+        self.assertIsNone(perfil.terminos_aceptados_en)
+        self.assertEqual(perfil.terminos_version, 0)
+
+    def test_los_webhooks_y_la_api_sin_sesion_pasan(self):
+        # Sin MERCADOPAGO_* en la suite el webhook responde 503 y lo loguea:
+        # `assertLogs` lo ataja para no ensuciar la salida.
+        with self.assertLogs("django.request", level="ERROR"):
+            webhook = self.client.post(
+                reverse("suscripcion:webhook"), {}, content_type="application/json"
+            )
+        api = self.client.post(
+            reverse("ingreso:api_eventos"),
+            {},
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer token-invalido",
+        )
+
+        for nombre, respuesta in (("webhook", webhook), ("api", api)):
+            with self.subTest(nombre):
+                self.assertNotEqual(respuesta.status_code, 302)
+                self.assertNotIn(CARTEL, respuesta.content.decode())
+        self.assertEqual(api.status_code, 401)
+
+    def test_decidir_el_cartel_no_agrega_queries(self):
+        """El middleware reusa el `Perfil` (con su gimnasio) que ya resolvió
+        `PlataformaMiddleware`: decidir no cuesta ninguna query propia."""
+        from unittest.mock import patch
+
+        from django.contrib.sessions.backends.base import SessionBase
+        from django.http import HttpResponse
+        from django.test import RequestFactory
+        from django.urls import resolve
+
+        from plataforma.middleware import perfil_de
+        from plataforma.terminos import TerminosMiddleware
+        from tenants.terminos import VERSION_TERMINOS
+
+        middleware = TerminosMiddleware(lambda request: HttpResponse())
+
+        def _request():
+            request = RequestFactory().get(reverse("home"))
+            request.user = User.objects.get(pk=self.usuario.pk)
+            request.session = SessionBase()
+            request.resolver_match = resolve(reverse("home"))
+            # Lo que ya pagó `PlataformaMiddleware` en el mismo request.
+            perfil_de(request).gimnasio
+            return request
+
+        pendiente = _request()
+        with patch("tenants.terminos.render", return_value=HttpResponse()):
+            with self.assertNumQueries(0):
+                respuesta = middleware.process_view(pendiente, None, (), {})
+        self.assertIsNotNone(respuesta)
+
+        perfil = self._perfil()
+        perfil.terminos_version = VERSION_TERMINOS
+        perfil.save()
+        aceptado = _request()
+        with self.assertNumQueries(0):
+            self.assertIsNone(middleware.process_view(aceptado, None, (), {}))
