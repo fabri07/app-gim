@@ -74,6 +74,16 @@
     background-repeat: no-repeat;
   }
 
+  /* Reparto parejo de las líneas en títulos (`balance`) y sin viudas en los
+     párrafos (`pretty`). Sólo en estos elementos y no en `*`: los dos tienen
+     costo de layout. `balance` no se pone en cajas con fondo o borde (dejaría
+     aire a la derecha); estos títulos no tienen caja propia. */
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
   h1 {
     @apply text-xl font-semibold text-gray-900;
   }
@@ -93,6 +103,7 @@
 
   p {
     @apply mb-2 text-gray-700;
+    text-wrap: pretty;
   }
 
   a {
