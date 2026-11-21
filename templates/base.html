@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}App Gimnasios{% endblock %}</title>
   {% block meta_extra %}{% endblock %}
@@ -293,7 +294,13 @@
   {% endif %}
   {% if messages %}
     <ul class="mensajes">
-      {% for message in messages %}<li class="mensaje">{{ message }}</li>{% endfor %}
+      {% comment %}
+        El nivel viaja como clase modificadora (`mensaje--success`, etc.) y NO
+        reemplaza a `.mensaje`: tests y estilos viejos siguen apuntando a ella.
+        Éxito y error llevan además un glifo y una palabra para lectores de
+        pantalla, así el estado no depende sólo del color.
+      {% endcomment %}
+      {% for message in messages %}<li class="mensaje mensaje--{{ message.level_tag|default:'info' }}" role="{% if message.level_tag == 'error' %}alert{% else %}status{% endif %}">{% if message.level_tag == 'success' %}<span aria-hidden="true">✓ </span><span class="sr-only">Listo: </span>{% elif message.level_tag == 'error' %}<span aria-hidden="true">✕ </span><span class="sr-only">Error: </span>{% endif %}{{ message }}</li>{% endfor %}
     </ul>
   {% endif %}
   <main class="{% block main_class %}contenido{% endblock %}">

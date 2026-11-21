@@ -31,6 +31,12 @@
 }
 
 :root {
+  /* El sistema es claro a propósito (DESIGN.md: superficies blancas fijas):
+     sin esto, un navegador con tema oscuro pinta controles y scrollbars
+     nativos oscuros sobre un canvas claro. */
+  color-scheme: light;
+  /* Checkbox, radio y range nativos toman la marca del gimnasio. */
+  accent-color: var(--color-primario);
   --color-fondo: #f5ede4;
   --color-primario: #1d6f56;
   --color-secundario: #e8735c;
@@ -97,12 +103,33 @@
     @apply block text-sm font-medium text-gray-700 mb-1;
   }
 
+  /* Foco de teclado visible en todo lo que no sea un campo (los campos ya
+     llevan su `focus:ring`). `:focus-visible` no aparece al hacer click, y
+     `tabindex="-1"` (foco por script) queda afuera. El `outline-offset` deja
+     un aire para que se vea también sobre un `.boton` lleno del mismo color. */
+  a:focus-visible,
+  button:focus-visible,
+  summary:focus-visible,
+  [tabindex]:not([tabindex="-1"]):focus-visible {
+    outline: 2px solid var(--color-primario);
+    outline-offset: 2px;
+  }
+
   input,
   select,
   textarea {
     @apply w-full rounded-md border border-gray-300 px-3 py-2 text-sm mb-3
       focus:outline-none focus:ring-2 focus:ring-[var(--color-primario)]
       focus:border-transparent;
+  }
+
+  /* Un campo se marca inválido sólo después de que la persona lo tocó o
+     intentó enviar (`:user-invalid`), nunca mientras escribe. Complementa la
+     línea de error de cada campo; no la reemplaza. */
+  input:user-invalid,
+  select:user-invalid,
+  textarea:user-invalid {
+    @apply border-red-600;
   }
 
   input[type="color"] {
@@ -254,6 +281,31 @@
   .mensaje {
     @apply rounded-md bg-amber-50 border border-amber-200 text-amber-800
       text-sm px-3 py-2;
+  }
+
+  /* El nivel del mensaje de Django (`message.level_tag`) usa los colores de
+     ESTADO de DESIGN.md: verde éxito, rojo riesgo. Aviso e info quedan en el
+     ámbar de siempre (el «mensaje del sistema»). */
+  .mensaje--success {
+    @apply bg-green-50 border-green-200 text-green-800;
+  }
+
+  .mensaje--error {
+    @apply bg-red-50 border-red-200 text-red-800;
+  }
+
+  /* Objetivo táctil de 44px (WCAG 2.5.5) sólo donde el puntero es un dedo:
+     en compu los botones y campos conservan su tamaño compacto. Los
+     checkbox/radio quedan afuera (su `label` es el objetivo). */
+  @media (pointer: coarse) {
+    .boton,
+    .boton-secundario,
+    .boton-peligro,
+    .boton-urgente,
+    input:not([type="checkbox"], [type="radio"], [type="color"], [type="file"]),
+    select {
+      min-block-size: 44px;
+    }
   }
 
   /* Banner de suplantación: va arriba de todo y a todo el ancho, para que sea
