@@ -7,6 +7,15 @@
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}App Gimnasios{% endblock %}</title>
   {% block meta_extra %}{% endblock %}
+  {% comment %}
+    Fuente por defecto (autoalojada, 27 KB): el navegador la descubriría recién
+    al terminar de leer app.css; con el preload arranca en paralelo. `crossorigin`
+    es obligatorio en fuentes aunque sean del mismo origen. Se omite si el
+    gimnasio eligió una tipografía de Google (la default no se usaría).
+  {% endcomment %}
+  {% if not user.perfil.gimnasio.tipografia_google_param %}
+    <link rel="preload" href="{% static 'fonts/plus-jakarta-sans-variable.woff2' %}" as="font" type="font/woff2" crossorigin>
+  {% endif %}
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   {% if user.is_authenticated and user.perfil.gimnasio %}
     {% with gimnasio=user.perfil.gimnasio %}
@@ -78,8 +87,8 @@
     {% endwith %}
   {% endif %}
   {% block extra_style %}{% endblock %}
-  <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous" defer></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js" integrity="sha384-9Ax3MmS9AClxJyd5/zafcXXjxmwFhZCdsT6HJoJjarvCaAkJlk5QDzjLJm+Wdx5F" crossorigin="anonymous"></script>
   <script src="{% static 'js/pwa.js' %}" defer></script>
   <script src="{% static 'js/tour_onboarding.js' %}" defer></script>
 </head>

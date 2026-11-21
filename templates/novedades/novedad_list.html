@@ -58,7 +58,10 @@
           </tr>
         {% empty %}
           <tr>
-            <td colspan="7" class="texto-suave">No hay novedades publicadas todavía.</td>
+            <td colspan="7" class="vacio">
+              <p>Todavía no publicaste novedades.</p>
+              <a class="boton" href="{% url 'novedades:crear' %}">Publicar la primera</a>
+            </td>
           </tr>
         {% endfor %}
       </tbody>

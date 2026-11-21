@@ -199,6 +199,20 @@ class AlumnoViewsTests(TestCase):
         response = self.client.post(reverse("alumnos:activar", args=[self.alumno_a.pk]))
         self.assertEqual(response.status_code, 403)
 
+    def test_listado_vacio_ofrece_cargar_o_importar_y_con_filtro_ofrece_quitarlo(self):
+        # El estado vacío es una acción, no un callejón: sin alumnos invita a
+        # cargar/importar; con un filtro que no encuentra nada, a quitarlo.
+        self.client.login(username="staff_b", password="clave12345")
+        self.alumno_b.delete()
+
+        sin_filtro = self.client.get(reverse("alumnos:listado"))
+        self.assertContains(sin_filtro, "Cargar el primero")
+        self.assertContains(sin_filtro, "Importar desde Excel")
+
+        con_filtro = self.client.get(reverse("alumnos:listado"), {"q": "zzzz"})
+        self.assertContains(con_filtro, "Ningún alumno coincide con este filtro.")
+        self.assertNotContains(con_filtro, "Cargar el primero")
+
     # 3. Staff puede listar/crear/editar alumnos de su propio gimnasio.
     def test_staff_puede_listar_crear_y_editar_alumnos_de_su_gimnasio(self):
         self.client.login(username="staff_a", password="clave12345")
