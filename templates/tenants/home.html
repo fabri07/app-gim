@@ -655,6 +655,23 @@
   {% if ejercicios_mas_asignados_por_genero %}{{ ejercicios_mas_asignados_por_genero|json_script:"ejercicios-genero-data" }}{% endif %}
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+{% if modo_oscuro %}
+  {% comment %}
+    Chart.js pinta ejes y grilla con grises propios (#666 / negro al 10 %), que no
+    siguen al tema: en oscuro el texto da ~3:1 y la grilla desaparece. Sólo en oscuro
+    se cambian; en claro valen los valores por defecto de Chart.js (sin cambio).
+    `static/js/tema.js` la vuelve a llamar al cambiar de tema y actualiza los gráficos.
+  {% endcomment %}
+  <script>
+    window.temaGraficos = function () {
+      if (!window.Chart) return;
+      var oscuro = getComputedStyle(document.documentElement).colorScheme === "dark";
+      Chart.defaults.color = oscuro ? "#98a2b3" : "#666";
+      Chart.defaults.borderColor = oscuro ? "rgba(255, 255, 255, 0.12)" : "rgba(0, 0, 0, 0.1)";
+    };
+    window.temaGraficos();
+  </script>
+  {% endif %}
   <script>
     (function () {
       // Paleta: el azul del tema para la serie principal, y solo para

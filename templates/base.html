@@ -241,8 +241,11 @@
       <span>{{ user.perfil.gimnasio.nombre|default:"TuGimApp" }}</span>
     </a>
     <div class="flex items-center gap-3">
-      {% if modo_oscuro and user.is_authenticated and user.perfil.gimnasio %}
-        {% include 'partials/tema_toggle.html' %}
+      {% if modo_oscuro and user.is_authenticated %}
+        {% comment %}El superadmin de la plataforma no tiene gimnasio: también ve el interruptor.{% endcomment %}
+        {% if user.perfil.gimnasio or user.is_superuser %}
+          {% include 'partials/tema_toggle.html' %}
+        {% endif %}
       {% endif %}
       {% if user.is_authenticated and user.perfil.gimnasio %}
         <button type="button" data-pwa-instalar hidden class="boton-secundario">Instalar app</button>

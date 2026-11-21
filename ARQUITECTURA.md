@@ -3075,9 +3075,18 @@ se hace recién cuando la fase 2 (resto de pantallas) esté verificada.
   re-sincroniza en `htmx:afterSwap`: **`htmx:afterSettle` no se dispara** en la
   navegación boosteada del `<body>`). Un script síncrono del `<head>`, antes del CSS,
   lee `localStorage["tema"]` para no parpadear.
-- **Pendiente (fases 2–4):** recorrer tienda/pagos/ingreso/turnos/importaciones/
-  plataforma en oscuro, gráficos del dashboard sobre superficie oscura (rampa
-  `#b7d3f6→#184f95` y paleta categórica), login/landing por gimnasio y portada.
+- **Fase 2 (hecha):** se recorrieron ~55 pantallas (staff, alumno a 390 px,
+  superadmin) con `scripts/auditoria_oscuro.js`: compara cada pantalla en claro y en
+  oscuro y reporta sólo lo que EMPEORA (texto con contraste < 4,5 y fondos casi blancos
+  colados). Comparar sólo los primeros N hallazgos escondió un defecto real: usar listas
+  completas. Lo que salió: `.calor-celda--1` (azul fijo con `text-gray-700` que en
+  oscuro se aclaraba: número invisible; ahora color fijo), Chart.js (ejes y grilla con
+  grises propios: `window.temaGraficos` en `home.html` y `plataforma/gimnasio_detalle.html`,
+  sólo con la bandera, re-aplicada por `tema.js` al cambiar de tema) y el interruptor
+  para el superadmin (no tiene gimnasio). La rampa de calor y la paleta categórica son
+  datos y quedan fijas a propósito. Preexistente (igual en claro, no se tocó): blanco
+  sobre `amber-500/600` en `.boton-urgente` y `.badge--urgente` (2,1–3,2:1).
+- **Pendiente (fases 3–4):** login/landing por gimnasio y portada.
 
 ## Sitio público y embudo de solicitudes (`solicitudes/`, 2026-09-25)
 

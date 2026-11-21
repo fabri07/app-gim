@@ -48,12 +48,24 @@
     });
   }
 
+  // Chart.js no sigue al tema por sí solo: las pantallas con gráficos definen
+  // `window.temaGraficos` (colores de ejes y grilla) y acá se re-aplica y se
+  // actualizan los gráficos ya dibujados.
+  function actualizarGraficos() {
+    if (typeof window.temaGraficos !== "function" || !window.Chart) return;
+    window.temaGraficos();
+    Object.keys(Chart.instances).forEach(function (id) {
+      Chart.instances[id].update("none");
+    });
+  }
+
   function aplicar(valor) {
     var raiz = document.documentElement;
     if (valor === "auto") raiz.removeAttribute("data-tema");
     else raiz.setAttribute("data-tema", valor);
     sincronizar();
     actualizarMeta();
+    actualizarGraficos();
   }
 
   document.addEventListener("click", function (e) {
@@ -73,7 +85,10 @@
   window.addEventListener("storage", function (e) {
     if (e.key === CLAVE) aplicar(leer());
   });
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", actualizarMeta);
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+    actualizarMeta();
+    actualizarGraficos();
+  });
 
   sincronizar();
   actualizarMeta();

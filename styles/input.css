@@ -1787,9 +1787,12 @@
     @apply bg-gray-50 text-gray-300;
   }
 
+  /* Rampa de datos: el fondo es un azul FIJO (no sigue al tema), así que el texto
+     también: el valor de `gray-700` del tema claro, no la variable, que en oscuro
+     se aclara y dejaba el número invisible sobre este azul claro. */
   .calor-celda--1 {
     background-color: #b7d3f6;
-    @apply text-gray-700;
+    color: oklch(37.3% 0.034 259.733);
   }
 
   .calor-celda--2 {

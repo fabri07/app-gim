@@ -5714,3 +5714,48 @@ class ModoOscuroPrendidoTests(TestCase):
             with self.subTest(url=url):
                 html = self.client.get(url, follow=True).content.decode()
                 self.assertIn("data-tema-fijo", html)
+
+
+class ModoOscuroFase2Tests(TestCase):
+    """Superadmin con interruptor, gráficos con colores de tema y rampa de calor."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym F2", slug="gym-f2")
+        self.staff = User.objects.create_user(username="staff_f2", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+        self.super = User.objects.create_superuser(username="super_f2", password="clave12345")
+
+    @override_settings(MODO_OSCURO=True)
+    def test_el_superadmin_sin_gimnasio_tambien_ve_el_interruptor(self):
+        self.client.login(username="super_f2", password="clave12345")
+        html = self.client.get("/plataforma/").content.decode()
+        self.assertIn('data-tema-opcion="oscuro"', html)
+
+    @override_settings(MODO_OSCURO=False)
+    def test_apagado_el_superadmin_no_ve_interruptor(self):
+        self.client.login(username="super_f2", password="clave12345")
+        html = self.client.get("/plataforma/").content.decode()
+        self.assertNotIn("data-tema-opcion", html)
+
+    @override_settings(MODO_OSCURO=True)
+    def test_el_dashboard_define_los_colores_de_grafico_del_tema(self):
+        self.client.login(username="staff_f2", password="clave12345")
+        html = self.client.get("/").content.decode()
+        self.assertIn("window.temaGraficos", html)
+        self.assertLess(html.index("chart.js@4.4.0"), html.index("window.temaGraficos"))
+
+    @override_settings(MODO_OSCURO=False)
+    def test_apagado_el_dashboard_no_toca_chart_js(self):
+        self.client.login(username="staff_f2", password="clave12345")
+        html = self.client.get("/").content.decode()
+        self.assertNotIn("temaGraficos", html)
+
+    def test_la_rampa_de_calor_no_depende_del_tema_en_el_nivel_1(self):
+        # Fondo azul fijo: el texto del nivel 1 tiene que ser un color fijo, no
+        # `var(--color-gray-*)` (que en oscuro se aclara y deja el número invisible).
+        import re
+
+        css = (settings.BASE_DIR / "static" / "css" / "app.css").read_text(encoding="utf-8")
+        regla = re.search(r"\.calor-celda--1\{([^}]*)\}", css).group(1)
+        self.assertIn("background-color:#b7d3f6", regla)
+        self.assertNotIn("var(--color-gray", regla)
