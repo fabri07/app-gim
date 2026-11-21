@@ -71,6 +71,17 @@
 }
 
 :root {
+  /* Tokens semánticos (modo oscuro, fase 0): en el tema claro valen EXACTAMENTE lo
+     que valían los colores fijos que reemplazan; el tema oscuro los redefine.
+     `--superficie`: tarjetas, tablas, barras y botones secundarios (antes `bg-white`).
+     `--sobre-primario`: texto sobre un relleno de `--color-primario`.
+     `--peligro*`: relleno del botón destructivo (no se remapea, lleva texto blanco).
+     `--texto-error`: rojo de texto sobre una superficie. */
+  --superficie: #fff;
+  --sobre-primario: #fff;
+  --peligro: var(--color-red-600);
+  --peligro-hover: var(--color-red-700);
+  --texto-error: var(--color-red-600);
   /* El sistema es claro a propósito (DESIGN.md: superficies blancas fijas):
      sin esto, un navegador con tema oscuro pinta controles y scrollbars
      nativos oscuros sobre un canvas claro. */
@@ -201,7 +212,7 @@
 
   button[type="submit"] {
     @apply inline-flex items-center justify-center rounded-md
-      bg-[var(--color-primario)] text-white px-4 py-2 text-sm font-medium
+      bg-[var(--color-primario)] text-[color:var(--sobre-primario)] px-4 py-2 text-sm font-medium
       hover:opacity-90 transition cursor-pointer;
   }
 }
@@ -278,7 +289,7 @@
 
   /* Header / nav */
   .topbar {
-    @apply flex items-center justify-between px-4 sm:px-6 py-3 bg-white
+    @apply flex items-center justify-between px-4 sm:px-6 py-3 bg-[var(--superficie)]
       border-b border-gray-200 sticky top-0 z-20;
   }
 
@@ -297,7 +308,7 @@
 
   .nav-staff,
   .nav-alumno {
-    @apply flex flex-wrap gap-1 px-4 sm:px-6 py-2 bg-white border-b
+    @apply flex flex-wrap gap-1 px-4 sm:px-6 py-2 bg-[var(--superficie)] border-b
       border-gray-200 text-sm;
   }
 
@@ -393,7 +404,7 @@
 
   /* Cards */
   .tarjeta {
-    @apply bg-white rounded-2xl border border-gray-200 shadow-sm p-6 mb-6;
+    @apply bg-[var(--superficie)] rounded-2xl border border-gray-200 shadow-sm p-6 mb-6;
   }
 
   .tarjeta:last-child {
@@ -403,20 +414,20 @@
   /* Buttons (as <a> or <button>) */
   .boton {
     @apply inline-flex items-center justify-center rounded-full
-      bg-[var(--color-primario)] text-white px-4 py-2 text-sm font-medium
+      bg-[var(--color-primario)] text-[color:var(--sobre-primario)] px-4 py-2 text-sm font-medium
       no-underline hover:opacity-90 transition cursor-pointer border-none;
   }
 
   .boton-secundario {
     @apply inline-flex items-center justify-center rounded-md border
-      border-gray-300 text-gray-700 bg-white px-4 py-2 text-sm font-medium
+      border-gray-300 text-gray-700 bg-[var(--superficie)] px-4 py-2 text-sm font-medium
       no-underline hover:bg-gray-50 transition cursor-pointer
-      disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-white;
+      disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-[var(--superficie)];
   }
 
   .boton-peligro {
-    @apply inline-flex items-center justify-center rounded-md bg-red-600
-      text-white px-4 py-2 text-sm font-medium no-underline hover:bg-red-700
+    @apply inline-flex items-center justify-center rounded-md bg-[var(--peligro)]
+      text-white px-4 py-2 text-sm font-medium no-underline hover:bg-[var(--peligro-hover)]
       transition cursor-pointer border-none;
   }
 
@@ -425,7 +436,7 @@
      completo (px-4 py-2) desbalancea una lista de texto corrida. */
   .boton-copiar {
     @apply inline-flex items-center justify-center rounded-md border
-      border-gray-300 text-gray-700 bg-white px-2 py-0.5 text-xs font-medium
+      border-gray-300 text-gray-700 bg-[var(--superficie)] px-2 py-0.5 text-xs font-medium
       no-underline hover:bg-gray-50 transition cursor-pointer
       disabled:opacity-70 disabled:cursor-default;
   }
@@ -439,7 +450,7 @@
      confirmación, donde borrar ES la acción de la pantalla. */
   .boton-quitar {
     @apply inline-flex items-center justify-center rounded-md border
-      border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700
+      border-gray-300 bg-[var(--superficie)] px-3 py-1.5 text-xs font-medium text-red-700
       no-underline hover:bg-red-50 hover:border-red-300 transition
       cursor-pointer;
   }
@@ -540,7 +551,7 @@
 
   /* Tables */
   .tabla {
-    @apply w-full text-sm bg-white rounded-2xl border border-gray-200
+    @apply w-full text-sm bg-[var(--superficie)] rounded-2xl border border-gray-200
       shadow-sm overflow-hidden border-separate border-spacing-0;
   }
 
@@ -619,7 +630,7 @@
   }
 
   .filtros {
-    @apply flex flex-wrap items-end gap-3 mb-4 bg-white rounded-lg border
+    @apply flex flex-wrap items-end gap-3 mb-4 bg-[var(--superficie)] rounded-lg border
       border-gray-200 p-3;
   }
 
@@ -638,7 +649,7 @@
   }
 
   .metrica {
-    @apply bg-white rounded-2xl border border-gray-200 shadow-sm p-4;
+    @apply bg-[var(--superficie)] rounded-2xl border border-gray-200 shadow-sm p-4;
   }
 
   .metrica__valor {
@@ -662,7 +673,7 @@
   }
 
   .metrica__delta--baja {
-    @apply text-red-600;
+    @apply text-[color:var(--texto-error)];
   }
 
   /* Ámbar y no rojo, mismo criterio que `.aviso-urgente`: un alumno con el
@@ -752,7 +763,7 @@
      esto -- por eso el círculo no se achica aunque el ícono sea de 20px. */
   .redes-sociales__boton {
     @apply inline-flex items-center justify-center h-11 w-11 rounded-full
-      bg-[var(--color-primario)] text-white no-underline
+      bg-[var(--color-primario)] text-[color:var(--sobre-primario)] no-underline
       transition-transform duration-150;
   }
 
@@ -901,7 +912,7 @@
      seguridad, no había forma de llegar a ella. Con esto la barra se desliza.
      Donde sí entran (390px en adelante) no cambia nada. */
   .semanas-pestanas {
-    @apply flex gap-1 mb-3 rounded-lg border border-gray-200 bg-white p-1
+    @apply flex gap-1 mb-3 rounded-lg border border-gray-200 bg-[var(--superficie)] p-1
       overflow-x-auto;
     scrollbar-width: none;
   }
@@ -918,7 +929,7 @@
   }
 
   .semanas-pestanas__item[aria-current] {
-    @apply bg-[var(--color-primario)] text-white hover:bg-[var(--color-primario)];
+    @apply bg-[var(--color-primario)] text-[color:var(--sobre-primario)] hover:bg-[var(--color-primario)];
   }
 
   /* Absoluto y no un ítem más del flex: ocupando lugar, "Semana 2" ya no
@@ -1383,7 +1394,7 @@
   }
 
   .config-error {
-    @apply text-sm text-red-600 -mt-2 mb-3;
+    @apply text-sm text-[color:var(--texto-error)] -mt-2 mb-3;
   }
 
   /* La `<ul class="errorlist">` que Django genera sola con `{{ form.as_p }}`
@@ -1397,7 +1408,7 @@
      nada, y el mismo rojo que `.config-error` para que un error se vea igual
      en todo el sitio. */
   .errorlist {
-    @apply list-none p-0 mb-2 text-sm text-red-600;
+    @apply list-none p-0 mb-2 text-sm text-[color:var(--texto-error)];
   }
 
   /* Un campo renderizado a mano (etiqueta + control + ayuda + error) en vez
@@ -1421,7 +1432,7 @@
      va en un `.sr-only` al lado, porque un lector de pantalla no puede
      inferir "obligatorio" de un "*". */
   .campo-obligatorio {
-    @apply text-red-600 font-semibold;
+    @apply text-[color:var(--texto-error)] font-semibold;
   }
 
   /* Aviso de tarea que vence (planes por terminarse). Ámbar y no rojo: rojo
@@ -3274,7 +3285,7 @@
 
   .rutina-chip {
     @apply inline-flex items-center rounded-full border border-gray-300
-      bg-white px-3 py-1 text-xs font-medium text-gray-700 cursor-grab
+      bg-[var(--superficie)] px-3 py-1 text-xs font-medium text-gray-700 cursor-grab
       select-none;
   }
 
