@@ -73,6 +73,36 @@
         "value": "cubic-bezier(0.34, 1.56, 0.64, 1)",
         "createdAt": "2026-08-19T14:23:41.007Z",
         "reason": "user confirmed: eligió explícitamente 'Splash llamativo estilo Netflix' vía AskUserQuestion, como excepción deliberada a la Restrained Motion Rule (ver DESIGN.md, splash de instalación de la mancuerna, evento único por dispositivo)"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "sora fallback",
+        "createdAt": "2026-11-21T04:08:49.725Z",
+        "reason": "Agente: alias local('Arial') con size-adjust (fallback de métricas), no una tipografía nueva; las fuentes reales ya son el catálogo de Gimnasio.TIPOGRAFIA_FUENTES. No confirmado por el usuario."
+      },
+      {
+        "rule": "design-system-font",
+        "value": "manrope fallback",
+        "createdAt": "2026-11-21T04:08:49.755Z",
+        "reason": "Agente: alias local('Arial') con size-adjust (fallback de métricas), no una tipografía nueva; las fuentes reales ya son el catálogo de Gimnasio.TIPOGRAFIA_FUENTES. No confirmado por el usuario."
+      },
+      {
+        "rule": "design-system-font",
+        "value": "outfit fallback",
+        "createdAt": "2026-11-21T04:08:49.784Z",
+        "reason": "Agente: alias local('Arial') con size-adjust (fallback de métricas), no una tipografía nueva; las fuentes reales ya son el catálogo de Gimnasio.TIPOGRAFIA_FUENTES. No confirmado por el usuario."
+      },
+      {
+        "rule": "design-system-font",
+        "value": "space grotesk fallback",
+        "createdAt": "2026-11-21T04:08:49.814Z",
+        "reason": "Agente: alias local('Arial') con size-adjust (fallback de métricas), no una tipografía nueva; las fuentes reales ya son el catálogo de Gimnasio.TIPOGRAFIA_FUENTES. No confirmado por el usuario."
+      },
+      {
+        "rule": "overused-font",
+        "value": "space grotesk",
+        "createdAt": "2026-11-21T04:08:49.846Z",
+        "reason": "Agente: Space Grotesk es una de las 5 tipografías del catálogo que cada gimnasio elige (existía antes del pase visual); el aviso salta por el nombre del fallback. No confirmado por el usuario."
       }
     ]
   }

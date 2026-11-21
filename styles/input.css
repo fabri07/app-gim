@@ -30,6 +30,46 @@
   font-display: swap;
 }
 
+/* Fallbacks de métricas para las 4 tipografías que se cargan de Google Fonts.
+   Mientras llega la fuente real (`display=swap`) el texto se pinta en Arial;
+   estas caras le dan a Arial el ancho y el alto de línea de la fuente que
+   viene, así el cambio no mueve el layout (CLS). Valores medidos con
+   fontTools sobre la instancia de peso 400, contra Arial (ancho ponderado por
+   frecuencia de letras del español). Si se agrega o cambia una tipografía en
+   `Gimnasio.TIPOGRAFIA_FUENTES`, hay que medirla y sumar su cara acá. */
+@font-face {
+  font-family: 'Sora Fallback';
+  src: local('Arial');
+  size-adjust: 113.5%;
+  ascent-override: 85.4%;
+  descent-override: 25.5%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Manrope Fallback';
+  src: local('Arial');
+  size-adjust: 103.2%;
+  ascent-override: 103.3%;
+  descent-override: 29.1%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Outfit Fallback';
+  src: local('Arial');
+  size-adjust: 99.3%;
+  ascent-override: 100.7%;
+  descent-override: 26.2%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: 'Space Grotesk Fallback';
+  src: local('Arial');
+  size-adjust: 109.5%;
+  ascent-override: 89.8%;
+  descent-override: 26.7%;
+  line-gap-override: 0%;
+}
+
 :root {
   /* El sistema es claro a propósito (DESIGN.md: superficies blancas fijas):
      sin esto, un navegador con tema oscuro pinta controles y scrollbars

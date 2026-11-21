@@ -2309,7 +2309,7 @@ class GimnasioUpdateViewTests(TestCase):
         self.gimnasio.save()
         self.client.login(username="dueno", password="clave-123456")
         response = self.client.get(reverse("home"))
-        self.assertContains(response, "--font-gimnasio: 'Sora', var(--font-sans);")
+        self.assertContains(response, "--font-gimnasio: 'Sora', 'Sora Fallback', var(--font-sans);")
         self.assertNotContains(response, "&#x27;")
 
     def _datos_base_fondo(self, **overrides):
