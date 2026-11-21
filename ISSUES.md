@@ -20,6 +20,13 @@ del log.
 
 ---
 
+## [2026-11-21] Modo oscuro: fases 0 y 1 hechas, apagado hasta verificar el resto
+**Estado:** abierto (bandera `MODO_OSCURO` apagada en producción).
+**Impacto:** con la bandera apagada no cambia nada. Prendida, todo el panel y el portal del alumno pasan a oscuro en Automático (sistema oscuro) o por el interruptor; pantallas sin verificar (tienda, pagos, ingreso, turnos, importaciones, plataforma) pueden tener detalles.
+**Resolución / próximo paso:** fase 2 (recorrer esas pantallas y los gráficos), luego fases 3–4. Detalle en `ARQUITECTURA.md` «Modo oscuro». Riesgo conocido: el alumno con la app instalada puede ver el CSS anterior hasta que se actualice el service worker.
+
+---
+
 ## [2026-11-21] Pase visual con modern-web-guidance: qué se hizo y qué queda
 **Estado:** resuelto en lo hecho; pendientes abiertos abajo.
 **Impacto:** feedback de errores (antes todo ámbar), foco de teclado, controles nativos con la marca, objetivos táctiles, esperas sin señal en `hx-boost`.

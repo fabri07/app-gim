@@ -3044,6 +3044,41 @@ descartó. Lo que quedó y por qué:
 - **Falso positivo conocido:** el test `core.tests.InputDateConFormatoISOTests`
   barre `.worktrees/` y falla mientras haya worktrees viejos; no es una regresión.
 
+### Modo oscuro (2026-11-21, fases 0 y 1)
+
+Spec: `docs/superpowers/specs/2026-11-21-modo-oscuro-design.md`. **Apagado por
+defecto**: la bandera `MODO_OSCURO=1` (variable de entorno, `config/settings.py`,
+context processor `core/context_processors.py`) prende todo; apagada, el HTML y el
+CSS efectivo son los de siempre. Prenderla en Render es una decisión del dueño y
+se hace recién cuando la fase 2 (resto de pantallas) esté verificada.
+
+- **Tokens (fase 0):** `--superficie`, `--sobre-primario`, `--peligro`/`-hover`,
+  `--texto-error` en `:root` de `styles/input.css`, con el valor exacto del color fijo
+  que reemplazan. El blanco de texto sobre marca y el blanco de superficie son roles
+  distintos: `--color-white` queda constante. Compuerta: diff textual del `app.css`
+  y `scripts/volcado_estilos.js` (estilos computados antes/después, ±0).
+- **Mecanismo (fase 1):** dos bloques CSS al final de `input.css`, generados desde una
+  sola lista (un test, `ModoOscuroCssTests`, verifica que no divergen): uno bajo
+  `@media screen and (prefers-color-scheme: dark)` (Automático) y otro con
+  `[data-tema="oscuro"]`. Ambos exigen `:root[data-modo-oscuro]` y
+  `:not(:has([data-tema-fijo]))`. Remapean `--color-gray-*`, `amber/red/green/slate` y
+  los tokens; ganan al `:root` inline de `base.html` por especificidad.
+- **Marca por gimnasio:** `base.html` emite además `--color-*-oscuro` y
+  `--sobre-primario-oscuro` desde `Gimnasio.PALETAS_OSCURAS` (dict aparte: `PALETAS`
+  la recorren `paisaje_matching`, `paletas_demo` y `fotos_portada`).
+- **Claro fijo:** una página que emite `<div data-tema-fijo hidden>` (login, landing,
+  portada, tarjetas de ingreso; `{% block tema_fijo %}` de `base.html`) se queda clara.
+  Va dentro de `<body>` y se detecta con `:has()` porque hx-boost no reemplaza los
+  atributos de `<html>`. Esas pantallas fijan la marca con `style` inline, que no
+  admite `@media`: variantes oscuras = fase 3.
+- **Interruptor:** `partials/tema_toggle.html` + `static/js/tema.js` (delegación; se
+  re-sincroniza en `htmx:afterSwap`: **`htmx:afterSettle` no se dispara** en la
+  navegación boosteada del `<body>`). Un script síncrono del `<head>`, antes del CSS,
+  lee `localStorage["tema"]` para no parpadear.
+- **Pendiente (fases 2–4):** recorrer tienda/pagos/ingreso/turnos/importaciones/
+  plataforma en oscuro, gráficos del dashboard sobre superficie oscura (rampa
+  `#b7d3f6→#184f95` y paleta categórica), login/landing por gimnasio y portada.
+
 ## Sitio público y embudo de solicitudes (`solicitudes/`, 2026-09-25)
 
 Hay **dos** superficies públicas y no hay que confundirlas: la landing de un

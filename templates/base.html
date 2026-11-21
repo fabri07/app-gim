@@ -1,9 +1,9 @@
 {% load static notificaciones_tags %}<!doctype html>
-<html lang="es">
+<html lang="es"{% if modo_oscuro %} data-modo-oscuro{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
+  <meta name="color-scheme" content="{% if modo_oscuro %}light dark{% else %}light{% endif %}">
   <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}App Gimnasios{% endblock %}</title>
   {% block meta_extra %}{% endblock %}
@@ -16,6 +16,16 @@
   {% if not user.perfil.gimnasio.tipografia_google_param %}
     <link rel="preload" href="{% static 'fonts/plus-jakarta-sans-variable.woff2' %}" as="font" type="font/woff2" crossorigin>
   {% endif %}
+  {% if modo_oscuro %}
+    {% comment %}
+      Tema elegido por la persona (Claro/Oscuro; sin elección = Automático, que
+      resuelve el CSS con `prefers-color-scheme`). Va ACÁ, síncrono y ANTES del
+      CSS, para que la primera pintura ya tenga el tema y no parpadee. El atributo
+      queda en <html>, que hx-boost no reemplaza. `localStorage` puede lanzar
+      (Safari en modo privado): sin él, Automático.
+    {% endcomment %}
+    <script>(function(){try{var t=localStorage.getItem("tema");if(t==="claro"||t==="oscuro"){document.documentElement.setAttribute("data-tema",t)}}catch(e){}})()</script>
+  {% endif %}
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   {% if user.is_authenticated and user.perfil.gimnasio %}
     {% with gimnasio=user.perfil.gimnasio %}
@@ -26,7 +36,7 @@
         el mismo motivo que el manifest (ver icons.icono_pwa_url).
       {% endcomment %}
       <link rel="apple-touch-icon" href="{% icono_pwa_url gimnasio 192 %}">
-      <meta name="theme-color" content="{{ gimnasio.color_primario_css }}">
+      <meta name="theme-color" content="{{ gimnasio.color_primario_css }}"{% if modo_oscuro %} data-claro="{{ gimnasio.color_primario_css }}" data-oscuro="{{ gimnasio.color_fondo_oscuro_css }}"{% endif %}>
       {% if gimnasio.tipografia_google_param %}
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -37,6 +47,12 @@
           --color-fondo: {{ gimnasio.color_fondo_css }};
           --color-primario: {{ gimnasio.color_primario_css }};
           --color-secundario: {{ gimnasio.color_secundario_css }};
+          {% if modo_oscuro %}
+          --color-fondo-oscuro: {{ gimnasio.color_fondo_oscuro_css }};
+          --color-primario-oscuro: {{ gimnasio.color_primario_oscuro_css }};
+          --color-secundario-oscuro: {{ gimnasio.color_secundario_oscuro_css }};
+          --sobre-primario-oscuro: {{ gimnasio.color_sobre_primario_oscuro_css }};
+          {% endif %}
           {% comment %}
             |safe: <style> es un elemento "raw text" -- el navegador no decodifica
             entidades ahí adentro, así que el autoescape de Django (que convierte
@@ -49,7 +65,7 @@
         {% if gimnasio.fondo_tipo == "imagen" and gimnasio.fondo_imagen %}
           body {
             background-image:
-              linear-gradient(color-mix(in oklab, var(--color-fondo) 55%, transparent), color-mix(in oklab, var(--color-fondo) 55%, transparent)),
+              linear-gradient(color-mix(in oklab, var(--color-fondo) {% if modo_oscuro %}var(--velo-fondo, 55%){% else %}55%{% endif %}, transparent), color-mix(in oklab, var(--color-fondo) {% if modo_oscuro %}var(--velo-fondo, 55%){% else %}55%{% endif %}, transparent)),
               {% comment %}
               |safe por el mismo motivo que tipografia_css_family arriba, pero
               acá el síntoma es peor: en producción R2 va con
@@ -89,10 +105,19 @@
   {% block extra_style %}{% endblock %}
   <script src="https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js" integrity="sha384-0895/pl2MU10Hqc6jd4RvrthNlDiE9U1tWmX7WRESftEDRosgxNsQG/Ze9YMRzHq" crossorigin="anonymous" defer></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js" integrity="sha384-9Ax3MmS9AClxJyd5/zafcXXjxmwFhZCdsT6HJoJjarvCaAkJlk5QDzjLJm+Wdx5F" crossorigin="anonymous"></script>
+  {% if modo_oscuro %}<script src="{% static 'js/tema.js' %}" defer></script>{% endif %}
   <script src="{% static 'js/pwa.js' %}" defer></script>
   <script src="{% static 'js/tour_onboarding.js' %}" defer></script>
 </head>
 <body hx-boost="true" data-vapid-public-key="{{ VAPID_PUBLIC_KEY }}" data-suplantacion="{% if request.session.suplantacion %}true{% else %}false{% endif %}" {% if user.is_authenticated and user.perfil.rol == "staff" or user.is_authenticated and user.perfil.rol == "alumno" %}x-data="{ navAbierto: false }"{% endif %}>
+  {% comment %}
+    Marcador de «claro fijo»: una página que lo emite (login, landing, portada,
+    tarjetas de ingreso) se queda en tema claro aunque el sistema o la persona
+    pidan oscuro. Va DENTRO de <body> (no como atributo de <html>) porque
+    hx-boost reemplaza el contenido de <body> pero nunca los atributos de <html>:
+    el CSS lo detecta con `:has([data-tema-fijo])` y se apaga solo al navegar.
+  {% endcomment %}
+  {% block tema_fijo %}{% endblock %}
   {% comment %}
     hx-boost solo reemplaza el CONTENIDO de <body> (su innerHTML), nunca los
     atributos del propio tag <body> -- así que CUALQUIER dato del tour que
@@ -216,6 +241,9 @@
       <span>{{ user.perfil.gimnasio.nombre|default:"TuGimApp" }}</span>
     </a>
     <div class="flex items-center gap-3">
+      {% if modo_oscuro and user.is_authenticated and user.perfil.gimnasio %}
+        {% include 'partials/tema_toggle.html' %}
+      {% endif %}
       {% if user.is_authenticated and user.perfil.gimnasio %}
         <button type="button" data-pwa-instalar hidden class="boton-secundario">Instalar app</button>
         {% if VAPID_PUBLIC_KEY and not request.session.suplantacion %}

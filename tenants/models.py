@@ -290,6 +290,19 @@ class Gimnasio(TimeStampedModel):
         Paleta.PIZARRA: {"fondo": "#f0f1f3", "primario": "#33475b", "secundario": "#5b8c5a"},
     }
 
+    #: Variante oscura curada de cada paisaje (modo oscuro). Mismas claves de rol
+    #: que `PALETAS` más `sobre_primario`: el primario se aclara para leerse sobre
+    #: un fondo oscuro y entonces el texto de un botón pasa a ser oscuro (blanco
+    #: sobre estos primarios da 2,5-2,9:1). Es un dict APARTE a propósito:
+    #: `paisaje_matching`, `paletas_demo` y `fotos_portada` recorren `PALETAS`.
+    #: `ContrasteDePaletasTests` fija los contrastes.
+    PALETAS_OSCURAS = {
+        Paleta.BOSQUE: {"fondo": "#15201b", "primario": "#4fb08c", "secundario": "#f09a86", "sobre_primario": "#0b1118"},
+        Paleta.OCEANO: {"fondo": "#0f1923", "primario": "#6f9bd1", "secundario": "#e8b45e", "sobre_primario": "#0b1118"},
+        Paleta.ARENA: {"fondo": "#1d1814", "primario": "#e08a5f", "secundario": "#5fa79c", "sobre_primario": "#0b1118"},
+        Paleta.PIZARRA: {"fondo": "#14181d", "primario": "#8fa6bd", "secundario": "#86b184", "sobre_primario": "#0b1118"},
+    }
+
     class FondoTipo(models.TextChoices):
         COLOR = "color", "Paisaje de color"
         IMAGEN = "imagen", "Imagen propia"
@@ -460,6 +473,22 @@ class Gimnasio(TimeStampedModel):
     @property
     def color_fondo_css(self):
         return self.PALETAS[self.paleta]["fondo"]
+
+    @property
+    def color_fondo_oscuro_css(self):
+        return self.PALETAS_OSCURAS[self.paleta]["fondo"]
+
+    @property
+    def color_primario_oscuro_css(self):
+        return self.PALETAS_OSCURAS[self.paleta]["primario"]
+
+    @property
+    def color_secundario_oscuro_css(self):
+        return self.PALETAS_OSCURAS[self.paleta]["secundario"]
+
+    @property
+    def color_sobre_primario_oscuro_css(self):
+        return self.PALETAS_OSCURAS[self.paleta]["sobre_primario"]
 
     @property
     def color_primario_css(self):

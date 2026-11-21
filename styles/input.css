@@ -82,6 +82,9 @@
   --peligro: var(--color-red-600);
   --peligro-hover: var(--color-red-700);
   --texto-error: var(--color-red-600);
+  --logo-fondo: transparent;
+  --logo-pad: 0px;
+  --logo-radio: 0.25rem;
   /* El sistema es claro a propósito (DESIGN.md: superficies blancas fijas):
      sin esto, un navegador con tema oscuro pinta controles y scrollbars
      nativos oscuros sobre un canvas claro. */
@@ -297,8 +300,48 @@
     @apply font-semibold text-gray-900 flex items-center gap-2 no-underline;
   }
 
+  /* El logo del gimnasio es una imagen propia (a menudo oscura y con fondo
+     transparente): en tema oscuro se apoya en una ficha blanca para no perderse.
+     En claro las tres variables valen lo de siempre (sin fondo, sin aire, 0.25rem). */
   .topbar__marca img {
-    @apply h-8 w-auto rounded;
+    @apply h-8 w-auto;
+    background: var(--logo-fondo);
+    padding: var(--logo-pad);
+    border-radius: var(--logo-radio);
+  }
+
+  /* Interruptor de tema (sólo existe con la bandera MODO_OSCURO). Tres botones
+     en un grupo; en celular se ve únicamente el activo y un click avanza al
+     siguiente (`static/js/tema.js`), así entra en la barra junto al ☰ y «Salir». */
+  .tema-toggle {
+    @apply inline-flex items-stretch overflow-hidden rounded-md border
+      border-gray-300 bg-[var(--superficie)] text-xs;
+  }
+
+  .tema-toggle button {
+    @apply inline-flex items-center justify-center gap-1 px-2.5 py-1.5
+      min-h-9 bg-transparent border-none text-gray-600 cursor-pointer;
+  }
+
+  .tema-toggle button[aria-pressed="true"] {
+    @apply bg-[var(--color-primario)] text-[color:var(--sobre-primario)];
+  }
+
+  .tema-toggle button:not([aria-pressed="true"]):hover {
+    @apply bg-gray-100 text-gray-900;
+  }
+
+  @media (max-width: 639px) {
+    .tema-toggle button {
+      min-width: 44px;
+      min-height: 44px;
+    }
+    .tema-toggle button:not([aria-pressed="true"]) {
+      display: none;
+    }
+    .tema-toggle__texto {
+      display: none;
+    }
   }
 
   .topbar__salir button {
@@ -3357,5 +3400,110 @@
     .tour-tarjeta {
       @apply left-4 right-4 max-w-none;
     }
+  }
+}
+
+/* ===== MODO OSCURO (fase 1) =====
+   Sólo aplica con la bandera MODO_OSCURO (`<html data-modo-oscuro>`), sólo en
+   pantalla (en impresión todo queda claro) y nunca en una página que emite
+   `data-tema-fijo` (login, landing, portada, tarjetas: marca clara con `style`
+   inline). Dos selectores con las MISMAS declaraciones: Automático (el sistema
+   pide oscuro y la persona no eligió claro) y Oscuro elegido. Generados desde una
+   sola lista; `tenants.tests.ModoOscuroCssTests` verifica que no divergen. Los
+   selectores ganan por especificidad al `:root` inline de `base.html`, sin
+   depender del orden. Valores de `--color-*-oscuro` por paleta: ver
+   `Gimnasio.PALETAS_OSCURAS` (el CSS sólo trae el respaldo de Bosque). */
+@media screen and (prefers-color-scheme: dark) {
+  :root[data-modo-oscuro]:not([data-tema="claro"]):not(:has([data-tema-fijo])) {
+    color-scheme: dark;
+    scrollbar-color: #3d4655 #161b22;
+    --superficie: #161b22;
+    --sobre-primario: var(--sobre-primario-oscuro, #0b1118);
+    --color-fondo: var(--color-fondo-oscuro, #15201b);
+    --color-primario: var(--color-primario-oscuro, #4fb08c);
+    --color-secundario: var(--color-secundario-oscuro, #f09a86);
+    --velo-fondo: 78%;
+    --texto-error: #f87171;
+    --peligro-hover: #b91c1c;
+    --logo-fondo: #fff;
+    --logo-pad: 2px;
+    --logo-radio: 0.5rem;
+    --color-gray-50: #1b2029;
+    --color-gray-100: #222833;
+    --color-gray-200: #2e3542;
+    --color-gray-300: #3d4655;
+    --color-gray-400: #6c7686;
+    --color-gray-500: #98a2b3;
+    --color-gray-600: #b2bac8;
+    --color-gray-700: #cdd3dd;
+    --color-gray-800: #e2e6ed;
+    --color-gray-900: #f3f5f8;
+    --color-amber-50: #2a2312;
+    --color-amber-100: #33291a;
+    --color-amber-200: #5b4716;
+    --color-amber-300: #7c6119;
+    --color-amber-800: #fcd34d;
+    --color-amber-900: #fde68a;
+    --color-red-50: #2d1517;
+    --color-red-100: #3b1a1d;
+    --color-red-200: #5e2a2f;
+    --color-red-300: #84393f;
+    --color-red-700: #fca5a5;
+    --color-red-800: #fecaca;
+    --color-green-50: #12261b;
+    --color-green-100: #173323;
+    --color-green-200: #245a39;
+    --color-green-700: #86efac;
+    --color-green-800: #bbf7d0;
+    --color-slate-100: #1f2733;
+    --color-slate-300: #3a4556;
+    --color-slate-700: #cbd5e1;
+  }
+}
+@media screen {
+  :root[data-modo-oscuro][data-tema="oscuro"]:not(:has([data-tema-fijo])) {
+    color-scheme: dark;
+    scrollbar-color: #3d4655 #161b22;
+    --superficie: #161b22;
+    --sobre-primario: var(--sobre-primario-oscuro, #0b1118);
+    --color-fondo: var(--color-fondo-oscuro, #15201b);
+    --color-primario: var(--color-primario-oscuro, #4fb08c);
+    --color-secundario: var(--color-secundario-oscuro, #f09a86);
+    --velo-fondo: 78%;
+    --texto-error: #f87171;
+    --peligro-hover: #b91c1c;
+    --logo-fondo: #fff;
+    --logo-pad: 2px;
+    --logo-radio: 0.5rem;
+    --color-gray-50: #1b2029;
+    --color-gray-100: #222833;
+    --color-gray-200: #2e3542;
+    --color-gray-300: #3d4655;
+    --color-gray-400: #6c7686;
+    --color-gray-500: #98a2b3;
+    --color-gray-600: #b2bac8;
+    --color-gray-700: #cdd3dd;
+    --color-gray-800: #e2e6ed;
+    --color-gray-900: #f3f5f8;
+    --color-amber-50: #2a2312;
+    --color-amber-100: #33291a;
+    --color-amber-200: #5b4716;
+    --color-amber-300: #7c6119;
+    --color-amber-800: #fcd34d;
+    --color-amber-900: #fde68a;
+    --color-red-50: #2d1517;
+    --color-red-100: #3b1a1d;
+    --color-red-200: #5e2a2f;
+    --color-red-300: #84393f;
+    --color-red-700: #fca5a5;
+    --color-red-800: #fecaca;
+    --color-green-50: #12261b;
+    --color-green-100: #173323;
+    --color-green-200: #245a39;
+    --color-green-700: #86efac;
+    --color-green-800: #bbf7d0;
+    --color-slate-100: #1f2733;
+    --color-slate-300: #3a4556;
+    --color-slate-700: #cbd5e1;
   }
 }

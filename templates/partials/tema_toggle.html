@@ -1,0 +1,11 @@
+{% comment %}
+  Interruptor de tema: Automático · Claro · Oscuro. Sólo se incluye con la
+  bandera MODO_OSCURO. `static/js/tema.js` lo maneja por delegación (el
+  <header> se reemplaza en cada navegación boosteada) y mantiene `aria-pressed`.
+  En celular se ve sólo el botón activo y un click pasa al siguiente estado.
+{% endcomment %}
+<div class="tema-toggle" role="group" aria-label="Tema de color">
+  <button type="button" data-tema-opcion="auto" aria-pressed="false" aria-label="Tema automático, según tu dispositivo"><span aria-hidden="true">◐</span><span class="tema-toggle__texto">Auto</span></button>
+  <button type="button" data-tema-opcion="claro" aria-pressed="false" aria-label="Tema claro"><span aria-hidden="true">☀</span><span class="tema-toggle__texto">Claro</span></button>
+  <button type="button" data-tema-opcion="oscuro" aria-pressed="false" aria-label="Tema oscuro"><span aria-hidden="true">☾</span><span class="tema-toggle__texto">Oscuro</span></button>
+</div>

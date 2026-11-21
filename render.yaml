@@ -139,6 +139,11 @@ services:
         sync: false
       - key: VAPID_ADMIN_EMAIL
         sync: false
+      # Modo oscuro (automático + interruptor). Sin cargar = apagado: el HTML y
+      # el CSS son los de siempre. MODO_OSCURO=1 lo prende; se hace recién cuando
+      # todas las pantallas con sesión estén verificadas en oscuro (ARQUITECTURA.md).
+      - key: MODO_OSCURO
+        sync: false
       # Cobro online de la suscripción (Mercado Pago, Checkout Pro). Las 2
       # credenciales o ninguna -> `COBRO_ONLINE_ENABLED`; con una sola la app
       # no arranca. COBROS_AVISO_EMAIL es suelta y opcional (vacía cae a

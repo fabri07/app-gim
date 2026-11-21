@@ -5577,3 +5577,140 @@ class MensajesPorNivelTests(TestCase):
 
         r = self._get_con_mensaje(messages.WARNING, "Revisá los datos")
         self.assertContains(r, 'class="mensaje mensaje--warning"')
+
+
+SUPERFICIE_OSCURA = "#161b22"
+TEXTO_OSCURO = "#f3f5f8"
+
+
+class ContrasteDePaletasOscurasTests(SimpleTestCase):
+    """Variante oscura de cada paisaje (`Gimnasio.PALETAS_OSCURAS`)."""
+
+    def test_tiene_las_mismas_paletas_que_la_clara(self):
+        self.assertEqual(set(Gimnasio.PALETAS_OSCURAS), set(Gimnasio.PALETAS))
+
+    def test_texto_sobre_primario_cumple_aa(self):
+        # El primario se aclara para leerse en oscuro; blanco encima daría 2,5:1.
+        for clave, c in Gimnasio.PALETAS_OSCURAS.items():
+            with self.subTest(paleta=clave):
+                self.assertGreaterEqual(_contraste(c["sobre_primario"], c["primario"]), 4.5)
+
+    def test_primario_y_secundario_se_distinguen_de_la_superficie(self):
+        for clave, c in Gimnasio.PALETAS_OSCURAS.items():
+            with self.subTest(paleta=clave):
+                self.assertGreaterEqual(_contraste(c["primario"], SUPERFICIE_OSCURA), 3.0)
+                self.assertGreaterEqual(_contraste(c["secundario"], SUPERFICIE_OSCURA), 3.0)
+                self.assertGreaterEqual(_contraste(c["primario"], c["fondo"]), 3.0)
+
+    def test_texto_principal_sobre_el_fondo_oscuro(self):
+        for clave, c in Gimnasio.PALETAS_OSCURAS.items():
+            with self.subTest(paleta=clave):
+                self.assertGreaterEqual(_contraste(TEXTO_OSCURO, c["fondo"]), 4.5)
+
+
+def _bloques_oscuros_del_css():
+    """Los dos bloques del modo oscuro del `app.css` compilado:
+    {selector: {variable: valor}}. Falla si cambia la forma del CSS."""
+    import re
+
+    ruta = settings.BASE_DIR / "static" / "css" / "app.css"
+    css = ruta.read_text(encoding="utf-8")
+    bloques = {}
+    for m in re.finditer(r"(:root\[data-modo-oscuro\][^{]*)\{([^}]*)\}", css):
+        decl = {}
+        for d in m.group(2).split(";"):
+            if ":" in d:
+                k, v = d.split(":", 1)
+                decl[k.strip()] = v.strip()
+        bloques[m.group(1).strip()] = decl
+    return bloques
+
+
+class ModoOscuroCssTests(SimpleTestCase):
+    def test_los_dos_bloques_existen_y_tienen_las_mismas_declaraciones(self):
+        bloques = _bloques_oscuros_del_css()
+        self.assertEqual(len(bloques), 2, list(bloques))
+        auto, elegido = None, None
+        for selector, decl in bloques.items():
+            if 'data-tema=oscuro' in selector.replace('"', ""):
+                elegido = decl
+            else:
+                auto = decl
+        self.assertTrue(auto and elegido)
+        self.assertEqual(auto, elegido)
+        for selector in bloques:
+            self.assertIn(":has([data-tema-fijo])", selector)
+
+    def test_pares_de_texto_y_fondo_de_estado_cumplen_aa(self):
+        d = next(iter(_bloques_oscuros_del_css().values()))
+        c = lambda nombre: d[f"--color-{nombre}"]
+        pares = [
+            ("gray-900", None), ("gray-700", None), ("gray-500", None),
+            ("amber-800", "amber-100"), ("amber-800", "amber-50"),
+            ("amber-900", "amber-100"), ("red-800", "red-100"),
+            ("red-700", "red-50"), ("green-800", "green-100"),
+            ("slate-700", "slate-100"),
+        ]
+        superficie = d["--superficie"]
+        for texto, fondo in pares:
+            with self.subTest(texto=texto, fondo=fondo):
+                bg = c(fondo) if fondo else superficie
+                self.assertGreaterEqual(_contraste(c(texto), bg), 4.5)
+        for variable in ("--texto-error", "--color-green-700"):
+            with self.subTest(variable=variable):
+                self.assertGreaterEqual(_contraste(d[variable], superficie), 4.5)
+
+
+@override_settings(MODO_OSCURO=False)
+class ModoOscuroApagadoTests(TestCase):
+    """Con la bandera apagada el HTML es el de siempre: sin atributo, sin script,
+    sin interruptor."""
+
+    def test_el_login_no_trae_nada_del_modo_oscuro(self):
+        r = self.client.get("/accounts/login/", follow=True)
+        html = r.content.decode()
+        self.assertIn('<html lang="es">', html)
+        for rastro in ("data-modo-oscuro", "localStorage", "tema.js", "data-tema-opcion"):
+            self.assertNotIn(rastro, html)
+        self.assertIn('<meta name="color-scheme" content="light">', html)
+
+
+class ModoOscuroPrendidoTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="Gym Oscuro", slug="gym-oscuro")
+        self.staff = User.objects.create_user(username="staff_osc", password="clave12345")
+        Perfil.objects.create(usuario=self.staff, gimnasio=self.gimnasio, rol=Perfil.Rol.STAFF)
+
+    @override_settings(MODO_OSCURO=True)
+    def test_el_script_del_tema_va_antes_del_css(self):
+        self.client.login(username="staff_osc", password="clave12345")
+        html = self.client.get("/").content.decode()
+        self.assertIn("data-modo-oscuro", html)
+        self.assertIn('content="light dark"', html)
+        self.assertLess(html.index("localStorage"), html.index("css/app."))
+        self.assertIn("tema.js", html)
+
+    @override_settings(MODO_OSCURO=True)
+    def test_staff_ve_el_interruptor_y_las_variables_oscuras_de_su_paleta(self):
+        self.client.login(username="staff_osc", password="clave12345")
+        html = self.client.get("/").content.decode()
+        for opcion in ("auto", "claro", "oscuro"):
+            self.assertIn(f'data-tema-opcion="{opcion}"', html)
+        p = Gimnasio.PALETAS_OSCURAS[self.gimnasio.paleta]
+        self.assertIn(f"--color-primario-oscuro: {p['primario']};", html)
+        self.assertIn(f"--sobre-primario-oscuro: {p['sobre_primario']};", html)
+
+    @override_settings(MODO_OSCURO=False)
+    def test_apagada_staff_no_ve_nada(self):
+        self.client.login(username="staff_osc", password="clave12345")
+        html = self.client.get("/").content.decode()
+        self.assertNotIn("data-tema-opcion", html)
+        self.assertNotIn("--color-primario-oscuro", html)
+        self.assertNotIn("tema.js", html)
+
+    @override_settings(MODO_OSCURO=True)
+    def test_las_pantallas_con_marca_inline_se_quedan_en_claro(self):
+        for url in ("/accounts/login/", f"/g/{self.gimnasio.slug}/", f"/g/{self.gimnasio.slug}/login/"):
+            with self.subTest(url=url):
+                html = self.client.get(url, follow=True).content.decode()
+                self.assertIn("data-tema-fijo", html)

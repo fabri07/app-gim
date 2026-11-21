@@ -160,6 +160,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'notificaciones.context_processors.vapid_public_key',
+                'core.context_processors.modo_oscuro',
                 'tenants.context_processors.google_staff_login_disponible',
                 'tenants.context_processors.password_reset_disponible',
                 'tenants.context_processors.tour_onboarding_disponible',
@@ -334,6 +335,11 @@ if R2_ENABLED and not TESTING:
 # Mismo criterio todo-o-nada que R2: si la integración está configurada, las 4
 # variables deben estar; si no hay ninguna, la app degrada al deep-link actual
 # ("Agregar a Google Calendar") sin tocar nada. Ver `calendario.services`.
+# Modo oscuro (automático + interruptor). Apagado por defecto: con la bandera en
+# falso el HTML y el CSS efectivo son los de siempre. Se prende con MODO_OSCURO=1
+# recién cuando todas las pantallas con sesión estén verificadas en oscuro.
+MODO_OSCURO = os.environ.get("MODO_OSCURO") == "1"
+
 GOOGLE_OAUTH_CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
 GOOGLE_OAUTH_CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
 GOOGLE_OAUTH_REDIRECT_URI = os.environ.get("GOOGLE_OAUTH_REDIRECT_URI", "")

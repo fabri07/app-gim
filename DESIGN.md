@@ -235,11 +235,15 @@ armonizados — el gimnasio elige un paisaje entero, nunca un color suelto.
 - **Texto principal** (`oklch(21% .034 264.665)`, gray-900): títulos, valores
   numéricos de métricas.
 
-Nota: las superficies (`.tarjeta`, `.tabla`, `.metrica`) siguen en blanco
-sólido siempre, sin importar el paisaje — solo el CANVAS de fondo
-(`--color-fondo`) cambia por gimnasio. Es deliberado: el sistema no tiene
-modo oscuro real, así que el texto gris fijo solo es legible sobre
-superficies claras garantizadas.
+Nota: en el tema claro las superficies (`.tarjeta`, `.tabla`, `.metrica`)
+son blanco sólido sin importar el paisaje — solo el CANVAS de fondo
+(`--color-fondo`) cambia por gimnasio. **Modo oscuro (desde 2026-11-21, tras
+la bandera `MODO_OSCURO`):** las superficies pasan por el token `--superficie`
+y los grises/estados por variables remapeadas; cada paisaje tiene una variante
+oscura curada en `Gimnasio.PALETAS_OSCURAS` (fondo, primario aclarado,
+secundario y `sobre_primario`, el texto sobre el primario, que en oscuro es
+casi negro porque blanco sobre un primario aclarado da 2,5:1). Sigue la regla de
+siempre: el gimnasio elige un paisaje entero, nunca un color suelto.
 
 ### Estado (semántico, no de marca)
 Verde/ámbar/rojo comunican **estado**, nunca identidad — se mantienen fijos
@@ -569,6 +573,17 @@ paisaje y badges. Nunca un tercer escalón intermedio.
   persona tocó el campo; no reemplaza la línea de error de cada campo.
 - **Táctil:** con `@media (pointer: coarse)` botones y campos miden 44px como
   mínimo; en compu conservan su tamaño compacto.
+
+### Interruptor de tema (`.tema-toggle`)
+Sólo existe con la bandera `MODO_OSCURO`. Tres botones en un grupo
+(**Auto · Claro · Oscuro**, con ◐ ☀ ☾) en la barra superior de staff y alumno,
+`aria-pressed` en el activo. En celular (< 640 px) se ve sólo el botón activo, de
+44 px, y un click avanza al siguiente estado. La elección vive en
+`localStorage["tema"]`; sin clave = Automático (`prefers-color-scheme`). Es la
+única excepción a «no hay íconos en la navegación»: es un control, no navegación.
+El logo del gimnasio se apoya en una ficha blanca en oscuro para no perderse.
+Login, landing, portada y tarjetas de ingreso se quedan **siempre claros**
+(`{% block tema_fijo %}`) hasta las fases 3–4.
 
 ### Estados vacíos (`.vacio`)
 Una frase y, si hay algo para hacer, la acción (`.boton` / `.boton-secundario`),
