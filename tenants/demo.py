@@ -246,7 +246,8 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42, con_tien
     from importaciones.parsing import normalizar_texto
     from novedades.models import Novedad
     from pagos.models import DIAS_CICLO, Cuota
-    from tenants.models import Gimnasio
+    from tenants.models import Gimnasio, Perfil
+    from tenants.terminos import VERSION_TERMINOS
     from rutinas.models import (
         RutinaAsignada,
         RutinaAsignadaDiaCompletado,
@@ -421,6 +422,14 @@ def sembrar_demo(*, gimnasio, cantidad_alumnos=24, meses=6, semilla=42, con_tien
             # único lugar donde vive el alta de un acceso.
             try:
                 crear_acceso(alumno, "email", email, password=PASSWORD_DEMO)
+                # Términos ya aceptados: un prospecto que prende los
+                # reconocimientos y entra como alumno ve la app, no el cartel.
+                # `update()` porque el `Perfil` lo creó `crear_acceso`, que
+                # relee el alumno: el `alumno` de acá no tiene `perfil_id`.
+                Perfil.objects.filter(alumno=alumno).update(
+                    terminos_aceptados_en=timezone.now(),
+                    terminos_version=VERSION_TERMINOS,
+                )
                 accesos += 1
             except IdentificadorEnUso:
                 # El identificador ya está tomado en la plataforma: pasa al
@@ -935,6 +944,9 @@ _GIMNASIO_CANONICO = {
     # por Mercado Pago vuelve apagado (la demo nunca conecta MP).
     "precio_cuota": Decimal("28000"),
     "cuotas_con_mercadopago": False,
+    # Un prospecto que prende el ranking y los premios no se los deja
+    # prendidos al siguiente: la demo arranca como un gimnasio nuevo.
+    "reconocimientos_habilitado": False,
 }
 
 #: Los que son choices van aparte para resolverse contra el modelo en vez de

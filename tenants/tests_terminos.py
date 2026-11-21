@@ -271,6 +271,14 @@ class CartelTerminosTests(TestCase):
         login = self.client.get(reverse("login"))
         self.assertNotContains(login, CARTEL, status_code=login.status_code)
 
+    def test_la_privacidad_cuenta_la_foto_y_el_ranking(self):
+        respuesta = self.client.get(reverse("politica_privacidad"))
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "foto")
+        self.assertContains(respuesta, "ranking")
+        self.assertContains(respuesta, "Mi perfil")
+
     def test_suplantando_no_muestra_el_cartel_ni_deja_aceptar(self):
         self.client.force_login(_staff(self.gimnasio))
         self.client.post(reverse("suplantar", args=[self.alumno.pk]))
