@@ -5505,3 +5505,75 @@ class IndicadoresTemporalesTests(TestCase):
             analitica.ingresos_por_mes(self.gimnasio, hoy=self.hoy)
 
         self.assertEqual(len(con_muchos), len(con_pocos))
+
+
+def _luminancia_relativa(hex_color):
+    """Luminancia relativa WCAG 2.x de un `#rrggbb`."""
+    canales = []
+    for i in (1, 3, 5):
+        c = int(hex_color[i:i + 2], 16) / 255
+        canales.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+    r, g, b = canales
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contraste(hex_a, hex_b):
+    la, lb = sorted((_luminancia_relativa(hex_a), _luminancia_relativa(hex_b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+class ContrasteDePaletasTests(SimpleTestCase):
+    """Cada paleta curada de `Gimnasio.PALETAS` tiene que ser legible.
+
+    No hay color libre (ver DESIGN.md «Do»): el único riesgo de contraste es
+    que alguien agregue o retoque una paleta. Este test lo ataja.
+    """
+
+    def test_texto_blanco_sobre_primario_cumple_aa(self):
+        # `.boton` es texto blanco sobre `--color-primario` (WCAG 1.4.3).
+        for clave, colores in Gimnasio.PALETAS.items():
+            with self.subTest(paleta=clave):
+                self.assertGreaterEqual(_contraste("#ffffff", colores["primario"]), 4.5)
+
+    def test_primario_se_distingue_del_canvas(self):
+        # El borde/acento primario sobre el fondo del paisaje (WCAG 1.4.11).
+        for clave, colores in Gimnasio.PALETAS.items():
+            with self.subTest(paleta=clave):
+                self.assertGreaterEqual(_contraste(colores["primario"], colores["fondo"]), 3.0)
+
+
+class MensajesPorNivelTests(TestCase):
+    """`base.html` pinta cada mensaje de Django con su nivel (DESIGN.md «Estado»)."""
+
+    def _get_con_mensaje(self, nivel, texto):
+        from django.contrib.messages.storage.cookie import CookieStorage
+        from django.http import HttpRequest
+
+        almacen = CookieStorage(HttpRequest())
+        almacen.add(nivel, texto)
+        respuesta = HttpResponse()
+        almacen.update(respuesta)
+        self.client.cookies["messages"] = respuesta.cookies["messages"].value
+        return self.client.get("/")
+
+    def test_error_va_en_rojo_con_role_alert_y_palabra_para_lectores(self):
+        from django.contrib import messages
+
+        r = self._get_con_mensaje(messages.ERROR, "No se pudo guardar el plan")
+        self.assertContains(r, 'class="mensaje mensaje--error"')
+        self.assertContains(r, 'role="alert"')
+        self.assertContains(r, "No se pudo guardar el plan")
+        self.assertContains(r, "Error: ")
+
+    def test_exito_va_en_verde_con_role_status(self):
+        from django.contrib import messages
+
+        r = self._get_con_mensaje(messages.SUCCESS, "Plan guardado")
+        self.assertContains(r, 'class="mensaje mensaje--success"')
+        self.assertContains(r, 'role="status"')
+
+    def test_aviso_conserva_la_clase_base_mensaje(self):
+        from django.contrib import messages
+
+        r = self._get_con_mensaje(messages.WARNING, "Revisá los datos")
+        self.assertContains(r, 'class="mensaje mensaje--warning"')
