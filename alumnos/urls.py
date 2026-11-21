@@ -17,6 +17,7 @@ from alumnos.views import (
     AlumnoToggleEstadoView,
     AlumnoUpdateView,
     CrearAccesoView,
+    MiPerfilView,
     RegenerarPasswordView,
 )
 
@@ -30,6 +31,7 @@ urlpatterns = [
     # orden evita el problema si algún día se agrega un `<slug:...>`.
     path("lote/", AlumnoLoteView.as_view(), name="lote"),
     path("accesos/", AccesoListView.as_view(), name="accesos"),
+    path("mi-perfil/", MiPerfilView.as_view(), name="mi_perfil"),
     path("<int:pk>/", AlumnoDetailView.as_view(), name="detalle"),
     path("<int:pk>/editar/", AlumnoUpdateView.as_view(), name="editar"),
     path("<int:pk>/activar/", AlumnoToggleEstadoView.as_view(), name="activar"),

@@ -289,3 +289,159 @@ class FotoAlumnoTests(TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertTemplateUsed(respuesta, "plataforma/cuenta_bloqueada.html")
         self.assertNotEqual(respuesta["Content-Type"], "image/jpeg")
+
+
+class MiPerfilTests(TestCase):
+    def setUp(self):
+        self.gimnasio = _gimnasio(reconocimientos_habilitado=True)
+        self.alumno, self.usuario = _alumno(self.gimnasio)
+        _con_terminos(self.alumno)
+        self.client.force_login(self.usuario)
+        self.url = reverse("alumnos:mi_perfil")
+
+    def _con_foto(self):
+        guardar_foto(self.alumno, _imagen())
+        self.alumno.refresh_from_db()
+
+    def test_get_muestra_el_formulario_con_el_estado_actual(self):
+        self._con_foto()
+
+        respuesta = self.client.get(self.url)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTemplateUsed(respuesta, "alumnos/mi_perfil.html")
+        self.assertContains(respuesta, f'src="{self.alumno.foto_url}"')
+        self.assertContains(respuesta, 'alt="Tu foto actual"')
+        self.assertContains(respuesta, "tu nombre y la inicial de tu apellido")
+        self.assertContains(respuesta, 'accept="image/jpeg,image/png"')
+        self.assertContains(respuesta, 'name="quitar_foto"')
+        self.assertIs(respuesta.context["form"].initial["aparece_en_ranking"], True)
+        self.assertContains(
+            respuesta,
+            '<input type="checkbox" name="aparece_en_ranking" '
+            'aria-describedby="id_aparece_en_ranking_helptext" '
+            'id="id_aparece_en_ranking" checked>',
+            html=True,
+        )
+
+    def test_get_sin_foto_no_muestra_imagen_ni_el_quitar(self):
+        Alumno.objects.filter(pk=self.alumno.pk).update(aparece_en_ranking=False)
+
+        respuesta = self.client.get(self.url)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, 'alt="Tu foto actual"')
+        self.assertNotContains(respuesta, 'name="quitar_foto"')
+        self.assertIs(respuesta.context["form"].initial["aparece_en_ranking"], False)
+
+    def test_post_cambia_aparece_en_ranking_y_sube_foto(self):
+        respuesta = self.client.post(self.url, {"foto": _imagen()})
+
+        self.assertRedirects(respuesta, self.url, fetch_redirect_response=False)
+        self.alumno.refresh_from_db()
+        self.assertIs(self.alumno.aparece_en_ranking, False)
+        self.assertTrue(self.alumno.foto.name.startswith("alumnos/fotos/"))
+        self.assertTrue(default_storage.exists(self.alumno.foto.name))
+
+    def test_post_sin_foto_conserva_la_actual(self):
+        self._con_foto()
+        anterior = self.alumno.foto.name
+
+        respuesta = self.client.post(self.url, {"aparece_en_ranking": "on"})
+
+        self.assertRedirects(respuesta, self.url, fetch_redirect_response=False)
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.foto.name, anterior)
+        self.assertIs(self.alumno.aparece_en_ranking, True)
+
+    def test_quitar_foto(self):
+        self._con_foto()
+        nombre = self.alumno.foto.name
+
+        with self.captureOnCommitCallbacks(execute=True):
+            respuesta = self.client.post(
+                self.url, {"quitar_foto": "on", "aparece_en_ranking": "on"}
+            )
+
+        self.assertRedirects(respuesta, self.url, fetch_redirect_response=False)
+        self.alumno.refresh_from_db()
+        self.assertEqual(self.alumno.foto.name, "")
+        self.assertFalse(default_storage.exists(nombre))
+
+    def test_foto_invalida_responde_200_con_el_error_en_el_campo(self):
+        self._con_foto()
+        anterior = self.alumno.foto.name
+        casos = {
+            "texto": (
+                SimpleUploadedFile("nota.jpg", b"esto no es una imagen"),
+                "El archivo no es una imagen válida.",
+            ),
+            "chica": (
+                _imagen(lado=100),
+                "La foto mide 100×100px y ningún lado puede ser menor a 300px.",
+            ),
+        }
+        for caso, (archivo, mensaje) in casos.items():
+            with self.subTest(caso):
+                respuesta = self.client.post(
+                    self.url, {"foto": archivo, "aparece_en_ranking": "on"}
+                )
+
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertContains(
+                    respuesta, f'<p class="config-error">{mensaje}</p>', html=True
+                )
+                self.assertIn(mensaje, respuesta.context["form"].errors["foto"])
+                self.alumno.refresh_from_db()
+                self.assertEqual(self.alumno.foto.name, anterior)
+                self.assertTrue(default_storage.exists(anterior))
+
+    def test_perfil_sin_ficha_get_vacio_y_post_403(self):
+        from django.contrib.auth.models import User
+
+        from tenants.models import Perfil
+
+        usuario = User.objects.create_user("sin-ficha", password="x")
+        Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO,
+            terminos_version=VERSION_TERMINOS, terminos_aceptados_en=timezone.now(),
+        )
+        self.client.force_login(usuario)
+
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertNotContains(respuesta, 'name="foto"')
+
+        respuesta = self.client.post(self.url, {"aparece_en_ranking": "on"})
+        self.assertEqual(respuesta.status_code, 403)
+
+    def test_bandera_apagada_da_404(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            reconocimientos_habilitado=False
+        )
+
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+        self.assertEqual(self.client.post(self.url, {}).status_code, 404)
+        self.alumno.refresh_from_db()
+        self.assertIs(self.alumno.aparece_en_ranking, True)
+
+    def test_staff_da_403(self):
+        self.client.force_login(_staff(self.gimnasio))
+
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+        self.assertEqual(self.client.post(self.url, {}).status_code, 403)
+
+    def test_anonimo_va_al_login(self):
+        self.client.logout()
+
+        respuesta = self.client.get(self.url)
+
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertIn(reverse("login"), respuesta["Location"])
+
+    def test_el_formulario_sube_archivos_sin_hx_boost(self):
+        respuesta = self.client.get(self.url)
+
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, 'enctype="multipart/form-data"')
+        self.assertContains(respuesta, 'hx-boost="false"')

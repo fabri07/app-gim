@@ -19,11 +19,13 @@ get_object`).
 
 import mimetypes
 
+from django import forms
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponse, HttpResponseNotFound
+from django.http import Http404, HttpResponse, HttpResponseNotFound
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -32,16 +34,17 @@ from django.utils.cache import add_never_cache_headers
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.cache import never_cache
-from django.views.generic import CreateView, DetailView, ListView, UpdateView
+from django.views.generic import CreateView, DetailView, FormView, ListView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
-from tenants.mixins import StaffRequiredMixin
+from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 from tenants.models import Perfil
 from alumnos import identidad, lote
 from alumnos import services as servicios
-from alumnos.forms import AlumnoForm, CrearAccesoForm, LoteForm
+from alumnos.fotos import guardar_foto, quitar_foto
+from alumnos.forms import AlumnoForm, CrearAccesoForm, LoteForm, MiPerfilForm
 from alumnos.models import Alumno
 
 
@@ -713,3 +716,67 @@ class AlumnoFotoView(LoginRequiredMixin, View):
         respuesta = HttpResponseNotFound()
         respuesta["Cache-Control"] = "no-store"
         return respuesta
+
+
+class MiPerfilView(AlumnoRequiredMixin, FormView):
+    """«Mi perfil» del alumno (reconocimientos): su foto y si aparece entre sus
+    compañeros. Sólo existe con `reconocimientos_habilitado`; si no, 404.
+
+    La bandera se mira en `get`/`post` y NO en `dispatch`: un `dispatch` propio
+    correría antes que el de `AlumnoRequiredMixin`, sin `self.perfil` todavía,
+    y un anónimo daría 500 en vez de ir al login.
+
+    Perfil de alumno sin ficha (`self.alumno is None`): el GET muestra un
+    estado vacío y el POST es 403 (regla de `AlumnoRequiredMixin`).
+
+    Una foto inválida re-renderiza con 200 y el error en el campo (un 4xx bajo
+    el hx-boost global es un click mudo) sin tocar nada: ni la foto anterior
+    ni `aparece_en_ranking`."""
+
+    template_name = "alumnos/mi_perfil.html"
+    form_class = MiPerfilForm
+
+    def get(self, request, *args, **kwargs):
+        self._exigir_bandera()
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        self._exigir_bandera()
+        if self.alumno is None:
+            raise PermissionDenied("Tu usuario no tiene una ficha de alumno.")
+        return super().post(request, *args, **kwargs)
+
+    def _exigir_bandera(self):
+        if not self.gimnasio.reconocimientos_habilitado:
+            raise Http404
+
+    def get_initial(self):
+        alumno = self.alumno
+        if alumno is None:
+            return {}
+        return {"aparece_en_ranking": alumno.aparece_en_ranking}
+
+    def get_context_data(self, **kwargs):
+        contexto = super().get_context_data(**kwargs)
+        contexto["alumno"] = self.alumno
+        return contexto
+
+    def form_valid(self, form):
+        alumno = self.alumno
+        archivo = form.cleaned_data["foto"]
+        if archivo:
+            try:
+                guardar_foto(alumno, archivo)
+            except forms.ValidationError as error:
+                form.add_error("foto", error)
+                return self.form_invalid(form)
+        elif form.cleaned_data["quitar_foto"]:
+            quitar_foto(alumno)
+        # `update()` y no `save()`, como en `alumnos.fotos`: no dispara las
+        # señales de `Alumno` por un cambio que no toca `estado`.
+        Alumno.objects.filter(pk=alumno.pk).update(
+            aparece_en_ranking=form.cleaned_data["aparece_en_ranking"],
+            modificado=timezone.now(),
+        )
+        messages.success(self.request, "Guardamos tu perfil.")
+        return redirect("alumnos:mi_perfil")

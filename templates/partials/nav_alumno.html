@@ -20,5 +20,6 @@
   <a href="{% url 'home' %}#mi-rutina"{% if namespace == "rutinas" and url_name == "mi_dia_detalle" %} aria-current="page"{% endif %}>Mi rutina</a>
   <a href="{% url 'turnos:mis_turnos' %}"{% if namespace == "turnos" %} aria-current="page"{% endif %}>Turnos</a>
   {% if user.perfil.gimnasio.puede_usar_tienda %}<a href="{% url 'tienda:catalogo' %}"{% if request.resolver_match.app_name == "tienda" %} aria-current="page"{% endif %}>Tienda</a>{% endif %}
+  {% if user.perfil.gimnasio.reconocimientos_habilitado %}<a href="{% url 'alumnos:mi_perfil' %}"{% if namespace == "alumnos" and url_name == "mi_perfil" %} aria-current="page"{% endif %}>Mi perfil</a>{% endif %}
 </nav>
 {% endwith %}
