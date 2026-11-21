@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-25T12:00:00Z",
+  "generatedAt": "2026-11-21T03:54:55Z",
   "title": "Design System: TuGimApp",
   "extensions": {
     "colorMeta": {
@@ -268,6 +268,11 @@
         "name": "pwa-splash",
         "value": "2.2s, zoom 0.3x→1.15x con cubic-bezier(0.34, 1.56, 0.64, 1)",
         "purpose": "Excepción deliberada a la Restrained Motion Rule: splash de apertura de la PWA standalone. Apagado con prefers-reduced-motion."
+      },
+      {
+        "name": "barra-de-carga",
+        "value": "3px arriba de la pantalla, var(--color-primario); aparece a los 150ms; scaleX 0→0.7 en 8s cubic-bezier(0.1, 0.6, 0.2, 1)",
+        "purpose": "Excepción deliberada a la Restrained Motion Rule: feedback de una navegación hx-boost lenta, CSS puro (html:has(.htmx-request)::after). Con prefers-reduced-motion: reduce queda fija a todo el ancho, sin crecer."
       }
     ],
     "breakpoints": [
@@ -393,6 +398,22 @@
       "description": "Formulario de ingreso campo por campo, con error general visible arriba y error por campo debajo. «Entrar» es la píldora a lo ancho.",
       "html": "<div class=\"ds-auth\"><h2 class=\"ds-auth__t\">Ingresá</h2><div class=\"ds-auth__error\" role=\"alert\">Usuario o contraseña incorrectos.</div><label class=\"ds-auth__l\">Usuario<input class=\"ds-auth__i\" type=\"text\"></label><button class=\"ds-auth__b\">Entrar</button></div>",
       "css": ".ds-auth { background:#fff; border:1px solid #e5e7eb; border-radius:1rem; padding:36px; box-shadow:0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px -1px rgba(0,0,0,.1); max-width:28rem; display:grid; gap:20px; } .ds-auth__t { margin:0; font-size:1.5rem; font-weight:800; letter-spacing:-0.02em; color:#111827; } .ds-auth__error { border:1px solid #fecaca; background:#fef2f2; color:#991b1b; border-radius:0.375rem; padding:12px 16px; font-size:0.875rem; } .ds-auth__l { display:grid; gap:6px; font-size:0.875rem; font-weight:700; color:#1f2937; } .ds-auth__i { border:1px solid #d1d5db; border-radius:0.375rem; padding:12px 16px; font-size:1rem; } .ds-auth__i:focus { outline:none; border-color:transparent; box-shadow:0 0 0 2px var(--color-primario, #1d6f56); } .ds-auth__b { border:none; border-radius:9999px; padding:14px 28px; font-size:1rem; font-weight:700; color:#fff; background:var(--color-primario, #1d6f56); cursor:pointer; } .ds-auth__b:hover { background:color-mix(in oklab, var(--color-primario, #1d6f56) 84%, black); } .ds-auth__b:focus-visible { outline:2px solid var(--color-primario, #1d6f56); outline-offset:3px; }"
+    },
+    {
+      "name": "Mensaje de éxito / error",
+      "kind": "custom",
+      "refersTo": "mensaje",
+      "description": "Mensaje de Django por nivel: éxito en verde con ✓, error en rojo con ✕. El estado nunca va solo en el color.",
+      "html": "<ul class=\"ds-mensajes\"><li class=\"ds-mensaje ds-mensaje--success\" role=\"status\"><span aria-hidden=\"true\">✓ </span>Datos del gimnasio actualizados.</li><li class=\"ds-mensaje ds-mensaje--error\" role=\"alert\"><span aria-hidden=\"true\">✕ </span>No se pudo guardar el plan.</li></ul>",
+      "css": ".ds-mensajes { list-style:none; margin:0; padding:0; display:grid; gap:8px; } .ds-mensaje { border-radius:6px; border:1px solid #fde68a; background:#fffbeb; color:#92400e; font-size:0.875rem; padding:8px 12px; } .ds-mensaje--success { background:#f0fdf4; border-color:#bbf7d0; color:#166534; } .ds-mensaje--error { background:#fef2f2; border-color:#fecaca; color:#991b1b; }"
+    },
+    {
+      "name": "Estado vacío",
+      "kind": "custom",
+      "refersTo": "vacio",
+      "description": "Listado sin filas: una frase y, si hay algo para hacer, la acción. Centrado dentro de la celda única de la tabla.",
+      "html": "<div class=\"ds-vacio\"><p>Todavía no cargaste alumnos.</p><a class=\"ds-btn-primary\" href=\"#\">Cargar el primero</a></div>",
+      "css": ".ds-vacio { text-align:center; font-size:0.875rem; color:#6b7280; padding:32px 0; } .ds-vacio p { margin:0 0 12px; } .ds-btn-primary { display:inline-flex; align-items:center; justify-content:center; border-radius:9999px; background:#1d6f56; color:#fff; padding:8px 16px; font-weight:500; text-decoration:none; } .ds-btn-primary:focus-visible { outline:2px solid #1d6f56; outline-offset:2px; }"
     }
   ],
   "narrative": {
@@ -454,7 +475,7 @@
       },
       {
         "name": "The Restrained Motion Rule",
-        "body": "El movimiento es un acento, no un efecto: amplitud chica (pocos px), duración corta, desaceleración suave, nunca spring/bounce. Todo @keyframes y toda transición decorativa respeta prefers-reduced-motion: reduce apagándose (nunca reemplazándose por otra animación). Hoy son solo la entrada del hero de la portada y el recoloreo de sus maquetas; no es licencia para animar tarjetas o botones del panel.",
+        "body": "El movimiento es un acento, no un efecto: amplitud chica (pocos px), duración corta, desaceleración suave, nunca spring/bounce. Todo @keyframes y toda transición decorativa respeta prefers-reduced-motion: reduce apagándose (nunca reemplazándose por otra animación). Hoy son solo la entrada del hero de la portada, el recoloreo de sus maquetas y la barra de carga de la navegación; no es licencia para animar tarjetas o botones del panel.",
         "section": "motion"
       }
     ],
