@@ -20,6 +20,13 @@ del log.
 
 ---
 
+## [2026-11-21] Pase visual con modern-web-guidance: qué se hizo y qué queda
+**Estado:** resuelto en lo hecho; pendientes abiertos abajo.
+**Impacto:** feedback de errores (antes todo ámbar), foco de teclado, controles nativos con la marca, objetivos táctiles, esperas sin señal en `hx-boost`.
+**Resolución / próximo paso:** hecho en `visual-fase-1` a `visual-fase-4` (mergeadas a `main`); detalle en `ARQUITECTURA.md` «Pase visual con `modern-web-guidance`» y en `DESIGN.md` (Estado, Inputs, Estados vacíos, Motion). Abierto: `size-adjust` para las tipografías de Google Fonts, `srcset` en fotos de producto, `.vacio` en el resto de los listados, y el límite de largo de línea en `p` (no medido). Riesgo aceptado: dos bordes laterales de acento (`.metrica--urgente`, `.aviso-urgente`, `.aviso-error`, lista del login) los marca el linter de Impeccable y se dejan a propósito (confirmado por el usuario).
+
+---
+
 ## [2026-10-24] Mercado Pago: el pago del alumno falla siempre con el vendedor de prueba
 **Estado:** aceptado (riesgo asumido a propósito el 2026-10-28): causa probable encontrada, no es un bug del código. El dueño del producto decidió no hacer la prueba con plata real: queda prendido en producción y el primer gimnasio real que cobre es la prueba.
 **Impacto:** en la prueba guiada el gimnasio de prueba conecta bien, pero todo pago del alumno (tienda o cuota) falla en la pantalla de Mercado Pago, con saldo o tarjeta y en incógnito. Sentry no ve nada porque el pago nunca se crea: el error queda del lado de MP.

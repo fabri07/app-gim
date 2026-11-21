@@ -3009,6 +3009,35 @@ listado). Pantalla de confirmación: `alumnos/lote_confirmar.html`.
   Perfil no lo tiene, por eso su nav va sin `:class`. No se usó para nada
   más ("solo si hace falta", ROADMAP Fase 4).
 
+### Pase visual con `modern-web-guidance` (2026-11-21)
+
+Salió de cruzar las guías de `googlechrome/modern-web-guidance` con `DESIGN.md`;
+lo que chocaba con él (View Transitions, animar el panel, modo oscuro) se
+descartó. Lo que quedó y por qué:
+
+- **Mensajes por nivel** (`templates/base.html`): `mensaje mensaje--{{ level_tag }}`,
+  aditivo (se conserva `.mensaje`; tests y estilos viejos apuntan a ella).
+- **Foco, `accent-color`, `color-scheme: light`, `:user-invalid`, 44px táctil:**
+  `styles/input.css` (capa `base` y `components`).
+- **Contraste de las 4 paletas:** `tenants.tests.ContrasteDePaletasTests` falla
+  si alguien agrega o retoca una paleta ilegible (blanco sobre primario ≥ 4,5).
+- **`text-wrap`:** `balance` en `h1`–`h3`, `pretty` en `p`; nunca en `*`. Los
+  `font-size` en `px` que quedan son de las maquetas decorativas de la portada
+  (`aria-hidden`) y se dejan a propósito.
+- **Preload de la fuente por defecto y SRI** en htmx y Alpine (`base.html`).
+  Si se sube la versión de alguna de las dos, hay que recalcular el hash
+  (`openssl dgst -sha384 -binary <archivo> | openssl base64 -A`) o el navegador
+  bloquea el script y la app queda sin nav móvil ni boost.
+- **Barra de carga** (`html:has(.htmx-request)::after`) y **`.vacio`**.
+- **Trampa de verificación:** el service worker responde `/static/` cache-first,
+  así que en local un CSS nuevo puede no verse (incluso con `cache: 'no-store'`).
+  Hay que desregistrarlo y borrar `app-gim-estaticos-v2`. En producción no pasa:
+  WhiteNoise hashea los nombres.
+- **Pendiente:** `size-adjust` para las 4 tipografías de Google Fonts (hay que
+  medir sus métricas) y `srcset` en fotos de producto (pide generar variantes).
+- **Falso positivo conocido:** el test `core.tests.InputDateConFormatoISOTests`
+  barre `.worktrees/` y falla mientras haya worktrees viejos; no es una regresión.
+
 ## Sitio público y embudo de solicitudes (`solicitudes/`, 2026-09-25)
 
 Hay **dos** superficies públicas y no hay que confundirlas: la landing de un

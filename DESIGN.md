@@ -251,6 +251,11 @@ sin importar el paisaje elegido por el gimnasio.
   El mismo ámbar, más saturado (`amber-100`/`amber-300`/`amber-900`), viste
   el banner de suplantación — a propósito: es un estado temporal y anómalo,
   no una sección más del panel.
+  Los mensajes de Django (`messages.*`, `.mensaje`) siguen este vocabulario
+  por nivel desde 2026-11-21: **éxito** en verde (`.mensaje--success`, con ✓ y
+  «Listo:» para lectores), **error** en rojo (`.mensaje--error`, con ✕,
+  «Error:» y `role="alert"`); aviso e info quedan en el ámbar de siempre.
+  El estado nunca va solo en el color.
 - **Riesgo** (`oklch(93.6% .032 17.717)` fondo / `oklch(44.4% .177 26.899)`
   texto, red-100/red-800): pago vencido, turno lleno.
 - **Acción destructiva** (`oklch(57.7% .245 27.325)`, red-600, con hover
@@ -553,6 +558,23 @@ paisaje y badges. Nunca un tercer escalón intermedio.
 - **Focus:** anillo de foco de 2px en `var(--color-primario)` + borde
   transparente — el único elemento de foco del sistema, y también el único
   input cuyo color de foco cambia por gimnasio.
+- **Foco de teclado fuera de los campos:** links, botones y `summary` llevan
+  `:focus-visible` con contorno de 2px en `var(--color-primario)` (no aparece
+  al hacer click).
+- **Controles nativos:** `accent-color: var(--color-primario)` (checkbox,
+  radio, range toman la marca) y `color-scheme: light` (el sistema no tiene
+  modo oscuro; sin esto el navegador pinta controles oscuros sobre canvas
+  claro).
+- **Error:** `:user-invalid` pone el borde en rojo recién después de que la
+  persona tocó el campo; no reemplaza la línea de error de cada campo.
+- **Táctil:** con `@media (pointer: coarse)` botones y campos miden 44px como
+  mínimo; en compu conservan su tamaño compacto.
+
+### Estados vacíos (`.vacio`)
+Una frase y, si hay algo para hacer, la acción (`.boton` / `.boton-secundario`),
+centrado dentro de la celda única (`colspan`) de la tabla. Hoy lo usan los
+listados de alumnos (con variante «Quitar filtros» cuando un filtro no
+encuentra nada) y de novedades; el resto sigue con una línea `.texto-suave`.
 
 ### Navigation (`.topbar` / `.nav-staff` / `.nav-alumno`)
 - **Topbar:** blanco, `sticky top-0`, con el logo/nombre del gimnasio a la
@@ -744,7 +766,15 @@ amplitud chica (pocos px), duración corta, desaceleración suave, nunca
 `spring`/bounce. Todo `@keyframes` y toda transición decorativa respeta
 `prefers-reduced-motion: reduce` apagándose (nunca reemplazándose por otra
 animación). Hoy son solo la entrada del hero de la portada y el recoloreo
-de sus maquetas; no es licencia para animar tarjetas o botones del panel.
+de sus maquetas, más la barra de carga de abajo; no es licencia para animar
+tarjetas o botones del panel.
+
+**Excepción deliberada: la barra de carga de la navegación.** Una línea de
+3px arriba de la pantalla, en `var(--color-primario)`, que aparece si un
+pedido de `hx-boost` tarda más de 150 ms (en Render free un click lento
+parecía no hacer nada). Es CSS puro: `html:has(.htmx-request)::after` en
+`styles/input.css`, sin JS. Es feedback de una espera, no decoración: con
+`prefers-reduced-motion: reduce` queda como barra fija, sin crecer.
 
 **Excepción deliberada: el splash de instalación.**
 `.pwa-splash` (`styles/input.css`, disparado por `static/js/pwa.js` en CADA
