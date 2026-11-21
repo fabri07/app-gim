@@ -627,6 +627,10 @@ class Perfil(TimeStampedModel):
         related_name="perfiles",
     )
     rol = models.CharField(max_length=10, choices=Rol.choices, default=Rol.STAFF)
+    # Aceptación de términos y condiciones (reconocimientos). `terminos_version`
+    # 0 = nunca aceptó; se compara con `tenants.terminos.VERSION_TERMINOS`.
+    terminos_aceptados_en = models.DateTimeField(null=True, blank=True)
+    terminos_version = models.PositiveSmallIntegerField(default=0, db_default=0)
 
     class Meta:
         verbose_name = "perfil"
