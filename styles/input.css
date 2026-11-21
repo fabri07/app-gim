@@ -441,6 +441,54 @@
     @apply text-sm text-gray-500;
   }
 
+  /* Estado vacío de un listado: una frase y, si hay algo para hacer, la
+     acción. Va en la celda única de la tabla (`colspan`) para no romper el
+     `<table>`. Texto centrado y botones en fila que envuelve en celular. */
+  .vacio {
+    @apply text-center text-sm text-gray-500 py-8;
+  }
+
+  .vacio p {
+    @apply mb-3;
+  }
+
+  .vacio .boton,
+  .vacio .boton-secundario {
+    @apply mx-1 my-1;
+  }
+
+  /* Barra de carga de la navegación. htmx (`hx-boost` global) le pone la clase
+     `htmx-request` al link o formulario que dispara el pedido; `:has()` sube
+     ese estado a la raíz sin una línea de JS. Sin esto un click en una página
+     lenta (Render free) parece no hacer nada. Aparece recién a los 150 ms:
+     una navegación rápida no la muestra. Es feedback de una espera, no un
+     adorno: no anima tarjetas ni botones (ver «Motion» en DESIGN.md). */
+  html::after {
+    content: "";
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: 3px;
+    background: var(--color-primario);
+    transform-origin: left;
+    transform: scaleX(0);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 60;
+  }
+
+  html:has(.htmx-request)::after {
+    transform: scaleX(1);
+    opacity: 1;
+    transition: opacity 0s 150ms;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html:has(.htmx-request)::after {
+      transform: scaleX(0.7);
+      transition: transform 8s cubic-bezier(0.1, 0.6, 0.2, 1) 150ms, opacity 0s 150ms;
+    }
+  }
+
   /* Mensajes de error dentro de una tarjeta o tabla (no los de un campo de
      formulario, que los pinta Django con su propia `errorlist`). La clase se
      venía usando en los previews del importador desde 2026-07-27 sin estar
