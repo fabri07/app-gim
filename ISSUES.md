@@ -23,7 +23,7 @@ del log.
 ## [2026-11-21] Modo oscuro: fases 0 y 1 hechas, apagado hasta verificar el resto
 **Estado:** abierto (bandera `MODO_OSCURO` apagada en producción).
 **Impacto:** con la bandera apagada no cambia nada. Prendida, todo el panel y el portal del alumno pasan a oscuro en Automático (sistema oscuro) o por el interruptor; pantallas sin verificar (tienda, pagos, ingreso, turnos, importaciones, plataforma) pueden tener detalles.
-**Resolución / próximo paso:** la fase 2 ya recorrió esas pantallas y los gráficos (ver ARQUITECTURA); quedan fases 3–4. Deuda preexistente, igual en claro: blanco sobre ámbar en `.boton-urgente` y `.badge--urgente` da 2,1–3,2:1. Detalle en `ARQUITECTURA.md` «Modo oscuro». Riesgo conocido: el alumno con la app instalada puede ver el CSS anterior hasta que se actualice el service worker.
+**Resolución / próximo paso:** las fases 2 y 3 ya recorrieron staff, alumno, superadmin, gráficos, login y landing (ver ARQUITECTURA). Queda la fase 4: portada `/`, decisión del dueño (sigue clara). Deuda preexistente, igual en claro: blanco sobre ámbar en `.boton-urgente` y `.badge--urgente` da 2,1–3,2:1. Detalle en `ARQUITECTURA.md` «Modo oscuro». Riesgo conocido: el alumno con la app instalada puede ver el CSS anterior hasta que se actualice el service worker.
 
 ---
 

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% comment %}Claro fijo mientras el modo oscuro no cubra esta pantalla (ver base.html, `tema_fijo`).{% endcomment %}
-{% block tema_fijo %}<div data-tema-fijo hidden></div>{% endblock %}
+{% block tema_fijo %}{% if modo_oscuro %}<div data-tema-fijo hidden></div>{% endif %}{% endblock %}
 {% load static %}
 
 {% comment %}

@@ -582,8 +582,9 @@ Sólo existe con la bandera `MODO_OSCURO`. Tres botones en un grupo
 `localStorage["tema"]`; sin clave = Automático (`prefers-color-scheme`). Es la
 única excepción a «no hay íconos en la navegación»: es un control, no navegación.
 El logo del gimnasio se apoya en una ficha blanca en oscuro para no perderse.
-Login, landing, portada y tarjetas de ingreso se quedan **siempre claros**
-(`{% block tema_fijo %}`) hasta las fases 3–4.
+Portada y tarjetas de ingreso se quedan **siempre claras**
+(`{% block tema_fijo %}`); login y landing de cada gimnasio ya tienen oscuro, con su marca
+oscura curada. Las maquetas de producto se ven siempre claras.
 
 ### Estados vacíos (`.vacio`)
 Una frase y, si hay algo para hacer, la acción (`.boton` / `.boton-secundario`),

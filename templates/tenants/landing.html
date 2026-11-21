@@ -1,6 +1,4 @@
 {% extends 'base.html' %}
-{% comment %}Claro fijo mientras el modo oscuro no cubra esta pantalla (ver base.html, `tema_fijo`).{% endcomment %}
-{% block tema_fijo %}<div data-tema-fijo hidden></div>{% endblock %}
 {% load static %}
 {% block title %}{{ gimnasio.nombre }}{% endblock %}
 {% block main_class %}{% endblock %}
@@ -53,7 +51,8 @@
 {% endblock %}
 
 {% block content %}
-<div class="landing" style="--color-fondo: {{ gimnasio.color_fondo_css }}; --color-primario: {{ gimnasio.color_primario_css }}; --color-secundario: {{ gimnasio.color_secundario_css }}; font-family: {{ gimnasio.tipografia_css_family|safe }};">
+<div class="landing"
+     {% if modo_oscuro %}data-marca style="{% include 'partials/marca_vars.html' %}"{% else %}style="--color-fondo: {{ gimnasio.color_fondo_css }}; --color-primario: {{ gimnasio.color_primario_css }}; --color-secundario: {{ gimnasio.color_secundario_css }}; font-family: {{ gimnasio.tipografia_css_family|safe }};"{% endif %}>
   <section class="landing__hero">
     <div class="landing__hero-contenido">
       {% if gimnasio.logo %}

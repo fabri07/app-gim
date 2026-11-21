@@ -1,6 +1,4 @@
 {% extends 'base.html' %}
-{% comment %}Claro fijo mientras el modo oscuro no cubra esta pantalla (ver base.html, `tema_fijo`).{% endcomment %}
-{% block tema_fijo %}<div data-tema-fijo hidden></div>{% endblock %}
 {% block title %}{% if gimnasio %}Ingresar · {{ gimnasio.nombre }}{% else %}Ingresar · TuGimApp{% endif %}{% endblock %}
 {% block main_class %}{% endblock %}
 
@@ -110,7 +108,7 @@
     hacer la mayoría; los contactos no pueden empujar el formulario hacia abajo.
 {% endcomment %}
 <div class="auth-gimnasio"
-     style="--color-fondo: {{ gimnasio.color_fondo_css }}; --color-primario: {{ gimnasio.color_primario_css }}; --color-secundario: {{ gimnasio.color_secundario_css }}; font-family: {{ gimnasio.tipografia_css_family|safe }};">
+     {% if modo_oscuro %}data-marca style="{% include 'partials/marca_vars.html' %}"{% else %}style="--color-fondo: {{ gimnasio.color_fondo_css }}; --color-primario: {{ gimnasio.color_primario_css }}; --color-secundario: {{ gimnasio.color_secundario_css }}; font-family: {{ gimnasio.tipografia_css_family|safe }};"{% endif %}>
   {% with hay_consultas=gimnasio.link_whatsapp|default:gimnasio.contacto|default:gimnasio.link_instagram|default:gimnasio.link_facebook %}
   <div class="auth-hero auth-hero--gimnasio{% if not hay_consultas and not horarios_por_dia %} auth-hero--sin-info{% endif %}">
     <div class="auth-hero__copy auth-gimnasio__copia">

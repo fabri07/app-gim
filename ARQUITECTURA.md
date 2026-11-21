@@ -3086,7 +3086,22 @@ se hace recién cuando la fase 2 (resto de pantallas) esté verificada.
   para el superadmin (no tiene gimnasio). La rampa de calor y la paleta categórica son
   datos y quedan fijas a propósito. Preexistente (igual en claro, no se tocó): blanco
   sobre `amber-500/600` en `.boton-urgente` y `.badge--urgente` (2,1–3,2:1).
-- **Pendiente (fases 3–4):** login/landing por gimnasio y portada.
+- **Fase 3 (hecha): login y landing de cada gimnasio en oscuro.** Esos wrappers fijaban
+  la marca con `style` inline (no admite `@media` y le gana a cualquier regla). Con la
+  bandera, `partials/marca_vars.html` fija `--marca-*` (claro y oscuro) y el wrapper lleva
+  `data-marca`; `input.css` elige cuál usar según el tema (`[data-marca]`, 3 bloques).
+  Sin bandera conservan su `style` inline exacto. Los textos fijos sobre marca
+  (`.landing__titulo`, `.landing__bienvenida`, `.portada-pildora`) usan `--sobre-primario`;
+  las superficies blancas, `--superficie`. Las maquetas de producto (`.disp-celu`,
+  `.disp-pantalla`, `[data-demo]`) restituyen los valores CLAROS de las variables
+  (son una imagen del producto, no la pantalla en uso). Auditadas las 4 paletas en
+  login y landing (login genérico `/accounts/login/` incluido).
+- **Trampa que costó una comparación entera:** con la bandera apagada, el marcador de
+  claro fijo se emitía igual (un `<div hidden>` corre todos los índices del volcado de
+  estilos). Todo lo del modo oscuro tiene que colgar de `{% if modo_oscuro %}`.
+- **Pendiente (fase 4, decisión del dueño):** la portada `/` y sus maquetas siguen
+  siempre claras (`tema_fijo`). Es una página de marketing con fotos de contexto y
+  maquetas recoloreables por paisaje; ponerla en oscuro es un rediseño, no un mapeo.
 
 ## Sitio público y embudo de solicitudes (`solicitudes/`, 2026-09-25)
 

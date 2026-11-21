@@ -1870,15 +1870,15 @@
   }
 
   .landing__titulo {
-    @apply text-4xl sm:text-5xl font-bold text-white mb-4;
+    @apply text-4xl sm:text-5xl font-bold text-[color:var(--sobre-primario)] mb-4;
   }
 
   .landing__bienvenida {
-    @apply text-lg text-white/90 mb-8 max-w-lg mx-auto;
+    @apply text-lg text-[color-mix(in_oklab,var(--sobre-primario)_90%,transparent)] mb-8 max-w-lg mx-auto;
   }
 
   .landing__cta {
-    @apply inline-flex items-center justify-center rounded-full bg-white px-6 py-3
+    @apply inline-flex items-center justify-center rounded-full bg-[var(--superficie)] px-6 py-3
       text-base font-semibold no-underline transition hover:opacity-90;
     color: var(--color-primario);
   }
@@ -1999,7 +1999,7 @@
   /* Píldora primaria de la portada: una sola forma para todos los CTA. */
   .portada-pildora {
     @apply inline-flex items-center justify-center rounded-full px-7 py-3.5
-      text-base font-bold text-white no-underline whitespace-nowrap transition-colors duration-200;
+      text-base font-bold text-[color:var(--sobre-primario)] no-underline whitespace-nowrap transition-colors duration-200;
     background-color: var(--color-primario);
   }
   .portada-pildora:hover {
@@ -3016,7 +3016,7 @@
   .auth-gimnasio__info {
     @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-8 w-full max-w-md sm:max-w-none mx-auto lg:mx-0
       rounded-2xl border border-gray-200 p-6 shadow-sm;
-    background-color: color-mix(in oklab, white 90%, transparent);
+    background-color: color-mix(in oklab, var(--superficie) 90%, transparent);
   }
   .auth-gimnasio__bloque {
     @apply flex flex-col items-center lg:items-start gap-3 text-center lg:text-left;
@@ -3043,7 +3043,7 @@
   .auth-gimnasio__adentro {
     @apply grid grid-cols-1 lg:grid-cols-[auto_minmax(0,1fr)] gap-10 lg:gap-16 items-center
       w-[calc(100%-2rem)] max-w-[62rem] mb-12 sm:mb-16 rounded-2xl border border-gray-200 p-6 sm:p-10 shadow-sm;
-    background-color: color-mix(in oklab, white 90%, transparent);
+    background-color: color-mix(in oklab, var(--superficie) 90%, transparent);
   }
   .auth-gimnasio__celu {
     @apply hidden lg:block;
@@ -3158,7 +3158,7 @@
      colores salen de las variables del `.auth-hero`, así que en
      g/<slug>/login/ el botón y el foco son los del gimnasio. */
   .auth-card {
-    @apply rounded-2xl border border-gray-200 bg-white p-7 sm:p-9 shadow-sm;
+    @apply rounded-2xl border border-gray-200 bg-[var(--superficie)] p-7 sm:p-9 shadow-sm;
   }
   .auth-card__titulo {
     @apply mb-6 text-2xl font-extrabold text-gray-900;
@@ -3177,7 +3177,7 @@
     @apply mb-1.5 text-sm font-semibold;
   }
   .auth-card__campo input {
-    @apply block w-full rounded-md border border-gray-300 bg-white px-4 py-3 text-base
+    @apply block w-full rounded-md border border-gray-300 bg-[var(--superficie)] px-4 py-3 text-base
       text-gray-900 transition-colors;
   }
   .auth-card__campo input:focus {
@@ -3215,7 +3215,7 @@
   }
   .auth-card__google {
     @apply flex w-full items-center justify-center rounded-full border border-gray-300
-      bg-white px-6 py-3 text-base font-bold text-gray-800 no-underline transition-colors
+      bg-[var(--superficie)] px-6 py-3 text-base font-bold text-gray-800 no-underline transition-colors
       hover:border-gray-500 hover:no-underline;
   }
   .auth-card__nota {
@@ -3509,4 +3509,78 @@
     --color-slate-300: #3a4556;
     --color-slate-700: #cbd5e1;
   }
+}
+
+/* ===== MODO OSCURO, fase 3: wrappers con marca inline (login, landing) =====
+   Esos wrappers (`data-marca`) no fijan `--color-*` (un `style` inline le ganaría a
+   cualquier regla): fijan `--marca-*` en claro y oscuro (`partials/marca_vars.html`) y
+   acá se elige cuál usar. Sólo con la bandera. Mismas condiciones que los bloques
+   de arriba; `tenants.tests.ModoOscuroCssTests` verifica que no divergen. */
+:root[data-modo-oscuro] [data-marca] {
+  --color-fondo: var(--marca-fondo);
+  --color-primario: var(--marca-primario);
+  --color-secundario: var(--marca-secundario);
+}
+@media screen and (prefers-color-scheme: dark) {
+  :root[data-modo-oscuro]:not([data-tema="claro"]):not(:has([data-tema-fijo])) [data-marca] {
+    --color-fondo: var(--marca-fondo-oscuro);
+    --color-primario: var(--marca-primario-oscuro);
+    --color-secundario: var(--marca-secundario-oscuro);
+    --sobre-primario: var(--marca-sobre-oscuro);
+  }
+}
+@media screen {
+  :root[data-modo-oscuro][data-tema="oscuro"]:not(:has([data-tema-fijo])) [data-marca] {
+    --color-fondo: var(--marca-fondo-oscuro);
+    --color-primario: var(--marca-primario-oscuro);
+    --color-secundario: var(--marca-secundario-oscuro);
+    --sobre-primario: var(--marca-sobre-oscuro);
+  }
+}
+
+/* Maquetas de producto (`.disp-celu`, `.disp-pantalla`, `[data-demo]`): son una
+   imagen del producto, no la pantalla en uso, así que se ven SIEMPRE en tema claro
+   aunque la página esté en oscuro. Se restituyen acá los valores claros de las
+   variables que el modo oscuro remapea (copia de la escala de Tailwind; el test
+   `ModoOscuroCssTests` verifica que coinciden con el tema compilado). Sólo con la
+   bandera. */
+:root[data-modo-oscuro] :is(.disp-celu, .disp-pantalla, [data-demo]) {
+  --color-gray-50: oklch(98.5% .002 247.839);
+  --color-gray-100: oklch(96.7% .003 264.542);
+  --color-gray-200: oklch(92.8% .006 264.531);
+  --color-gray-300: oklch(87.2% .01 258.338);
+  --color-gray-400: oklch(70.7% .022 261.325);
+  --color-gray-500: oklch(55.1% .027 264.364);
+  --color-gray-600: oklch(44.6% .03 256.802);
+  --color-gray-700: oklch(37.3% .034 259.733);
+  --color-gray-800: oklch(27.8% .033 256.848);
+  --color-gray-900: oklch(21% .034 264.665);
+  --color-amber-50: oklch(98.7% .022 95.277);
+  --color-amber-100: oklch(96.2% .059 95.617);
+  --color-amber-200: oklch(92.4% .12 95.746);
+  --color-amber-300: oklch(87.9% .169 91.605);
+  --color-amber-800: oklch(47.3% .137 46.201);
+  --color-amber-900: oklch(41.4% .112 45.904);
+  --color-red-50: oklch(97.1% .013 17.38);
+  --color-red-100: oklch(93.6% .032 17.717);
+  --color-red-200: oklch(88.5% .062 18.334);
+  --color-red-300: oklch(80.8% .114 19.571);
+  --color-red-700: oklch(50.5% .213 27.518);
+  --color-red-800: oklch(44.4% .177 26.899);
+  --color-green-50: oklch(98.2% .018 155.826);
+  --color-green-100: oklch(96.2% .044 156.743);
+  --color-green-200: oklch(92.5% .084 155.995);
+  --color-green-700: oklch(52.7% .154 150.069);
+  --color-green-800: oklch(44.8% .119 151.328);
+  --color-slate-100: oklch(96.8% .007 247.896);
+  --color-slate-300: oklch(86.9% .022 252.894);
+  --color-slate-700: oklch(37.2% .044 257.287);
+  --superficie: #fff;
+  --sobre-primario: #fff;
+  --texto-error: oklch(57.7% .245 27.325);
+  --peligro-hover: oklch(50.5% .213 27.518);
+  --color-fondo: var(--marca-fondo, #f5ede4);
+  --color-primario: var(--marca-primario, #1d6f56);
+  --color-secundario: var(--marca-secundario, #e8735c);
+  color-scheme: light;
 }

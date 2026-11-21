@@ -5628,7 +5628,10 @@ def _bloques_oscuros_del_css():
 
 class ModoOscuroCssTests(SimpleTestCase):
     def test_los_dos_bloques_existen_y_tienen_las_mismas_declaraciones(self):
-        bloques = _bloques_oscuros_del_css()
+        bloques = {
+            k: v for k, v in _bloques_oscuros_del_css().items()
+            if "[data-marca]" not in k and ".disp-celu" not in k
+        }
         self.assertEqual(len(bloques), 2, list(bloques))
         auto, elegido = None, None
         for selector, decl in bloques.items():
@@ -5641,8 +5644,36 @@ class ModoOscuroCssTests(SimpleTestCase):
         for selector in bloques:
             self.assertIn(":has([data-tema-fijo])", selector)
 
+    def test_los_bloques_de_marca_oscuros_son_identicos_y_eligen_las_variables_oscuras(self):
+        marca = {k.replace('"', ""): v for k, v in _bloques_oscuros_del_css().items() if "[data-marca]" in k}
+        self.assertEqual(len(marca), 3, list(marca))  # claro + automático + oscuro elegido
+        elegido = [v for k, v in marca.items() if "[data-tema=oscuro]" in k]
+        automatico = [v for k, v in marca.items() if "[data-tema=claro]" in k]
+        claro = [v for k, v in marca.items() if "data-tema=" not in k]
+        self.assertEqual((len(elegido), len(automatico), len(claro)), (1, 1, 1))
+        self.assertEqual(elegido[0], automatico[0])
+        self.assertEqual(elegido[0]["--color-primario"], "var(--marca-primario-oscuro)")
+        self.assertEqual(elegido[0]["--sobre-primario"], "var(--marca-sobre-oscuro)")
+        self.assertEqual(claro[0]["--color-primario"], "var(--marca-primario)")
+
+    def test_las_maquetas_restituyen_los_valores_claros_del_tema(self):
+        # `.disp-celu` & co. se ven siempre claras: su bloque tiene que coincidir con
+        # los valores de la escala de Tailwind del tema compilado (si Tailwind cambia
+        # un gris y esto no, la maqueta se desviaría del claro en silencio).
+        import re
+
+        css = (settings.BASE_DIR / "static" / "css" / "app.css").read_text(encoding="utf-8")
+        m = re.search(r":root\[data-modo-oscuro\] :is\(\.disp-celu[^{]*\{([^}]*)\}", css)
+        self.assertIsNotNone(m)
+        bloque = dict(d.split(":", 1) for d in m.group(1).split(";") if ":" in d)
+        for variable, valor in bloque.items():
+            variable, valor = variable.strip(), valor.strip()
+            if variable.startswith("--color-") and valor.startswith("oklch"):
+                tema = re.findall(re.escape(variable) + r":(oklch\([^)]*\))", css)
+                self.assertIn(valor, tema, variable)
+
     def test_pares_de_texto_y_fondo_de_estado_cumplen_aa(self):
-        d = next(iter(_bloques_oscuros_del_css().values()))
+        d = next(v for k, v in _bloques_oscuros_del_css().items() if "[data-marca]" not in k and ".disp-celu" not in k)
         c = lambda nombre: d[f"--color-{nombre}"]
         pares = [
             ("gray-900", None), ("gray-700", None), ("gray-500", None),
@@ -5709,11 +5740,33 @@ class ModoOscuroPrendidoTests(TestCase):
         self.assertNotIn("tema.js", html)
 
     @override_settings(MODO_OSCURO=True)
-    def test_las_pantallas_con_marca_inline_se_quedan_en_claro(self):
-        for url in ("/accounts/login/", f"/g/{self.gimnasio.slug}/", f"/g/{self.gimnasio.slug}/login/"):
+    def test_la_portada_sigue_en_claro_y_login_y_landing_ya_tienen_oscuro(self):
+        portada = self.client.get("/").content.decode()
+        self.assertIn("data-tema-fijo", portada)
+        for url in (f"/g/{self.gimnasio.slug}/", f"/g/{self.gimnasio.slug}/login/"):
             with self.subTest(url=url):
                 html = self.client.get(url, follow=True).content.decode()
-                self.assertIn("data-tema-fijo", html)
+                self.assertNotIn("data-tema-fijo", html)
+                self.assertIn("data-marca", html)
+                p = Gimnasio.PALETAS_OSCURAS[self.gimnasio.paleta]
+                self.assertIn(f"--marca-primario-oscuro: {p['primario']};", html)
+                self.assertIn(f"--marca-sobre-oscuro: {p['sobre_primario']};", html)
+
+    @override_settings(MODO_OSCURO=False)
+    def test_apagado_la_portada_no_emite_el_marcador_de_claro_fijo(self):
+        # Con la bandera apagada el HTML es el de siempre: ni un elemento de más
+        # (un `<div hidden>` corre todos los índices de una comparación de estilos).
+        self.assertNotIn("data-tema-fijo", self.client.get("/").content.decode())
+
+    @override_settings(MODO_OSCURO=False)
+    def test_apagado_login_y_landing_conservan_su_style_inline_de_siempre(self):
+        p = Gimnasio.PALETAS[self.gimnasio.paleta]
+        for url in (f"/g/{self.gimnasio.slug}/", f"/g/{self.gimnasio.slug}/login/"):
+            with self.subTest(url=url):
+                html = self.client.get(url, follow=True).content.decode()
+                self.assertIn(f"--color-primario: {p['primario']};", html)
+                self.assertNotIn("data-marca", html)
+                self.assertNotIn("--marca-", html)
 
 
 class ModoOscuroFase2Tests(TestCase):
