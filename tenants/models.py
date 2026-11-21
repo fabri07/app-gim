@@ -256,19 +256,19 @@ class Gimnasio(TimeStampedModel):
             "google_param": None,
         },
         Tipografia.SORA: {
-            "css_family": "'Sora', var(--font-sans)",
+            "css_family": "'Sora', 'Sora Fallback', var(--font-sans)",
             "google_param": "Sora:wght@400;500;600;700",
         },
         Tipografia.MANROPE: {
-            "css_family": "'Manrope', var(--font-sans)",
+            "css_family": "'Manrope', 'Manrope Fallback', var(--font-sans)",
             "google_param": "Manrope:wght@400;500;600;700",
         },
         Tipografia.OUTFIT: {
-            "css_family": "'Outfit', var(--font-sans)",
+            "css_family": "'Outfit', 'Outfit Fallback', var(--font-sans)",
             "google_param": "Outfit:wght@400;500;600;700",
         },
         Tipografia.SPACE_GROTESK: {
-            "css_family": "'Space Grotesk', var(--font-sans)",
+            "css_family": "'Space Grotesk', 'Space Grotesk Fallback', var(--font-sans)",
             "google_param": "Space+Grotesk:wght@400;500;600;700",
         },
     }

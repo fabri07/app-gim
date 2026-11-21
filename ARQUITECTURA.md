@@ -3033,8 +3033,14 @@ descartó. Lo que quedó y por qué:
   así que en local un CSS nuevo puede no verse (incluso con `cache: 'no-store'`).
   Hay que desregistrarlo y borrar `app-gim-estaticos-v2`. En producción no pasa:
   WhiteNoise hashea los nombres.
-- **Pendiente:** `size-adjust` para las 4 tipografías de Google Fonts (hay que
-  medir sus métricas) y `srcset` en fotos de producto (pide generar variantes).
+- **Fallbacks de métricas** (`styles/input.css`, `'<Fuente> Fallback'` sobre
+  `local('Arial')` con `size-adjust` y overrides) para Sora, Manrope, Outfit y
+  Space Grotesk, y enganchados en `Gimnasio.TIPOGRAFIA_FUENTES[...]["css_family"]`.
+  Medidos con fontTools en peso 400 (las fuentes son variables y su instancia
+  por defecto NO es 400: Manrope y Outfit cambian). Verificados en navegador con
+  las fuentes reales: el fallback queda a 0,5–1,8 % del ancho real (Arial solo:
+  hasta 10,6 %). Una tipografía nueva exige medirla y sumar su cara.
+- **Pendiente:** `srcset` en fotos de producto (pide generar variantes al subir).
 - **Falso positivo conocido:** el test `core.tests.InputDateConFormatoISOTests`
   barre `.worktrees/` y falla mientras haya worktrees viejos; no es una regresión.
 
