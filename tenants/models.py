@@ -413,6 +413,15 @@ class Gimnasio(TimeStampedModel):
         default=False,
         db_default=False,
     )
+    #: Ranking y premios para los alumnos (reconocimientos). Apagado por
+    #: default: es una decisión del dueño del gimnasio, que se prende en «Mi
+    #: gimnasio» (`GimnasioForm`). Con la bandera apagada el alumno no ve
+    #: nada de la feature.
+    reconocimientos_habilitado = models.BooleanField(
+        "Ranking y premios para los alumnos",
+        default=False,
+        db_default=False,
+    )
 
     class Meta:
         verbose_name = "gimnasio"

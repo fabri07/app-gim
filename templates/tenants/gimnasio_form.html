@@ -181,6 +181,8 @@
           {% include 'partials/campo_form.html' with campo=form.cuotas_con_mercadopago %}
           <p class="texto-suave">La cuenta se conecta en <a href="#mercadopago">Mercado Pago</a>, más abajo.</p>
         {% endif %}
+
+        {% include 'partials/campo_form.html' with campo=form.reconocimientos_habilitado %}
       </div>
 
       <button type="submit" class="boton">Guardar cambios</button>

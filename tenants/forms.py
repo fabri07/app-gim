@@ -144,6 +144,7 @@ class GimnasioForm(forms.ModelForm):
             # Sale del form con la bandera apagada o en la demo (`__init__`);
             # no se prende sin una cuenta CONECTADA (`clean`).
             "cuotas_con_mercadopago",
+            "reconocimientos_habilitado",
         ]
         widgets = {
             "fondo_tipo": forms.RadioSelect,
