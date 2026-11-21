@@ -17,9 +17,13 @@ Ninguna de las dos usa los hooks de form de `TenantScopedMixin`
 get_object`).
 """
 
+import mimetypes
+
 from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Q
+from django.http import HttpResponse, HttpResponseNotFound
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -34,6 +38,7 @@ from django.views.generic.detail import SingleObjectMixin
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
 from tenants.mixins import StaffRequiredMixin
+from tenants.models import Perfil
 from alumnos import identidad, lote
 from alumnos import services as servicios
 from alumnos.forms import AlumnoForm, CrearAccesoForm, LoteForm
@@ -659,3 +664,52 @@ class RegenerarPasswordView(
 
         password = servicios.regenerar_password(alumno)
         return _render_credenciales(request, alumno, password, "regenerar")
+
+
+class AlumnoFotoView(LoginRequiredMixin, View):
+    """Sirve la foto del alumno desde el storage (R2), nunca por URL pública.
+
+    La ven: el staff de su gimnasio, el propio alumno, y un compañero del mismo
+    gimnasio sólo si el gimnasio tiene los reconocimientos prendidos y el dueño
+    de la foto eligió aparecer en el ranking. Para todos los demás (otro
+    gimnasio, sin perfil, sin foto) es un 404 con `no-store`, así una caché
+    intermedia no guarda el «no existe»; es `HttpResponseNotFound` y no
+    `Http404` para poder ponerle la cabecera (mismo criterio que
+    `tienda.views.FotoProductoView`).
+
+    `private, max-age=3600` y NO `immutable`: la URL versionada (`foto_url`)
+    resuelve el reemplazo, pero no la revocación. Si el alumno quita la foto,
+    sale del ranking o el dueño apaga la bandera, el navegador de un compañero
+    tiene que dejar de mostrarla en una hora, no en un año."""
+
+    def get(self, request, pk):
+        perfil = getattr(request.user, "perfil", None)
+        if perfil is None:
+            return self._no_existe()
+        alumno = (
+            Alumno.objects.filter(pk=pk, gimnasio_id=perfil.gimnasio_id)
+            .select_related("gimnasio")
+            .first()
+        )
+        if alumno is None or not alumno.foto or not self._puede_ver(perfil, alumno):
+            return self._no_existe()
+        with alumno.foto.open("rb") as archivo:
+            contenido = archivo.read()
+        tipo = mimetypes.guess_type(alumno.foto.name)[0] or "image/jpeg"
+        respuesta = HttpResponse(contenido, content_type=tipo)
+        respuesta["Cache-Control"] = "private, max-age=3600"
+        return respuesta
+
+    @staticmethod
+    def _puede_ver(perfil, alumno):
+        if perfil.rol == Perfil.Rol.STAFF:
+            return True
+        if alumno.perfil_id == perfil.pk:
+            return True
+        return alumno.gimnasio.reconocimientos_habilitado and alumno.aparece_en_ranking
+
+    @staticmethod
+    def _no_existe():
+        respuesta = HttpResponseNotFound()
+        respuesta["Cache-Control"] = "no-store"
+        return respuesta

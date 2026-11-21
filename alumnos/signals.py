@@ -10,10 +10,11 @@ sin acoplar el flujo de auth al dominio de alumnos.
 
 from django.contrib.auth.signals import user_logged_in
 from django.core.exceptions import ObjectDoesNotExist
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
+from alumnos.fotos import borrar_al_confirmar
 from tenants.models import Perfil
 
 
@@ -207,3 +208,16 @@ def anclar_ciclo_a_la_primera_rutina(sender, instance, created, raw=False, **kwa
         return
     alumno.fecha_inicio_ciclo = instance.fecha_inicio
     alumno.save(update_fields=["fecha_inicio_ciclo", "modificado"])
+
+
+@receiver(post_delete, sender="alumnos.Alumno")
+def borrar_foto_del_alumno(sender, instance, **kwargs):
+    """Borrar el alumno borra su foto del storage (R2), al confirmar.
+
+    Cubre `AlumnoDeleteView` y `vaciar_gimnasio`, que borran por instancia y
+    por eso disparan esta señal por cada alumno. Con `on_commit`, un rollback
+    (`vaciar_gimnasio` corre en `transaction.atomic()`) no deja la fila
+    apuntando a un archivo borrado.
+    """
+    if instance.foto:
+        borrar_al_confirmar(instance.foto.storage, instance.foto.name)
