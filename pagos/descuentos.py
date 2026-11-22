@@ -6,7 +6,7 @@ pasa del 90% del monto de lista (`TOPE_DESCUENTO`, que además fija el
 toca: la cuota guarda precio y rebaja por separado.
 """
 
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_DOWN, ROUND_UP, Decimal
 
 from django.db import transaction
 from django.utils import timezone
@@ -32,6 +32,15 @@ def descuento_valido(monto, descuento):
     return descuento > 0 and descuento <= descuento_maximo(monto)
 
 
+def lista_minima(descuento):
+    """El monto de lista más chico sobre el que `descuento` es válido."""
+    descuento = Decimal(descuento)
+    lista = (descuento / TOPE_DESCUENTO).quantize(CENTAVO, rounding=ROUND_UP)
+    while not descuento_valido(lista, descuento):
+        lista += CENTAVO
+    return lista
+
+
 def aplicar_descuento(cuota_pk, gimnasio, descuento, motivo, ahora=None):
     """Fija el descuento de una cuota IMPAGA del gimnasio (`0` lo quita) y
     cancela sus links de pago vivos (cobran el monto con el que se generaron).
@@ -41,7 +50,8 @@ def aplicar_descuento(cuota_pk, gimnasio, descuento, motivo, ahora=None):
     contra el monto leído BAJO el lock, así un cambio de monto concurrente no
     lo esquiva."""
     ahora = ahora or timezone.now()
-    descuento = Decimal(descuento)
+    # A centavos, hacia abajo: un Decimal de más de 2 decimales no se desvía.
+    descuento = Decimal(descuento).quantize(CENTAVO, rounding=ROUND_DOWN)
     if descuento < 0:
         return False
     with transaction.atomic():

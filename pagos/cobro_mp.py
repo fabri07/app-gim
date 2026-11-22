@@ -245,8 +245,11 @@ def _montos_cobrados(cobrado):
     Si `descuento + cobrado` pasara del tope del 90% (`descuento > 9 ×
     cobrado`: un link viejo muy barato y, en el medio, un descuento grande),
     la base rechazaría el pago entero. La plata manda: se registra lo cobrado
-    sin descuento (la invariante se sigue cumpliendo) y queda para revisar
-    como «monto corregido», porque el neto ya no coincidía con el link."""
+    sin descuento (la invariante se sigue cumpliendo). Queda marcada para revisar
+    como «monto corregido» SÓLO si el descuento ya había cambiado cuando se
+    leyó la cuota (el neto leído no coincidía con el link). Si cambia entre
+    la lectura y el UPDATE, la invariante se cumple igual pero nada lo
+    marca."""
     entra = Q(descuento__lte=cobrado * 9)
     return dict(
         monto=Case(When(entra, then=F("descuento") + Value(cobrado)), default=Value(cobrado)),

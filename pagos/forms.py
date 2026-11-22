@@ -75,7 +75,20 @@ class ConfirmarPagoForm(TenantScopedModelForm):
         monto = self.cleaned_data.get("monto")
         if monto is None:
             return monto
-        return monto + self.instance.descuento
+        descuento = self.instance.descuento
+        if descuento > 0:
+            # Import local: `pagos.descuentos` importa `pagos.cobro`.
+            from pagos.descuentos import descuento_valido, lista_minima
+
+            if not descuento_valido(monto + descuento, descuento):
+                minimo = lista_minima(descuento) - descuento
+                raise forms.ValidationError(
+                    f"Esta cuota tiene un descuento de $ {descuento}, que no puede "
+                    f"pasar del 90% del monto de lista: lo cobrado tiene que ser "
+                    f"al menos $ {minimo}. Para cobrar menos, quitá o bajá el "
+                    "descuento primero desde «Corregir monto»."
+                )
+        return monto + descuento
 
     def clean_estado_al_abrir(self):
         valor = self.cleaned_data.get("estado_al_abrir", "")

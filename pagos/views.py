@@ -410,6 +410,18 @@ class CuotaMontoView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
             .select_related("alumno")
         )
 
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        # `self.object` lo muta `ModelForm._post_clean` con lo que llegó en un
+        # POST inválido: la línea «va a pagar» se lee de la base.
+        ctx["guardada"] = (
+            Cuota.objects.filter(pk=self.object.pk)
+            .annotate(neto=Cuota.NETO)
+            .values("monto", "descuento", "neto")
+            .first()
+        )
+        return ctx
+
     def form_valid(self, form):
         cuota = self.object
         datos = form.cleaned_data

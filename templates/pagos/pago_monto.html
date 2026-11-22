@@ -30,7 +30,7 @@
       {% if form.descuento_motivo.errors %}<p class="config-error">{{ form.descuento_motivo.errors.0 }}</p>{% endif %}
       <p class="texto-suave">Obligatorio si hay descuento (hasta 80 caracteres). El alumno lo ve.</p>
     </div>
-    <p>El alumno va a pagar <strong>$ {{ cuota.monto_a_cobrar }}</strong> (monto de lista $ {{ cuota.monto }}{% if cuota.descuento > 0 %}, descuento $ {{ cuota.descuento }}{% endif %}).</p>
+    <p>El alumno va a pagar <strong>$ {{ guardada.neto }}</strong> (monto de lista $ {{ guardada.monto }}{% if guardada.descuento > 0 %}, descuento $ {{ guardada.descuento }}{% endif %}).</p>
     <button type="submit" class="boton">Guardar monto</button>
     <a class="boton-secundario" href="{% url 'pagos:listado' %}">Cancelar</a>
   </form>

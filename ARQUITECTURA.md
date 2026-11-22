@@ -4084,7 +4084,9 @@ cambiado en el medio no se pisa. **Desvío `Case/When`**: si `descuento >
 9 × cobrado` (un link viejo muy barato y, en el medio, un descuento grande),
 sumar `descuento + cobrado` pasaría del tope del 90% y la base rechazaría el
 UPDATE; en ese caso la cuota se guarda con `monto = cobrado`, `descuento = 0`
-y motivo vacío (la invariante se cumple) y queda para revisar. Los pagos
+y motivo vacío (la invariante se cumple). Queda marcada para revisar sólo si el
+descuento ya había cambiado cuando se leyó la cuota; si cambia entre la lectura y el
+UPDATE la invariante se cumple igual pero nada lo marca. Los pagos
 manuales (`marcar_pagada` / `editar_pagada`) comparten la invariante.
 
 ### `CobroOnlineCuota`: un intento por link, no columnas en `Cuota`
