@@ -4400,6 +4400,78 @@ un alumno que se baja debe desaparecer al recargar. El `order_by()` vacío de
 la query de items es obligatorio: el `Meta.ordering` se sumaría al `DISTINCT`
 y no colapsaría nada.
 
+### Asistencia (Pieza 4)
+
+App `asistencia/`. Todo está detrás de `Gimnasio.reconocimientos_habilitado`
+(vistas con 404 si está apagada, botón de la agenda, tarjeta de la ficha y
+link «Pasar lista»); la bandera se mira en `get`/`post`, nunca en `dispatch`
+(correría antes del login y un anónimo vería un 404 en vez del login).
+
+**Qué cuenta como «vino a entrenar».** La UNIÓN de dos fuentes, como
+CONJUNTO de fechas locales (`TIME_ZONE`, nunca UTC): (1) ingresos del lector
+(`EventoIngreso` con `PERMITIDO` + `ENTRADA`) y (2) marcas `Asistencia` del
+staff. Como es un conjunto, un día con lector y marca cuenta una vez. Sólo se
+LEE el lector, nunca se escribe un evento. **No cuenta** el «día entrenado»
+que el alumno tilda solo en su portal (`RutinaAsignadaDiaCompletado`): es
+declarativo y no verificable, y contarlo premiaría al que más tilda, no al
+que más viene.
+
+**Modelo `Asistencia`** (`TenantOwnedModel`): una fila por
+(`gimnasio`, `alumno`, `fecha`) — `UniqueConstraint` `asistencia_unica_por_dia`
+—, `origen` (`turno` | `manual`), `hora` (sólo informativa, la de la franja
+de la reserva), `registrada_por` (`Perfil`, `SET_NULL`) y `creado`. Las marcas
+son siempre del staff; un ingreso del lector NO es una fila.
+
+**Límite de 35 días** (`services.MAX_DIAS_ATRAS`): no se marca el futuro ni
+más de 35 días atrás (agenda, formulario de la ficha y «Pasar lista»). Un
+error de uso es `messages` + redirect (o la ficha re-renderizada con 200),
+nunca un 4xx: bajo el `hx-boost` global sería un click mudo.
+
+**Meta del ciclo** (`meta_del_ciclo`, `resumen_del_ciclo`): ciclo vigente de
+28 días (`pagos.models.ciclo_vigente`) y meta = `len(sesiones_previstas(rutina))`,
+o sea la cantidad de pares (día, semana) de la rutina vigente AL INICIO del
+ciclo (`rutina_vigente_en`, misma regla que `RutinaAsignada.vigente_de`). Si el
+plan tiene las 4 semanas, es el ritmo semanal del plan x 4. Un plan que cambia
+a mitad de ciclo NO mueve la meta. Sin ancla (`fecha_inicio_ciclo` nula o
+futura), sin rutina vigente al inicio, rutina vacía o alumno no `ACTIVO`: no
+hay meta (`None`) o directamente no hay resumen. Los días sólo cuentan hasta hoy.
+
+**Pantallas (todas staff):**
+- Agenda (`turnos:agenda`): botón «Asistió» por reserva
+  (`POST /asistencia/reservas/<pk>/`, `accion=marcar|quitar`, conserva `semana`).
+  Marca con `origen=turno` y la hora de la franja; no deja marcar a un inactivo.
+  **Reserva ≠ asistencia:** cancelar una reserva borra la fila `Reserva` pero la
+  `Asistencia` queda (el alumno vino igual).
+- Ficha del alumno: tarjeta «Asistencia» (resumen del ciclo, días con su origen
+  y quién la cargó) y alta manual (`POST /asistencia/alumnos/<pk>/registrar/`);
+  quitar una marca es `POST /asistencia/<pk>/quitar/` (jamás toca el lector).
+  Una carga repetida es idempotente (`get_or_create` + captura de
+  `IntegrityError`: un doble envío no da 500).
+- «Pasar lista» (`GET/POST /asistencia/pasar-lista/?fecha=&q=&pagina=`): un tilde
+  por alumno activo para un día. Los días del lector se muestran pero no llevan
+  casilla (no son filas). **Paginación de 200** (`POR_PAGINA_LISTA`) y campo
+  oculto `ids`: el POST actúa SÓLO sobre los ids de la página mostrada (crea las
+  marcas de los tildados que no la tenían y borra las de los destildados que sí).
+  Sin `ids`, un destildado de una página sería indistinguible de «no estaba en
+  esta página» y se borrarían marcas ajenas; además acota el tamaño del POST.
+  Los ids que no son de un alumno activo del gimnasio se ignoran.
+
+**Funciones en lote para la Pieza 5 (ranking de asistencia):**
+`dias_asistidos_por_alumno(gimnasio, {alumno_id: (inicio, fin)})` devuelve
+`{alumno_id: set(fechas)}` con la unión, en DOS queries sin importar cuántos
+alumnos haya (cada alumno se filtra por su propia ventana). `dias_por_fuente`
+devuelve `(lector, marcas)` por separado con el mismo costo (lo usa «Pasar
+lista»). `dias_asistidos(alumno, inicio, fin)` es la versión de un alumno.
+
+**Acoplamiento:** `turnos` importa `asistencia` sólo de forma tardía (dentro de
+la vista de la agenda, y sólo con la bandera prendida); `alumnos.views` tampoco
+lo importa a nivel módulo.
+
+**Menores de 18.** La asistencia SE REGISTRA para todos (es un dato operativo del
+gimnasio). La regla «los menores no participan» aplica a los rankings, no a este
+registro. **Pregunta abierta para la Pieza 5:** si la «asistencia perfecta» de
+un menor puede premiarse o no; no está decidido.
+
 ## Deploy (Fase 5)
 
 **Estado (2026-09-08): desplegado en Virginia, web y base en la misma
