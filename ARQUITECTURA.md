@@ -161,6 +161,28 @@ ahora a la sección homónima de ESTE archivo.
     cuota impaga sin registrar un cobro (una pagada o anulada da 404).
   - El importador de alumnos NO lee `precio_cuota` (el exportador sí lo
     escribe): un padrón reimportado vuelve sin precios propios.
+  - **Descuento en la cuota** (pieza 3 de reconocimientos). `Cuota.monto` es
+    el precio de LISTA y no se toca; el descuento vive aparte en
+    `descuento` + `descuento_motivo` (default y `db_default` 0 / vacío). Lo
+    que se cobra es `Cuota.monto_a_cobrar` (`monto - descuento`; en un
+    queryset, `Cuota.NETO`): **es la única fuente del neto**, la usan el
+    link de MP, las pantallas, el aviso de cuota
+    (`notificaciones/services.py::_con_mercadopago`, que no ofrece pagar con
+    MP si el neto es 0) y `ingresos_por_mes` (`Sum(Cuota.NETO)`). Reglas:
+    tope del 90% del monto (`TOPE_DESCUENTO`, también un `CheckConstraint`
+    `cuota_descuento_valido` tolerante a `descuento=0` por los montos raros
+    viejos); **`pagos/descuentos.py::aplicar_descuento` es la única puerta
+    para escribir descuento en una cuota impaga** (bajo lock, valida el tope
+    contra el monto leído bajo el lock y cancela los links vivos);
+    `pagos:monto` («Corregir monto») pasa por `cobro.corregir_monto` con el
+    descuento. Una cuota pagada o anulada no recibe descuento nuevo. **El
+    admin de Django NO cancela links**: sólo bloquea `descuento` y
+    `descuento_motivo` en una cuota no impaga; editar el descuento de una
+    impaga desde `/admin/` deja vivo un link con el neto viejo (si ese link
+    se paga, la cuota queda PAGADA con lo cobrado y marcada para revisar). **Invariante de una
+    pagada: `monto - descuento = cobrado`.** El exportador agrega
+    `descuento` y `descuento_motivo` como las dos últimas columnas de
+    `cuotas`. No hay bandera: sólo existe si el staff lo carga.
 
   **`pagos/cobro.py` es el ÚNICO lugar que marca PAGADA una cuota** (y el que
   la anula, reactiva, le corrige el monto o la vuelve a impaga). Dominio puro,
@@ -4049,6 +4071,21 @@ transiciones de la cuota, ver «Apps de dominio» → `pagos`);
 gimnasio». `tienda` carga después que `pagos` (`config/settings.py`), así que
 todo lo de `tienda` se importa dentro de las funciones, y el intento guarda la
 cuenta como texto (`mp_user_id`), sin FK.
+
+### El descuento y el monto del link
+
+El link cobra `Cuota.monto_a_cobrar` (el neto), congelado en
+`CobroOnlineCuota.monto` al generarlo. Todo cambio de monto o de descuento de
+una impaga (`pagos/descuentos.py`, `cobro.corregir_monto`) cancela los links
+vivos. Al acreditar, `_montos_cobrados(cobrado)` deja la cuota PAGADA con
+`monto - descuento = cobrado`: el UPDATE resuelve el descuento en la BASE
+(`F("descuento")`), nunca con la instancia leída, así que un descuento
+cambiado en el medio no se pisa. **Desvío `Case/When`**: si `descuento >
+9 × cobrado` (un link viejo muy barato y, en el medio, un descuento grande),
+sumar `descuento + cobrado` pasaría del tope del 90% y la base rechazaría el
+UPDATE; en ese caso la cuota se guarda con `monto = cobrado`, `descuento = 0`
+y motivo vacío (la invariante se cumple) y queda para revisar. Los pagos
+manuales (`marcar_pagada` / `editar_pagada`) comparten la invariante.
 
 ### `CobroOnlineCuota`: un intento por link, no columnas en `Cuota`
 

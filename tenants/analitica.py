@@ -510,7 +510,7 @@ def ingresos_por_mes(gimnasio, *, meses=_MESES_DE_HISTORIAL, hoy=None):
         .filter(estado=Cuota.Estado.PAGADO, periodo_inicio__gte=ventana[0])
         .annotate(mes_calendario=TruncMonth("periodo_inicio"))
         .values("mes_calendario")
-        .annotate(total=Sum("monto"))
+        .annotate(total=Sum(Cuota.NETO))
     }
     return [
         {
