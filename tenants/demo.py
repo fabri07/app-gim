@@ -992,6 +992,7 @@ def vaciar_gimnasio(*, gimnasio):
     from django.contrib.auth import get_user_model
 
     from alumnos.models import Alumno
+    from asistencia.models import Asistencia
     from calendario.models import GoogleCalendarCredential
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.models import Importacion
@@ -1078,6 +1079,8 @@ def vaciar_gimnasio(*, gimnasio):
         # `Credencial` cascadea desde `Alumno`, pero se borra explícita por el
         # mismo motivo que `Reserva`: no depender de por dónde entra la cascada.
         Credencial.objects.for_gimnasio(gimnasio).delete()
+        # Cascadea desde `Alumno`; explícita por el mismo motivo que `Reserva`.
+        Asistencia.objects.for_gimnasio(gimnasio).delete()
         alumnos.delete()
         # Cascadea `Perfil` y `SuscripcionPush` de cada alumno.
         get_user_model().objects.filter(pk__in=usuarios_de_alumnos).delete()

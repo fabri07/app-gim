@@ -281,6 +281,18 @@ HOJAS = (
         ),
     ),
     Hoja(
+        "asistencias", "asistencia.Asistencia", "gimnasio",
+        "Los días que cada alumno vino a entrenar, con quién la registró.",
+        (
+            ("id", "id"), ("alumno_id", "alumno_id"),
+            ("alumno_apellido", "alumno__apellido"),
+            ("alumno_nombre", "alumno__nombre"), ("fecha", "fecha"),
+            ("hora", "hora"), ("origen", "origen"),
+            ("registrada_por", "registrada_por__usuario__username"),
+            ("creado", "creado"),
+        ),
+    ),
+    Hoja(
         "control-de-ingreso", "ingreso.ConfiguracionIngreso", "gimnasio",
         "Cómo está configurada la puerta del gimnasio.",
         (
