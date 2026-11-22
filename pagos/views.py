@@ -412,11 +412,29 @@ class CuotaMontoView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
 
     def form_valid(self, form):
         cuota = self.object
-        if cobro.corregir_monto(cuota.pk, self.gimnasio, form.cleaned_data["monto"]):
+        datos = form.cleaned_data
+        if cobro.corregir_monto(
+            cuota.pk,
+            self.gimnasio,
+            datos["monto"],
+            descuento=datos["descuento"],
+            motivo=datos["descuento_motivo"],
+        ):
             messages.success(
                 self.request,
                 f"Monto de la cuota del {cuota.periodo_inicio:%d/%m/%Y} de "
                 f"{cuota.alumno} corregido.",
+            )
+        elif Cuota.objects.for_gimnasio(self.gimnasio).filter(
+            pk=cuota.pk, estado__in=Cuota.ESTADOS_IMPAGOS
+        ).exists():
+            # Sigue impaga: lo que frenó la escritura fue el tope (otro cambio
+            # de monto o de descuento entre la lectura y la escritura).
+            messages.warning(
+                self.request,
+                f"No se corrigió: el descuento de la cuota del "
+                f"{cuota.periodo_inicio:%d/%m/%Y} de {cuota.alumno} pasa del "
+                "90% del monto. Revisá los valores y probá de nuevo.",
             )
         else:
             messages.warning(

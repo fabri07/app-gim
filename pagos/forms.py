@@ -19,10 +19,13 @@ mantener el mismo contrato en todos los forms de Fase 2, aunque ninguno de
 estos campos sea un FK tenant-owned que necesite acotarse.
 """
 
+from decimal import Decimal
+
 from django import forms
 
 from core.forms import TenantScopedModelForm
 from pagos.cobro import cobrada_por_mercadopago
+from pagos.descuentos import descuento_maximo, descuento_valido
 from pagos.models import MedioCobro, Cuota
 
 
@@ -80,17 +83,56 @@ class ConfirmarPagoForm(TenantScopedModelForm):
 
 
 class CuotaMontoForm(TenantScopedModelForm):
-    """Sólo `monto`: corregir lo que se le cobra a una cuota impaga."""
+    """Corregir lo que se le cobra a una cuota impaga: `monto` (de lista) y,
+    opcionalmente, un `descuento` en pesos con su motivo (tope 90% del monto)."""
 
     class Meta:
         model = Cuota
-        fields = ["monto"]
+        fields = ["monto", "descuento", "descuento_motivo"]
+        labels = {
+            "monto": "Monto de lista",
+            "descuento": "Descuento ($)",
+            "descuento_motivo": "Motivo del descuento",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["descuento"].required = False
+        self.fields["descuento_motivo"].required = False
 
     def clean_monto(self):
         monto = self.cleaned_data["monto"]
         if monto is not None and monto < 0:
             raise forms.ValidationError("No puede ser negativo.")
         return monto
+
+    def clean_descuento(self):
+        descuento = self.cleaned_data.get("descuento")
+        if descuento is None:
+            return Decimal("0")
+        if descuento < 0:
+            raise forms.ValidationError("No puede ser negativo.")
+        return descuento
+
+    def clean_descuento_motivo(self):
+        return (self.cleaned_data.get("descuento_motivo") or "").strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        monto = cleaned.get("monto")
+        descuento = cleaned.get("descuento")
+        if monto is None or descuento is None or "descuento" in self.errors:
+            return cleaned
+        if not descuento_valido(monto, descuento):
+            self.add_error(
+                "descuento",
+                f"El descuento no puede pasar de $ {descuento_maximo(monto)} "
+                "(el 90% del monto de lista).",
+            )
+        elif descuento > 0 and not cleaned.get("descuento_motivo") \
+                and "descuento_motivo" not in self.errors:
+            self.add_error("descuento_motivo", "Contá el motivo del descuento.")
+        return cleaned
 
 
 class AlumnoComprobanteForm(forms.ModelForm):
