@@ -160,3 +160,35 @@ def resumen_del_ciclo(alumno, hoy=None):
         dias=frozenset(lector[alumno.pk] | marcas[alumno.pk]),
         dias_lector=frozenset(lector[alumno.pk]),
     )
+
+
+@dataclass(frozen=True)
+class DatosFicha:
+    """Lo que dibuja la tarjeta «Asistencia» de la ficha del alumno."""
+
+    resumen: ResumenCiclo | None
+    #: `[(fecha, marca|None, vino_por_lector)]`, del día más nuevo al más viejo.
+    dias: list
+
+
+def datos_de_la_ficha(alumno, hoy=None):
+    """El resumen del ciclo vigente más cada día asistido con su marca (si la
+    cargó el staff) y si hubo ingreso del lector. Costo fijo: las queries del
+    resumen más UNA por las marcas, con quien las cargó en el mismo JOIN."""
+    hoy = hoy or timezone.localdate()
+    resumen = resumen_del_ciclo(alumno, hoy)
+    if resumen is None:
+        return DatosFicha(resumen=None, dias=[])
+    marcas = {
+        m.fecha: m
+        for m in Asistencia.objects.for_gimnasio(alumno.gimnasio)
+        .filter(
+            alumno=alumno, fecha__gte=resumen.inicio, fecha__lte=min(resumen.fin, hoy)
+        )
+        .select_related("registrada_por__usuario")
+    }
+    dias = [
+        (dia, marcas.get(dia), dia in resumen.dias_lector)
+        for dia in sorted(resumen.dias, reverse=True)
+    ]
+    return DatosFicha(resumen=resumen, dias=dias)

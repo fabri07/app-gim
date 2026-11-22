@@ -8,9 +8,12 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
+from django.utils.decorators import method_decorator
 from django.views.generic import View
 
 from alumnos.models import Alumno
+from asistencia.forms import RegistrarAsistenciaForm
 from asistencia.models import Asistencia
 from asistencia.services import MAX_DIAS_ATRAS
 from core.mixins import TenantScopedMixin
@@ -104,3 +107,80 @@ class MarcarAsistenciaReservaView(StaffRequiredMixin, TenantScopedMixin, View):
         except (TypeError, ValueError):
             return url
         return f"{url}?semana={semana}"
+
+
+@method_decorator(never_cache, name="dispatch")
+class RegistrarAsistenciaView(StaffRequiredMixin, TenantScopedMixin, View):
+    """Carga a mano un día de asistencia desde la ficha del alumno. Sólo POST.
+
+    Un error del formulario NO es un 4xx (bajo hx-boost es un click mudo):
+    se re-renderiza la ficha con 200 y la línea de error junto al campo. La
+    marca es idempotente: la unicidad (gimnasio, alumno, fecha) la sostiene la
+    base y un doble envío simultáneo no da 500."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        if not self.gimnasio.reconocimientos_habilitado:
+            raise Http404
+        alumno = get_object_or_404(
+            Alumno.objects.for_gimnasio(self.gimnasio), pk=pk
+        )
+        form = RegistrarAsistenciaForm(request.POST)
+        if not form.is_valid():
+            return self._ficha_con_errores(request, alumno, form)
+        if alumno.estado != Alumno.Estado.ACTIVO:
+            messages.warning(
+                request, "El alumno está inactivo: no se le puede marcar asistencia."
+            )
+            return redirect(self._ficha_url(alumno))
+        try:
+            with transaction.atomic():
+                _, creada = Asistencia.objects.get_or_create(
+                    gimnasio=self.gimnasio,
+                    alumno=alumno,
+                    fecha=form.cleaned_data["fecha"],
+                    defaults={
+                        "origen": Asistencia.Origen.MANUAL,
+                        "registrada_por": request.user.perfil,
+                    },
+                )
+        except IntegrityError:
+            creada = False
+        if creada:
+            messages.success(request, f"Asistencia de {alumno} registrada.")
+        else:
+            messages.info(request, f"{alumno} ya tenía ese día marcado.")
+        return redirect(self._ficha_url(alumno))
+
+    @staticmethod
+    def _ficha_url(alumno):
+        return reverse("alumnos:detalle", args=[alumno.pk]) + "#asistencia"
+
+    def _ficha_con_errores(self, request, alumno, form):
+        # Import tardío: `alumnos.views` no importa `asistencia` a nivel módulo.
+        from alumnos.views import AlumnoDetailView
+
+        vista = AlumnoDetailView()
+        vista.setup(request, pk=alumno.pk)
+        vista.object = alumno
+        contexto = vista.get_context_data(object=alumno, asistencia_form=form)
+        return vista.render_to_response(contexto)
+
+
+class QuitarAsistenciaView(StaffRequiredMixin, TenantScopedMixin, View):
+    """Quita una marca del staff. Sólo POST. Nunca toca ingresos del lector."""
+
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        if not self.gimnasio.reconocimientos_habilitado:
+            raise Http404
+        marca = get_object_or_404(
+            Asistencia.objects.for_gimnasio(self.gimnasio).select_related("alumno"),
+            pk=pk,
+        )
+        alumno = marca.alumno
+        marca.delete()
+        messages.success(request, f"Asistencia de {alumno} quitada.")
+        return redirect(RegistrarAsistenciaView._ficha_url(alumno))

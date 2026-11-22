@@ -428,6 +428,19 @@ class AlumnoDetailView(StaffRequiredMixin, TenantScopedMixin, DetailView):
         # anteriores.
         context["rutinas_del_alumno"] = self.object.rutinas_asignadas.all()[:10]
         context.update(self._control_de_ingreso())
+        # Tarjeta «Asistencia»: sólo con la bandera del gimnasio. Import tardío
+        # a propósito (`alumnos` no depende de `asistencia` a nivel módulo).
+        if self.gimnasio.reconocimientos_habilitado:
+            from asistencia.forms import RegistrarAsistenciaForm
+            from asistencia.services import datos_de_la_ficha
+
+            context["asistencia"] = datos_de_la_ficha(self.object)
+            context.setdefault(
+                "asistencia_form",
+                RegistrarAsistenciaForm(
+                    initial={"fecha": timezone.localdate().isoformat()}
+                ),
+            )
         return context
 
     ULTIMOS_INGRESOS = 5

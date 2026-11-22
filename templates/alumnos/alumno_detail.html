@@ -87,7 +87,7 @@
     {% endif %}
   </div>
 
-  {% include 'ingreso/partials/credencial_alumno.html' %}
+  {% include 'ingreso/partials/credencial_alumno.html' %}{% if asistencia %}{% include 'asistencia/partials/tarjeta_ficha.html' %}{% endif %}
 
   <div class="tarjeta">
     <div class="acciones-lista">
