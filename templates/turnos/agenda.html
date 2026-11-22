@@ -9,6 +9,7 @@
       <h2>Agenda</h2>
       <div class="flex gap-2">
         {% include 'partials/navegacion_semana.html' %}
+        {% if asistencia_habilitada %}<a href="{% url 'asistencia:pasar_lista' %}" class="boton-secundario">Pasar lista</a>{% endif %}
         <a href="{% url 'turnos:configuracion' %}" class="boton-secundario">Configuración</a>
       </div>
     </div>

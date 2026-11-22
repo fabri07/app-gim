@@ -85,6 +85,12 @@ def _dias_por_fuente(gimnasio, ventanas):
     return lector, marcas
 
 
+def dias_por_fuente(gimnasio, ventanas):
+    """`(lector, marcas)` por alumno, separados. DOS queries. Lo usa «Pasar
+    lista», que necesita distinguir el ingreso del lector de la marca del staff."""
+    return _dias_por_fuente(gimnasio, ventanas)
+
+
 def dias_asistidos_por_alumno(gimnasio, ventanas):
     """`{alumno_id: set(fechas)}` con la unión lector + marcas. DOS queries,
     sin importar cuántos alumnos haya."""

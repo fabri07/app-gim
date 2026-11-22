@@ -2,6 +2,7 @@ from django.urls import path
 
 from asistencia.views import (
     MarcarAsistenciaReservaView,
+    PasarListaView,
     QuitarAsistenciaView,
     RegistrarAsistenciaView,
 )
@@ -19,5 +20,6 @@ urlpatterns = [
         RegistrarAsistenciaView.as_view(),
         name="registrar",
     ),
+    path("pasar-lista/", PasarListaView.as_view(), name="pasar_lista"),
     path("<int:pk>/quitar/", QuitarAsistenciaView.as_view(), name="quitar"),
 ]

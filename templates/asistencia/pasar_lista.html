@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block title %}Pasar lista · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Pasar lista</h1>
+    <div>
+      <a class="boton-secundario" href="{% url 'turnos:agenda' %}">Volver a la agenda</a>
+    </div>
+  </div>
+
+  <form method="get" class="filtros">
+    <div>
+      <label for="fecha">Día</label>
+      <input type="date" name="fecha" id="fecha" value="{{ fecha|date:'Y-m-d' }}" min="{{ desde|date:'Y-m-d' }}" max="{{ hoy|date:'Y-m-d' }}" onchange="this.form.submit()">
+    </div>
+    <div>
+      <label for="q">Buscar</label>
+      <input type="text" name="q" id="q" value="{{ q }}" placeholder="Nombre o apellido...">
+    </div>
+    <button type="submit" class="boton-secundario">Filtrar</button>
+  </form>
+
+  <p class="texto-suave">
+    Tildá a quienes vinieron el {{ fecha|date:"l d/m/Y" }}. Los que pasaron por el lector de la puerta figuran como «lector» y no hace falta marcarlos.
+  </p>
+
+  <form method="post" action="{% url 'asistencia:pasar_lista' %}">
+    {% csrf_token %}
+    <input type="hidden" name="fecha" value="{{ fecha|date:'Y-m-d' }}">
+    <input type="hidden" name="q" value="{{ q }}">
+    <input type="hidden" name="pagina" value="{{ pagina.number }}">
+    <input type="hidden" name="ids" value="{{ ids }}">
+
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Vino</th>
+            <th>Apellido</th>
+            <th>Nombre</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for fila in filas %}
+            <tr>
+              <td>
+                {% if fila.por_lector %}
+                  <span class="badge badge--ok">lector</span>
+                {% else %}
+                  <input type="checkbox" name="marcados" value="{{ fila.alumno.pk }}" class="w-auto mb-0" id="alumno-{{ fila.alumno.pk }}" aria-label="Vino {{ fila.alumno.nombre }} {{ fila.alumno.apellido }}"{% if fila.marcada %} checked{% endif %}>
+                {% endif %}
+              </td>
+              <td>{{ fila.alumno.apellido }}</td>
+              <td>{{ fila.alumno.nombre }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="3" class="vacio">
+                {% if q %}
+                  <p>Ningún alumno activo coincide con la búsqueda.</p>
+                  <a href="{% url 'asistencia:pasar_lista' %}?fecha={{ fecha|date:'Y-m-d' }}">Quitar filtros</a>
+                {% else %}
+                  <p>Todavía no hay alumnos activos.</p>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if filas %}
+      <div class="acciones-lista">
+        <button type="submit" class="boton">Guardar asistencia</button>
+      </div>
+    {% endif %}
+  </form>
+
+  {% if pagina.has_other_pages %}
+    <p class="texto-suave">
+      {% if pagina.has_previous %}
+        <a href="?fecha={{ fecha|date:'Y-m-d' }}&amp;q={{ q|urlencode }}&amp;pagina={{ pagina.previous_page_number }}">&laquo; Anterior</a>
+      {% endif %}
+      Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}
+      {% if pagina.has_next %}
+        <a href="?fecha={{ fecha|date:'Y-m-d' }}&amp;q={{ q|urlencode }}&amp;pagina={{ pagina.next_page_number }}">Siguiente &raquo;</a>
+      {% endif %}
+    </p>
+  {% endif %}
+</div>
+{% endblock %}
