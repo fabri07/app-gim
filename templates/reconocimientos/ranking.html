@@ -7,6 +7,12 @@
   Ranking de kilos por ejercicio. Sólo links (sin JS ni hx-boost="false").
   Nunca el apellido completo: el nombre ya viene como «Lucía M.».
 {% endcomment %}
+{% if solo_mayores %}
+<div class="tarjeta">
+  <h1>Ranking</h1>
+  <p>El ranking está disponible para alumnos mayores de 18 años.</p>
+</div>
+{% else %}
 <div class="tarjeta">
   <h1>Ranking</h1>
   <p class="texto-suave">
@@ -40,4 +46,5 @@
   <p>Todavía no hay suficientes alumnos con kilos cargados para armar el ranking.</p>
 </div>
 {% endfor %}
+{% endif %}
 {% endblock %}

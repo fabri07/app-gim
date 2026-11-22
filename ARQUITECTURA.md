@@ -4260,6 +4260,17 @@ sin mostrarse en ninguna lista de compañeros). Spec:
 `docs/superpowers/plans/2026-11-21-reconocimientos-pieza-1-perfil-terminos-foto.md`
 y el de la pieza 2 (ranking).
 
+**Menores de 18 (regla del dueño, 2026-11-21).** No participan en NINGÚN
+ranking. Única definición: `alumnos/edad.py` (`fecha_corte_mayoria`,
+`es_mayor_de_edad`, `Alumno.es_mayor_de_edad`; 18 cumplidos en
+`timezone.localdate()`, el 29-feb cumple el 1-mar) y su uso en
+`reconocimientos/ranking.py::participantes()`. `fecha_nacimiento` NULL = no
+mayor = excluido. Además: la foto de un menor no se sirve a compañeros
+(`AlumnoFotoView._puede_ver`), `RankingView` le muestra un cartel sin calcular
+nada, y `debe_aceptar_terminos` devuelve False para él (una query extra, sólo
+con la bandera prendida y términos pendientes). Todo ranking o premio nuevo
+tiene que salir de `participantes()` o filtrar con `fecha_corte_mayoria()`.
+
 **La bandera.** `Gimnasio.reconocimientos_habilitado` (default apagada).
 **Sigue SIN estar en «Mi gimnasio» también después de la Pieza 2**: se sacó de
 `GimnasioForm.Meta.fields` y del template a propósito, porque prendida cada

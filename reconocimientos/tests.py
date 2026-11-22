@@ -32,7 +32,10 @@ def _gimnasio(slug="vida-plena", habilitado=True):
     )
 
 
-def _alumno(gimnasio, nombre="Ana", apellido="Pérez", terminos=VERSION_TERMINOS):
+def _alumno(
+    gimnasio, nombre="Ana", apellido="Pérez", terminos=VERSION_TERMINOS,
+    nacimiento=date(1990, 1, 1),
+):
     n = next(_serie)
     usuario = User.objects.create_user(f"u{n}", password="clave-123456")
     perfil = Perfil.objects.create(
@@ -41,7 +44,7 @@ def _alumno(gimnasio, nombre="Ana", apellido="Pérez", terminos=VERSION_TERMINOS
     )
     return Alumno.objects.create(
         gimnasio=gimnasio, nombre=nombre, apellido=apellido, perfil=perfil,
-        estado=Alumno.Estado.ACTIVO,
+        estado=Alumno.Estado.ACTIVO, fecha_nacimiento=nacimiento,
     )
 
 
@@ -190,6 +193,41 @@ class RankingTests(TestCase):
         rutina.save(update_fields=["fecha_inicio"])
         _rutina(alumnos[0], [("Sentadilla", "75")])
         self.assertEqual(self._bloques()[0].participantes, 3)
+
+    def test_solo_cuentan_los_mayores_de_18(self):
+        hoy = timezone.localdate()
+        mayor = _alumno(
+            self.gimnasio, "Cumple", "Hoy",
+            nacimiento=hoy.replace(year=hoy.year - 18) if (hoy.month, hoy.day) != (2, 29)
+            else date(hoy.year - 18, 2, 28),
+        )
+        menor = _alumno(self.gimnasio, "Menor", "M", nacimiento=hoy)
+        casi = _alumno(
+            self.gimnasio, "Casi", "C",
+            nacimiento=hoy.replace(year=hoy.year - 18, day=hoy.day) + timedelta(days=1),
+        )
+        sin_fecha = _alumno(self.gimnasio, "Sin", "F", nacimiento=None)
+        for alumno in (mayor, menor, casi, sin_fecha):
+            _rutina(alumno, [("Sentadilla", "50")])
+        ids = set(participantes(self.gimnasio).values_list("alumno_id", flat=True))
+        self.assertEqual(ids, {mayor.id})
+
+    def test_los_menores_no_suman_participantes_del_bloque(self):
+        _con_kilos(self.gimnasio, "Sentadilla", [60, 80, 70])
+        for nacimiento in (timezone.localdate(), None):
+            alumno = _alumno(self.gimnasio, nacimiento=nacimiento)
+            _rutina(alumno, [("Sentadilla", "200")])
+        (bloque,) = self._bloques()
+        self.assertEqual(bloque.participantes, 3)
+        self.assertNotIn(Decimal(200), [f.kilos for f in bloque.filas])
+
+    def test_un_menor_no_tiene_tu_fila(self):
+        _con_kilos(self.gimnasio, "Sentadilla", [60, 80, 70])
+        menor = _alumno(self.gimnasio, nacimiento=timezone.localdate())
+        _rutina(menor, [("Sentadilla", "5")])
+        (bloque,) = self._bloques(alumno=menor)
+        self.assertIsNone(bloque.tu_fila)
+        self.assertFalse(any(f.es_propia for f in bloque.filas))
 
     def test_participantes_es_la_unica_definicion(self):
         alumnos = _con_kilos(self.gimnasio, "Sentadilla", [60, 70, 80])
@@ -414,6 +452,29 @@ class RankingVistaTests(TestCase):
         self.assertContains(respuesta, "Tu puesto")
         self.assertContains(respuesta, "11")
         self.assertContains(respuesta, "5 kg")
+
+    def test_un_menor_ve_el_cartel_y_ningun_ranking(self):
+        menor = _alumno(self.gimnasio, "Menor", "M", nacimiento=timezone.localdate())
+        self.client.force_login(menor.perfil.usuario)
+        with patch("reconocimientos.views.calcular_ranking") as calculo:
+            respuesta = self.client.get(self.url)
+        calculo.assert_not_called()
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(
+            respuesta, "El ranking está disponible para alumnos mayores de 18 años."
+        )
+        self.assertNotContains(respuesta, "Sentadilla")
+        self.assertNotContains(respuesta, "Lucía M.")
+
+    def test_sin_fecha_de_nacimiento_tambien_ve_el_cartel(self):
+        sin = _alumno(self.gimnasio, "Sin", "F", nacimiento=None)
+        self.client.force_login(sin.perfil.usuario)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, "mayores de 18 años")
+        self.assertNotContains(respuesta, "Sentadilla")
+
+    def test_un_mayor_no_ve_el_cartel_de_menores(self):
+        self.assertNotContains(self.client.get(self.url), "mayores de 18 años")
 
     def test_suplantando_get_200(self):
         staff = _staff(self.gimnasio)

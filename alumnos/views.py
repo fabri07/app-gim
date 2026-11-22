@@ -675,7 +675,7 @@ class AlumnoFotoView(LoginRequiredMixin, View):
 
     La ven: el staff de su gimnasio, el propio alumno, y un compañero del mismo
     gimnasio sólo si el gimnasio tiene los reconocimientos prendidos y el dueño
-    de la foto eligió aparecer en el ranking. Para todos los demás (otro
+    de la foto eligió aparecer en el ranking y es mayor de 18 años. Para todos los demás (otro
     gimnasio, sin perfil, sin foto) es un 404 con `no-store`, así una caché
     intermedia no guarda el «no existe»; es `HttpResponseNotFound` y no
     `Http404` para poder ponerle la cabecera (mismo criterio que
@@ -715,7 +715,12 @@ class AlumnoFotoView(LoginRequiredMixin, View):
             return True
         if alumno.perfil_id == perfil.pk:
             return True
-        return alumno.gimnasio.reconocimientos_habilitado and alumno.aparece_en_ranking
+        # Los menores no participan: tampoco se ve su foto entre compañeros.
+        return (
+            alumno.gimnasio.reconocimientos_habilitado
+            and alumno.aparece_en_ranking
+            and alumno.es_mayor_de_edad
+        )
 
     @staticmethod
     def _no_existe():

@@ -10,7 +10,8 @@ La regla de «cuál es el plan vigente de un alumno» está escrita acá en SQL
 regla dos veces. Si se toca una, hay que tocar la otra (`por_vencer_de` ya
 hace lo mismo).
 
-Quién cuenta: alumno ACTIVO, que no se dio de baja del ranking, que aceptó
+Quién cuenta: alumno ACTIVO, MAYOR DE 18 años (sin fecha de nacimiento no
+cuenta: no se puede verificar), que no se dio de baja del ranking, que aceptó
 la versión vigente de los términos y cuyo plan vigente no está abandonado
 (arrancó hace a lo sumo 4 semanas + `DIAS_GRACIA_RANKING`). De ese plan
 cuenta el mayor peso de cada ejercicio entre sus cuatro semanas.
@@ -24,6 +25,7 @@ from decimal import Decimal
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
+from alumnos.edad import fecha_corte_mayoria
 from alumnos.models import Alumno
 from importaciones.parsing.comun import normalizar_texto
 from rutinas.kilos import parsear_kilos
@@ -58,6 +60,8 @@ def participantes(gimnasio):
     """Rutinas vigentes de los alumnos que cuentan para el ranking.
 
     Única definición de «quién participa»: la reusan las piezas siguientes.
+    Los menores de 18 (y los alumnos sin fecha de nacimiento) no participan
+    en ningún ranking.
     Todo en SQL (nunca `fecha + columna`, que en Postgres falla).
     """
     hoy = timezone.localdate()
@@ -76,6 +80,7 @@ def participantes(gimnasio):
         fecha_inicio__gte=piso,
         alumno__estado=Alumno.Estado.ACTIVO,
         alumno__aparece_en_ranking=True,
+        alumno__fecha_nacimiento__lte=fecha_corte_mayoria(hoy),
         alumno__perfil__terminos_version__gte=VERSION_TERMINOS,
     ).filter(~Exists(gana_el_orden))
 

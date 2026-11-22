@@ -3347,3 +3347,12 @@ nuevo: manda `valor_1`, que tiene el nombre anterior.
 **Estado:** resuelto (con un riesgo aceptado)
 **Impacto:** el archivo nunca se borraba de R2, pero al rechazar una foto, quitarla al editar o borrar el producto se borraba la fila que decía de qué gimnasio y de qué producto era. Un gimnasio podía subir algo ilegal y quitarlo antes de la revisión sin dejar rastro consultable.
 **Resolución / próximo paso:** `FotoRetenida` + señal `pre_delete` (ver `ARQUITECTURA.md` «Tienda del gimnasio» → «Moderación» → «Fotos retenidas»). Riesgos aceptados: (1) lo borrado ANTES de este cambio no se puede reconstruir; (2) durante la ventana del deploy la versión vieja todavía borra sin retener; (3) la retención es por tiempo indefinido, sin purga: si algún día hace falta un plazo, se agrega un comando como `purgar_ingresos`. Las fotos de productos `bajados` ya conservaban su fila.
+
+## [2026-11-21] Reconocimientos: los menores de 18 no participan en ningún ranking
+**Estado:** resuelto (con brechas conocidas)
+**Impacto:** regla del dueño del producto: un alumno menor de 18 años no aparece, no ve ni cuenta en ningún ranking.
+**Resolución / próximo paso:**
+- `alumnos/edad.py` (`fecha_corte_mayoria`, `es_mayor_de_edad`, `Alumno.es_mayor_de_edad`). `participantes()` filtra `fecha_nacimiento__lte=corte`; la foto del alumno no se sirve a un compañero si es menor; `RankingView` muestra un cartel («El ranking está disponible para alumnos mayores de 18 años.») y no calcula nada; el cartel de términos no se le muestra (no participa, no hay nada que consentir).
+- **Decisión: `fecha_nacimiento` NULL = excluido** (no se puede verificar). Un alumno importado o cargado sin fecha de nacimiento no entra al ranking hasta que el staff la complete.
+- **Brecha conocida:** el menor sigue pudiendo ver y subir su propia foto en «Mi perfil», cuyo texto todavía habla de compañeros.
+- **Costo aceptado:** `debe_aceptar_terminos` hace UNA query extra por request (la ficha del alumno), sólo en gimnasios con la bandera prendida y para alumnos que todavía no aceptaron: los menores nunca aceptan, así que pagan esa query en cada request.
