@@ -6,7 +6,9 @@ from itertools import count
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from alumnos.models import Alumno
@@ -303,3 +305,141 @@ class RankingTests(TestCase):
             rutina.fecha_inicio = date(2026, 3, 9)
             rutina.save(update_fields=["fecha_inicio"])
             self.assertEqual(len(self._bloques()), 1)
+
+
+# --- Pantalla «Ranking» del alumno -----------------------------------------
+
+from django.urls import reverse  # noqa: E402
+
+
+def _staff(gimnasio):
+    usuario = User.objects.create_user(f"s{next(_serie)}", password="clave-123456")
+    Perfil.objects.create(usuario=usuario, gimnasio=gimnasio, rol=Perfil.Rol.STAFF)
+    return usuario
+
+
+class RankingVistaTests(TestCase):
+    def setUp(self):
+        self.gimnasio = _gimnasio()
+        self.url = reverse("reconocimientos:ranking")
+        self.yo = _alumno(self.gimnasio, "Yo", "Mismo")
+        _rutina(self.yo, [("Sentadilla", "60")])
+        self.otros = []
+        for nombre, apellido, kilos in [
+            ("Lucía", "Martínez", "80"), ("Pedro", "Gómez", "70,5"),
+        ]:
+            alumno = _alumno(self.gimnasio, nombre, apellido)
+            _rutina(alumno, [("Sentadilla", kilos)])
+            self.otros.append(alumno)
+        self.client.force_login(self.yo.perfil.usuario)
+
+    def test_url(self):
+        self.assertEqual(self.url, "/ranking/")
+
+    def test_muestra_el_ranking_sin_apellido_completo(self):
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Sentadilla")
+        self.assertContains(respuesta, "Lucía M.")
+        self.assertNotContains(respuesta, "Martínez")
+        self.assertNotContains(respuesta, "Gómez")
+        self.assertContains(respuesta, "según la rutina que le asignó el gimnasio")
+        self.assertContains(respuesta, reverse("alumnos:mi_perfil"))
+
+    def test_kilos_sin_ceros_de_mas_y_con_coma(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, "80 kg")
+        self.assertContains(respuesta, "70,5 kg")
+        self.assertNotContains(respuesta, "80,0")
+        self.assertNotContains(respuesta, "70.5")
+
+    def test_bandera_apagada_404(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(reconocimientos_habilitado=False)
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+
+    def test_anonimo_va_al_login(self):
+        self.client.logout()
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertIn(reverse("login"), respuesta["Location"])
+
+    def test_staff_403(self):
+        self.client.force_login(_staff(self.gimnasio))
+        self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_alumno_sin_ficha_estado_vacio(self):
+        usuario = User.objects.create_user("sinficha", password="clave-123456")
+        Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO,
+            terminos_version=VERSION_TERMINOS,
+        )
+        self.client.force_login(usuario)
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(respuesta, "Sentadilla")
+
+    def test_sin_suficientes_participantes_mensaje(self):
+        gym = _gimnasio("chico")
+        alumno = _alumno(gym)
+        _rutina(alumno, [("Sentadilla", "50")])
+        self.client.force_login(alumno.perfil.usuario)
+        respuesta = self.client.get(self.url)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertContains(
+            respuesta,
+            "Todavía no hay suficientes alumnos con kilos cargados para armar el ranking",
+        )
+
+    def test_aislamiento_entre_gimnasios(self):
+        gym = _gimnasio("otro")
+        _con_kilos(gym, "Sentadilla", [10, 20, 30])
+        extra = _alumno(gym, "Zacarías", "Quiroga")
+        _rutina(extra, [("Sentadilla", "99")])
+        respuesta = self.client.get(self.url)
+        self.assertNotContains(respuesta, "Zacarías")
+        self.assertNotContains(respuesta, "99 kg")
+
+    def test_fila_propia_marcada(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'aria-current="true"', count=1)
+        self.assertContains(respuesta, "Vos")
+
+    def test_tu_puesto_fuera_del_top(self):
+        gym = _gimnasio("grande")
+        _con_kilos(gym, "Sentadilla", [100 + n for n in range(TOP_POR_EJERCICIO)])
+        yo = _alumno(gym, "Rezagado", "Z")
+        _rutina(yo, [("Sentadilla", "5")])
+        self.client.force_login(yo.perfil.usuario)
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, "Tu puesto")
+        self.assertContains(respuesta, "11")
+        self.assertContains(respuesta, "5 kg")
+
+    def test_suplantando_get_200(self):
+        staff = _staff(self.gimnasio)
+        self.client.force_login(staff)
+        respuesta = self.client.post(reverse("suplantar", args=[self.yo.pk]))
+        self.assertEqual(respuesta.status_code, 302)
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_nav_con_bandera(self):
+        respuesta = self.client.get(self.url)
+        self.assertContains(respuesta, 'href="/ranking/" aria-current="page"')
+        respuesta = self.client.get(reverse("alumnos:mi_perfil"))
+        self.assertContains(respuesta, 'href="/ranking/"')
+        self.assertNotContains(respuesta, 'href="/ranking/" aria-current')
+
+    def test_nav_sin_bandera(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(reconocimientos_habilitado=False)
+        respuesta = self.client.get(reverse("turnos:mis_turnos"))
+        self.assertNotContains(respuesta, 'href="/ranking/"')
+
+    def test_queries_constantes(self):
+        self.client.get(self.url)  # calienta
+        with CaptureQueriesContext(connection) as chico:
+            self.client.get(self.url)
+        for e in range(6):
+            _con_kilos(self.gimnasio, f"Ej {e}", [50 + n for n in range(15)])
+        with CaptureQueriesContext(connection) as grande:
+            self.client.get(self.url)
+        self.assertEqual(len(chico), len(grande))

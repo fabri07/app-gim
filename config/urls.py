@@ -15,6 +15,7 @@ urlpatterns = [
     path("pagos/", include("pagos.urls")),
     path("novedades/", include("novedades.urls")),
     path("turnos/", include("turnos.urls")),
+    path("ranking/", include("reconocimientos.urls")),
     path("ingreso/", include("ingreso.urls")),
     path("calendario/", include("calendario.urls")),
     path("importaciones/", include("importaciones.urls")),
