@@ -38,7 +38,8 @@ class ConfirmarConDescuentoTests(_Base):
                 r = self.post(monto)
                 self.assertEqual(r.status_code, 200)
                 self.assertIn("monto", r.context["form"].errors)
-                self.assertContains(r, "Corregir monto")
+                if monto != "-5":  # el negativo tiene su propio mensaje
+                    self.assertContains(r, "Corregir monto")
                 self.cuota.refresh_from_db()
                 self.assertNotEqual(self.cuota.estado, C.PAGADO)
                 self.assertEqual(self.cuota.monto, Decimal("10000"))
@@ -75,6 +76,26 @@ class ConfirmarConDescuentoTests(_Base):
         self.assertRedirects(r, reverse("pagos:listado"))
         self.cuota.refresh_from_db()
         self.assertEqual(self.cuota.monto, Decimal("100"))
+
+
+class MontoCobradoNuncaNegativoTests(_Base):
+    def test_un_cobro_negativo_se_rechaza_con_y_sin_descuento(self):
+        self._login_staff()
+        url = reverse("pagos:confirmar", args=[self.cuota.pk])
+        for descuento in ("0", "2000"):
+            Cuota.objects.filter(pk=self.cuota.pk).update(
+                monto=Decimal("10000"), descuento=Decimal(descuento),
+                descuento_motivo="x" if descuento != "0" else "",
+            )
+            with self.subTest(descuento=descuento):
+                r = self.client.post(url, {
+                    "monto": "-5", "fecha_pago": "2026-03-05",
+                    "medio_pago_texto": "Efectivo", "comprobante": "",
+                })
+                self.assertEqual(r.status_code, 200)
+                self.assertIn("monto", r.context["form"].errors)
+                self.cuota.refresh_from_db()
+                self.assertNotEqual(self.cuota.estado, C.PAGADO)
 
 
 class MontoMuestraElNetoGuardadoTests(_Base):

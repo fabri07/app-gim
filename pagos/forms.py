@@ -75,6 +75,11 @@ class ConfirmarPagoForm(TenantScopedModelForm):
         monto = self.cleaned_data.get("monto")
         if monto is None:
             return monto
+        if monto < 0:
+            # Un cobro negativo no existe: el gimnasio no le devuelve plata al
+            # alumno desde acá (un pago de más se devuelve por Mercado Pago o a
+            # mano, fuera de la cuota).
+            raise forms.ValidationError("El monto cobrado no puede ser negativo.")
         descuento = self.instance.descuento
         if descuento > 0:
             # Import local: `pagos.descuentos` importa `pagos.cobro`.
