@@ -345,9 +345,12 @@ class CartelTerminosTests(TestCase):
         self.assertContains(respuesta, "ranking")
         self.assertContains(respuesta, "Mi perfil")
         # Opt-out, no opt-in: se aparece al aceptar y se deja de aparecer.
-        self.assertContains(respuesta, "elijas dejar de aparecer")
+        self.assertContains(respuesta, "hayas optado por dejar de")
+        self.assertContains(respuesta, "dejar de aparecer en el ranking")
         self.assertNotContains(respuesta, "elijas aparecer")
-        self.assertContains(respuesta, "hasta una hora")
+        self.assertContains(respuesta, "hasta por una hora")
+        # Los datos del gimnasio no son un placeholder sin completar.
+        self.assertNotContains(respuesta, "[gimnasio]")
 
     def test_suplantando_no_muestra_el_cartel_ni_deja_aceptar(self):
         self.client.force_login(_staff(self.gimnasio))

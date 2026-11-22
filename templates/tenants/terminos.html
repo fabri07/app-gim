@@ -19,40 +19,80 @@ aparecer.
 
 {% block content %}
 <div class="tarjeta">
-  <h1>Términos y condiciones</h1>
+  <h1>Términos y Condiciones — Ranking y Reconocimientos</h1>
   <p>
-    <strong>{{ gimnasio.nombre }}</strong> sumó el ranking y los
-    reconocimientos a la app. Antes de seguir, leé qué se muestra y aceptalo.
+    <strong>{{ gimnasio.nombre }}</strong> incorporó a la aplicación un
+    sistema de ranking y reconocimientos entre alumnos. Antes de continuar,
+    te pedimos que leas estos términos y los aceptes expresamente, de acuerdo
+    con el artículo 5° de la Ley 25.326 de Protección de Datos Personales.
   </p>
 
-  <h2>Qué ven los demás alumnos</h2>
+  <h2>1. Objeto</h2>
+  <p>
+    Estos términos regulan el tratamiento y la exhibición, dentro de la
+    aplicación, de determinados datos vinculados a tu actividad como alumno
+    de {{ gimnasio.nombre }}, en el marco del sistema de ranking y
+    reconocimientos.
+  </p>
+
+  <h2>2. Datos exhibidos y destinatarios</h2>
+  <p>Al aceptar estos términos, los siguientes datos se exhiben dentro de la aplicación:</p>
   <ul>
     <li>Tu nombre y la inicial de tu apellido (por ejemplo, «Ana P.»).</li>
-    <li>Tu foto de perfil, si cargaste una.</li>
-    <li>Tu lugar en el ranking y los reconocimientos que ganes.</li>
+    <li>Tu foto de perfil, si decidís cargar una.</li>
+    <li>Tu posición en el ranking y los reconocimientos que obtengas.</li>
   </ul>
   <p>
-    Sólo lo ven los alumnos de {{ gimnasio.nombre }}, dentro de la app. Nunca
-    se muestra tu apellido completo, tu contacto ni tus pagos.
+    Estos datos son visibles únicamente para otros alumnos de
+    {{ gimnasio.nombre }} que estén registrados en la aplicación, y sólo
+    dentro de ella. En ningún caso se exhiben tu apellido completo, tus datos
+    de contacto ni información sobre tus pagos, y estos datos no se ponen a
+    disposición de terceros ajenos a {{ gimnasio.nombre }} ni se indexan en
+    motores de búsqueda.
   </p>
 
-  <h2>Podés dejar de aparecer</h2>
+  <h2>3. Carácter voluntario y revocable del consentimiento</h2>
   <p>
-    Al aceptar aparecés en el ranking y los reconocimientos, mientras no
-    elijas dejar de aparecer. Cuando quieras, desde «Mi perfil» podés dejar de
-    aparecer o sacar tu foto.
+    La exhibición de tus datos en el ranking depende de tu consentimiento,
+    que es voluntario, específico e informado. Conforme al artículo 5° de la
+    Ley 25.326, podés revocarlo en cualquier momento, sin que ello afecte la
+    licitud del tratamiento previo a la revocación. Para hacerlo, ingresá a
+    «Mi perfil» y elegí dejar de aparecer en el ranking, o quitar tu foto de
+    perfil. La baja tiene efecto dentro de la aplicación en forma inmediata,
+    sujeto a los plazos técnicos de actualización descriptos en la
+    <a href="{% url 'politica_privacidad' %}">Política de Privacidad</a>.
   </p>
 
-  <h2>Tus datos</h2>
+  <h2>4. Responsable del tratamiento</h2>
   <p>
-    Tus datos los trata {{ gimnasio.nombre }}. Más detalle en la
-    <a href="{% url 'politica_privacidad' %}">política de privacidad</a>.
+    El responsable del tratamiento de los datos exhibidos en el ranking es el
+    titular del establecimiento {{ gimnasio.nombre }}, conforme al artículo
+    2° de la Ley 25.326 de Protección de Datos Personales, que no exige
+    inscripción societaria para revestir dicho carácter. Podés contactarlo
+    por los canales habituales del gimnasio para cualquier consulta sobre tus
+    datos.
+  </p>
+
+  <h2>5. Vigencia y modificaciones</h2>
+  <p>
+    {{ gimnasio.nombre }} podrá modificar estos términos para adecuarlos a
+    cambios normativos o funcionales. Toda modificación sustancial te será
+    notificada dentro de la aplicación y requerirá una nueva aceptación para
+    continuar exhibiéndose tus datos en el ranking.
+  </p>
+
+  <h2>6. Legislación aplicable y jurisdicción</h2>
+  <p>
+    Estos términos se rigen por las leyes de la República Argentina. Para
+    cualquier controversia, las partes se someten a los tribunales ordinarios
+    competentes, sin perjuicio de las normas de protección al consumidor que
+    resulten aplicables.
   </p>
 
   <form method="post" action="{% url 'terminos_aceptar' %}" class="mt-4">
     {% csrf_token %}
     {% include 'partials/campo_form.html' with campo=form.acepto %}
-    <button type="submit" class="boton">Aceptar y seguir</button>
+    <button type="submit" class="boton">Aceptar y continuar</button>
   </form>
 </div>
 {% endblock %}
