@@ -20,11 +20,22 @@
             {% for franja, reservas_franja in filas %}
               <div class="turno{% if franja.pasada %} turno--pasado{% elif franja.llena %} turno--lleno{% endif %}">
                 {% if reservas_franja %}
-                  <details>
+                  <details{% if asistencia_habilitada and dia <= asistencia_hoy %} open{% endif %}>
                     <summary>{{ franja.hora_inicio|time:"H:i" }} &middot; {{ franja.ocupadas }}/{{ franja.vacantes }}</summary>
                     <ul>
                       {% for reserva in reservas_franja %}
-                        <li>{{ reserva.alumno }}</li>
+                        <li>{{ reserva.alumno }}{% if asistencia_habilitada and dia <= asistencia_hoy and dia >= asistencia_desde %}
+                          <form method="post" action="{% url 'asistencia:marcar_reserva' reserva.pk %}" class="inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="semana" value="{{ semana_actual }}">
+                            {% if reserva.marcada %}
+                              <input type="hidden" name="accion" value="quitar">
+                              <button type="submit" class="boton-secundario">Quitar</button>
+                            {% else %}
+                              <input type="hidden" name="accion" value="marcar">
+                              <button type="submit" class="boton-secundario">Asistió</button>
+                            {% endif %}
+                          </form>{% endif %}</li>
                       {% endfor %}
                     </ul>
                   </details>
