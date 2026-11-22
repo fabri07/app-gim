@@ -31,7 +31,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import Case, F, Q, Value, When
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -232,6 +232,29 @@ def _con_revision(motivo):
     )
 
 
+def _montos_cobrados(cobrado):
+    """Los campos de plata del UPDATE que deja la cuota PAGADA con `cobrado`,
+    para que `monto - descuento == cobrado` (la invariante de una pagada).
+
+    El descuento lo resuelve la BASE en el mismo UPDATE (`F("descuento")`),
+    nunca la instancia leída: si el staff cambió el descuento entre la
+    lectura y el UPDATE, se usa el que de verdad quedó. En un UPDATE todas
+    las expresiones ven la fila VIEJA, así que `monto` y `descuento` se
+    calculan sobre el mismo valor.
+
+    Si `descuento + cobrado` pasara del tope del 90% (`descuento > 9 ×
+    cobrado`: un link viejo muy barato y, en el medio, un descuento grande),
+    la base rechazaría el pago entero. La plata manda: se registra lo cobrado
+    sin descuento (la invariante se sigue cumpliendo) y queda para revisar
+    como «monto corregido», porque el neto ya no coincidía con el link."""
+    entra = Q(descuento__lte=cobrado * 9)
+    return dict(
+        monto=Case(When(entra, then=F("descuento") + Value(cobrado)), default=Value(cobrado)),
+        descuento=Case(When(entra, then=F("descuento")), default=Value(Decimal("0"))),
+        descuento_motivo=Case(When(entra, then=F("descuento_motivo")), default=Value("")),
+    )
+
+
 def _aprobado(cuota, intento, pago, ahora, campos):
     """Un pago aprobado sobre un intento sin plata: decide la CUOTA."""
     if not _monto_coincide(pago, intento.monto):
@@ -243,9 +266,13 @@ def _aprobado(cuota, intento, pago, ahora, campos):
         return
 
     if cuota.estado in Cuota.ESTADOS_IMPAGOS:
-        # Monto corregido por el staff con el link abierto: se paga con lo
-        # cobrado (el monto del intento) y queda para revisar.
-        extra = {} if cuota.monto == intento.monto else _con_revision(_M.MONTO_CORREGIDO)
+        # Monto o descuento corregidos por el staff con el link abierto: se
+        # paga con lo cobrado (el monto del intento) y queda para revisar. Se
+        # compara contra el NETO: el link se generó por `monto_a_cobrar`.
+        extra = (
+            {} if cuota.monto_a_cobrar == intento.monto
+            else _con_revision(_M.MONTO_CORREGIDO)
+        )
         # Primero el intento (deja de ser CREADO: `marcar_pagada` cancela los
         # links vivos y no lo toca), después la cuota. Si la cuota ya no
         # estaba impaga, `_Carrera` deshace los dos.
@@ -254,7 +281,7 @@ def _aprobado(cuota, intento, pago, ahora, campos):
             cuota,
             desde=Cuota.ESTADOS_IMPAGOS,
             ahora=ahora,
-            monto=intento.monto,
+            **_montos_cobrados(intento.monto),
             fecha_pago=_fecha_de_pago(pago),
             medio_pago_texto=MEDIO_MERCADO_PAGO,
         )
@@ -510,6 +537,8 @@ def gimnasios_con_cobro_online():
 
 
 def _reusable(intento, cuenta, monto, ahora):
+    """`monto` es el NETO vigente de la cuota: un link por otro neto (cambió
+    el monto o el descuento) no se reusa."""
     return (
         bool(intento.init_point)
         and intento.expira is not None
@@ -540,7 +569,11 @@ def _preparar_intento(cuota_pk, alumno, cuenta, ahora):
         ).first()
         if cuota is None or cuota.estado not in Cuota.ESTADOS_IMPAGOS:
             raise NoSePuedePagar("ya_no_impaga")
-        if cuota.monto <= 0:
+        # Todo lo del link va por el NETO (`monto_a_cobrar`): es lo que el
+        # alumno tiene que pagar. Con el tope del 90%, un monto > 0 deja un
+        # neto > 0.
+        neto = cuota.monto_a_cobrar
+        if neto <= 0:
             raise NoSePuedePagar("sin_monto")
 
         CobroOnlineCuota.objects.filter(
@@ -548,7 +581,7 @@ def _preparar_intento(cuota_pk, alumno, cuenta, ahora):
         ).update(estado=_I.VENCIDO, modificado=ahora)
         abierto = _link_vivo(cuota_pk)
         if abierto is not None:
-            if _reusable(abierto, cuenta, cuota.monto, ahora):
+            if _reusable(abierto, cuenta, neto, ahora):
                 return abierto, abierto.init_point
             CobroOnlineCuota.objects.filter(pk=abierto.pk, estado=_I.CREADO).update(
                 estado=_I.CANCELADO, modificado=ahora
@@ -559,7 +592,7 @@ def _preparar_intento(cuota_pk, alumno, cuenta, ahora):
                 intento = CobroOnlineCuota.objects.create(
                     gimnasio_id=cuota.gimnasio_id,
                     cuota=cuota,
-                    monto=cuota.monto,
+                    monto=neto,
                     mp_user_id=str(cuenta.mp_user_id or ""),
                     expira=ahora + timedelta(hours=HORAS_VALIDEZ_LINK_CUOTA),
                 )
@@ -567,7 +600,7 @@ def _preparar_intento(cuota_pk, alumno, cuenta, ahora):
             # Doble click sin lock (SQLite) o en la misma fracción de segundo:
             # el otro request ya creó el link vivo. Se reusa si ya tiene link.
             otro = _link_vivo(cuota_pk)
-            if otro is not None and _reusable(otro, cuenta, cuota.monto, ahora):
+            if otro is not None and _reusable(otro, cuenta, neto, ahora):
                 return otro, otro.init_point
             raise NoSePuedePagar("en_curso") from None
     return intento, None

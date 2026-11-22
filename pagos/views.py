@@ -282,10 +282,17 @@ class ConfirmarPagoView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
                 )
                 return redirect(self.success_url)
         elif not cobro.marcar_pagada(cuota):
-            messages.warning(
-                self.request,
-                "Esta cuota se acaba de cobrar por Mercado Pago; no se guardó tu cambio.",
-            )
+            # Dos motivos: MP la cobró en el medio, o le cambiaron el
+            # descuento (el monto que se iba a guardar ya no cuadra). La
+            # query extra va sólo por este camino.
+            if cobro.cobrada_por_mercadopago(cuota.pk):
+                texto = "Esta cuota se acaba de cobrar por Mercado Pago; no se guardó tu cambio."
+            else:
+                texto = (
+                    "El descuento de esta cuota cambió mientras la confirmabas; "
+                    "no se guardó tu cambio. Volvé a abrirla."
+                )
+            messages.warning(self.request, texto)
             return redirect(self.success_url)
         self.object = cuota
         _avisar_si_sigue_bloqueado(self.request, self.object, "Pago confirmado")

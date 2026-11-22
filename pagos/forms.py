@@ -58,6 +58,21 @@ class ConfirmarPagoForm(TenantScopedModelForm):
             for nombre in ("monto", "medio_pago_texto"):
                 self.fields[nombre].disabled = True
                 self.fields[nombre].help_text = "Lo cobró Mercado Pago: no se puede cambiar."
+        # «monto» acá significa LO QUE SE COBRÓ: arranca en el neto y
+        # `clean_monto` le vuelve a sumar el descuento (la cuota guarda la
+        # lista). Con el campo `disabled` (cobrada por MP) Django usa este
+        # inicial, así que el monto guardado queda igual.
+        if self.instance.pk:
+            self.initial["monto"] = self.instance.monto_a_cobrar
+
+    def clean_monto(self):
+        """Lo cobrado + el descuento de la cuota = el monto de lista que se
+        guarda (`monto - descuento == cobrado`). Si el descuento cambia antes
+        de guardar, `cobro.marcar_pagada` lo detecta bajo lock y no guarda."""
+        monto = self.cleaned_data.get("monto")
+        if monto is None:
+            return monto
+        return monto + self.instance.descuento
 
     def clean_estado_al_abrir(self):
         valor = self.cleaned_data.get("estado_al_abrir", "")
