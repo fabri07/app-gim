@@ -20,7 +20,7 @@ from decimal import Decimal
 
 MAXIMO_KILOS = Decimal("500")
 
-_NUM = r"\d+(?:[.,]\d+)?"
+_NUM = r"[0-9]+(?:[.,][0-9]+)?"  # no `\d`: aceptaría dígitos árabes o de ancho completo
 _PATRON = re.compile(
     rf"(?P<a>{_NUM})"
     rf"(?:\s*[-–]\s*(?P<b>{_NUM}))?"

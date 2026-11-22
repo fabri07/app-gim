@@ -31,7 +31,7 @@ del log.
 **Estado:** construido; la bandera sigue apagada y fuera de «Mi gimnasio».
 **Impacto:** el alumno ve `/ranking/` con los kilos prescriptos de sus compañeros (nombre e inicial, sin foto). Sin modelos ni migraciones.
 **Decisiones:** (1) sin cache: dos queries fijas y un alumno que se da de baja tiene que desaparecer al recargar; un cache obligaría a invalidar por baja, aceptación de términos y cambio de plan. (2) Parser de kilos: `1.500` se lee 1,5 y `15kg c/u` cuenta 15, por diseño; tope de 500 kg para que un error de tipeo no domine el ranking; todo lo ambiguo se descarta. (3) Un plan abandonado (arrancó hace más de 28 + 14 días) saca al alumno del ranking. (4) Mínimo de 3 participantes por ejercicio.
-**Pendiente:** restaurar el checkbox «Ranking y premios» en «Mi gimnasio» cuando el dueño del producto apruebe los textos legales (ver la entrada de la Pieza 1); hasta entonces se prende por `/admin/` o shell. Los comentarios de `tenants/forms.py` y `gimnasio_form.html` que dicen «vuelve en la Pieza 2» quedaron desactualizados. Detalle en `ARQUITECTURA.md` «Reconocimientos (ranking y premios)».
+**Pendiente:** restaurar el checkbox «Ranking y premios» en «Mi gimnasio» cuando el dueño del producto apruebe los textos legales (ver la entrada de la Pieza 1); hasta entonces se prende por `/admin/` o shell. Detalle en `ARQUITECTURA.md` «Reconocimientos (ranking y premios)».
 
 ---
 
