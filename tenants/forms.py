@@ -345,7 +345,7 @@ class AceptarTerminosForm(forms.Form):
     """
 
     acepto = forms.BooleanField(
-        label="Leí y acepto los términos",
+        label="Leí y acepto estos Términos y Condiciones y la Política de Privacidad",
         required=True,
         error_messages={"required": "Tenés que aceptar los términos para seguir."},
     )
