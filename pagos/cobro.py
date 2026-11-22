@@ -166,17 +166,33 @@ def editar_pagada(cuota):
     return sigue_pagada
 
 
-def corregir_monto(cuota_pk, gimnasio, monto, ahora=None):
+def corregir_monto(cuota_pk, gimnasio, monto, ahora=None, *, descuento=None, motivo=None):
     """Cambia el monto de una cuota IMPAGA y cancela sus links vivos (cobran
-    el monto viejo). Una pagada o anulada no se toca. Devuelve si la cambió."""
+    el monto viejo). Una pagada o anulada no se toca. Devuelve si la cambió.
+
+    Con `descuento=None` conserva el descuento vigente; con un valor lo
+    reemplaza (y `motivo` con él). Si el descuento resultante pasa del tope
+    del monto NUEVO, no escribe nada y devuelve `False`: bajar el monto por
+    debajo de un descuento vigente rompería el tope (y el `CheckConstraint`)."""
+    from pagos.descuentos import descuento_valido
+
     ahora = ahora or timezone.now()
     with transaction.atomic():
         _bloquear(cuota_pk)
-        cambiada = bool(
-            Cuota.objects.filter(
-                pk=cuota_pk, gimnasio=gimnasio, estado__in=Cuota.ESTADOS_IMPAGOS
-            ).update(monto=monto, modificado=ahora)
+        impagas = Cuota.objects.filter(
+            pk=cuota_pk, gimnasio=gimnasio, estado__in=Cuota.ESTADOS_IMPAGOS
         )
+        vigente = impagas.values_list("descuento", flat=True).first()
+        if vigente is None:
+            return False
+        campos = {"monto": monto, "modificado": ahora}
+        nuevo = vigente if descuento is None else descuento
+        if not descuento_valido(monto, nuevo):
+            return False
+        if descuento is not None:
+            campos["descuento"] = nuevo
+            campos["descuento_motivo"] = (motivo or "") if nuevo > 0 else ""
+        cambiada = bool(impagas.update(**campos))
         if cambiada:
             cancelar_links_vivos(cuota_pk, ahora)
     return cambiada

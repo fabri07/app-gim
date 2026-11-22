@@ -126,3 +126,104 @@ class MigracionDeDescuentoTests(TransactionTestCase):
 
     def _hoja(self):
         return [n for n in MigrationExecutor(connection).loader.graph.leaf_nodes() if n[0] == "pagos"]
+
+
+from datetime import timedelta  # noqa: E402
+
+from django.utils import timezone  # noqa: E402
+
+from pagos import cobro  # noqa: E402
+from pagos.descuentos import aplicar_descuento, descuento_maximo  # noqa: E402
+from pagos.models import CobroOnlineCuota  # noqa: E402
+from pagos.precios import aplicar_precio_a_impagas_sin_monto  # noqa: E402
+
+
+class ServicioDescuentoTests(TestCase):
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.otro = Gimnasio.objects.create(nombre="O", slug="o")
+        self.alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="A", apellido="B")
+        self.cuota = _cuota(self.gimnasio, self.alumno, "10000.00")
+
+    def _recargar(self):
+        self.cuota.refresh_from_db()
+        return self.cuota
+
+    def _link(self):
+        return CobroOnlineCuota.objects.create(
+            gimnasio=self.gimnasio, cuota=self.cuota, monto=Decimal("10000"),
+            mp_user_id="1", expira=timezone.now() + timedelta(hours=2),
+        )
+
+    def test_maximo_redondea_hacia_abajo(self):
+        self.assertEqual(descuento_maximo(Decimal("100.05")), Decimal("90.04"))
+        self.assertEqual(descuento_maximo(Decimal("10000")), Decimal("9000.00"))
+
+    def test_aplica_sobre_impaga_y_cancela_el_link_creado(self):
+        link = self._link()
+        self.assertTrue(aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("1500"), "Premio"))
+        cuota = self._recargar()
+        self.assertEqual(cuota.descuento, Decimal("1500.00"))
+        self.assertEqual(cuota.descuento_motivo, "Premio")
+        self.assertEqual(cuota.monto_a_cobrar, Decimal("8500.00"))
+        link.refresh_from_db()
+        self.assertEqual(link.estado, CobroOnlineCuota.Estado.CANCELADO)
+
+    def test_pagada_y_anulada_no_se_tocan(self):
+        for estado in (Cuota.Estado.PAGADO, Cuota.Estado.ANULADO):
+            Cuota.objects.filter(pk=self.cuota.pk).update(estado=estado)
+            self.assertFalse(aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("100"), "x"))
+            self.assertEqual(self._recargar().descuento, Decimal("0"))
+
+    def test_otro_gimnasio_no(self):
+        self.assertFalse(aplicar_descuento(self.cuota.pk, self.otro, Decimal("100"), "x"))
+        self.assertEqual(self._recargar().descuento, Decimal("0"))
+
+    def test_tope_del_90(self):
+        self.assertFalse(aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("9000.01"), "x"))
+        self.assertEqual(self._recargar().descuento, Decimal("0"))
+        self.assertTrue(aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("9000.00"), "x"))
+
+    def test_negativo_falla(self):
+        self.assertFalse(aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("-1"), "x"))
+
+    def test_quitar_con_cero(self):
+        aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("500"), "x")
+        self.assertTrue(aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("0"), ""))
+        cuota = self._recargar()
+        self.assertEqual(cuota.monto_a_cobrar, cuota.monto)
+        self.assertEqual(cuota.descuento_motivo, "")
+
+    def test_corregir_monto_clasico_intacto(self):
+        self.assertTrue(cobro.corregir_monto(self.cuota.pk, self.gimnasio, Decimal("12000")))
+        cuota = self._recargar()
+        self.assertEqual(cuota.monto, Decimal("12000"))
+        self.assertEqual(cuota.descuento, Decimal("0"))
+
+    def test_corregir_monto_bajo_el_descuento_vigente_falla_sin_escribir(self):
+        aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("9000"), "x")
+        self.assertFalse(cobro.corregir_monto(self.cuota.pk, self.gimnasio, Decimal("5000")))
+        self.assertEqual(self._recargar().monto, Decimal("10000.00"))
+
+    def test_corregir_monto_conserva_descuento_si_entra_en_el_tope(self):
+        aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("1000"), "x")
+        self.assertTrue(cobro.corregir_monto(self.cuota.pk, self.gimnasio, Decimal("5000")))
+        cuota = self._recargar()
+        self.assertEqual((cuota.monto, cuota.descuento), (Decimal("5000"), Decimal("1000")))
+
+    def test_corregir_monto_con_descuento_nuevo(self):
+        self.assertTrue(cobro.corregir_monto(
+            self.cuota.pk, self.gimnasio, Decimal("5000"), descuento=Decimal("500"), motivo="m"))
+        cuota = self._recargar()
+        self.assertEqual((cuota.descuento, cuota.descuento_motivo), (Decimal("500"), "m"))
+        self.assertFalse(cobro.corregir_monto(
+            self.cuota.pk, self.gimnasio, Decimal("5000"), descuento=Decimal("4500.01")))
+        self.assertEqual(self._recargar().descuento, Decimal("500"))
+
+    def test_precio_a_impagas_sin_monto_no_toca_descuento(self):
+        Cuota.objects.filter(pk=self.cuota.pk).update(monto=0)
+        self.gimnasio.precio_cuota = Decimal("8000")
+        self.gimnasio.save()
+        self.assertEqual(aplicar_precio_a_impagas_sin_monto(self.gimnasio), 1)
+        cuota = self._recargar()
+        self.assertEqual((cuota.monto, cuota.descuento), (Decimal("8000.00"), Decimal("0")))
