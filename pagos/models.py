@@ -21,7 +21,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.db import models
-from django.db.models import Value
+from django.db.models import ExpressionWrapper, F, Value
 from django.db.models.functions import Coalesce
 from django.core.validators import (
     FileExtensionValidator,
@@ -62,6 +62,10 @@ def ciclo_vigente(fecha_inicio_ciclo, hoy):
     indice = max(0, (hoy - fecha_inicio_ciclo).days // DIAS_CICLO)
     inicio = fecha_inicio_ciclo + timedelta(days=DIAS_CICLO * indice)
     return inicio, inicio + timedelta(days=DIAS_CICLO - 1)
+
+
+#: Tope del descuento sobre el monto de lista.
+TOPE_DESCUENTO = Decimal("0.90")
 
 
 class MedioCobro(TenantOwnedModel):
@@ -179,12 +183,45 @@ class Cuota(TenantOwnedModel):
         validators=[FileExtensionValidator(allowed_extensions=EXTENSIONES_COMPROBANTE_PERMITIDAS)],
     )
     observaciones = models.TextField(blank=True)
+    #: Descuento en pesos que se resta de `monto` (el monto de lista NO se toca:
+    #: la cuota guarda precio y rebaja por separado). `db_default` para que la
+    #: columna se agregue sin reescribir la tabla y para que un INSERT que no la
+    #: nombra (código viejo durante un deploy) quede en 0.
+    descuento = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0, db_default=0
+    )
+    descuento_motivo = models.CharField(max_length=80, blank=True, default="", db_default="")
+
+    #: Lo que de verdad se cobra, para usar en queryset (`annotate`/`aggregate`).
+    NETO = ExpressionWrapper(
+        F("monto") - F("descuento"),
+        output_field=models.DecimalField(max_digits=10, decimal_places=2),
+    )
 
     class Meta:
         verbose_name = "cuota"
         verbose_name_plural = "cuotas"
         unique_together = ("gimnasio", "alumno", "periodo_inicio")
         ordering = ["-periodo_inicio"]
+        constraints = [
+            # Sin descuento vale cualquier monto (hay datos viejos con montos
+            # raros que no se tocan); con descuento, positivo y a lo sumo el 90%.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(descuento=0)
+                    | (
+                        models.Q(descuento__gt=0)
+                        & models.Q(descuento__lte=F("monto") * TOPE_DESCUENTO)
+                    )
+                ),
+                name="cuota_descuento_valido",
+            ),
+        ]
+
+    @property
+    def monto_a_cobrar(self):
+        """Monto neto: `monto` menos `descuento`."""
+        return self.monto - self.descuento
 
     def __str__(self):
         return f"{self.alumno} - {self.periodo_inicio:%d/%m/%Y}"
