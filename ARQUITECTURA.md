@@ -4291,20 +4291,34 @@ Están también en `ISSUES.md` (2026-10-20).
 
 ## Reconocimientos (ranking y premios)
 
-**Estado (2026-11-21): construida sólo la Pieza 1** (bandera, términos, foto,
-«Mi perfil»). **El ranking (Pieza 2) y los premios (piezas 3-5) NO existen
-todavía**: hoy `aparece_en_ranking` y la foto no se muestran en ninguna lista
-de compañeros. Spec: `docs/superpowers/specs/2026-11-21-reconocimientos-design.md`;
-plan: `docs/superpowers/plans/2026-11-21-reconocimientos-pieza-1-perfil-terminos-foto.md`.
+**Estado (2026-11-21): construidas la Pieza 1 (bandera, términos, foto,
+«Mi perfil») y la Pieza 2 (ranking de kilos por ejercicio).** Los premios
+(piezas 3-5) NO existen todavía. La foto no se muestra en el ranking (sigue
+sin mostrarse en ninguna lista de compañeros). Spec:
+`docs/superpowers/specs/2026-11-21-reconocimientos-design.md`; planes:
+`docs/superpowers/plans/2026-11-21-reconocimientos-pieza-1-perfil-terminos-foto.md`
+y el de la pieza 2 (ranking).
+
+**Menores de 18 (regla del dueño, 2026-11-21).** No participan en NINGÚN
+ranking. Única definición: `alumnos/edad.py` (`fecha_corte_mayoria`,
+`es_mayor_de_edad`, `Alumno.es_mayor_de_edad`; 18 cumplidos en
+`timezone.localdate()`, el 29-feb cumple el 1-mar) y su uso en
+`reconocimientos/ranking.py::participantes()`. `fecha_nacimiento` NULL = no
+mayor = excluido. Además: la foto de un menor no se sirve a compañeros
+(`AlumnoFotoView._puede_ver`), `RankingView` le muestra un cartel sin calcular
+nada, y `debe_aceptar_terminos` devuelve False para él (una query extra, sólo
+con la bandera prendida y términos pendientes). Todo ranking o premio nuevo
+tiene que salir de `participantes()` o filtrar con `fecha_corte_mayoria()`.
 
 **La bandera.** `Gimnasio.reconocimientos_habilitado` (default apagada).
-**Hasta la Pieza 2 NO está en «Mi gimnasio»**: se sacó de
+**Sigue SIN estar en «Mi gimnasio» también después de la Pieza 2**: se sacó de
 `GimnasioForm.Meta.fields` y del template a propósito, porque prendida cada
-alumno ve un cartel que habla de un ranking y premios que todavía no existen y
-acepta un texto en borrador. Hoy se prende sólo por `/admin/` (Gimnasio) o
-shell; guardar «Mi gimnasio» no la toca (ni la prende ni la apaga). Con la
-Pieza 2 vuelve al form (bloque «Ranking y premios», con su `help_text` del
-modelo) como checkbox estándar. Con la bandera apagada el alumno no ve nada: ni
+alumno acepta un texto legal en borrador (pendiente de revisión del dueño del
+producto) y los premios todavía no existen. Se restaura el checkbox al
+aprobarse los textos. Hoy se prende sólo por `/admin/` (Gimnasio) o
+shell; guardar «Mi gimnasio» no la toca (ni la prende ni la apaga). Cuando
+vuelva al form será un checkbox estándar (bloque «Ranking y premios», con su
+`help_text` del modelo). Con la bandera apagada el alumno no ve nada: ni
 cartel, ni «Mi perfil» (404), ni fotos de compañeros. `restaurar_demo` la
 vuelve a apagar (`_GIMNASIO_CANONICO`), y `sembrar_demo` deja a los alumnos
 demo con los términos vigentes ya aceptados.
@@ -4373,8 +4387,57 @@ huérfano en el storage: huérfano, nunca foto rota).
 
 **Fuera de esta pieza / pendiente:** el exportador no incluye
 `aparece_en_ranking`, la foto ni la bandera (decisión de producto pendiente,
-`ISSUES.md`); la visibilidad de la foto de un alumno `INACTIVO` se decide al
-construir el ranking (Pieza 2).
+`ISSUES.md`); la visibilidad de la foto de un alumno `INACTIVO` se decide si
+algún día el ranking muestra fotos (hoy no las muestra).
+
+### Ranking de kilos (Pieza 2)
+
+**Pantalla:** `reconocimientos:ranking` (`/ranking/`), `RankingView`, sólo
+alumno, sólo lectura (también suplantando; el staff recibe 403). Ítem
+«Ranking» en `nav_alumno.html` sólo con la bandera prendida; con la bandera
+apagada la vista da 404 (se mira en `get`, no en `dispatch`, para que un
+anónimo vaya al login y no dé 500). La app `reconocimientos` **no tiene
+modelos ni migraciones**: todo se calcula de datos existentes.
+
+**Quién participa** (`reconocimientos/ranking.py::participantes`, única
+definición, en SQL): alumno `ACTIVO`, con `aparece_en_ranking`, que aceptó la
+versión vigente de los términos (`perfil.terminos_version >= VERSION_TERMINOS`)
+y cuyo **plan vigente** (la `RutinaAsignada` activa, ya empezada, que gana el
+orden de `vigente_de`: `-fecha_inicio`, `-id`) no está abandonado: arrancó
+hace a lo sumo 28 días + `DIAS_GRACIA_RANKING` (14). Un plan que vence y nadie
+renueva saca al alumno del ranking. La regla de «plan vigente» está escrita
+dos veces (SQL acá, Python en `RutinaAsignada.vigente_de`): si se toca una hay
+que tocar la otra (`por_vencer_de` ya hace lo mismo).
+
+**Qué se rankea: kilos PRESCRIPTOS, no levantados.** Sale de
+`RutinaAsignadaItem.kilos` (texto libre) del plan vigente. Por alumno y
+ejercicio cuenta el mayor peso entre las cuatro semanas. El ejercicio se
+agrupa por `normalizar_texto(ejercicio_nombre_snapshot)` y se muestra con el
+nombre más usado tal como se cargó.
+
+**Parser** (`rutinas/kilos.py::parsear_kilos`): acepta un número (coma o punto
+decimal), un rango con guión (gana el mayor), unidad kg/kgs/kilo/kilos y, sólo
+con unidad, «c/u», «c/lado», «por lado», «cada uno». Descarta lo demás
+(vacío, texto, tiempos, porcentajes, signos, otras unidades, varios pesos
+sueltos, cero y todo valor mayor a `MAXIMO_KILOS` = 500) devolviendo `None`:
+nunca adivina. Dos consecuencias aceptadas a propósito: `1.500` se lee 1,5 y
+`15kg c/u` cuenta 15 (no se multiplica). El formulario de rutinas no se tocó
+(`kilos` sigue siendo texto libre).
+
+**Presentación:** se muestran los ejercicios con al menos
+`MINIMO_PARTICIPANTES` (3) participantes, los `TOP_EJERCICIOS` (10) con más
+participantes, y de cada uno los `TOP_POR_EJERCICIO` (10) mejores; empate =
+mismo puesto (1, 1, 3). Si el alumno queda fuera del top, su fila va aparte
+(`tu_fila`). Nombre «Lucía M.»: nombre e inicial del apellido, nunca el
+apellido completo, y **sin foto**.
+
+**Sin cache, a propósito.** Son DOS queries (participantes; items con
+`DISTINCT`) cuyo costo no depende de la cantidad de alumnos ni de ejercicios
+(hay test de escala). Un cache sería un dato más para invalidar cada vez que
+un alumno se da de baja del ranking, acepta los términos o cambia de plan, y
+un alumno que se baja debe desaparecer al recargar. El `order_by()` vacío de
+la query de items es obligatorio: el `Meta.ordering` se sumaría al `DISTINCT`
+y no colapsaría nada.
 
 ## Deploy (Fase 5)
 

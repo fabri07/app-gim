@@ -226,6 +226,24 @@ class FotoAlumnoTests(TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(respuesta["Content-Type"], "image/jpeg")
 
+    def test_la_foto_de_un_menor_no_la_ve_un_companero_pero_si_el_mismo_y_el_staff(self):
+        Alumno.objects.filter(pk=self.alumno.pk).update(
+            fecha_nacimiento=timezone.localdate()
+        )
+        self._con_foto()
+        self._companero()
+        self._assert_404_no_store(self.client.get(self._url()))
+        self.client.force_login(self.usuario)
+        self.assertEqual(self.client.get(self._url()).status_code, 200)
+        self.client.force_login(_staff(self.gimnasio))
+        self.assertEqual(self.client.get(self._url()).status_code, 200)
+
+    def test_la_foto_sin_fecha_de_nacimiento_no_la_ve_un_companero(self):
+        Alumno.objects.filter(pk=self.alumno.pk).update(fecha_nacimiento=None)
+        self._con_foto()
+        self._companero()
+        self._assert_404_no_store(self.client.get(self._url()))
+
     def test_un_companero_no_la_ve_si_el_duenio_no_aparece_en_el_ranking(self):
         self._con_foto()
         Alumno.objects.filter(pk=self.alumno.pk).update(aparece_en_ranking=False)

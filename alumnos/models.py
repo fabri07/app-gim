@@ -18,6 +18,7 @@ from django.core.validators import MinValueValidator
 from django.db import models
 from django.urls import reverse
 
+from alumnos.edad import es_mayor_de_edad
 from core.models import TenantOwnedModel
 
 
@@ -156,6 +157,12 @@ class Alumno(TenantOwnedModel):
 
     def __str__(self):
         return f"{self.apellido}, {self.nombre}"
+
+    @property
+    def es_mayor_de_edad(self):
+        """18 años cumplidos hoy; sin fecha de nacimiento, NO (no se puede
+        verificar). Los menores no participan en ningún ranking."""
+        return es_mayor_de_edad(self.fecha_nacimiento)
 
     @property
     def foto_url(self):

@@ -4,6 +4,7 @@ No importa nada de `plataforma` (su middleware consume esto; `plataforma.models`
 importa `tenants.models`).
 """
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.shortcuts import render
 from django.utils.cache import add_never_cache_headers
 
@@ -14,13 +15,23 @@ VERSION_TERMINOS = 1
 def debe_aceptar_terminos(perfil):
     """True si hay que frenar al alumno con la pantalla de términos.
 
-    Sin queries: lee `perfil.gimnasio`, que el request ya resolvió.
+    Sin queries mientras no haya nada pendiente: lee `perfil.gimnasio`, que el
+    request ya resolvió. Sólo si la versión está pendiente mira la ficha del
+    alumno (una query): un menor de 18 no participa en ningún ranking, así que
+    no hay nada que consentir y nunca se le muestra el cartel. Sin ficha se
+    mantiene el comportamiento de siempre (debe aceptar).
     """
     if perfil is None or perfil.rol != perfil.Rol.ALUMNO:
         return False
     if not perfil.gimnasio.reconocimientos_habilitado:
         return False
-    return perfil.terminos_version < VERSION_TERMINOS
+    if perfil.terminos_version >= VERSION_TERMINOS:
+        return False
+    try:
+        alumno = perfil.alumno
+    except ObjectDoesNotExist:
+        return True
+    return alumno.es_mayor_de_edad
 
 
 def responder_cartel(request, perfil, form=None):

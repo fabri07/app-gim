@@ -1,8 +1,11 @@
 """Pieza 1 de reconocimientos: bandera, T&C, foto y «Mi perfil»."""
 
+from datetime import date
+
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from alumnos.models import Alumno
 from tenants.models import Gimnasio, Perfil
@@ -26,14 +29,14 @@ def _staff(gimnasio, username="duenio"):
     return usuario
 
 
-def _alumno(gimnasio, username="alumno"):
+def _alumno(gimnasio, username="alumno", nacimiento=date(1990, 1, 1)):
     usuario = User.objects.create_user(username, password=CLAVE)
     perfil = Perfil.objects.create(
         usuario=usuario, gimnasio=gimnasio, rol=Perfil.Rol.ALUMNO
     )
     alumno = Alumno.objects.create(
         gimnasio=gimnasio, nombre="Ana", apellido="Pérez", perfil=perfil,
-        estado=Alumno.Estado.ACTIVO,
+        estado=Alumno.Estado.ACTIVO, fecha_nacimiento=nacimiento,
     )
     return alumno, usuario
 
@@ -171,15 +174,64 @@ class DebeAceptarTerminosTests(TestCase):
         with patch("tenants.terminos.VERSION_TERMINOS", VERSION_TERMINOS + 1):
             self.assertIs(debe_aceptar_terminos(perfil), True)
 
-    def test_no_hace_queries(self):
+    def test_no_hace_queries_cuando_no_hay_nada_que_mirar(self):
+        from tenants.terminos import VERSION_TERMINOS, debe_aceptar_terminos
+
+        # Staff, bandera apagada y versión vigente cortocircuitan antes de
+        # tocar la ficha del alumno.
+        _staff(self.gimnasio)
+        staff = Perfil.objects.select_related("gimnasio").get(
+            usuario__username="duenio"
+        )
+        perfil = Perfil.objects.select_related("gimnasio").get(
+            pk=self._perfil_alumno().pk
+        )
+        with self.assertNumQueries(0):
+            debe_aceptar_terminos(staff)
+        with self.assertNumQueries(0):
+            debe_aceptar_terminos(None)
+        perfil.terminos_version = VERSION_TERMINOS
+        with self.assertNumQueries(0):
+            debe_aceptar_terminos(perfil)
+        perfil = Perfil.objects.select_related("gimnasio").get(pk=perfil.pk)
+        perfil.gimnasio.reconocimientos_habilitado = False
+        with self.assertNumQueries(0):
+            debe_aceptar_terminos(perfil)
+
+    def test_pendiente_cuesta_una_query_por_la_ficha(self):
         from tenants.terminos import debe_aceptar_terminos
 
         perfil = Perfil.objects.select_related("gimnasio").get(
             pk=self._perfil_alumno().pk
         )
+        with self.assertNumQueries(1):
+            self.assertIs(debe_aceptar_terminos(perfil), True)
 
-        with self.assertNumQueries(0):
-            debe_aceptar_terminos(perfil)
+    def test_un_menor_nunca_ve_el_cartel_y_un_mayor_si(self):
+        from tenants.terminos import debe_aceptar_terminos
+
+        _alumno(self.gimnasio, username="menor", nacimiento=timezone.localdate())
+        _alumno(self.gimnasio, username="sinfecha", nacimiento=None)
+        _alumno(self.gimnasio, username="mayor")
+        for usuario, esperado in (("menor", False), ("sinfecha", False), ("mayor", True)):
+            with self.subTest(usuario):
+                perfil = Perfil.objects.get(usuario__username=usuario)
+                self.assertIs(debe_aceptar_terminos(perfil), esperado)
+
+    def test_alumno_sin_ficha_conserva_el_comportamiento(self):
+        from tenants.terminos import debe_aceptar_terminos
+
+        usuario = User.objects.create_user("sinficha", password=CLAVE)
+        perfil = Perfil.objects.create(
+            usuario=usuario, gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.assertIs(debe_aceptar_terminos(perfil), True)
+
+    def test_el_middleware_no_frena_al_menor(self):
+        _alumno(self.gimnasio, username="menor", nacimiento=timezone.localdate())
+        self.client.login(username="menor", password=CLAVE)
+        respuesta = self.client.get(reverse("home"))
+        self.assertNotContains(respuesta, "Términos y condiciones")
 
 
 CARTEL = "Términos y condiciones"
@@ -447,7 +499,9 @@ class CartelTerminosTests(TestCase):
 
     def test_decidir_el_cartel_no_agrega_queries(self):
         """El middleware reusa el `Perfil` (con su gimnasio) que ya resolvió
-        `PlataformaMiddleware`: decidir no cuesta ninguna query propia."""
+        `PlataformaMiddleware`: decidir no cuesta ninguna query propia, salvo con los
+        términos pendientes: ahí mira la ficha del alumno (una query) para
+        eximir a los menores de 18."""
         from unittest.mock import patch
 
         from django.contrib.sessions.backends.base import SessionBase
@@ -472,7 +526,7 @@ class CartelTerminosTests(TestCase):
 
         pendiente = _request()
         with patch("tenants.terminos.render", return_value=HttpResponse()):
-            with self.assertNumQueries(0):
+            with self.assertNumQueries(1):
                 respuesta = middleware.process_view(pendiente, None, (), {})
         self.assertIsNotNone(respuesta)
 
