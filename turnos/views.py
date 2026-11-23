@@ -402,4 +402,26 @@ class AgendaView(StaffRequiredMixin, TenantScopedMixin, SemanaNavegableMixin, Te
             ]
             for fecha, franjas in grilla.items()
         }
+
+        context["asistencia_habilitada"] = self.gimnasio.reconocimientos_habilitado
+        if context["asistencia_habilitada"]:
+            # Import tardío: turnos no depende de asistencia a nivel módulo.
+            from asistencia.models import Asistencia
+            from asistencia.services import MAX_DIAS_ATRAS
+
+            hoy = timezone.localdate()
+            fin = lunes_semana + timedelta(days=DIAS_POR_SEMANA - 1)
+            # UNA query para toda la semana; el costo no crece con las reservas.
+            marcas = set(
+                Asistencia.objects.for_gimnasio(self.gimnasio)
+                .filter(fecha__range=(lunes_semana, fin))
+                .values_list("alumno_id", "fecha")
+            )
+            for lista in reservas.values():
+                for reserva in lista:
+                    reserva.marcada = (reserva.alumno_id, reserva.fecha) in marcas
+            context["marcas"] = marcas
+            context["asistencia_hoy"] = hoy
+            context["asistencia_desde"] = hoy - timedelta(days=MAX_DIAS_ATRAS)
+            context["semana_actual"] = self.get_offset_semana()
         return context

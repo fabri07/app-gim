@@ -3363,3 +3363,11 @@ nuevo: manda `valor_1`, que tiene el nombre anterior.
 - **Decisión: `fecha_nacimiento` NULL = excluido** (no se puede verificar). Un alumno importado o cargado sin fecha de nacimiento no entra al ranking hasta que el staff la complete.
 - **Brecha conocida:** el menor sigue pudiendo ver y subir su propia foto en «Mi perfil», cuyo texto todavía habla de compañeros.
 - **Costo aceptado:** `debe_aceptar_terminos` hace UNA query extra por request (la ficha del alumno), sólo en gimnasios con la bandera prendida y para alumnos que todavía no aceptaron: los menores nunca aceptan, así que pagan esa query en cada request.
+
+## [2026-11-22] Asistencia (Pieza 4)
+**Estado:** resuelto (con menores conocidos; sin probar en el navegador)
+**Impacto:** el staff puede registrar la asistencia de los alumnos (agenda, ficha, «Pasar lista») y el sistema calcula días asistidos y meta del ciclo. Todo detrás de `reconocimientos_habilitado`. Ver `ARQUITECTURA.md` «Reconocimientos» → «Asistencia (Pieza 4)».
+**Resolución / próximo paso:**
+- **Decisiones:** «vino» = unión (conjunto de fechas locales) de ingresos del lector PERMITIDO+ENTRADA y marcas del staff; el «día entrenado» que tilda el alumno NO cuenta. Una fila `Asistencia` por gimnasio+alumno+día. Límite de 35 días hacia atrás. Meta = pares (día, semana) de la rutina vigente al inicio del ciclo (un cambio de plan a mitad de ciclo no la mueve). Sin ancla, sin rutina o inactivo: sin meta. Reserva ≠ asistencia (cancelar la reserva deja la asistencia). La asistencia se registra también para menores de 18; la regla de rankings se aplica en los rankings.
+- **Menores conocidos:** (1) la búsqueda `q` de «Pasar lista» distingue acentos (`icontains` en SQLite/Postgres no los normaliza). (2) El mensaje «N marcadas, M quitadas» de «Pasar lista» puede contar de más ante un doble envío simultáneo (`bulk_create(ignore_conflicts=True)` no informa cuántas filas insertó); los datos quedan bien. (3) La leyenda «marcada por X el DD/MM» de la ficha muestra la fecha de carga (`creado`), no la del día asistido.
+- **Pendiente:** la Pieza 5 va a usar `dias_asistidos_por_alumno` / `dias_por_fuente` (2 queries); la «asistencia perfecta» de menores sin decidir; nada se probó todavía en el navegador (sólo la suite).

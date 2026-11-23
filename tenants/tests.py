@@ -4646,6 +4646,7 @@ def _ensuciar(gimnasio, staff, marca="X"):
     usando la app, incluidas las que `sembrar_demo --borrar` NO toca (esos son
     justamente los que motivan `vaciar_gimnasio`)."""
     from alumnos.models import Alumno
+    from asistencia.models import Asistencia
     from ejercicios.models import CategoriaEjercicio, Ejercicio
     from importaciones.models import Importacion
     from ingreso import tokens as ingreso_tokens
@@ -4727,6 +4728,9 @@ def _ensuciar(gimnasio, staff, marca="X"):
     Reserva.objects.create(
         gimnasio=gimnasio, alumno=alumno,
         fecha=timezone.localdate(), hora_inicio=time(9),
+    )
+    Asistencia.objects.create(
+        gimnasio=gimnasio, alumno=alumno, fecha=timezone.localdate(),
     )
     ConfiguracionIngreso.objects.create(gimnasio=gimnasio)
     dispositivo = Dispositivo.objects.create(

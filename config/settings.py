@@ -82,6 +82,9 @@ INSTALLED_APPS = [
     #   turnos     -> ConfiguracionTurnos/HorarioAtencion/CupoExcepcion/Reserva (FK a alumnos)
     #   ingreso    -> ConfiguracionIngreso (control de ingreso por molinete/
     #                 lector facial; lee pagos y turnos)
+    #   asistencia -> Asistencia (una marca por alumno y día; FK a alumnos y
+    #                 Perfil). `turnos` la lee sólo con import tardío, dentro
+    #                 de la función: `asistencia` carga después.
     #   calendario -> integración opcional con Google Calendar (FK a alumnos/turnos)
     #   notificaciones -> manifest/SW/push (FK a Gimnasio/Perfil, lee
     #                     Novedad/RutinaAsignada/Reserva/Cuota) -- depende
@@ -115,6 +118,7 @@ INSTALLED_APPS = [
     'novedades',
     'turnos',
     'ingreso',
+    'asistencia',
     'calendario',
     'notificaciones',
     'solicitudes',
