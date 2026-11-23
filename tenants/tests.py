@@ -4568,6 +4568,24 @@ class SembrarDemoAccesosTests(TestCase):
             Alumno.objects.for_gimnasio(otro).filter(perfil__isnull=True).count(), 0
         )
 
+    def test_los_accesos_de_demo_nacen_con_los_terminos_vigentes_aceptados(self):
+        """Un prospecto que prende los reconocimientos en la demo y entra como
+        alumno tiene que ver la app, no el cartel de términos en cada uno de
+        los 24 alumnos sembrados."""
+        from tenants.terminos import VERSION_TERMINOS
+
+        self._sembrar(alumnos=6, meses=1)
+
+        perfiles = Perfil.objects.filter(
+            gimnasio=self.gimnasio, rol=Perfil.Rol.ALUMNO
+        )
+        self.assertEqual(perfiles.count(), 6)
+        self.assertEqual(
+            set(perfiles.values_list("terminos_version", flat=True)),
+            {VERSION_TERMINOS},
+        )
+        self.assertFalse(perfiles.filter(terminos_aceptados_en__isnull=True).exists())
+
 
 class SembrarDemoSinPushTests(TransactionTestCase):
     """Que sembrar NO dispare notificaciones push.
@@ -5006,6 +5024,32 @@ class VaciarGimnasioTests(TestCase):
 
         borrar_evento.assert_not_called()
 
+    def test_borra_las_fotos_de_los_alumnos_del_storage(self):
+        """Sin código propio en `vaciar_gimnasio`: lo hace el `post_delete` de
+        `Alumno` (`alumnos/signals.py`). Esto fija que el borrado en lote de
+        `vaciar_gimnasio` lo dispara y que la foto no queda huérfana en R2
+        cada 6 h. `captureOnCommitCallbacks(execute=True)` porque el archivo
+        se borra al confirmar (ver `alumnos.fotos.borrar_al_confirmar`)."""
+        from django.core.files.storage import default_storage
+
+        from alumnos.fotos import guardar_foto
+        from tenants.demo import vaciar_gimnasio
+
+        imagen = BytesIO()
+        Image.new("RGB", (400, 400), (10, 120, 60)).save(imagen, "PNG")
+        alumno = Alumno.objects.create(
+            gimnasio=self.demo, nombre="Con", apellido="Foto"
+        )
+        guardar_foto(alumno, SimpleUploadedFile("f.png", imagen.getvalue()))
+        nombre = alumno.foto.name
+        self.assertTrue(default_storage.exists(nombre))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            vaciar_gimnasio(gimnasio=self.demo)
+
+        self.assertFalse(Alumno.objects.filter(pk=alumno.pk).exists())
+        self.assertFalse(default_storage.exists(nombre))
+
 
 class RestaurarDemoTests(TestCase):
     """`manage.py restaurar_demo`: dejar la cuenta compartida como recién
@@ -5174,6 +5218,17 @@ class RestaurarDemoTests(TestCase):
             set(Cuota.objects.for_gimnasio(self.demo).values_list("monto", flat=True)),
             {Decimal("28000")},
         )
+
+    def test_apaga_los_reconocimientos(self):
+        """Un prospecto que prende el ranking y los premios en la demo
+        compartida no se lo deja prendido al siguiente."""
+        Gimnasio.objects.filter(pk=self.demo.pk).update(reconocimientos_habilitado=True)
+        self.demo.refresh_from_db()
+
+        self._restaurar(alumnos=3, meses=1)
+
+        self.demo.refresh_from_db()
+        self.assertIs(self.demo.reconocimientos_habilitado, False)
 
     def test_no_toca_el_slug_ni_la_marca_de_demo(self):
         """El slug es la URL pública que se le pasa a los prospectos, y

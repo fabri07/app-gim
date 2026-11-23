@@ -144,6 +144,12 @@ class GimnasioForm(forms.ModelForm):
             # Sale del form con la bandera apagada o en la demo (`__init__`);
             # no se prende sin una cuenta CONECTADA (`clean`).
             "cuotas_con_mercadopago",
+            # `reconocimientos_habilitado` NO va acá hasta la Pieza 2 (el
+            # ranking): prendida, cada alumno ve un cartel de términos que
+            # habla de un ranking y premios que todavía no existen, y acepta
+            # un texto en borrador. Mientras tanto se prende por /admin/ o
+            # shell. Se restaura (campo + bloque en `gimnasio_form.html`)
+            # cuando exista el ranking.
         ]
         widgets = {
             "fondo_tipo": forms.RadioSelect,
@@ -328,3 +334,18 @@ class ResetPasswordStaffForm(PasswordResetForm):
             }
         )
         return (u for u in activos if u.has_usable_password())
+
+
+class AceptarTerminosForm(forms.Form):
+    """La casilla del cartel de términos (`tenants/terminos.html`).
+
+    Un `BooleanField` obligatorio: sin tildar, el form no valida y la vista
+    responde 200 con el error debajo de la casilla (bajo el `hx-boost` global
+    un 4xx sería un click mudo).
+    """
+
+    acepto = forms.BooleanField(
+        label="Leí y acepto estos Términos y Condiciones y la Política de Privacidad",
+        required=True,
+        error_messages={"required": "Tenés que aceptar los términos para seguir."},
+    )

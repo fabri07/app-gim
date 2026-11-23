@@ -266,3 +266,28 @@ class LoteForm(forms.Form):
                 f"{hasta:%d/%m/%Y}."
             )
         return fecha
+
+
+class MiPerfilForm(forms.Form):
+    """«Mi perfil» del alumno (reconocimientos): su foto y si aparece entre
+    sus compañeros.
+
+    `foto` es `FileField` y no `ImageField` a propósito: `ImageField` validaría
+    con Pillow antes que `alumnos.fotos.guardar_foto` y el alumno vería otro
+    mensaje que el de `tienda.fotos.preparar_foto`, que es la única fuente de
+    errores de la foto. La vista llama `guardar_foto` y pasa su
+    `ValidationError` a este campo."""
+
+    foto = forms.FileField(
+        required=False,
+        label="Foto",
+        help_text="JPEG o PNG de al menos 300×300 px y hasta 8 MB. Las fotos "
+        "HEIC o WebP no se aceptan: sacá una captura o exportala como JPEG.",
+        widget=forms.FileInput(attrs={"accept": "image/jpeg,image/png"}),
+    )
+    quitar_foto = forms.BooleanField(required=False, label="Quitar mi foto")
+    aparece_en_ranking = forms.BooleanField(
+        required=False,
+        label="Aparecer entre mis compañeros",
+        help_text="Si lo destildás, tus compañeros no ven ni tu nombre ni tu foto.",
+    )

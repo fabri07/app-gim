@@ -4,6 +4,7 @@ from django.views.generic import TemplateView
 
 from tenants.forms import ResetPasswordStaffForm
 from tenants.views import (
+    AceptarTerminosView,
     ExportarDatosView,
     FondoGimnasioView,
     GimnasioLandingView,
@@ -92,6 +93,9 @@ urlpatterns = [
         TemplateView.as_view(template_name="tenants/privacidad.html"),
         name="politica_privacidad",
     ),
+    # Cartel de términos del alumno (reconocimientos). El nombre está en la
+    # allowlist de `plataforma/terminos.py`: es la salida del cartel.
+    path("terminos/", AceptarTerminosView.as_view(), name="terminos_aceptar"),
     path(
         "gimnasio/logo/sugerir-paisaje/",
         LogoSugerirPaisajeView.as_view(),

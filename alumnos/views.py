@@ -17,9 +17,15 @@ Ninguna de las dos usa los hooks de form de `TenantScopedMixin`
 get_object`).
 """
 
+import mimetypes
+
+from django import forms
 from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q
+from django.http import Http404, HttpResponse, HttpResponseNotFound
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -28,15 +34,18 @@ from django.utils.cache import add_never_cache_headers
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.cache import never_cache
-from django.views.generic import CreateView, DetailView, ListView, UpdateView
+from django.views.generic import CreateView, DetailView, FormView, ListView, UpdateView
 from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
 from core.views import BorrarConExplicacionView
-from tenants.mixins import StaffRequiredMixin
+from tenants import suplantacion
+from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
+from tenants.models import Perfil
 from alumnos import identidad, lote
 from alumnos import services as servicios
-from alumnos.forms import AlumnoForm, CrearAccesoForm, LoteForm
+from alumnos.fotos import guardar_foto, quitar_foto
+from alumnos.forms import AlumnoForm, CrearAccesoForm, LoteForm, MiPerfilForm
 from alumnos.models import Alumno
 
 
@@ -659,3 +668,141 @@ class RegenerarPasswordView(
 
         password = servicios.regenerar_password(alumno)
         return _render_credenciales(request, alumno, password, "regenerar")
+
+
+class AlumnoFotoView(LoginRequiredMixin, View):
+    """Sirve la foto del alumno desde el storage (R2), nunca por URL pública.
+
+    La ven: el staff de su gimnasio, el propio alumno, y un compañero del mismo
+    gimnasio sólo si el gimnasio tiene los reconocimientos prendidos y el dueño
+    de la foto eligió aparecer en el ranking. Para todos los demás (otro
+    gimnasio, sin perfil, sin foto) es un 404 con `no-store`, así una caché
+    intermedia no guarda el «no existe»; es `HttpResponseNotFound` y no
+    `Http404` para poder ponerle la cabecera (mismo criterio que
+    `tienda.views.FotoProductoView`).
+
+    `private, max-age=3600` y NO `immutable`: la URL versionada (`foto_url`)
+    resuelve el reemplazo, pero no la revocación. Si el alumno quita la foto,
+    sale del ranking o el dueño apaga la bandera, el navegador de un compañero
+    tiene que dejar de mostrarla en una hora, no en un año."""
+
+    def get(self, request, pk):
+        perfil = getattr(request.user, "perfil", None)
+        if perfil is None:
+            return self._no_existe()
+        alumno = (
+            Alumno.objects.filter(pk=pk, gimnasio_id=perfil.gimnasio_id)
+            .select_related("gimnasio")
+            .first()
+        )
+        if alumno is None or not alumno.foto or not self._puede_ver(perfil, alumno):
+            return self._no_existe()
+        # La fila puede nombrar un archivo que ya no está en el storage (borrado
+        # a mano del bucket): es una foto que no existe, no un 500.
+        try:
+            with alumno.foto.open("rb") as archivo:
+                contenido = archivo.read()
+        except FileNotFoundError:
+            return self._no_existe()
+        tipo = mimetypes.guess_type(alumno.foto.name)[0] or "image/jpeg"
+        respuesta = HttpResponse(contenido, content_type=tipo)
+        respuesta["Cache-Control"] = "private, max-age=3600"
+        return respuesta
+
+    @staticmethod
+    def _puede_ver(perfil, alumno):
+        if perfil.rol == Perfil.Rol.STAFF:
+            return True
+        if alumno.perfil_id == perfil.pk:
+            return True
+        return alumno.gimnasio.reconocimientos_habilitado and alumno.aparece_en_ranking
+
+    @staticmethod
+    def _no_existe():
+        respuesta = HttpResponseNotFound()
+        respuesta["Cache-Control"] = "no-store"
+        return respuesta
+
+
+MENSAJE_SUPLANTANDO = (
+    "Estás viendo la cuenta del alumno: no se puede cambiar su foto ni su "
+    "privacidad."
+)
+
+
+class MiPerfilView(AlumnoRequiredMixin, FormView):
+    """«Mi perfil» del alumno (reconocimientos): su foto y si aparece entre sus
+    compañeros. Sólo existe con `reconocimientos_habilitado`; si no, 404.
+
+    La bandera se mira en `get`/`post` y NO en `dispatch`: un `dispatch` propio
+    correría antes que el de `AlumnoRequiredMixin`, sin `self.perfil` todavía,
+    y un anónimo daría 500 en vez de ir al login.
+
+    Perfil de alumno sin ficha (`self.alumno is None`): el GET muestra un
+    estado vacío y el POST es 403 (regla de `AlumnoRequiredMixin`).
+
+    Una foto inválida re-renderiza con 200 y el error en el campo (un 4xx bajo
+    el hx-boost global es un click mudo) sin tocar nada: ni la foto anterior
+    ni `aparece_en_ranking`."""
+
+    template_name = "alumnos/mi_perfil.html"
+    form_class = MiPerfilForm
+
+    def get(self, request, *args, **kwargs):
+        self._exigir_bandera()
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        self._exigir_bandera()
+        if self.alumno is None:
+            raise PermissionDenied("Tu usuario no tiene una ficha de alumno.")
+        # La foto y `aparece_en_ranking` son decisiones de privacidad del
+        # alumno: suplantando no se escribe nada (mismo criterio que
+        # `calendario.views._rechazar_si_suplanta`). El GET esconde el botón,
+        # así que a este 403 sólo se llega forzando el POST.
+        if suplantacion.esta_activa(request):
+            raise PermissionDenied(MENSAJE_SUPLANTANDO)
+        return super().post(request, *args, **kwargs)
+
+    def _exigir_bandera(self):
+        if not self.gimnasio.reconocimientos_habilitado:
+            raise Http404
+
+    def get_initial(self):
+        alumno = self.alumno
+        if alumno is None:
+            return {}
+        return {"aparece_en_ranking": alumno.aparece_en_ranking}
+
+    def get_context_data(self, **kwargs):
+        contexto = super().get_context_data(**kwargs)
+        contexto["alumno"] = self.alumno
+        if suplantacion.esta_activa(self.request):
+            contexto["aviso_suplantando"] = MENSAJE_SUPLANTANDO
+        return contexto
+
+    def form_valid(self, form):
+        alumno = self.alumno
+        archivo = form.cleaned_data["foto"]
+        # La foto y `aparece_en_ranking` se guardan juntas o ninguna: si la
+        # segunda escritura falla, la columna de la foto vuelve atrás y el
+        # borrado del archivo anterior (`on_commit`) no corre. Una foto
+        # inválida corta antes de escribir nada.
+        try:
+            with transaction.atomic():
+                if archivo:
+                    guardar_foto(alumno, archivo)
+                elif form.cleaned_data["quitar_foto"]:
+                    quitar_foto(alumno)
+                # `update()` y no `save()`, como en `alumnos.fotos`: no
+                # dispara las señales de `Alumno` por un cambio que no toca
+                # `estado`.
+                Alumno.objects.filter(pk=alumno.pk).update(
+                    aparece_en_ranking=form.cleaned_data["aparece_en_ranking"],
+                    modificado=timezone.now(),
+                )
+        except forms.ValidationError as error:
+            form.add_error("foto", error)
+            return self.form_invalid(form)
+        messages.success(self.request, "Guardamos tu perfil.")
+        return redirect("alumnos:mi_perfil")

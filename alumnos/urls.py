@@ -11,11 +11,13 @@ from alumnos.views import (
     AlumnoCreateView,
     AlumnoDeleteView,
     AlumnoDetailView,
+    AlumnoFotoView,
     AlumnoLoteView,
     AlumnoListView,
     AlumnoToggleEstadoView,
     AlumnoUpdateView,
     CrearAccesoView,
+    MiPerfilView,
     RegenerarPasswordView,
 )
 
@@ -29,9 +31,11 @@ urlpatterns = [
     # orden evita el problema si algún día se agrega un `<slug:...>`.
     path("lote/", AlumnoLoteView.as_view(), name="lote"),
     path("accesos/", AccesoListView.as_view(), name="accesos"),
+    path("mi-perfil/", MiPerfilView.as_view(), name="mi_perfil"),
     path("<int:pk>/", AlumnoDetailView.as_view(), name="detalle"),
     path("<int:pk>/editar/", AlumnoUpdateView.as_view(), name="editar"),
     path("<int:pk>/activar/", AlumnoToggleEstadoView.as_view(), name="activar"),
+    path("<int:pk>/foto/", AlumnoFotoView.as_view(), name="foto_alumno"),
     path("<int:pk>/eliminar/", AlumnoDeleteView.as_view(), name="eliminar"),
     path("<int:pk>/acceso/crear/", CrearAccesoView.as_view(), name="acceso_crear"),
     path(

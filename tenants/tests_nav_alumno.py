@@ -258,3 +258,62 @@ class NavAlumnoNoAparecePara(TestCase):
         respuesta = self.client.get(reverse("login"), follow=True)
 
         self.assertNotIn("x-data", self._body(respuesta))
+
+
+class NavAlumnoMiPerfilTests(TestCase):
+    """«Mi perfil» sólo existe con los reconocimientos prendidos."""
+
+    def setUp(self):
+        from tenants.terminos import VERSION_TERMINOS
+
+        self.gimnasio = _gimnasio(reconocimientos_habilitado=True)
+        self.alumno, self.usuario = _alumno(self.gimnasio)
+        # Sin aceptar los términos, con la bandera prendida se ve el cartel.
+        perfil = self.alumno.perfil
+        perfil.terminos_version = VERSION_TERMINOS
+        perfil.terminos_aceptados_en = timezone.now()
+        perfil.save(update_fields=["terminos_version", "terminos_aceptados_en"])
+        self.client.force_login(self.usuario)
+
+    def _nav(self, respuesta):
+        self.assertEqual(respuesta.status_code, 200)
+        html = respuesta.content.decode()
+        inicio = html.index(NAV)
+        return html[inicio:html.index("</nav>", inicio)]
+
+    def test_con_la_bandera_aparece_mi_perfil(self):
+        nav = self._nav(self.client.get(reverse("home")))
+
+        self.assertIn(f'href="{reverse("alumnos:mi_perfil")}"', nav)
+        self.assertIn(">Mi perfil<", nav)
+
+    def test_aria_current_en_mi_perfil(self):
+        nav = self._nav(self.client.get(reverse("alumnos:mi_perfil")))
+
+        self.assertEqual(nav.count('aria-current="page"'), 1)
+        self.assertIn(
+            f'href="{reverse("alumnos:mi_perfil")}" aria-current="page"', nav
+        )
+
+    def test_con_la_bandera_apagada_no_aparece(self):
+        Gimnasio.objects.filter(pk=self.gimnasio.pk).update(
+            reconocimientos_habilitado=False
+        )
+
+        nav = self._nav(self.client.get(reverse("home")))
+
+        self.assertNotIn("Mi perfil", nav)
+        self.assertNotIn("mi-perfil", nav)
+
+    def test_el_menu_con_mi_perfil_no_suma_queries(self):
+        r = self.client.get(reverse("home"))
+        req = r.wsgi_request
+
+        with self.assertNumQueries(0):
+            html = render_to_string(
+                "partials/nav_alumno.html",
+                {"user": req.user, "request": req},
+                request=req,
+            )
+
+        self.assertIn(f'href="{reverse("alumnos:mi_perfil")}"', html)

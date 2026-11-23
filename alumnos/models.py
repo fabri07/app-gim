@@ -16,6 +16,7 @@ campo es `null=True` porque no todo alumno tiene acceso creado todavía.
 
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.urls import reverse
 
 from core.models import TenantOwnedModel
 
@@ -136,6 +137,17 @@ class Alumno(TenantOwnedModel):
         related_name="alumno",
         help_text="Login del alumno (usuario/contraseña asignados por el staff).",
     )
+    #: Foto del alumno (reconocimientos). Se escribe sólo con
+    #: `alumnos.fotos.guardar_foto`/`quitar_foto`, que re-codifican y borran la
+    #: anterior; nunca por un form genérico (`editable=False`). Se sirve por
+    #: `AlumnoFotoView`, nunca con la URL del storage. `db_default` porque la
+    #: columna es NOT NULL: sin él, el INSERT del código viejo que sigue
+    #: atendiendo durante el `migrate` (no conoce la columna) falla.
+    foto = models.ImageField(
+        upload_to="alumnos/fotos/", blank=True, editable=False, db_default=""
+    )
+    #: El alumno elige si aparece entre sus compañeros (ranking y su foto).
+    aparece_en_ranking = models.BooleanField(default=True, db_default=True)
 
     class Meta:
         verbose_name = "alumno"
@@ -144,3 +156,13 @@ class Alumno(TenantOwnedModel):
 
     def __str__(self):
         return f"{self.apellido}, {self.nombre}"
+
+    @property
+    def foto_url(self):
+        """URL de la vista privada, versionada con el nombre del archivo (un
+        uuid): reemplazar la foto cambia la URL y el navegador no muestra la
+        vieja. `""` sin foto, para que el template decida el placeholder."""
+        if not self.foto:
+            return ""
+        version = self.foto.name.rsplit("/", 1)[-1]
+        return f"{reverse('alumnos:foto_alumno', args=[self.pk])}?v={version}"
