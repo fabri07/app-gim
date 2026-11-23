@@ -11,7 +11,24 @@
     pago de Mercado Pago abierto, queda cancelado: el próximo que genere ya
     cobra el monto nuevo. Los links abiertos se cancelan solos al guardar.
   </p>
-  <form method="post" novalidate>
+  {% comment %}
+    Vista previa en vivo: Alpine lee monto y descuento del propio form y
+    recalcula la línea «va a pagar». Sin JS (o antes de cargar) queda el texto
+    del servidor, que es lo GUARDADO. El tope (90%, hacia abajo a centavos) es
+    el de `pagos.descuentos.descuento_maximo`: el servidor sigue siendo quien
+    decide; esto sólo avisa. Todo en centavos enteros para no arrastrar
+    errores de punto flotante.
+  {% endcomment %}
+  <form method="post" novalidate
+        x-data="{
+          monto: 0, descuento: 0,
+          centavos(v) { const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? Math.round(n * 100) : 0; },
+          leer() { this.monto = this.centavos(this.$root.elements.monto.value); this.descuento = this.centavos(this.$root.elements.descuento.value); },
+          get tope() { return Math.floor(this.monto * 90 / 100); },
+          get pasaDelTope() { return this.descuento > this.tope; },
+          pesos(c) { return (c / 100).toFixed(2).replace('.', ','); }
+        }"
+        x-init="leer()" @input="leer()">
     {% csrf_token %}
     <div>
       <label for="{{ form.monto.id_for_label }}">{{ form.monto.label }}</label>
@@ -30,7 +47,8 @@
       {% if form.descuento_motivo.errors %}<p class="config-error">{{ form.descuento_motivo.errors.0 }}</p>{% endif %}
       <p class="texto-suave">Obligatorio si hay descuento (hasta 80 caracteres). El alumno lo ve.</p>
     </div>
-    <p>El alumno va a pagar <strong>$ {{ guardada.neto }}</strong> (monto de lista $ {{ guardada.monto }}{% if guardada.descuento > 0 %}, descuento $ {{ guardada.descuento }}{% endif %}).</p>
+    <p>El alumno va a pagar <strong x-text="'$ ' + pesos(monto - (pasaDelTope ? 0 : descuento))">$ {{ guardada.neto }}</strong> (guardado: monto de lista $ {{ guardada.monto }}{% if guardada.descuento > 0 %}, descuento $ {{ guardada.descuento }}{% endif %}).</p>
+    <p class="config-error" x-show="pasaDelTope" style="display: none">El descuento pasa del tope: máximo $ <span x-text="pesos(tope)"></span> (el 90% del monto de lista).</p>
     <button type="submit" class="boton">Guardar monto</button>
     <a class="boton-secundario" href="{% url 'pagos:listado' %}">Cancelar</a>
   </form>

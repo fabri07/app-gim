@@ -109,7 +109,18 @@ class MontoMuestraElNetoGuardadoTests(_Base):
             url, {"monto": "50000", "descuento": "49000", "descuento_motivo": "x"}
         )
         self.assertEqual(r.status_code, 200)
-        self.assertContains(r, "va a pagar <strong>$ 8000")
+        self.assertContains(r, ">$ 8000</strong>")
+
+
+class MontoVistaPreviaEnVivoTests(_Base):
+    def test_el_form_recalcula_en_vivo_y_conserva_el_texto_del_servidor(self):
+        self._login_staff()
+        r = self.client.get(reverse("pagos:monto", args=[self.cuota.pk]))
+        self.assertContains(r, 'x-init="leer()"')
+        self.assertContains(r, '@input="leer()"')
+        # Sin JS queda lo guardado, y el tope es el del servidor (90%).
+        self.assertContains(r, "va a pagar <strong")
+        self.assertContains(r, "Math.floor(this.monto * 90 / 100)")
 
 
 class AplicarDescuentoCentavosTests(_Base):
