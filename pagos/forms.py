@@ -19,10 +19,13 @@ mantener el mismo contrato en todos los forms de Fase 2, aunque ninguno de
 estos campos sea un FK tenant-owned que necesite acotarse.
 """
 
+from decimal import Decimal
+
 from django import forms
 
 from core.forms import TenantScopedModelForm
 from pagos.cobro import cobrada_por_mercadopago
+from pagos.descuentos import descuento_maximo, descuento_valido
 from pagos.models import MedioCobro, Cuota
 
 
@@ -58,6 +61,39 @@ class ConfirmarPagoForm(TenantScopedModelForm):
             for nombre in ("monto", "medio_pago_texto"):
                 self.fields[nombre].disabled = True
                 self.fields[nombre].help_text = "Lo cobró Mercado Pago: no se puede cambiar."
+        # «monto» acá significa LO QUE SE COBRÓ: arranca en el neto y
+        # `clean_monto` le vuelve a sumar el descuento (la cuota guarda la
+        # lista). Con el campo `disabled` (cobrada por MP) Django usa este
+        # inicial, así que el monto guardado queda igual.
+        if self.instance.pk:
+            self.initial["monto"] = self.instance.monto_a_cobrar
+
+    def clean_monto(self):
+        """Lo cobrado + el descuento de la cuota = el monto de lista que se
+        guarda (`monto - descuento == cobrado`). Si el descuento cambia antes
+        de guardar, `cobro.marcar_pagada` lo detecta bajo lock y no guarda."""
+        monto = self.cleaned_data.get("monto")
+        if monto is None:
+            return monto
+        if monto < 0:
+            # Un cobro negativo no existe: el gimnasio no le devuelve plata al
+            # alumno desde acá (un pago de más se devuelve por Mercado Pago o a
+            # mano, fuera de la cuota).
+            raise forms.ValidationError("El monto cobrado no puede ser negativo.")
+        descuento = self.instance.descuento
+        if descuento > 0:
+            # Import local: `pagos.descuentos` importa `pagos.cobro`.
+            from pagos.descuentos import descuento_valido, lista_minima
+
+            if not descuento_valido(monto + descuento, descuento):
+                minimo = lista_minima(descuento) - descuento
+                raise forms.ValidationError(
+                    f"Esta cuota tiene un descuento de $ {descuento}, que no puede "
+                    f"pasar del 90% del monto de lista: lo cobrado tiene que ser "
+                    f"al menos $ {minimo}. Para cobrar menos, quitá o bajá el "
+                    "descuento primero desde «Corregir monto»."
+                )
+        return monto + descuento
 
     def clean_estado_al_abrir(self):
         valor = self.cleaned_data.get("estado_al_abrir", "")
@@ -65,17 +101,56 @@ class ConfirmarPagoForm(TenantScopedModelForm):
 
 
 class CuotaMontoForm(TenantScopedModelForm):
-    """Sólo `monto`: corregir lo que se le cobra a una cuota impaga."""
+    """Corregir lo que se le cobra a una cuota impaga: `monto` (de lista) y,
+    opcionalmente, un `descuento` en pesos con su motivo (tope 90% del monto)."""
 
     class Meta:
         model = Cuota
-        fields = ["monto"]
+        fields = ["monto", "descuento", "descuento_motivo"]
+        labels = {
+            "monto": "Monto de lista",
+            "descuento": "Descuento ($)",
+            "descuento_motivo": "Motivo del descuento",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["descuento"].required = False
+        self.fields["descuento_motivo"].required = False
 
     def clean_monto(self):
         monto = self.cleaned_data["monto"]
         if monto is not None and monto < 0:
             raise forms.ValidationError("No puede ser negativo.")
         return monto
+
+    def clean_descuento(self):
+        descuento = self.cleaned_data.get("descuento")
+        if descuento is None:
+            return Decimal("0")
+        if descuento < 0:
+            raise forms.ValidationError("No puede ser negativo.")
+        return descuento
+
+    def clean_descuento_motivo(self):
+        return (self.cleaned_data.get("descuento_motivo") or "").strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        monto = cleaned.get("monto")
+        descuento = cleaned.get("descuento")
+        if monto is None or descuento is None or "descuento" in self.errors:
+            return cleaned
+        if not descuento_valido(monto, descuento):
+            self.add_error(
+                "descuento",
+                f"El descuento no puede pasar de $ {descuento_maximo(monto)} "
+                "(el 90% del monto de lista).",
+            )
+        elif descuento > 0 and not cleaned.get("descuento_motivo") \
+                and "descuento_motivo" not in self.errors:
+            self.add_error("descuento_motivo", "Contá el motivo del descuento.")
+        return cleaned
 
 
 class AlumnoComprobanteForm(forms.ModelForm):

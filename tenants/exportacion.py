@@ -124,6 +124,7 @@ HOJAS = (
             ("medio_de_pago", "medio_pago_texto"),
             ("comprobante_archivo", "comprobante"),
             ("observaciones", "observaciones"), ("creado", "creado"),
+            ("descuento", "descuento"), ("descuento_motivo", "descuento_motivo"),
         ),
     ),
     Hoja(
