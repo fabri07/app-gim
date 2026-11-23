@@ -5,12 +5,22 @@ Lo programa `.github/workflows/generar-pagos.yml` (GitHub Actions, no Render:
 no hay plan free para cron jobs ahí). Emite las cuotas del ciclo vigente de
 cada alumno (y la del siguiente, si ya está a la vista) y vence las que se
 pasaron de plazo. Es idempotente: correrlo dos veces no duplica nada.
+
+Después aplica los descuentos de premios ya otorgados a las cuotas que
+correspondan (`reconocimientos.premios.aplicar_pendientes`). Va con import
+tardío (`pagos` no depende de `reconocimientos` a nivel módulo) y dentro de un
+`try`: si los premios fallan, la emisión de cuotas ya está hecha y el cron no
+se cae (queda en el log).
 """
+
+import logging
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from pagos.models import generar_pagos_pendientes, marcar_vencidos
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -32,9 +42,21 @@ class Command(BaseCommand):
         creados = generar_pagos_pendientes(hoy)
         vencidos = marcar_vencidos(hoy)
 
+        premiadas = 0
+        try:
+            from reconocimientos.premios import aplicar_pendientes
+
+            premiadas = aplicar_pendientes(hoy)
+        except Exception:
+            logger.exception("Falló la aplicación de descuentos de premios.")
+
         self.stdout.write(
             self.style.SUCCESS(
                 f"Cuotas emitidas al {hoy:%d/%m/%Y}: {creados}. "
                 f"Cuotas marcadas como vencidas: {vencidos}."
             )
         )
+        if premiadas:
+            self.stdout.write(
+                self.style.SUCCESS(f"Descuentos de premios aplicados: {premiadas}.")
+            )
