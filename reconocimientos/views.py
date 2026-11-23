@@ -11,6 +11,7 @@ from django.views.generic import CreateView, ListView, TemplateView, UpdateView
 from core.mixins import TenantScopedMixin
 from reconocimientos.forms import PremioForm
 from reconocimientos import premios as servicio
+from reconocimientos.honor import cuadro_de_honor
 from reconocimientos.models import Premio, PremioOtorgado
 from reconocimientos.ranking import calcular_ranking
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
@@ -70,6 +71,7 @@ class RankingView(AlumnoRequiredMixin, TemplateView):
             for b in calcular_ranking(self.gimnasio, alumno=alumno)
         ]
         contexto["alumno"] = alumno
+        contexto["cuadro_de_honor"] = cuadro_de_honor(self.gimnasio)
         contexto["bloques"] = bloques
         contexto["participa"] = any(
             b["tu_fila"] or any(f["es_propia"] for f in b["filas"]) for b in bloques

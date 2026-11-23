@@ -1,0 +1,15 @@
+{% comment %}
+  «Cuadro de honor» del ranking: sólo nombres públicos («Lucía M.»), sin foto.
+  Si no hay nadie, no se dibuja la sección.
+{% endcomment %}
+{% if cuadro_de_honor %}
+<section class="tarjeta">
+  <h2>Cuadro de honor</h2>
+  <p class="texto-suave">Compañeros que completaron un ciclo con asistencia perfecta.</p>
+  <ul class="lista-cuotas">
+    {% for nombre in cuadro_de_honor %}
+      <li>{{ nombre }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}

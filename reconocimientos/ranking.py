@@ -56,6 +56,20 @@ class BloqueEjercicio:
     tu_fila: "FilaRanking | None"
 
 
+def condiciones_de_persona(hoy, prefijo=""):
+    """Q de «quién es una persona visible para sus compañeros»: ACTIVO, no se
+    dio de baja del ranking, mayor de 18 y con los términos vigentes aceptados.
+
+    Única definición: la usan `participantes` (con `prefijo="alumno__"`) y
+    `honor.alumnos_visibles` (sin prefijo). Todo en SQL."""
+    return Q(**{
+        f"{prefijo}estado": Alumno.Estado.ACTIVO,
+        f"{prefijo}aparece_en_ranking": True,
+        f"{prefijo}fecha_nacimiento__lte": fecha_corte_mayoria(hoy),
+        f"{prefijo}perfil__terminos_version__gte": VERSION_TERMINOS,
+    })
+
+
 def participantes(gimnasio):
     """Rutinas vigentes de los alumnos que cuentan para el ranking.
 
@@ -78,11 +92,7 @@ def participantes(gimnasio):
         activa=True,
         fecha_inicio__lte=hoy,
         fecha_inicio__gte=piso,
-        alumno__estado=Alumno.Estado.ACTIVO,
-        alumno__aparece_en_ranking=True,
-        alumno__fecha_nacimiento__lte=fecha_corte_mayoria(hoy),
-        alumno__perfil__terminos_version__gte=VERSION_TERMINOS,
-    ).filter(~Exists(gana_el_orden))
+    ).filter(condiciones_de_persona(hoy, "alumno__")).filter(~Exists(gana_el_orden))
 
 
 def _nombre_publico(nombre, apellido):
