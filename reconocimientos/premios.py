@@ -73,6 +73,10 @@ class Candidato:
     nombre: str
     apellido: str
     es_menor: bool
+    #: Sin fecha de nacimiento: `es_menor` es True (no se puede verificar la
+    #: edad, mismo criterio que el ranking), y esto le permite a la pantalla
+    #: del staff decir «Edad sin cargar» en vez de «Menor de 18».
+    edad_sin_cargar: bool
     inicio: object  # date
     fin: object  # date
     meta: int
@@ -208,6 +212,7 @@ def candidatos(gimnasio, hoy=None, alumno_ids=None):
                     nombre=nombre,
                     apellido=apellido,
                     es_menor=not es_mayor_de_edad(nacimiento, hoy),
+                    edad_sin_cargar=nacimiento is None,
                     inicio=inicio,
                     fin=fin,
                     meta=meta,
@@ -270,14 +275,19 @@ def otorgar(gimnasio, alumno_id, inicio, premio_id, perfil):
 
     Doble clic o dos pestañas: el segundo devuelve el otorgado existente sin
     crear otra novedad (si los dos llegan a la vez, lo resuelve el índice
-    único parcial de `PremioOtorgado`).
+    único parcial de `PremioOtorgado`). En ese camino SÍ se reintenta
+    `aplicar_pendientes`: es idempotente, y si la aplicación del primer clic
+    había fallado, el segundo la completa sin esperar al cron.
 
-    Todo en una transacción: el otorgado, la novedad personal y la aplicación
-    del descuento a las cuotas que ya existan. Si algo falla, no queda nada a
-    medias (el cron reintenta la aplicación de todos modos).
+    En una transacción van sólo el otorgado y la novedad personal. La
+    aplicación del descuento a las cuotas que ya existan corre DESPUÉS del
+    commit y sin romper (`_aplicar_sin_romper`): si falla, el premio ya quedó
+    guardado, no se retienen locks de cuotas y el cron `generar_pagos`
+    (idempotente) lo completa en la próxima corrida.
     """
     existente = _otorgado_vigente(gimnasio, alumno_id, inicio)
     if existente is not None:
+        _aplicar_sin_romper(existente)
         return existente, MOTIVO_YA_OTORGADO
 
     premio = Premio.objects.for_gimnasio(gimnasio).filter(pk=premio_id, activo=True).first()
@@ -293,6 +303,7 @@ def otorgar(gimnasio, alumno_id, inicio, premio_id, perfil):
     if candidato is None:
         return None, MOTIVO_NO_CALIFICA
 
+    ganador = None
     with transaction.atomic():
         try:
             with transaction.atomic():
@@ -327,19 +338,35 @@ def otorgar(gimnasio, alumno_id, inicio, premio_id, perfil):
             )
             if ganador is None:
                 raise
-            return ganador, MOTIVO_YA_OTORGADO
-
-        Novedad.objects.create(
-            gimnasio=gimnasio,
-            alumno_id=alumno_id,
-            titulo=TITULO_NOVEDAD,
-            mensaje=_mensaje(otorgado),
-            fecha_publicacion=hoy,
-            visible_hasta=hoy + timedelta(days=DIAS_NOVEDAD),
-        )
-        if otorgado.tipo in TIPOS_DESCUENTO:
-            aplicar_pendientes(hoy=hoy, alumno_ids=[alumno_id])
+        else:
+            Novedad.objects.create(
+                gimnasio=gimnasio,
+                alumno_id=alumno_id,
+                titulo=TITULO_NOVEDAD,
+                mensaje=_mensaje(otorgado),
+                fecha_publicacion=hoy,
+                visible_hasta=hoy + timedelta(days=DIAS_NOVEDAD),
+            )
+    if ganador is not None:
+        _aplicar_sin_romper(ganador)
+        return ganador, MOTIVO_YA_OTORGADO
+    _aplicar_sin_romper(otorgado)
     return otorgado, MOTIVO_OTORGADO
+
+
+def _aplicar_sin_romper(otorgado):
+    """Aplica los descuentos pendientes del alumno del premio, fuera de la
+    transacción de `otorgar`. Un fallo queda en el log y no se propaga: el
+    premio ya está guardado y el cron lo completa (es idempotente)."""
+    if otorgado.tipo not in TIPOS_DESCUENTO:
+        return
+    try:
+        aplicar_pendientes(alumno_ids=[otorgado.alumno_id])
+    except Exception:
+        logger.exception(
+            "Falló la aplicación del premio otorgado %s; la completa el cron.",
+            otorgado.pk,
+        )
 
 
 def _descuento_para(tipo, valor, monto):
@@ -408,7 +435,8 @@ def aplicar_pendientes(hoy=None, alumno_ids=None):
 
     Lecturas en DOS queries, sin importar cuántos premios o cuotas haya: los
     otorgados con su conteo de aplicaciones anotado y las cuotas candidatas.
-    Las escrituras sí son por asignación (cada una con su transacción).
+    Las escrituras sí son por asignación (cada una con su transacción); una
+    asignación que revienta queda en el log y se sigue con la próxima.
     """
     del hoy  # ver docstring
     otorgados = (
@@ -457,9 +485,18 @@ def aplicar_pendientes(hoy=None, alumno_ids=None):
             if descuento <= 0:
                 continue
             usadas.add(cuota_pk)
-            resultado = _aplicar_una(
-                otorgado.pk, cuota_pk, otorgado.gimnasio_id, descuento, motivo, ahora
-            )
+            try:
+                resultado = _aplicar_una(
+                    otorgado.pk, cuota_pk, otorgado.gimnasio_id, descuento, motivo, ahora
+                )
+            except Exception:
+                # Una asignación rota (su transacción ya se deshizo) no frena a
+                # las demás; el `IntegrityError` esperado se maneja adentro.
+                logger.exception(
+                    "Falló aplicar el premio otorgado %s a la cuota %s.",
+                    otorgado.pk, cuota_pk,
+                )
+                continue
             if resultado == AGOTADO:
                 break
             if resultado == APLICADA:

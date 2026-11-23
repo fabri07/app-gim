@@ -151,6 +151,7 @@ class CandidatosTests(_Base):
         self.assertEqual((c.inicio, c.fin), _ciclo(self.ancla))
         self.assertEqual((c.meta, c.asistidas), (4, 4))
         self.assertFalse(c.es_menor)
+        self.assertFalse(c.edad_sin_cargar)
 
     def test_califica_con_mas_que_la_meta(self):
         self._perfecto(asistidas=6)
@@ -221,12 +222,14 @@ class CandidatosTests(_Base):
         self._perfecto(menor)
         (c,) = premios.candidatos(self.gimnasio, alumno_ids=[menor.pk])
         self.assertTrue(c.es_menor)
+        self.assertFalse(c.edad_sin_cargar)
 
     def test_cumple_18_justo_hoy_no_es_menor(self):
         adulto = self._alumno("Bea", fecha_nacimiento=HOY.replace(year=HOY.year - 18))
         self._perfecto(adulto)
         (c,) = premios.candidatos(self.gimnasio, alumno_ids=[adulto.pk])
         self.assertFalse(c.es_menor)
+        self.assertFalse(c.edad_sin_cargar)
 
     def test_sin_fecha_de_nacimiento_se_trata_como_menor(self):
         # No se puede verificar la edad: para la privacidad, cuenta como menor.
@@ -234,6 +237,7 @@ class CandidatosTests(_Base):
         self._perfecto(sin_fecha)
         (c,) = premios.candidatos(self.gimnasio, alumno_ids=[sin_fecha.pk])
         self.assertTrue(c.es_menor)
+        self.assertTrue(c.edad_sin_cargar)
 
     def test_deuda_del_propio_ciclo_excluye(self):
         self._perfecto()
@@ -582,6 +586,50 @@ class OtorgarTests(_Base):
         self.assertEqual(PremioOtorgado.objects.count(), 1)
         self.assertFalse(Novedad.objects.exists())
 
+    def test_si_la_aplicacion_revienta_el_premio_y_la_novedad_quedan(self):
+        siguiente = self._cuota(self.alumno, self.ancla + 28 * UN_DIA)
+        with patch.object(premios, "aplicar_pendientes", side_effect=RuntimeError("boom")):
+            with self.assertLogs("reconocimientos.premios", level="ERROR") as logs:
+                otorgado, motivo = self._otorgar()
+        self.assertIsNotNone(otorgado)
+        self.assertEqual(motivo, premios.MOTIVO_OTORGADO)
+        self.assertTrue(PremioOtorgado.objects.filter(pk=otorgado.pk).exists())
+        self.assertEqual(Novedad.objects.count(), 1)
+        self.assertIn("boom", "\n".join(logs.output))
+        siguiente.refresh_from_db()
+        self.assertEqual(siguiente.descuento, 0)
+        # El cron (idempotente) lo completa después.
+        self.assertEqual(premios.aplicar_pendientes(), 1)
+        siguiente.refresh_from_db()
+        self.assertEqual(siguiente.descuento, Decimal("2000.00"))
+
+    def test_la_aplicacion_corre_fuera_de_la_transaccion_de_otorgar(self):
+        # El `TestCase` ya envuelve el test en atomics: se compara la cantidad
+        # de savepoints abiertos al aplicar contra la de afuera de `otorgar`.
+        afuera = len(connection.savepoint_ids)
+        adentro = []
+
+        def espia(*args, **kwargs):
+            adentro.append(len(connection.savepoint_ids))
+            return 0
+
+        with patch.object(premios, "aplicar_pendientes", side_effect=espia):
+            self._otorgar()
+        self.assertEqual(adentro, [afuera])
+
+    def test_doble_clic_reintenta_la_aplicacion_sin_otra_novedad(self):
+        # Decisión: el camino «ya otorgado» reintenta `aplicar_pendientes`
+        # (idempotente) para completar una aplicación que había fallado.
+        siguiente = self._cuota(self.alumno, self.ancla + 28 * UN_DIA)
+        with patch.object(premios, "aplicar_pendientes", side_effect=RuntimeError("boom")):
+            with self.assertLogs("reconocimientos.premios", level="ERROR"):
+                primero, _ = self._otorgar()
+        segundo, motivo = self._otorgar()
+        self.assertEqual((segundo, motivo), (primero, premios.MOTIVO_YA_OTORGADO))
+        self.assertEqual(Novedad.objects.count(), 1)
+        siguiente.refresh_from_db()
+        self.assertEqual(siguiente.descuento, Decimal("2000.00"))
+
     def test_anulado_se_puede_volver_a_dar(self):
         primero, _ = self._otorgar()
         self.assertTrue(premios.anular(self.gimnasio, primero.pk))
@@ -891,6 +939,34 @@ class AplicarPendientesTests(_Base):
         segunda.refresh_from_db()
         self.assertEqual(segunda.descuento, 0)
         self.assertEqual(PremioAplicacion.objects.filter(otorgado=otorgado).count(), 1)
+
+    def test_una_asignacion_que_revienta_no_frena_las_demas(self):
+        otra = self._alumno("Otra")
+        self._otorgado()
+        self._otorgado(otra)
+        mia = self._cuota(self.alumno, self._ciclo_n(1))
+        suya = self._cuota(otra, self._ciclo_n(1))
+        original = premios._aplicar_una
+        llamadas = []
+
+        def revienta_la_primera(*args, **kwargs):
+            llamadas.append(args)
+            if len(llamadas) == 1:
+                raise RuntimeError("boom")
+            return original(*args, **kwargs)
+
+        with patch.object(premios, "_aplicar_una", side_effect=revienta_la_primera):
+            with self.assertLogs("reconocimientos.premios", level="ERROR") as logs:
+                self.assertEqual(premios.aplicar_pendientes(), 1)
+        self.assertIn("boom", "\n".join(logs.output))
+        mia.refresh_from_db()
+        suya.refresh_from_db()
+        self.assertEqual(
+            sorted([mia.descuento, suya.descuento]), [Decimal("0.00"), Decimal("2000.00")]
+        )
+        self.assertEqual(PremioAplicacion.objects.count(), 1)
+        # La siguiente corrida completa la que falló.
+        self.assertEqual(premios.aplicar_pendientes(), 1)
 
     def test_lecturas_constantes_con_3_y_con_40_otorgados(self):
         medidas = []
