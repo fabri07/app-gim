@@ -20,6 +20,13 @@ del log.
 
 ---
 
+## [2026-11-22] Descuento en la cuota (pieza 3 de reconocimientos)
+**Estado:** resuelto en código; nada prendido (no hay bandera: el descuento sólo existe si el staff lo carga).
+**Impacto:** toca plata. `Cuota.monto` sigue siendo el precio de lista; `descuento` y `descuento_motivo` van aparte y el neto (`monto_a_cobrar` / `Cuota.NETO`) es lo que cobra el link de MP, lo que ve el alumno, lo que cuenta `ingresos_por_mes` y lo que dice el aviso de cuota. Decisiones: tope 90% (código y `CheckConstraint`), `pagos/descuentos.py` como única puerta para escribir descuento en impagas, invariante de una pagada `monto - descuento = cobrado`, todo cambio de neto cancela los links vivos, el exportador suma las dos columnas al final de `cuotas`. El admin de Django no cancela links (sólo bloquea el campo en no impagas).
+**Resolución / próximo paso:** verificado sólo en SQLite: el `CheckConstraint` `cuota_descuento_valido`, el `Case/When` de `_montos_cobrados` (desvío cuando `descuento > 9 × cobrado`; queda marcado para revisar sólo si el descuento ya había cambiado al leer la cuota, no si cambia entre la lectura y el UPDATE), el UPDATE con `F()` y la migración con `db_default`. Hay que ejercitarlos en Postgres/Neon al primer uso real (cargar un descuento, cobrar por MP y por transferencia, mirar el ingreso del mes). Ningún pago real por MP se probó todavía (ver 2026-10-24): el descuento no agrega ese riesgo pero tampoco lo prueba. Abierto: cargar el descuento en porcentaje (hoy sólo pesos).
+
+---
+
 ## [2026-11-21] Modo oscuro: fases 0 y 1 hechas, apagado hasta verificar el resto
 **Estado:** abierto (bandera `MODO_OSCURO` apagada en producción).
 **Impacto:** con la bandera apagada no cambia nada. Prendida, todo el panel y el portal del alumno pasan a oscuro en Automático (sistema oscuro) o por el interruptor; pantallas sin verificar (tienda, pagos, ingreso, turnos, importaciones, plataforma) pueden tener detalles.
