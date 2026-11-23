@@ -33,6 +33,14 @@ del log.
 
 ---
 
+## [2026-11-21] Reconocimientos, Pieza 2: ranking de kilos
+**Estado:** construido; la bandera sigue apagada y fuera de «Mi gimnasio».
+**Impacto:** el alumno ve `/ranking/` con los kilos prescriptos de sus compañeros (nombre e inicial, sin foto). Sin modelos ni migraciones.
+**Decisiones:** (1) sin cache: dos queries fijas y un alumno que se da de baja tiene que desaparecer al recargar; un cache obligaría a invalidar por baja, aceptación de términos y cambio de plan. (2) Parser de kilos: `1.500` se lee 1,5 y `15kg c/u` cuenta 15, por diseño; tope de 500 kg para que un error de tipeo no domine el ranking; todo lo ambiguo se descarta. (3) Un plan abandonado (arrancó hace más de 28 + 14 días) saca al alumno del ranking. (4) Mínimo de 3 participantes por ejercicio.
+**Pendiente:** restaurar el checkbox «Ranking y premios» en «Mi gimnasio» cuando el dueño del producto apruebe los textos legales (ver la entrada de la Pieza 1); hasta entonces se prende por `/admin/` o shell. Detalle en `ARQUITECTURA.md` «Reconocimientos (ranking y premios)».
+
+---
+
 ## [2026-11-21] Modo oscuro: fases 0 y 1 hechas, apagado hasta verificar el resto
 **Estado:** abierto (bandera `MODO_OSCURO` apagada en producción).
 **Impacto:** con la bandera apagada no cambia nada. Prendida, todo el panel y el portal del alumno pasan a oscuro en Automático (sistema oscuro) o por el interruptor; pantallas sin verificar (tienda, pagos, ingreso, turnos, importaciones, plataforma) pueden tener detalles.
@@ -3345,3 +3353,12 @@ nuevo: manda `valor_1`, que tiene el nombre anterior.
 **Estado:** resuelto (con un riesgo aceptado)
 **Impacto:** el archivo nunca se borraba de R2, pero al rechazar una foto, quitarla al editar o borrar el producto se borraba la fila que decía de qué gimnasio y de qué producto era. Un gimnasio podía subir algo ilegal y quitarlo antes de la revisión sin dejar rastro consultable.
 **Resolución / próximo paso:** `FotoRetenida` + señal `pre_delete` (ver `ARQUITECTURA.md` «Tienda del gimnasio» → «Moderación» → «Fotos retenidas»). Riesgos aceptados: (1) lo borrado ANTES de este cambio no se puede reconstruir; (2) durante la ventana del deploy la versión vieja todavía borra sin retener; (3) la retención es por tiempo indefinido, sin purga: si algún día hace falta un plazo, se agrega un comando como `purgar_ingresos`. Las fotos de productos `bajados` ya conservaban su fila.
+
+## [2026-11-21] Reconocimientos: los menores de 18 no participan en ningún ranking
+**Estado:** resuelto (con brechas conocidas)
+**Impacto:** regla del dueño del producto: un alumno menor de 18 años no aparece, no ve ni cuenta en ningún ranking.
+**Resolución / próximo paso:**
+- `alumnos/edad.py` (`fecha_corte_mayoria`, `es_mayor_de_edad`, `Alumno.es_mayor_de_edad`). `participantes()` filtra `fecha_nacimiento__lte=corte`; la foto del alumno no se sirve a un compañero si es menor; `RankingView` muestra un cartel («El ranking está disponible para alumnos mayores de 18 años.») y no calcula nada; el cartel de términos no se le muestra (no participa, no hay nada que consentir).
+- **Decisión: `fecha_nacimiento` NULL = excluido** (no se puede verificar). Un alumno importado o cargado sin fecha de nacimiento no entra al ranking hasta que el staff la complete.
+- **Brecha conocida:** el menor sigue pudiendo ver y subir su propia foto en «Mi perfil», cuyo texto todavía habla de compañeros.
+- **Costo aceptado:** `debe_aceptar_terminos` hace UNA query extra por request (la ficha del alumno), sólo en gimnasios con la bandera prendida y para alumnos que todavía no aceptaron: los menores nunca aceptan, así que pagan esa query en cada request.

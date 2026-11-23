@@ -144,7 +144,7 @@ class GimnasioForm(forms.ModelForm):
             # Sale del form con la bandera apagada o en la demo (`__init__`);
             # no se prende sin una cuenta CONECTADA (`clean`).
             "cuotas_con_mercadopago",
-            # `reconocimientos_habilitado` NO va acá hasta la Pieza 2 (el
+            # `reconocimientos_habilitado` NO va acá hasta que el dueño apruebe los textos legales (el
             # ranking): prendida, cada alumno ve un cartel de términos que
             # habla de un ranking y premios que todavía no existen, y acepta
             # un texto en borrador. Mientras tanto se prende por /admin/ o

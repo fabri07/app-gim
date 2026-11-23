@@ -102,6 +102,9 @@ INSTALLED_APPS = [
     #                 `tenants.views`, `tenants.forms`, `tenants.demo`,
     #                 `plataforma.views` y `pagos` la leen con import tardío
     #                 (dentro de la función).
+    #   reconocimientos -> ranking de kilos y premios. SIN modelos: sólo lee
+    #                 `alumnos`, `rutinas` y `tenants` (bandera, términos), así
+    #                 que va última.
     'core',
     'tenants',
     'ejercicios',
@@ -118,6 +121,7 @@ INSTALLED_APPS = [
     'plataforma',
     'suscripcion',
     'tienda',
+    'reconocimientos',
 ]
 
 MIDDLEWARE = [

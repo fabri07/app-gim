@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Ranking · App Gimnasios{% endblock %}
+{% block main_class %}contenido--alumno{% endblock %}
+
+{% block content %}
+{% comment %}
+  Ranking de kilos por ejercicio. Sólo links (sin JS ni hx-boost="false").
+  Nunca el apellido completo: el nombre ya viene como «Lucía M.».
+{% endcomment %}
+{% if solo_mayores %}
+<div class="tarjeta">
+  <h1>Ranking</h1>
+  <p>El ranking está disponible para alumnos mayores de 18 años.</p>
+</div>
+{% else %}
+<div class="tarjeta">
+  <h1>Ranking</h1>
+  <p class="texto-suave">
+    Los kilos son los que cada compañero tiene cargados en su plan,
+    según la rutina que le asignó el gimnasio: no son marcas probadas.
+    Si no querés aparecer, lo cambiás desde <a href="{% url 'alumnos:mi_perfil' %}">Mi perfil</a>.
+  </p>
+  {% if alumno and not participa and bloques %}
+    <p class="texto-suave">Por ahora no figurás en este ranking.</p>
+  {% endif %}
+</div>
+{% for bloque in bloques %}
+<section class="tarjeta">
+  <h2>{{ bloque.ejercicio }}</h2>
+  <p class="texto-suave">{{ bloque.participantes }} compañeros</p>
+  <ol class="lista-cuotas">
+    {% for fila in bloque.filas %}
+      <li{% if fila.es_propia %} aria-current="true"{% endif %}>
+        <strong>{{ fila.puesto }}.</strong>
+        <span>{{ fila.nombre }}{% if fila.es_propia %} <strong>(Vos)</strong>{% endif %}</span>
+        <span class="texto-suave">{{ fila.kilos }} kg</span>
+      </li>
+    {% endfor %}
+  </ol>
+  {% if bloque.tu_fila %}
+    <p><strong>Tu puesto:</strong> {{ bloque.tu_fila.puesto }}. · {{ bloque.tu_fila.kilos }} kg</p>
+  {% endif %}
+</section>
+{% empty %}
+<div class="tarjeta">
+  <p>Todavía no hay suficientes alumnos con kilos cargados para armar el ranking.</p>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}
