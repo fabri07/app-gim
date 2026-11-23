@@ -62,7 +62,7 @@
           <tr>
             <td>{{ pago.alumno }}</td>
             <td>{{ pago.periodo_inicio|date:"d/m/Y" }} al {{ pago.periodo_fin|date:"d/m/Y" }}</td>
-            <td>{{ pago.monto }}</td>
+            <td>{% if pago.descuento > 0 %}<s>{{ pago.monto }}</s> {{ pago.monto_a_cobrar }}<br><small class="texto-suave">{{ pago.descuento_motivo }}</small>{% else %}{{ pago.monto }}{% endif %}</td>
             <td>
               {% if pago.estado == "pagado" %}
                 <span class="badge badge--ok">Pagado</span>
