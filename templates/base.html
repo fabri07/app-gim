@@ -266,7 +266,7 @@
         botón que no despliega nada). `aria-label="Menú"` y no «Abrir menú»:
         los tests del staff buscan ese texto para saber si está SU ☰.
       {% endcomment %}
-      {% if user.is_authenticated and user.perfil.rol == "alumno" and user.perfil.gimnasio and not cuenta_suspendida and not cuenta_alumnos_bloqueados %}
+      {% if user.is_authenticated and user.perfil.rol == "alumno" and user.perfil.gimnasio and not cuenta_suspendida and not cuenta_alumnos_bloqueados and not terminos_pendientes %}
         <button type="button" class="sm:hidden text-gray-600" @click="navAbierto = !navAbierto" aria-expanded="false" :aria-expanded="navAbierto" aria-controls="nav-alumno" aria-label="Menú">☰</button>
       {% endif %}
       {% if user.is_authenticated %}
@@ -328,8 +328,10 @@
     toca). Sin cuenta congelada: con `cuenta_suspendida` o
     `cuenta_alumnos_bloqueados` el alumno sólo ve el cartel, también
     suplantando (el context processor lee el estado del gimnasio del alumno).
+    Tampoco con `terminos_pendientes` (el cartel de términos, que lo pasa en
+    su contexto): todos los links terminarían en ese mismo cartel.
   {% endcomment %}
-  {% if user.is_authenticated and user.perfil.rol == "alumno" and user.perfil.gimnasio and not cuenta_suspendida and not cuenta_alumnos_bloqueados %}
+  {% if user.is_authenticated and user.perfil.rol == "alumno" and user.perfil.gimnasio and not cuenta_suspendida and not cuenta_alumnos_bloqueados and not terminos_pendientes %}
     {% include 'partials/nav_alumno.html' %}
   {% endif %}
   {% if messages %}

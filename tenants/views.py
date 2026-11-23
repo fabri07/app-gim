@@ -32,9 +32,10 @@ from django.views.generic.detail import SingleObjectMixin
 
 from core.mixins import TenantScopedMixin
 from tenants import exportacion, google_login, paisaje_matching, suplantacion
-from tenants.forms import GimnasioForm, ResetPasswordStaffForm
+from tenants.forms import AceptarTerminosForm, GimnasioForm, ResetPasswordStaffForm
 from tenants.mixins import BloqueadoEnCuentaDemoMixin, StaffRequiredMixin
 from tenants.models import Gimnasio, Perfil, doodle_static_url
+from tenants.terminos import VERSION_TERMINOS, debe_aceptar_terminos, responder_cartel
 
 logger = logging.getLogger(__name__)
 
@@ -1307,6 +1308,49 @@ class SuplantarView(StaffRequiredMixin, TenantScopedMixin, SingleObjectMixin, Vi
         alumno = self.get_object()
         suplantacion.iniciar(request, alumno)
         messages.info(request, f"Estás viendo la app como {alumno}.")
+        return redirect("home")
+
+
+class AceptarTerminosView(LoginRequiredMixin, View):
+    """El cartel de términos (GET) y la aceptación (POST).
+
+    `LoginRequiredMixin` y NO `AlumnoRequiredMixin`: aquel exige una ficha de
+    `Alumno` y responde 403 si falta, y la aceptación vive en el `Perfil`. Un
+    perfil de alumno sin ficha tiene que poder aceptar igual: si no, el
+    middleware lo frenaría en todas las pantallas sin ninguna salida.
+
+    Las reglas de quién debe aceptar son las de `debe_aceptar_terminos`; a
+    quien no debe (bandera apagada, ya aceptó, staff, superusuario) el GET lo manda a
+    `home`. **Suplantando nunca se escribe**: el staff no puede dar el
+    consentimiento del alumno.
+    """
+
+    def _perfil_que_debe_aceptar(self, request):
+        # El superusuario, igual que en `TerminosMiddleware`: nunca ve el
+        # cartel, así que tampoco deja escrito un consentimiento.
+        if request.user.is_superuser or suplantacion.esta_activa(request):
+            return None
+        perfil = getattr(request.user, "perfil", None)
+        return perfil if debe_aceptar_terminos(perfil) else None
+
+    def get(self, request, *args, **kwargs):
+        perfil = self._perfil_que_debe_aceptar(request)
+        if perfil is None:
+            return redirect("home")
+        return responder_cartel(request, perfil)
+
+    def post(self, request, *args, **kwargs):
+        perfil = self._perfil_que_debe_aceptar(request)
+        if perfil is None:
+            return redirect("home")
+        form = AceptarTerminosForm(request.POST)
+        if not form.is_valid():
+            return responder_cartel(request, perfil, form)
+        perfil.terminos_aceptados_en = timezone.now()
+        perfil.terminos_version = VERSION_TERMINOS
+        perfil.save(
+            update_fields=["terminos_aceptados_en", "terminos_version", "modificado"]
+        )
         return redirect("home")
 
 

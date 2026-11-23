@@ -143,6 +143,12 @@ MIDDLEWARE = [
     # así que necesita que `resolver_match` ya esté resuelto -- ver el
     # docstring de plataforma/middleware.py.
     'plataforma.middleware.PlataformaMiddleware',
+    # Cartel de términos y condiciones del alumno (reconocimientos). Va
+    # DESPUÉS del de la plataforma a propósito: la cuenta congelada ve
+    # primero su cartel -- aquel responde en `process_view` y este ya no
+    # corre. Reusa el Perfil que aquel resolvió, sin queries propias. Ver el
+    # docstring de plataforma/terminos.py.
+    'plataforma.terminos.TerminosMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

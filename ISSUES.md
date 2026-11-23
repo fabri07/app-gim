@@ -27,6 +27,13 @@ del log.
 
 ---
 
+## [2026-11-21] Reconocimientos, Pieza 1: el texto de los términos es un borrador
+**Estado:** abierto (la bandera `reconocimientos_habilitado` nace apagada en todos los gimnasios y **no está en «Mi gimnasio»**: hasta que exista el ranking (Pieza 2) sólo se prende por `/admin/` o shell, así ningún dueño frena a sus alumnos con un cartel que promete algo que no existe).
+**Impacto:** el texto del cartel (`templates/tenants/terminos.html`) y la sección «Ranking, premios y foto de perfil» de `privacidad.html` los escribió el desarrollo, no el dueño del producto. Si un gimnasio prende la bandera, cada alumno acepta ESE texto, y la aceptación queda guardada con `VERSION_TERMINOS = 1`.
+**Resolución / próximo paso:** el dueño del producto revisa los dos textos **antes de prender la bandera en cualquier gimnasio de producción**. Si el texto cambia después de que alguien aceptó, subir `VERSION_TERMINOS` para que todos vuelvan a aceptar. Decisión de producto también pendiente: el exportador de datos (`tenants/exportacion.py`) no incluye `aparece_en_ranking`, el nombre del archivo de la foto ni la bandera; agregarlos es seguro, no se hizo en esta pieza. Detalle en `ARQUITECTURA.md` «Reconocimientos (ranking y premios)».
+
+---
+
 ## [2026-11-21] Modo oscuro: fases 0 y 1 hechas, apagado hasta verificar el resto
 **Estado:** abierto (bandera `MODO_OSCURO` apagada en producción).
 **Impacto:** con la bandera apagada no cambia nada. Prendida, todo el panel y el portal del alumno pasan a oscuro en Automático (sistema oscuro) o por el interruptor; pantallas sin verificar (tienda, pagos, ingreso, turnos, importaciones, plataforma) pueden tener detalles.

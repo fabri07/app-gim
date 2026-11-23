@@ -4289,6 +4289,93 @@ Están también en `ISSUES.md` (2026-10-20).
 - `select_for_update` no hace nada en SQLite: las carreras reales no se
   probaron contra Postgres.
 
+## Reconocimientos (ranking y premios)
+
+**Estado (2026-11-21): construida sólo la Pieza 1** (bandera, términos, foto,
+«Mi perfil»). **El ranking (Pieza 2) y los premios (piezas 3-5) NO existen
+todavía**: hoy `aparece_en_ranking` y la foto no se muestran en ninguna lista
+de compañeros. Spec: `docs/superpowers/specs/2026-11-21-reconocimientos-design.md`;
+plan: `docs/superpowers/plans/2026-11-21-reconocimientos-pieza-1-perfil-terminos-foto.md`.
+
+**La bandera.** `Gimnasio.reconocimientos_habilitado` (default apagada).
+**Hasta la Pieza 2 NO está en «Mi gimnasio»**: se sacó de
+`GimnasioForm.Meta.fields` y del template a propósito, porque prendida cada
+alumno ve un cartel que habla de un ranking y premios que todavía no existen y
+acepta un texto en borrador. Hoy se prende sólo por `/admin/` (Gimnasio) o
+shell; guardar «Mi gimnasio» no la toca (ni la prende ni la apaga). Con la
+Pieza 2 vuelve al form (bloque «Ranking y premios», con su `help_text` del
+modelo) como checkbox estándar. Con la bandera apagada el alumno no ve nada: ni
+cartel, ni «Mi perfil» (404), ni fotos de compañeros. `restaurar_demo` la
+vuelve a apagar (`_GIMNASIO_CANONICO`), y `sembrar_demo` deja a los alumnos
+demo con los términos vigentes ya aceptados.
+
+**Términos.** `Perfil.terminos_aceptados_en` y `Perfil.terminos_version`;
+`tenants/terminos.py::VERSION_TERMINOS` (subirla obliga a todos a volver a
+aceptar) y `debe_aceptar_terminos(perfil)` (alumno + bandera prendida +
+versión vieja; sin queries). El texto (`templates/tenants/terminos.html`) es
+un **borrador** pendiente de revisión del dueño del producto (`ISSUES.md`
+2026-11-21).
+
+**El cartel es un middleware (`plataforma/terminos.py::TerminosMiddleware`),
+no un mixin**, por la misma razón que `PlataformaMiddleware`: tiene que correr
+en cada request, y una vista nueva que se olvidara del mixin sería una puerta
+abierta que nadie ve. Vive en `plataforma/` y no en `tenants/` porque reusa
+`perfil_de` y las allowlists de `plataforma/middleware.py`, y `tenants` no
+puede importar `plataforma` a nivel módulo (`plataforma.models` ya importa
+`tenants.models`). Reglas:
+
+- **Va DESPUÉS de `PlataformaMiddleware` en `MIDDLEWARE`.** Una cuenta
+  congelada ve primero su cartel de bloqueo: aquel responde en `process_view`
+  y Django no llega a este. Además reusa el `Perfil` (con su gimnasio) que
+  aquel ya resolvió: decidir no cuesta queries.
+- Responde **200 con `no-store`** (bajo `hx-boost` un 4xx es un click mudo;
+  sin `no-store` el bfcache devuelve el cartel con «atrás»). Un POST a otra
+  ruta redirige a `home`, cuyo GET muestra el cartel. El cartel apaga el menú
+  del alumno (`terminos_pendientes` en `base.html`): todos sus links
+  terminarían en el mismo cartel.
+- Allowlist: la de `PlataformaMiddleware` (login, logout, volver de la
+  suplantación, privacidad, archivos del gimnasio, PWA) más
+  `terminos_aceptar`. Webhooks, API de `ingreso` y `solicitudes` no llevan
+  sesión y pasan por el corte del anónimo.
+- Staff, superusuario y anónimo nunca lo ven. Un perfil de alumno sin ficha
+  de `Alumno` puede aceptar igual (`AceptarTerminosView` es
+  `LoginRequiredMixin`, no `AlumnoRequiredMixin`).
+
+**Suplantación: el staff no da el consentimiento del alumno.** Suplantando,
+el middleware no muestra el cartel (el staff ve la app como el alumno la
+verá después de aceptar), `AceptarTerminosView` no escribe (redirige a
+`home`, igual que con el superusuario), y el POST de «Mi perfil» es 403 (el
+GET muestra un aviso en vez del botón Guardar). Foto y `aparece_en_ranking`
+son decisiones de privacidad del alumno.
+
+**La foto.** `Alumno.foto` (`FileField`, `db_default=""` para el deploy en
+vivo) se re-codifica con `tienda.fotos.preparar_foto` (JPEG ≤1200 px, nombre
+uuid; rechaza no-imagen, <300 px y >8 MB con el mensaje en el campo) y se
+escribe con `update()` (`alumnos/fotos.py`: no dispara las señales de
+`Alumno`). Se sirve sólo por `AlumnoFotoView` (`alumnos:foto_alumno`), nunca
+por URL pública de R2: la ven el staff del gimnasio, el propio alumno y un
+compañero del mismo gimnasio sólo con la bandera prendida y
+`aparece_en_ranking`. Cualquier otro caso (otro gimnasio, sin foto, archivo
+que ya no está en el storage) es un 404 con `no-store`. La respuesta lleva
+**`private, max-age=3600` y NO `immutable`**: `foto_url` va versionada (resuelve
+el reemplazo), pero si el alumno sale del ranking, quita la foto o el dueño
+apaga la bandera, el navegador de un compañero tiene que dejar de mostrarla en
+una hora.
+
+**Borrado de archivos con `transaction.on_commit`.** Reemplazar o quitar la
+foto, y borrar el alumno (`post_delete` en `alumnos/signals.py`, que cubre
+también `vaciar_gimnasio`), borran el archivo viejo al confirmar la
+transacción: un rollback deja la fila apuntando a un archivo que sigue
+existiendo. En «Mi perfil» la foto y `aparece_en_ranking` se escriben en un
+mismo `transaction.atomic()`: si falla la segunda escritura vuelve atrás la
+primera y el archivo anterior no se borra (el nuevo, ya subido, queda
+huérfano en el storage: huérfano, nunca foto rota).
+
+**Fuera de esta pieza / pendiente:** el exportador no incluye
+`aparece_en_ranking`, la foto ni la bandera (decisión de producto pendiente,
+`ISSUES.md`); la visibilidad de la foto de un alumno `INACTIVO` se decide al
+construir el ranking (Pieza 2).
+
 ## Deploy (Fase 5)
 
 **Estado (2026-09-08): desplegado en Virginia, web y base en la misma

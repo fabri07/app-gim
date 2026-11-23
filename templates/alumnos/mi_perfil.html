@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Mi perfil · App Gimnasios{% endblock %}
+{% block main_class %}contenido--alumno{% endblock %}
+
+{% block content %}
+{% comment %}
+  «Mi perfil» del alumno (reconocimientos). El form sube un archivo: lleva
+  `hx-boost="false"` (htmx no manda multipart bajo el boost global). La foto
+  actual se sirve por `alumnos:foto_alumno` (privada del gimnasio), nunca por
+  una URL pública de R2.
+{% endcomment %}
+<div class="tarjeta">
+  <h1>Mi perfil</h1>
+  {% if alumno %}
+    <p class="texto-suave">
+      Tus compañeros del gimnasio ven tu foto,
+      tu nombre y la inicial de tu apellido
+      (nunca el apellido completo). El gimnasio ve tu ficha completa, como
+      siempre.
+    </p>
+    {% if alumno.foto_url %}
+      <div class="foto-fila">
+        <img class="foto-fila__miniatura" src="{{ alumno.foto_url }}" alt="Tu foto actual">
+      </div>
+    {% else %}
+      <p>Todavía no subiste una foto.</p>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data" novalidate hx-boost="false">
+      {% csrf_token %}
+      {{ form.non_field_errors }}
+      {% include 'partials/campo_form.html' with campo=form.foto %}
+      {% if alumno.foto_url %}
+        {% include 'partials/campo_form.html' with campo=form.quitar_foto %}
+      {% endif %}
+      {% include 'partials/campo_form.html' with campo=form.aparece_en_ranking %}
+      {% if aviso_suplantando %}
+        <p class="texto-suave">{{ aviso_suplantando }}</p>
+      {% else %}
+        <button type="submit" class="boton">Guardar</button>
+      {% endif %}
+    </form>
+  {% else %}
+    <p>
+      Tu usuario todavía no está vinculado a una ficha de alumno. Pedile al
+      gimnasio que lo revise.
+    </p>
+  {% endif %}
+</div>
+{% endblock %}

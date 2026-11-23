@@ -413,6 +413,18 @@ class Gimnasio(TimeStampedModel):
         default=False,
         db_default=False,
     )
+    #: Ranking y premios para los alumnos (reconocimientos). Apagado por
+    #: default: es una decisión del dueño del gimnasio, que se prende en «Mi
+    #: gimnasio» (`GimnasioForm`). Con la bandera apagada el alumno no ve
+    #: nada de la feature.
+    reconocimientos_habilitado = models.BooleanField(
+        "Ranking y premios para los alumnos",
+        default=False,
+        db_default=False,
+        help_text="Muestra a tus alumnos el ranking de ejercicios y los premios "
+        "por asistencia. Cada alumno acepta los términos la primera vez que "
+        "entra y puede dejar de aparecer.",
+    )
 
     class Meta:
         verbose_name = "gimnasio"
@@ -618,6 +630,10 @@ class Perfil(TimeStampedModel):
         related_name="perfiles",
     )
     rol = models.CharField(max_length=10, choices=Rol.choices, default=Rol.STAFF)
+    # Aceptación de términos y condiciones (reconocimientos). `terminos_version`
+    # 0 = nunca aceptó; se compara con `tenants.terminos.VERSION_TERMINOS`.
+    terminos_aceptados_en = models.DateTimeField(null=True, blank=True)
+    terminos_version = models.PositiveSmallIntegerField(default=0, db_default=0)
 
     class Meta:
         verbose_name = "perfil"
