@@ -1,11 +1,17 @@
+from datetime import date, timedelta
+
 from django.contrib import messages
+from django.db.models import Count
 from django.http import Http404
-from django.urls import reverse_lazy
+from django.shortcuts import redirect
+from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.generic import CreateView, ListView, TemplateView, UpdateView
 
 from core.mixins import TenantScopedMixin
 from reconocimientos.forms import PremioForm
-from reconocimientos.models import Premio
+from reconocimientos import premios as servicio
+from reconocimientos.models import Premio, PremioOtorgado
 from reconocimientos.ranking import calcular_ranking
 from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 
@@ -120,3 +126,90 @@ class PremioUpdateView(_PremiosStaffMixin, UpdateView):
         response = super().form_valid(form)
         messages.success(self.request, "Premio actualizado correctamente.")
         return response
+
+
+#: Días hacia atrás que «Otorgados recientemente» mira (por fin de ciclo).
+DIAS_OTORGADOS = 60
+
+
+class PremiosCicloView(_PremiosStaffMixin, TemplateView):
+    """Quiénes cerraron un ciclo con asistencia perfecta y qué se les dio.
+
+    GET lista candidatos (con selector de premio) y otorgados recientes. POST
+    `accion` ∈ `dar|anular|entregado`. Todo error de uso es redirect + mensaje
+    (nunca 4xx: bajo `hx-boost` un 4xx es un click mudo) y nada se escribe; la
+    revalidación real vive en `servicio.otorgar`, esta vista sólo parsea."""
+
+    template_name = "reconocimientos/premios_ciclo.html"
+
+    def get_context_data(self, **kwargs):
+        contexto = super().get_context_data(**kwargs)
+        hoy = timezone.localdate()
+        activos = list(Premio.objects.for_gimnasio(self.gimnasio).filter(activo=True))
+        contexto["premios_activos"] = activos
+        contexto["premio_por_defecto"] = next(
+            (p.pk for p in activos if p.por_defecto), None
+        )
+        contexto["candidatos"] = servicio.candidatos(self.gimnasio, hoy=hoy)
+        contexto["otorgados"] = (
+            PremioOtorgado.objects.for_gimnasio(self.gimnasio)
+            .filter(periodo_fin__gte=hoy - timedelta(days=DIAS_OTORGADOS))
+            .select_related("alumno")
+            .annotate(n_aplicaciones=Count("aplicaciones"))
+        )
+        return contexto
+
+    def post(self, request, *args, **kwargs):
+        if not self.gimnasio.reconocimientos_habilitado:
+            raise Http404
+        accion = request.POST.get("accion")
+        if accion == "dar":
+            self._dar(request)
+        elif accion in ("anular", "entregado"):
+            self._cambiar_estado(request, accion)
+        else:
+            messages.error(request, "No entendimos qué querías hacer.")
+        return redirect("reconocimientos:premios_ciclo")
+
+    @staticmethod
+    def _entero(valor):
+        try:
+            return int(valor)
+        except (TypeError, ValueError):
+            return None
+
+    def _dar(self, request):
+        alumno_id = self._entero(request.POST.get("alumno"))
+        premio_id = self._entero(request.POST.get("premio"))
+        try:
+            inicio = date.fromisoformat(request.POST.get("inicio", ""))
+        except ValueError:
+            inicio = None
+        if alumno_id is None or premio_id is None or inicio is None:
+            messages.error(request, "Faltan datos para dar el premio. Elegí un premio y probá de nuevo.")
+            return
+        otorgado, motivo = servicio.otorgar(
+            self.gimnasio, alumno_id, inicio, premio_id, request.user.perfil
+        )
+        if otorgado is None:
+            messages.error(request, motivo)
+        elif motivo == servicio.MOTIVO_YA_OTORGADO:
+            messages.info(request, motivo)
+        else:
+            nombre = f"{otorgado.alumno.nombre} {otorgado.alumno.apellido}"
+            messages.success(request, f"Premio dado a {nombre}.")
+
+    def _cambiar_estado(self, request, accion):
+        otorgado_id = self._entero(request.POST.get("otorgado"))
+        if accion == "anular":
+            hecho = otorgado_id is not None and servicio.anular(self.gimnasio, otorgado_id)
+            ok, no = "Premio anulado.", "No se pudo anular: ya estaba anulado o no existe."
+        else:
+            hecho = otorgado_id is not None and servicio.marcar_entregado(
+                self.gimnasio, otorgado_id
+            )
+            ok, no = "Premio marcado como entregado.", "No se pudo marcar: ya estaba entregado o no es un obsequio."
+        if hecho:
+            messages.success(request, ok)
+        else:
+            messages.error(request, no)

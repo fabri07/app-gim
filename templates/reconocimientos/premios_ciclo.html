@@ -1,0 +1,129 @@
+{% extends 'base.html' %}
+{% block title %}Premios del ciclo · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Premios del ciclo</h1>
+    <a href="{% url 'reconocimientos:premios' %}">Catálogo de premios</a>
+  </div>
+
+  <h2>Asistencia perfecta</h2>
+  {% if not premios_activos %}
+    <p class="texto-suave">
+      Para dar premios primero tenés que cargar al menos uno activo.
+      <a class="boton" href="{% url 'reconocimientos:premio_nuevo' %}">Crear un premio</a>
+    </p>
+  {% elif not candidatos %}
+    <p class="texto-suave">Ningún alumno tiene pendiente un premio por un ciclo cerrado.</p>
+  {% else %}
+    <div class="tabla-scroll">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Alumno</th>
+            <th>Ciclo</th>
+            <th>Asistencia</th>
+            <th>Premio</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in candidatos %}
+            <tr>
+              <td>
+                {{ c.apellido }}, {{ c.nombre }}
+                {% if c.edad_sin_cargar %}<span class="badge badge--neutro">Edad sin cargar</span>
+                {% elif c.es_menor %}<span class="badge badge--neutro">Menor de 18</span>{% endif %}
+              </td>
+              <td>{{ c.inicio|date:"d/m" }} al {{ c.fin|date:"d/m/Y" }}</td>
+              <td>{{ c.asistidas }} de {{ c.meta }}</td>
+              <td>
+                <form method="post" class="acciones-lista">
+                  {% csrf_token %}
+                  <input type="hidden" name="accion" value="dar">
+                  <input type="hidden" name="alumno" value="{{ c.alumno_id }}">
+                  <input type="hidden" name="inicio" value="{{ c.inicio|date:'Y-m-d' }}">
+                  <select name="premio" aria-label="Premio para {{ c.nombre }} {{ c.apellido }}">
+                    {% for p in premios_activos %}
+                      <option value="{{ p.pk }}"{% if p.pk == premio_por_defecto %} selected{% endif %}>{{ p.nombre }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="submit" class="boton">Dar premio</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+  <h2>Otorgados recientemente</h2>
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Alumno</th>
+          <th>Premio</th>
+          <th>Ciclo</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in otorgados %}
+          <tr>
+            <td>{{ o.alumno.apellido }}, {{ o.alumno.nombre }}</td>
+            <td>
+              {{ o.nombre }}
+              {% if o.tipo != "obsequio" %}
+                <span class="texto-suave">· aplicado en {{ o.n_aplicaciones }} de {{ o.cuotas }} cuotas</span>
+              {% elif o.entregado_en %}
+                <span class="texto-suave">· entregado el {{ o.entregado_en|date:"d/m/Y" }}</span>
+              {% endif %}
+            </td>
+            <td>{{ o.periodo_inicio|date:"d/m" }} al {{ o.periodo_fin|date:"d/m/Y" }}</td>
+            <td>
+              {% if o.estado == "otorgado" %}<span class="badge badge--ok">Otorgado</span>
+              {% else %}<span class="badge badge--riesgo">Anulado</span>{% endif %}
+            </td>
+            <td>
+              {% if o.estado == "otorgado" %}
+                {% if o.tipo == "obsequio" and not o.entregado_en %}
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="accion" value="entregado">
+                    <input type="hidden" name="otorgado" value="{{ o.pk }}">
+                    <button type="submit" class="boton">Marcar entregado</button>
+                  </form>
+                {% endif %}
+                {% comment %}Confirmación sin JS: el botón que anula vive dentro de un details.{% endcomment %}
+                <details>
+                  <summary>Anular</summary>
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="accion" value="anular">
+                    <input type="hidden" name="otorgado" value="{{ o.pk }}">
+                    <p class="texto-suave">¿Seguro? El ciclo vuelve a quedar sin premio.</p>
+                    <button type="submit" class="boton">Sí, anular</button>
+                  </form>
+                </details>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5" class="texto-suave">No se dio ningún premio en los últimos 60 días.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="texto-suave">
+    Anular un premio frena los descuentos que falten; lo ya aplicado queda en las cuotas.
+    Si quitás un descuento a mano de una cuota (o la anulás), esa cuota igual cuenta como
+    aplicada: quitarlo no devuelve la cuota al premio.
+  </p>
+</div>
+{% endblock %}
