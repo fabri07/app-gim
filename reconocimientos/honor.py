@@ -5,6 +5,8 @@ La definición de «persona visible» es la MISMA que la del ranking
 con opt-out o dado de baja no sale en el cuadro de nadie.
 """
 
+import unicodedata
+
 from django.db.models import Count, Exists, OuterRef
 from django.utils import timezone
 
@@ -20,11 +22,17 @@ def alumnos_visibles(gimnasio, hoy=None):
     return Alumno.objects.for_gimnasio(gimnasio).filter(condiciones_de_persona(hoy))
 
 
+def _clave_de_orden(nombre):
+    """Sin acentos ni mayúsculas: «Álvaro» va antes que «Zeta»."""
+    base = unicodedata.normalize("NFKD", nombre)
+    return "".join(c for c in base if not unicodedata.combining(c)).casefold()
+
+
 def cuadro_de_honor(gimnasio, hoy=None):
     """Nombres públicos («Lucía M.») de los visibles con una insignia vigente.
 
     Una sola query (`Exists`, así un alumno con dos premios vigentes no se
-    repite). Orden alfabético por nombre público y luego por id: estable."""
+    repite). Orden alfabético (sin acentos ni mayúsculas) por nombre público y luego por id: estable."""
     hoy = hoy or timezone.localdate()
     con_insignia = PremioOtorgado.objects.filter(
         alumno=OuterRef("pk"),
@@ -38,7 +46,10 @@ def cuadro_de_honor(gimnasio, hoy=None):
         .order_by()
         .values_list("id", "nombre", "apellido")
     )
-    nombres = sorted((_nombre_publico(n, a), i) for i, n, a in filas)
+    nombres = sorted(
+        ((_nombre_publico(n, a), i) for i, n, a in filas),
+        key=lambda par: (_clave_de_orden(par[0]), par[1]),
+    )
     return [nombre for nombre, _ in nombres]
 
 

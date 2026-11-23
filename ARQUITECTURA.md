@@ -4582,7 +4582,11 @@ intentos de cobro (`_bloquear` de `pagos`); nadie más toma el lock de un otorga
 que no hay ciclo con la acreditación de Mercado Pago (cuota → intentos). Aplicar a una
 cuota con link de MP vivo lo cancela (lo hace `aplicar_descuento`). `anular` frena las
 aplicaciones futuras y libera el ciclo para volver a dar; lo ya aplicado queda y el
-staff lo corrige en la cuota. Si el staff quita el descuento a mano o anula la cuota,
+staff lo corrige en la cuota. Anular un premio no revierte lo ya aplicado; si se
+vuelve a dar el premio de ese ciclo, el nuevo otorgado toma las próximas cuotas con
+`descuento=0` y el alumno puede terminar con el descuento duplicado: es decisión del
+staff (la pantalla avisa que «lo ya aplicado queda en las cuotas»; no advierte
+expresamente del duplicado al volver a dar). Si el staff quita el descuento a mano o anula la cuota,
 la `PremioAplicacion` sigue contando (premio consumido sin rebaja).
 
 **Dependencias.** `reconocimientos` (última en `INSTALLED_APPS`) lee `pagos`,

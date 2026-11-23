@@ -175,10 +175,13 @@ class PremiosCicloView(_PremiosStaffMixin, TemplateView):
 
     @staticmethod
     def _entero(valor):
+        """Id del POST, o None si no es un entero positivo que entre en un
+        bigint (un `99999999999999999999` reventaría la query: 500)."""
         try:
-            return int(valor)
+            numero = int(valor)
         except (TypeError, ValueError):
             return None
+        return numero if 0 < numero < 2**63 else None
 
     def _dar(self, request):
         alumno_id = self._entero(request.POST.get("alumno"))

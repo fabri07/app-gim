@@ -47,7 +47,6 @@ from alumnos import services as servicios
 from alumnos.fotos import guardar_foto, quitar_foto
 from alumnos.forms import AlumnoForm, CrearAccesoForm, LoteForm, MiPerfilForm
 from alumnos.models import Alumno
-from reconocimientos.honor import datos_del_alumno
 
 
 class AlumnoListView(StaffRequiredMixin, TenantScopedMixin, ListView):
@@ -800,6 +799,9 @@ class MiPerfilView(AlumnoRequiredMixin, FormView):
             contexto["aviso_suplantando"] = MENSAJE_SUPLANTANDO
         if self.alumno is not None:
             # Lo propio (avance y premios) lo ve también un menor.
+            # Import tardío: `alumnos.views` no arrastra `asistencia` a nivel módulo.
+            from reconocimientos.honor import datos_del_alumno
+
             contexto.update(datos_del_alumno(self.alumno))
         return contexto
 

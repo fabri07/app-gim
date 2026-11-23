@@ -1051,11 +1051,15 @@ class ComandoGenerarPagosTests(_Base):
         self.assertTrue(salida.startswith(f"Cuotas emitidas al {HOY:%d/%m/%Y}: "))
 
     def test_no_falla_si_premios_revienta_y_deja_el_log(self):
+        err = StringIO()
         with patch("reconocimientos.premios.aplicar_pendientes",
                    side_effect=RuntimeError("boom")):
             with self.assertLogs("pagos.management.commands.generar_pagos",
                                  level="ERROR") as logs:
-                salida = self._correr()
+                salida = StringIO()
+                call_command("generar_pagos", stdout=salida, stderr=err)
+                salida = salida.getvalue()
+        self.assertIn("No se pudieron aplicar los premios: ver el log", err.getvalue())
         self.assertEqual(
             salida,
             f"Cuotas emitidas al {HOY:%d/%m/%Y}: 1. Cuotas marcadas como vencidas: 0.\n",

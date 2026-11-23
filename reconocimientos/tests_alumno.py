@@ -243,6 +243,14 @@ class CuadroDeHonorTests(_Base):
         self._otorgado(self._alumno("Beto"))
         self.assertEqual(honor.cuadro_de_honor(self.gimnasio), ["Beto P.", "Zeta P."])
 
+    def test_orden_sin_acentos_ni_mayusculas(self):
+        for nombre in ("Zeta", "Álvaro", "ana", "Ana"):
+            self._otorgado(self._alumno(nombre))
+        self.assertEqual(
+            honor.cuadro_de_honor(self.gimnasio),
+            ["Álvaro P.", "ana P.", "Ana P.", "Zeta P."],
+        )
+
     def test_privacidad_nadie_invisible_sale(self):
         invisibles = [
             self._alumno("Menor", fecha_nacimiento=HOY - 10 * 365 * UN_DIA),

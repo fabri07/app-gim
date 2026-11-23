@@ -135,6 +135,22 @@ class PremioFormTests(TestCase):
                 self.assertFalse(form.is_valid())
                 self.assertIn(campo, form.errors)
 
+    def test_inactivo_no_puede_ser_por_defecto(self):
+        activo = Premio.objects.create(
+            gimnasio=self.gimnasio, nombre="Activo", valor=5, por_defecto=True
+        )
+        form = self._form(_datos(nombre="Inactivo", activo=None, por_defecto="on"))
+        self.assertTrue(form.is_valid(), form.errors)
+        form.instance.gimnasio = self.gimnasio
+        nuevo = form.save()
+        self.assertFalse(nuevo.por_defecto)
+        activo.refresh_from_db()
+        self.assertTrue(activo.por_defecto)
+        # Edición: destildar `activo` con `por_defecto` marcado.
+        form = self._form(_datos(nombre="Activo", activo=None, por_defecto="on"), instance=activo)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertFalse(form.save().por_defecto)
+
     def test_cuotas_vacias_quedan_en_1(self):
         form = self._form(_datos(cuotas=""))
         self.assertTrue(form.is_valid(), form.errors)

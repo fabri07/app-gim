@@ -266,6 +266,16 @@ class DarPremioTests(_Base):
             with self.subTest(extra=extra):
                 self._forjado(self._dar(alumno, premio, cambios=extra))
 
+    def test_id_enorme_es_invalido_y_no_revienta(self):
+        alumno = self._alumno()
+        premio = self._premio()
+        for extra in (
+            {"alumno": "99999999999999999999"}, {"premio": str(2**63)},
+            {"alumno": "0"}, {"premio": "-3"},
+        ):
+            with self.subTest(extra=extra):
+                self._forjado(self._dar(alumno, premio, cambios=extra))
+
     def test_accion_desconocida_o_ausente(self):
         for datos in ({"accion": "borrar"}, {}):
             with self.subTest(datos=datos):
@@ -307,6 +317,14 @@ class AnularYEntregarTests(_Base):
         otorgado.refresh_from_db()
         self.assertEqual(otorgado.estado, PremioOtorgado.Estado.OTORGADO)
         self.assertIsNone(otorgado.entregado_en)
+
+    def test_id_enorme_no_revienta(self):
+        for valor in ("99999999999999999999", str(2**63), "0", "-1"):
+            for accion in ("anular", "entregado"):
+                with self.subTest(valor=valor, accion=accion):
+                    r = self.client.post(self.url, {"accion": accion, "otorgado": valor})
+                    self.assertEqual(r.status_code, 302)
+                    self.assertTrue(self._mensajes(r))
 
     def test_id_no_numerico_o_inexistente(self):
         for valor in ("x", "", "99999"):

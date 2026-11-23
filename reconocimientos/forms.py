@@ -28,6 +28,14 @@ class PremioForm(TenantScopedModelForm):
         cuotas = self.cleaned_data.get("cuotas")
         return 1 if cuotas is None else cuotas
 
+    def clean(self):
+        datos = super().clean()
+        # Un premio inactivo no puede ser el «por defecto»: si no, al guardarlo
+        # le sacaría el default a uno activo.
+        if not datos.get("activo"):
+            datos["por_defecto"] = False
+        return datos
+
     def save(self, commit=True):
         instancia = super().save(commit=False)
         if not commit:

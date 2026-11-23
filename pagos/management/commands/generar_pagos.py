@@ -49,6 +49,7 @@ class Command(BaseCommand):
             premiadas = aplicar_pendientes(hoy)
         except Exception:
             logger.exception("Falló la aplicación de descuentos de premios.")
+            self.stderr.write("No se pudieron aplicar los premios: ver el log.")
 
         self.stdout.write(
             self.style.SUCCESS(
