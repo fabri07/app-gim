@@ -164,6 +164,20 @@ HOJAS = (
         ),
     ),
     Hoja(
+        "premios_otorgados", "reconocimientos.PremioOtorgado", "gimnasio",
+        "Premios ganados por los alumnos (asistencia perfecta).",
+        (
+            ("id", "id"), ("alumno_id", "alumno_id"), ("premio_id", "premio_id"),
+            ("nombre", "nombre"), ("tipo", "tipo"), ("valor", "valor"),
+            ("cuotas", "cuotas"), ("texto", "texto"),
+            ("da_insignia", "da_insignia"),
+            ("periodo_inicio", "periodo_inicio"), ("periodo_fin", "periodo_fin"),
+            ("meta", "meta"), ("asistidas", "asistidas"), ("estado", "estado"),
+            ("entregado_en", "entregado_en"), ("insignia_hasta", "insignia_hasta"),
+            ("otorgado_por_id", "otorgado_por_id"), ("creado", "creado"),
+        ),
+    ),
+    Hoja(
         "categorias", "ejercicios.CategoriaEjercicio", "gimnasio",
         "Categorías con las que el gimnasio agrupa sus ejercicios.",
         (("id", "id"), ("nombre", "nombre"), ("orden", "orden"), ("activo", "activo")),

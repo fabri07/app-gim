@@ -227,3 +227,37 @@ class ServicioDescuentoTests(TestCase):
         self.assertEqual(aplicar_precio_a_impagas_sin_monto(self.gimnasio), 1)
         cuota = self._recargar()
         self.assertEqual((cuota.monto, cuota.descuento), (Decimal("8000.00"), Decimal("0")))
+
+
+class SoloSiSinDescuentoTests(TestCase):
+    """Pieza 5: el premio automático no pisa un descuento que ya había."""
+
+    def setUp(self):
+        self.gimnasio = Gimnasio.objects.create(nombre="G", slug="g")
+        self.alumno = Alumno.objects.create(gimnasio=self.gimnasio, nombre="A", apellido="B")
+        self.cuota = _cuota(self.gimnasio, self.alumno, "10000.00")
+
+    def test_aplica_sobre_cuota_sin_descuento(self):
+        self.assertTrue(aplicar_descuento(
+            self.cuota.pk, self.gimnasio, Decimal("1000"), "Premio",
+            solo_si_sin_descuento=True,
+        ))
+        self.cuota.refresh_from_db()
+        self.assertEqual(self.cuota.descuento, Decimal("1000.00"))
+        self.assertEqual(self.cuota.descuento_motivo, "Premio")
+
+    def test_no_pisa_un_descuento_manual(self):
+        aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("500"), "Manual")
+        self.assertFalse(aplicar_descuento(
+            self.cuota.pk, self.gimnasio, Decimal("1000"), "Premio",
+            solo_si_sin_descuento=True,
+        ))
+        self.cuota.refresh_from_db()
+        self.assertEqual(self.cuota.descuento, Decimal("500.00"))
+        self.assertEqual(self.cuota.descuento_motivo, "Manual")
+
+    def test_sin_el_flag_sigue_pisando(self):
+        aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("500"), "Manual")
+        self.assertTrue(aplicar_descuento(self.cuota.pk, self.gimnasio, Decimal("1000"), "Otro"))
+        self.cuota.refresh_from_db()
+        self.assertEqual(self.cuota.descuento, Decimal("1000.00"))

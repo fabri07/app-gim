@@ -7,7 +7,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 
-from core.models import TenantOwnedModel
+from core.models import TenantOwnedModel, TimeStampedModel
 
 
 class Premio(TenantOwnedModel):
@@ -72,3 +72,96 @@ class Premio(TenantOwnedModel):
             self.cuotas = 1
         if errores:
             raise ValidationError(errores)
+
+
+class PremioOtorgado(TenantOwnedModel):
+    """Un premio ganado por un alumno al cerrar un ciclo con asistencia perfecta.
+
+    Los datos del premio se CONGELAN acá (nombre, tipo, valor, cuotas...): editar
+    o desactivar el catálogo después no cambia lo que el alumno ya ganó, y
+    `premio` es `SET_NULL` por si algún día se borra la fila del catálogo.
+    A lo sumo uno vigente (`OTORGADO`) por alumno y ciclo; uno `ANULADO` no
+    cuenta y se puede volver a otorgar.
+    """
+
+    class Estado(models.TextChoices):
+        OTORGADO = "otorgado", "Otorgado"
+        ANULADO = "anulado", "Anulado"
+
+    alumno = models.ForeignKey(
+        "alumnos.Alumno", on_delete=models.CASCADE, related_name="premios"
+    )
+    premio = models.ForeignKey(
+        Premio, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    # Congelados al otorgar.
+    nombre = models.CharField(max_length=80)
+    tipo = models.CharField(max_length=12, choices=Premio.Tipo.choices)
+    valor = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    cuotas = models.PositiveSmallIntegerField(default=1)
+    texto = models.CharField(max_length=200, blank=True)
+    da_insignia = models.BooleanField(default=True)
+    # El ciclo que se premia y la asistencia que lo justificó.
+    periodo_inicio = models.DateField()
+    periodo_fin = models.DateField()
+    meta = models.PositiveSmallIntegerField()
+    asistidas = models.PositiveSmallIntegerField()
+    estado = models.CharField(
+        max_length=10, choices=Estado.choices, default=Estado.OTORGADO
+    )
+    entregado_en = models.DateTimeField(null=True, blank=True)
+    insignia_hasta = models.DateField(null=True, blank=True)
+    otorgado_por = models.ForeignKey(
+        "tenants.Perfil", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+",
+    )
+    creado = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "premio otorgado"
+        verbose_name_plural = "premios otorgados"
+        ordering = ["-periodo_inicio", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["gimnasio", "alumno", "periodo_inicio"],
+                condition=Q(estado="otorgado"),
+                name="premio_otorgado_unico_por_ciclo",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.nombre} - {self.alumno_id}"
+
+    @property
+    def restantes(self):
+        """Cuotas con descuento que le faltan aplicar (nunca negativo). Un
+        obsequio no tiene cuotas: 0. Usa `n_aplicaciones` si la consulta lo
+        anotó (evita un N+1 en los listados)."""
+        if self.tipo == Premio.Tipo.OBSEQUIO:
+            return 0
+        aplicadas = getattr(self, "n_aplicaciones", None)
+        if aplicadas is None:
+            aplicadas = self.aplicaciones.count()
+        return max(self.cuotas - aplicadas, 0)
+
+
+class PremioAplicacion(TimeStampedModel):
+    """Una cuota a la que se le aplicó el descuento de un premio.
+
+    No es `TenantOwnedModel`: cuelga de `PremioOtorgado` y de `Cuota`, que ya
+    llevan el gimnasio (mismo patrón que `NovedadLeida`). Una cuota admite a lo
+    sumo un premio.
+    """
+
+    otorgado = models.ForeignKey(
+        PremioOtorgado, on_delete=models.CASCADE, related_name="aplicaciones"
+    )
+    cuota = models.ForeignKey("pagos.Cuota", on_delete=models.CASCADE, related_name="+")
+    descuento = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        verbose_name = "aplicación de premio"
+        verbose_name_plural = "aplicaciones de premio"
+        constraints = [
+            models.UniqueConstraint(fields=["cuota"], name="premio_aplicacion_una_por_cuota"),
+        ]

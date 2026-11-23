@@ -1005,7 +1005,7 @@ def vaciar_gimnasio(*, gimnasio):
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import CobroOnlineCuota, Cuota, MedioCobro
-    from reconocimientos.models import Premio
+    from reconocimientos.models import Premio, PremioOtorgado
     from rutinas.models import RutinaAsignada, RutinaPlantilla
     from tenants.models import Perfil, RegistroSuplantacion
     from tienda.models import (
@@ -1059,6 +1059,9 @@ def vaciar_gimnasio(*, gimnasio):
         # PROTECT hacia `Cuota`: los cobros online van antes que las cuotas.
         CobroOnlineCuota.objects.for_gimnasio(gimnasio).delete()
         Cuota.objects.for_gimnasio(gimnasio).delete()
+        # Cascadea desde `Alumno` (y sus aplicaciones desde la cuota); explícito
+        # por el mismo motivo que `Reserva`. Antes que `Premio` (SET_NULL).
+        PremioOtorgado.objects.for_gimnasio(gimnasio).delete()
         # PROTECT hacia `Alumno`. Los ítems caen en cascada con el pedido, y
         # recién sin ítems se pueden borrar los productos (ItemPedido.variante
         # es PROTECT).

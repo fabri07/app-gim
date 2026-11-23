@@ -41,14 +41,21 @@ def lista_minima(descuento):
     return lista
 
 
-def aplicar_descuento(cuota_pk, gimnasio, descuento, motivo, ahora=None):
+def aplicar_descuento(
+    cuota_pk, gimnasio, descuento, motivo, ahora=None, *, solo_si_sin_descuento=False
+):
     """Fija el descuento de una cuota IMPAGA del gimnasio (`0` lo quita) y
     cancela sus links de pago vivos (cobran el monto con el que se generaron).
 
     Devuelve si lo aplicó: `False` si el descuento es negativo o pasa del
     tope, o si la cuota no es impaga / no es del gimnasio. El tope se valida
     contra el monto leído BAJO el lock, así un cambio de monto concurrente no
-    lo esquiva."""
+    lo esquiva.
+
+    Con `solo_si_sin_descuento=True` (el premio automático) aplica ÚNICAMENTE
+    si el descuento leído bajo el lock es 0: un descuento que el staff ya
+    cargó a mano no se pisa. En ese caso no escribe nada y devuelve `False`,
+    igual que los demás "no se pudo aplicar"."""
     ahora = ahora or timezone.now()
     # A centavos, hacia abajo: un Decimal de más de 2 decimales no se desvía.
     descuento = Decimal(descuento).quantize(CENTAVO, rounding=ROUND_DOWN)
@@ -56,14 +63,19 @@ def aplicar_descuento(cuota_pk, gimnasio, descuento, motivo, ahora=None):
         return False
     with transaction.atomic():
         _bloquear(cuota_pk)
-        monto = (
+        leida = (
             Cuota.objects.filter(
                 pk=cuota_pk, gimnasio=gimnasio, estado__in=Cuota.ESTADOS_IMPAGOS
             )
-            .values_list("monto", flat=True)
+            .values_list("monto", "descuento")
             .first()
         )
-        if monto is None or not descuento_valido(monto, descuento):
+        if leida is None:
+            return False
+        monto, descuento_actual = leida
+        if solo_si_sin_descuento and descuento_actual != 0:
+            return False
+        if not descuento_valido(monto, descuento):
             return False
         aplicada = bool(
             Cuota.objects.filter(
