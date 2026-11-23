@@ -1,0 +1,38 @@
+{% comment %}
+  «Tu asistencia» y «Tus premios» de «Mi perfil». Lo ve cualquier alumno,
+  también un menor (es lo suyo). Sin JS ni links que redirijan.
+{% endcomment %}
+<section class="tarjeta">
+  <h2>Tu asistencia</h2>
+  {% if resumen is None %}
+    <p class="texto-suave">Todavía no hay un ciclo en marcha para contar tu asistencia.</p>
+  {% elif resumen.meta is None %}
+    <p>Venís <strong>{{ resumen.asistidos }}</strong> {% if resumen.asistidos == 1 %}sesión{% else %}sesiones{% endif %} en este ciclo.</p>
+    <p class="texto-suave">Cuando tengas una rutina asignada vamos a mostrarte cuánto te falta.</p>
+  {% else %}
+    <p><strong>{{ resumen.asistidos }} de {{ resumen.meta }} sesiones</strong> en este ciclo.</p>
+    {% if resumen.faltan %}
+      <p class="texto-suave">Te {% if resumen.faltan == 1 %}falta 1 sesión{% else %}faltan {{ resumen.faltan }} sesiones{% endif %} para completarlo.</p>
+    {% else %}
+      <p class="texto-suave">¡Completaste todas las sesiones del ciclo!</p>
+    {% endif %}
+  {% endif %}
+</section>
+<section class="tarjeta">
+  <h2>Tus premios</h2>
+  {% if insignia_hasta %}
+    <p><strong>Tenés la insignia de asistencia perfecta</strong> hasta el {{ insignia_hasta|date:"d/m/Y" }}.</p>
+  {% endif %}
+  {% if premios_alumno %}
+    <ul class="lista-cuotas">
+      {% for premio in premios_alumno %}
+        <li>
+          <strong>{{ premio.nombre }}</strong>
+          <span class="texto-suave">{{ premio.estado }}{% if premio.texto %} · {{ premio.texto }}{% endif %}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="texto-suave">Todavía no ganaste premios. Completá un ciclo con asistencia perfecta y aparecen acá.</p>
+  {% endif %}
+</section>

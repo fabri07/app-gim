@@ -797,6 +797,12 @@ class MiPerfilView(AlumnoRequiredMixin, FormView):
         contexto["alumno"] = self.alumno
         if suplantacion.esta_activa(self.request):
             contexto["aviso_suplantando"] = MENSAJE_SUPLANTANDO
+        if self.alumno is not None:
+            # Lo propio (avance y premios) lo ve también un menor.
+            # Import tardío: `alumnos.views` no arrastra `asistencia` a nivel módulo.
+            from reconocimientos.honor import datos_del_alumno
+
+            contexto.update(datos_del_alumno(self.alumno))
         return contexto
 
     def form_valid(self, form):

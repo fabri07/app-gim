@@ -134,7 +134,7 @@ tocar un área, leé su sección** (`grep -n '^## ' ARQUITECTURA.md` da el
 | Moderación de la tienda (cola, denuncias, fotos sin aprobar) | Tienda del gimnasio → «Moderación» |
 | Mercado Pago de la tienda (OAuth, tokens, acreditar, webhook, «Revisar MP», prueba guiada) | Tienda del gimnasio → «Mercado Pago de la tienda» · `docs/mercadopago-tienda.md` |
 | Cuotas por Mercado Pago (precio, botón, acreditar, pantalla del staff, reconciliar) | Cuotas por Mercado Pago · Apps de dominio → `pagos` · `docs/mercadopago-tienda.md` Parte 9 |
-| Reconocimientos: bandera, términos (cartel), foto del alumno, «Mi perfil» | Reconocimientos (ranking y premios) |
+| Reconocimientos: bandera, términos (cartel), foto del alumno, «Mi perfil», premios por asistencia perfecta, cuadro de honor | Reconocimientos (ranking y premios) |
 | Botones de borrar | Borrar: `core/borrado.py` |
 | Aviso de plan por vencer | Aviso de plan por vencer |
 | Editor de plantillas, errores de formulario | Un formulario que rechaza sin que se note… (incluye «El editor de plantillas») |

@@ -4659,6 +4659,7 @@ def _ensuciar(gimnasio, staff, marca="X"):
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import CobroOnlineCuota, Cuota, MedioCobro
+    from reconocimientos.models import Premio, PremioAplicacion, PremioOtorgado
     from rutinas.models import RutinaAsignada, RutinaPlantilla, RutinaPlantillaItem
     from tenants.models import RegistroSuplantacion
     from turnos.models import (
@@ -4686,6 +4687,9 @@ def _ensuciar(gimnasio, staff, marca="X"):
     )
     Novedad.objects.create(gimnasio=gimnasio, titulo=f"Aviso {marca}", mensaje="hola")
     MedioCobro.objects.create(gimnasio=gimnasio, alias=f"alias.{marca}")
+    Premio.objects.create(
+        gimnasio=gimnasio, nombre=f"Premio {marca}", valor=10, por_defecto=True
+    )
     ConfiguracionTurnos.objects.create(gimnasio=gimnasio)
     HorarioAtencion.objects.create(
         gimnasio=gimnasio, dia_semana=0, hora_desde=time(8), hora_hasta=time(20)
@@ -4724,6 +4728,17 @@ def _ensuciar(gimnasio, staff, marca="X"):
     CobroOnlineCuota.objects.create(
         gimnasio=gimnasio, cuota=cuota, monto=Decimal("28000"),
         mp_user_id=f"mp-{marca}",
+    )
+    # El premio ganado cuelga del alumno (CASCADE) y su aplicación de la cuota:
+    # ejercita que `vaciar_gimnasio` no choque con ninguno de los dos.
+    otorgado = PremioOtorgado.objects.create(
+        gimnasio=gimnasio, alumno=alumno, nombre=f"Ganado {marca}",
+        tipo=Premio.Tipo.PORCENTAJE, valor=Decimal("10"),
+        periodo_inicio=timezone.localdate() - timedelta(days=60),
+        periodo_fin=timezone.localdate() - timedelta(days=33), meta=12, asistidas=12,
+    )
+    PremioAplicacion.objects.create(
+        otorgado=otorgado, cuota=cuota, descuento=Decimal("100")
     )
     Reserva.objects.create(
         gimnasio=gimnasio, alumno=alumno,

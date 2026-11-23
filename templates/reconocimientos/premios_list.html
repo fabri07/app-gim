@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block title %}Premios · App Gimnasios{% endblock %}
+{% block main_class %}contenido--ancho{% endblock %}
+
+{% block content %}
+<div class="contenido--ancho">
+  <div class="acciones-lista">
+    <h1>Premios</h1>
+    <div>
+      <a href="{% url 'reconocimientos:premios_ciclo' %}">Premios del ciclo</a>
+      <a class="boton" href="{% url 'reconocimientos:premio_nuevo' %}">Nuevo premio</a>
+    </div>
+  </div>
+
+  <div class="tabla-scroll">
+    <table class="tabla">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Premio</th>
+          <th>Insignia</th>
+          <th>Estado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for premio in premios %}
+          <tr>
+            <td>
+              {{ premio.nombre }}
+              {% if premio.por_defecto %}<span class="badge badge--neutro">Por defecto</span>{% endif %}
+            </td>
+            <td>
+              {% if premio.tipo == "porcentaje" %}{{ premio.valor|floatformat:"-2" }}% de descuento{% if premio.cuotas > 1 %} durante {{ premio.cuotas }} cuotas{% endif %}
+              {% elif premio.tipo == "fijo" %}${{ premio.valor|floatformat:"-2" }} de descuento{% if premio.cuotas > 1 %} durante {{ premio.cuotas }} cuotas{% endif %}
+              {% else %}{{ premio.texto }}{% endif %}
+            </td>
+            <td>{% if premio.da_insignia %}Sí{% else %}No{% endif %}</td>
+            <td>
+              {% if premio.activo %}
+                <span class="badge badge--ok">Activo</span>
+              {% else %}
+                <span class="badge badge--riesgo">Inactivo</span>
+              {% endif %}
+            </td>
+            <td>
+              <a href="{% url 'reconocimientos:premio_editar' premio.pk %}">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="5" class="texto-suave">Todavía no cargaste ningún premio.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
