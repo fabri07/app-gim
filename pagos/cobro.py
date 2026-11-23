@@ -58,6 +58,15 @@ def cobrada_por_mercadopago(cuota_pk):
     ).exists()
 
 
+def descuento_cambio(cuota):
+    """¿El descuento guardado en la base ya no es el de la instancia? Se
+    llama con el lock de la cuota tomado (`_bloquear`)."""
+    return (
+        Cuota.objects.filter(pk=cuota.pk).values_list("descuento", flat=True).first()
+        != cuota.descuento
+    )
+
+
 def cancelar_links_vivos(cuota_pk, ahora):
     """Cancela los links de pago todavía abiertos (CREADO) de la cuota.
 
@@ -106,7 +115,12 @@ def marcar_pagada(cuota, *, desde=None, ahora=None, **campos):
       `update_fields=CAMPOS_CONFIRMAR_PAGO`. Si la cuota ya fue cobrada por
       Mercado Pago (un intento PAGADO) NO guarda, borra el comprobante recién
       subido y devuelve `False`: el staff estaba registrando un cobro que, en
-      el medio, ya entró por otro lado.
+      el medio, ya entró por otro lado. Tampoco guarda (y devuelve `False`)
+      si el descuento de la base ya no es el de la instancia: el form le
+      sumó a lo cobrado el descuento que leyó (`ConfirmarPagoForm.clean_monto`)
+      y guardar ese `monto` con otro descuento rompería `monto - descuento ==
+      cobrado`. Quien llama distingue los dos casos con
+      `cobrada_por_mercadopago`.
     - `desde=<estados>` es el camino de Mercado Pago: un UPDATE condicional
       sobre la cuota (sólo si sigue en uno de esos estados) con `campos`, y
       `modificado` explícito porque `update()` no dispara `auto_now`.
@@ -117,7 +131,7 @@ def marcar_pagada(cuota, *, desde=None, ahora=None, **campos):
         with transaction.atomic():
             _bloquear(cuota.pk)
             if desde is None:
-                if cobrada_por_mercadopago(cuota.pk):
+                if cobrada_por_mercadopago(cuota.pk) or descuento_cambio(cuota):
                     marcada = False
                 else:
                     cuota.estado = Cuota.Estado.PAGADO
@@ -166,17 +180,33 @@ def editar_pagada(cuota):
     return sigue_pagada
 
 
-def corregir_monto(cuota_pk, gimnasio, monto, ahora=None):
+def corregir_monto(cuota_pk, gimnasio, monto, ahora=None, *, descuento=None, motivo=None):
     """Cambia el monto de una cuota IMPAGA y cancela sus links vivos (cobran
-    el monto viejo). Una pagada o anulada no se toca. Devuelve si la cambió."""
+    el monto viejo). Una pagada o anulada no se toca. Devuelve si la cambió.
+
+    Con `descuento=None` conserva el descuento vigente; con un valor lo
+    reemplaza (y `motivo` con él). Si el descuento resultante pasa del tope
+    del monto NUEVO, no escribe nada y devuelve `False`: bajar el monto por
+    debajo de un descuento vigente rompería el tope (y el `CheckConstraint`)."""
+    from pagos.descuentos import descuento_valido
+
     ahora = ahora or timezone.now()
     with transaction.atomic():
         _bloquear(cuota_pk)
-        cambiada = bool(
-            Cuota.objects.filter(
-                pk=cuota_pk, gimnasio=gimnasio, estado__in=Cuota.ESTADOS_IMPAGOS
-            ).update(monto=monto, modificado=ahora)
+        impagas = Cuota.objects.filter(
+            pk=cuota_pk, gimnasio=gimnasio, estado__in=Cuota.ESTADOS_IMPAGOS
         )
+        vigente = impagas.values_list("descuento", flat=True).first()
+        if vigente is None:
+            return False
+        campos = {"monto": monto, "modificado": ahora}
+        nuevo = vigente if descuento is None else descuento
+        if not descuento_valido(monto, nuevo):
+            return False
+        if descuento is not None:
+            campos["descuento"] = nuevo
+            campos["descuento_motivo"] = (motivo or "") if nuevo > 0 else ""
+        cambiada = bool(impagas.update(**campos))
         if cambiada:
             cancelar_links_vivos(cuota_pk, ahora)
     return cambiada

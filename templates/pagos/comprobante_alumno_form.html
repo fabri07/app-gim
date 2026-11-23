@@ -8,7 +8,7 @@
   <div class="con-lateral">
     <div>
       <p class="texto-suave">{{ object.periodo_inicio|date:"d/m/Y" }} al {{ object.periodo_fin|date:"d/m/Y" }}</p>
-      {% if object.monto > 0 %}<p>Monto: <strong>$ {{ object.monto }}</strong></p>{% endif %}
+      {% if object.monto_a_cobrar > 0 %}{% if object.descuento > 0 %}<p>Monto: <s>$ {{ object.monto }}</s> <strong>$ {{ object.monto_a_cobrar }}</strong><br><small class="texto-suave">{{ object.descuento_motivo }}</small></p>{% else %}<p>Monto: <strong>$ {{ object.monto }}</strong></p>{% endif %}{% endif %}
       {% include 'partials/medios_cobro.html' %}
     </div>
     <div class="mt-4 lg:mt-0">

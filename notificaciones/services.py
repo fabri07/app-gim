@@ -255,9 +255,12 @@ def _con_mercadopago(pago, cobro_online):
     cuota. `cobro_online` lo calcula quien llama UNA vez por gimnasio
     (`pagos.cobro_mp.gimnasios_con_cobro_online`), nunca una query por cuota.
     Una cuota en $0 no tiene botón de pago: no se menciona."""
-    if not cobro_online or not pago.monto or pago.monto <= 0:
+    if not cobro_online:
         return ""
-    return f" {_pesos(pago.monto)} · podés pagarla con Mercado Pago."
+    neto = pago.monto_a_cobrar
+    if not neto or neto <= 0:
+        return ""
+    return f" {_pesos(neto)} · podés pagarla con Mercado Pago."
 
 
 def notificar_pago_por_vencer(pago, *, cobro_online=False) -> None:

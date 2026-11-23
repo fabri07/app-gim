@@ -282,10 +282,17 @@ class ConfirmarPagoView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
                 )
                 return redirect(self.success_url)
         elif not cobro.marcar_pagada(cuota):
-            messages.warning(
-                self.request,
-                "Esta cuota se acaba de cobrar por Mercado Pago; no se guardó tu cambio.",
-            )
+            # Dos motivos: MP la cobró en el medio, o le cambiaron el
+            # descuento (el monto que se iba a guardar ya no cuadra). La
+            # query extra va sólo por este camino.
+            if cobro.cobrada_por_mercadopago(cuota.pk):
+                texto = "Esta cuota se acaba de cobrar por Mercado Pago; no se guardó tu cambio."
+            else:
+                texto = (
+                    "El descuento de esta cuota cambió mientras la confirmabas; "
+                    "no se guardó tu cambio. Volvé a abrirla."
+                )
+            messages.warning(self.request, texto)
             return redirect(self.success_url)
         self.object = cuota
         _avisar_si_sigue_bloqueado(self.request, self.object, "Pago confirmado")
@@ -403,13 +410,43 @@ class CuotaMontoView(StaffRequiredMixin, TenantScopedMixin, UpdateView):
             .select_related("alumno")
         )
 
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        # `self.object` lo muta `ModelForm._post_clean` con lo que llegó en un
+        # POST inválido: la línea «va a pagar» se lee de la base.
+        ctx["guardada"] = (
+            Cuota.objects.filter(pk=self.object.pk)
+            .annotate(neto=Cuota.NETO)
+            .values("monto", "descuento", "neto")
+            .first()
+        )
+        return ctx
+
     def form_valid(self, form):
         cuota = self.object
-        if cobro.corregir_monto(cuota.pk, self.gimnasio, form.cleaned_data["monto"]):
+        datos = form.cleaned_data
+        if cobro.corregir_monto(
+            cuota.pk,
+            self.gimnasio,
+            datos["monto"],
+            descuento=datos["descuento"],
+            motivo=datos["descuento_motivo"],
+        ):
             messages.success(
                 self.request,
                 f"Monto de la cuota del {cuota.periodo_inicio:%d/%m/%Y} de "
                 f"{cuota.alumno} corregido.",
+            )
+        elif Cuota.objects.for_gimnasio(self.gimnasio).filter(
+            pk=cuota.pk, estado__in=Cuota.ESTADOS_IMPAGOS
+        ).exists():
+            # Sigue impaga: lo que frenó la escritura fue el tope (otro cambio
+            # de monto o de descuento entre la lectura y la escritura).
+            messages.warning(
+                self.request,
+                f"No se corrigió: el descuento de la cuota del "
+                f"{cuota.periodo_inicio:%d/%m/%Y} de {cuota.alumno} pasa del "
+                "90% del monto. Revisá los valores y probá de nuevo.",
             )
         else:
             messages.warning(
