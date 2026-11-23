@@ -4293,7 +4293,9 @@ Están también en `ISSUES.md` (2026-10-20).
 
 **Estado (2026-11-21): construidas la Pieza 1 (bandera, términos, foto,
 «Mi perfil») y la Pieza 2 (ranking de kilos por ejercicio).** Los premios
-(piezas 3-5) NO existen todavía. La foto no se muestra en el ranking (sigue
+(piezas 3-5) existen en código: el descuento en la cuota (pieza 3), la
+asistencia (pieza 4) y los premios por asistencia perfecta (pieza 5, ver
+«Premios por asistencia perfecta (Pieza 5)» al final de esta sección). La foto no se muestra en el ranking (sigue
 sin mostrarse en ninguna lista de compañeros). Spec:
 `docs/superpowers/specs/2026-11-21-reconocimientos-design.md`; planes:
 `docs/superpowers/plans/2026-11-21-reconocimientos-pieza-1-perfil-terminos-foto.md`
@@ -4508,8 +4510,112 @@ lo importa a nivel módulo.
 
 **Menores de 18.** La asistencia SE REGISTRA para todos (es un dato operativo del
 gimnasio). La regla «los menores no participan» aplica a los rankings, no a este
-registro. **Pregunta abierta para la Pieza 5:** si la «asistencia perfecta» de
-un menor puede premiarse o no; no está decidido.
+registro. La Pieza 5 resolvió la pregunta: un menor SÍ puede recibir un premio
+por asistencia perfecta, pero no se expone a compañeros.
+
+### Premios por asistencia perfecta (Pieza 5)
+
+Código en `reconocimientos/` (`models.py`, `premios.py`, `honor.py`, `views.py`,
+`forms.py`). Todo detrás de `Gimnasio.reconocimientos_habilitado` (404 sin la
+bandera), con una excepción deliberada: `aplicar_pendientes` (abajo).
+
+**Modelos.** `Premio` (`TenantOwnedModel`): el catálogo del gimnasio, con `tipo`
+(`porcentaje` 1..90 | `fijo` en pesos | `obsequio` en especie con `texto`),
+`valor`, `cuotas` (1..13, cuántas cuotas dura el descuento), `da_insignia`,
+`por_defecto` (a lo sumo uno por gimnasio: `UniqueConstraint` parcial
+`premio_un_solo_por_defecto`) y `activo`. No se borra: se desactiva.
+`PremioOtorgado` (`TenantOwnedModel`): lo ganado por un alumno en un ciclo; CONGELA
+nombre, tipo, valor, cuotas y texto (editar el catálogo no cambia lo ya ganado);
+estado `otorgado`/`anulado`; a lo sumo uno `otorgado` por alumno y ciclo (índice
+parcial); `entregado_en` para los obsequios; `insignia_hasta` (fin del ciclo + 28
+días). `PremioAplicacion` (NO tenant-owned a propósito, cuelga de otorgado y cuota
+como `NovedadLeida`): una fila por cuota que recibió el descuento, única por cuota.
+`Premio` y `PremioOtorgado` están en los tres lugares de la regla transversal;
+`PremioAplicacion`, en ninguno. Todo lo nuevo es `CASCADE` hacia alumno y cuota:
+ningún `PROTECT` nuevo al borrar un alumno.
+
+**Quién califica** (`premios.candidatos`, costo constante en queries, sin N+1):
+alumno ACTIVO con ancla de ciclo; ciclos CERRADOS (`fin < hoy`) con
+`fin >= hoy - MAX_DIAS_ATRAS` (los mismos 35 días con que el staff puede cargar
+asistencia), así que puede haber dos candidatos por alumno; asistencia perfecta =
+`asistidas >= meta` SIN tolerancia de faltas, con la meta del ciclo calculada en lote
+con la misma regla que `asistencia.services.meta_del_ciclo` (rutina vigente al
+inicio del ciclo; sin meta no hay premio); **sin deuda**: ninguna cuota
+PENDIENTE/VENCIDO con `periodo_inicio <= fin` del ciclo (la pre-emitida del ciclo
+siguiente no cuenta); y sin un otorgado vigente para ese ciclo. El staff confirma
+(`reconocimientos:premios_ciclo`): nada se otorga solo, y `otorgar` revalida TODO
+contra la base (el listado pudo quedar viejo o el POST venir forjado).
+
+**Dónde cae el descuento** (`premios.aplicar_pendientes`): en las próximas `cuotas`
+cuotas impagas del alumno, en orden de `periodo_inicio`, que cumplan TODO esto:
+`descuento = 0`, `monto > 0`, sin `PremioAplicacion` y `periodo_inicio` mayor al
+`periodo_fin` del ciclo premiado. Un PORCENTAJE se calcula sobre el `monto` de cada
+cuota; un FIJO se recorta al tope del 90% (`pagos.descuentos.descuento_maximo`); un
+monto que da 0 se saltea (esa cuota no consume el premio). Los obsequios no
+descuentan: el staff los marca entregados (`marcar_entregado`). Un combo («3 meses
+con 10%») o un precio por 3/6/13 cuotas es, en este diseño, un descuento POR CUOTA
+durante `cuotas` cuotas; el pago adelantado real queda afuera.
+
+**Por qué `aplicar_pendientes` corre con la bandera apagada.** Lo prometido se
+cumple: si el dueño apaga el módulo después de dar premios, los descuentos que ya
+ganaron los alumnos se siguen aplicando (decisión explícita). Sí exige alumno ACTIVO.
+No depende de las cuotas que el generador acaba de crear (`bulk_create(
+ignore_conflicts=True)` no devuelve PKs en Postgres): re-consulta por su cuenta.
+Lecturas en dos queries; escrituras por asignación, cada una en su transacción, y
+una que revienta se loguea y se sigue con la próxima. Nadie debe llamarla dentro de
+un `atomic` exterior (el `except` por asignación seguiría sobre una transacción rota).
+
+**`otorgar` aplica DESPUÉS del commit.** En una transacción van sólo el otorgado y la
+novedad personal al alumno («¡Asistencia perfecta!», push sólo a ese alumno); la
+aplicación a las cuotas existentes corre fuera (`_aplicar_sin_romper`, con
+`try/except` + log): si falla, el premio ya quedó guardado, no se retienen locks de
+cuota y el cron `generar_pagos` (idempotente) lo completa. Doble clic o dos pestañas:
+el segundo devuelve el existente (y reintenta aplicar); si llegan a la vez, resuelve
+el índice parcial.
+
+**Plata: un solo escritor y orden de locks.** El único que escribe el descuento es
+`pagos.descuentos.aplicar_descuento`, siempre con `solo_si_sin_descuento=True`: un
+descuento cargado a mano no se pisa. Cada aplicación (`_aplicar_una`) toma el lock del
+otorgado y recuenta bajo el lock; si el INSERT de `PremioAplicacion` choca con la
+unicidad por cuota, deshace el descuento y saltea. Orden de locks: otorgado → cuota →
+intentos de cobro (`_bloquear` de `pagos`); nadie más toma el lock de un otorgado, así
+que no hay ciclo con la acreditación de Mercado Pago (cuota → intentos). Aplicar a una
+cuota con link de MP vivo lo cancela (lo hace `aplicar_descuento`). `anular` frena las
+aplicaciones futuras y libera el ciclo para volver a dar; lo ya aplicado queda y el
+staff lo corrige en la cuota. Si el staff quita el descuento a mano o anula la cuota,
+la `PremioAplicacion` sigue contando (premio consumido sin rebaja).
+
+**Dependencias.** `reconocimientos` (última en `INSTALLED_APPS`) lee `pagos`,
+`asistencia`, `novedades`, `alumnos` y `rutinas`. `pagos` NO la importa a nivel
+módulo: sólo `generar_pagos` hace `from reconocimientos.premios import
+aplicar_pendientes` dentro de `handle`, en un `try/except` que loguea (un fallo de
+premios no tumba la emisión de cuotas, que ya está hecha). Misma forma que
+`pagos`→`tienda`. La salida del comando suma «Descuentos de premios aplicados: N».
+
+**Menores y privacidad.** Un menor (o un alumno sin fecha de nacimiento) puede recibir
+premios, pero no se expone: el cuadro de honor (`honor.cuadro_de_honor`) sale de la
+MISMA definición de persona visible que el ranking,
+`ranking.condiciones_de_persona(hoy, prefijo)` (ACTIVO, `aparece_en_ranking`, mayor
+de 18, términos vigentes), y hay un test de consistencia contra `participantes()`.
+Muestra sólo `_nombre_publico` («Lucía M.»), sin foto, y sólo insignias vigentes
+(`insignia_hasta >= hoy`, una query con `Exists`). `Candidato.edad_sin_cargar`
+distingue «Edad sin cargar» de «Menor de 18» en la pantalla del staff (en ambos casos
+`es_menor` es True, criterio del ranking).
+
+**Lado del alumno.** «Mi perfil» muestra «Tus premios» (los 10 más recientes, con su
+estado: «Se aplicará en tu próxima cuota», «Aplicado en N de M cuotas», «Retiralo en
+el gimnasio»/«Entregado») y la insignia; el ranking suma el «Cuadro de honor».
+
+**Rutas** (la app está montada en `ranking/`): `reconocimientos:premios`
+(`/ranking/premios/`), `premio_nuevo` (`premios/nuevo/`), `premio_editar`
+(`premios/<pk>/editar/`) y `premios_ciclo` (`premios/ciclo/`, donde se da,
+se entrega y se anula). `por_defecto` sólo preselecciona en «Premios del ciclo»
+si está activo (`otorgar` exige un premio activo).
+
+**Qué NO hay:** pago adelantado real (cobrar 3/6/13 cuotas juntas), tolerancia de
+faltas, ranking de asistencia (sólo un cuadro de honor de insignias vigentes),
+mini-perfil con foto de compañero, y hoja de `PremioAplicacion` en la exportación
+del gimnasio.
 
 ## Deploy (Fase 5)
 
