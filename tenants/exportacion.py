@@ -154,6 +154,16 @@ HOJAS = (
         ),
     ),
     Hoja(
+        "premios", "reconocimientos.Premio", "gimnasio",
+        "Catálogo de premios por asistencia perfecta.",
+        (
+            ("id", "id"), ("nombre", "nombre"), ("tipo", "tipo"),
+            ("valor", "valor"), ("cuotas", "cuotas"), ("texto", "texto"),
+            ("da_insignia", "da_insignia"), ("por_defecto", "por_defecto"),
+            ("activo", "activo"),
+        ),
+    ),
+    Hoja(
         "categorias", "ejercicios.CategoriaEjercicio", "gimnasio",
         "Categorías con las que el gimnasio agrupa sus ejercicios.",
         (("id", "id"), ("nombre", "nombre"), ("orden", "orden"), ("activo", "activo")),

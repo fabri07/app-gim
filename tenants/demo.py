@@ -1005,6 +1005,7 @@ def vaciar_gimnasio(*, gimnasio):
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import CobroOnlineCuota, Cuota, MedioCobro
+    from reconocimientos.models import Premio
     from rutinas.models import RutinaAsignada, RutinaPlantilla
     from tenants.models import Perfil, RegistroSuplantacion
     from tienda.models import (
@@ -1098,6 +1099,7 @@ def vaciar_gimnasio(*, gimnasio):
         # Sin relaciones entrantes: cualquier orden sirve.
         Importacion.objects.for_gimnasio(gimnasio).delete()
         MedioCobro.objects.for_gimnasio(gimnasio).delete()
+        Premio.objects.for_gimnasio(gimnasio).delete()
         CupoExcepcion.objects.for_gimnasio(gimnasio).delete()
         HorarioAtencion.objects.for_gimnasio(gimnasio).delete()
         ConfiguracionTurnos.objects.for_gimnasio(gimnasio).delete()

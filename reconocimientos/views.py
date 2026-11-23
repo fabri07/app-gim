@@ -1,8 +1,13 @@
+from django.contrib import messages
 from django.http import Http404
-from django.views.generic import TemplateView
+from django.urls import reverse_lazy
+from django.views.generic import CreateView, ListView, TemplateView, UpdateView
 
+from core.mixins import TenantScopedMixin
+from reconocimientos.forms import PremioForm
+from reconocimientos.models import Premio
 from reconocimientos.ranking import calcular_ranking
-from tenants.mixins import AlumnoRequiredMixin
+from tenants.mixins import AlumnoRequiredMixin, StaffRequiredMixin
 
 
 def formatear_kilos(kilos):
@@ -64,3 +69,54 @@ class RankingView(AlumnoRequiredMixin, TemplateView):
             b["tu_fila"] or any(f["es_propia"] for f in b["filas"]) for b in bloques
         )
         return contexto
+
+
+class _PremiosStaffMixin(StaffRequiredMixin, TenantScopedMixin):
+    """Pantallas del catálogo de premios (sólo staff). La bandera se mira en
+    `get`/`post` y NO en `dispatch`, por lo mismo que en `RankingView`: el
+    `dispatch` de `StaffRequiredMixin` tiene que correr primero (403 a un
+    alumno, login a un anónimo). Apagada: 404, también para el staff."""
+
+    model = Premio
+    success_url = reverse_lazy("reconocimientos:premios")
+
+    def get(self, request, *args, **kwargs):
+        if not self.gimnasio.reconocimientos_habilitado:
+            raise Http404
+        return super().get(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        if not self.gimnasio.reconocimientos_habilitado:
+            raise Http404
+        return super().post(request, *args, **kwargs)
+
+
+class PremiosListView(_PremiosStaffMixin, ListView):
+    """Todos los premios del gimnasio, activos e inactivos (el staff tiene que
+    ver los inactivos para reactivarlos)."""
+
+    template_name = "reconocimientos/premios_list.html"
+    context_object_name = "premios"
+
+
+class PremioCreateView(_PremiosStaffMixin, CreateView):
+    form_class = PremioForm
+    template_name = "reconocimientos/premio_form.html"
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, "Premio creado correctamente.")
+        return response
+
+
+class PremioUpdateView(_PremiosStaffMixin, UpdateView):
+    """No hay vista de borrado: «eliminar» un premio es destildar `activo`,
+    así los premios ya otorgados conservan a qué se refieren."""
+
+    form_class = PremioForm
+    template_name = "reconocimientos/premio_form.html"
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        messages.success(self.request, "Premio actualizado correctamente.")
+        return response

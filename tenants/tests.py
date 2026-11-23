@@ -4659,6 +4659,7 @@ def _ensuciar(gimnasio, staff, marca="X"):
     from notificaciones.models import RecordatorioEnviado, SuscripcionPush
     from novedades.models import Novedad
     from pagos.models import CobroOnlineCuota, Cuota, MedioCobro
+    from reconocimientos.models import Premio
     from rutinas.models import RutinaAsignada, RutinaPlantilla, RutinaPlantillaItem
     from tenants.models import RegistroSuplantacion
     from turnos.models import (
@@ -4686,6 +4687,9 @@ def _ensuciar(gimnasio, staff, marca="X"):
     )
     Novedad.objects.create(gimnasio=gimnasio, titulo=f"Aviso {marca}", mensaje="hola")
     MedioCobro.objects.create(gimnasio=gimnasio, alias=f"alias.{marca}")
+    Premio.objects.create(
+        gimnasio=gimnasio, nombre=f"Premio {marca}", valor=10, por_defecto=True
+    )
     ConfiguracionTurnos.objects.create(gimnasio=gimnasio)
     HorarioAtencion.objects.create(
         gimnasio=gimnasio, dia_semana=0, hora_desde=time(8), hora_hasta=time(20)

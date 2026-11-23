@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block title %}{% if object %}Editar{% else %}Nuevo{% endif %} premio · App Gimnasios{% endblock %}
+{% block main_class %}contenido--formulario{% endblock %}
+
+{% block content %}
+<div class="tarjeta">
+  <h1>{% if object %}Editar premio{% else %}Nuevo premio{% endif %}</h1>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="form-grid">
+      {% include 'partials/campo_form.html' with campo=form.nombre %}
+      {% include 'partials/campo_form.html' with campo=form.tipo %}
+      {% include 'partials/campo_form.html' with campo=form.valor %}
+      {% include 'partials/campo_form.html' with campo=form.cuotas %}
+      {% include 'partials/campo_form.html' with campo=form.texto %}
+      {% include 'partials/campo_form.html' with campo=form.da_insignia %}
+      {% include 'partials/campo_form.html' with campo=form.por_defecto %}
+      {% include 'partials/campo_form.html' with campo=form.activo %}
+    </div>
+    <p class="texto-suave">El valor es un porcentaje (1 a 90) o un monto en pesos, según el tipo. Un obsequio no usa valor ni cuotas, sólo la descripción. Para dejar de ofrecer un premio, destildá «Activo»: no se borra.</p>
+    <button type="submit" class="boton">Guardar</button>
+    <a class="boton-secundario" href="{% url 'reconocimientos:premios' %}">Cancelar</a>
+  </form>
+</div>
+{% endblock %}
