@@ -1,0 +1,54 @@
+{% comment %}
+Tarjeta «Asistencia» de la ficha del alumno (sólo con la bandera de
+reconocimientos). El contexto lo arma `asistencia.services.datos_de_la_ficha`:
+`asistencia.resumen` (o None), `asistencia.dias` = [(fecha, marca|None, lector)]
+y `asistencia_form`. Los días del lector no se quitan: son del molinete.
+{% endcomment %}
+<div class="tarjeta" id="asistencia">
+  <h2>Asistencia</h2>
+  {% with resumen=asistencia.resumen %}
+    {% if resumen %}
+      <p>
+        <strong>{{ resumen.asistidos }}{% if resumen.meta %} de {{ resumen.meta }} sesiones{% else %} {% if resumen.asistidos == 1 %}día{% else %}días{% endif %}{% endif %}</strong>
+        <span class="texto-suave">· ciclo del {{ resumen.inicio|date:"d/m" }} al {{ resumen.fin|date:"d/m" }}</span>
+      </p>
+      {% if resumen.meta is None %}
+        <p class="texto-suave">Sin plan al inicio del ciclo: no hay meta.</p>
+      {% endif %}
+    {% elif alumno.estado != "activo" %}
+      <p class="texto-suave">Alumno inactivo: no se cuenta la asistencia.</p>
+    {% elif not alumno.fecha_inicio_ciclo %}
+      <p class="texto-suave">Sin fecha de inicio del ciclo: no se cuenta la asistencia.</p>
+    {% else %}
+      <p class="texto-suave">El ciclo todavía no empezó: no se cuenta la asistencia.</p>
+    {% endif %}
+  {% endwith %}
+
+  {% if asistencia.dias %}
+    <div>
+      {% for fecha, marca, lector in asistencia.dias %}
+        <div>
+          {{ fecha|date:"d/m" }}
+          {% if marca %}
+            <span class="texto-suave">· marcada por {% if marca.registrada_por %}{{ marca.registrada_por.usuario.get_full_name|default:marca.registrada_por.usuario.username }}{% else %}el sistema{% endif %} el {{ marca.creado|date:"d/m" }}</span>
+          {% endif %}
+          {% if lector %}<span class="texto-suave">· lector</span>{% endif %}
+          {% if marca %}
+            <form method="post" action="{% url 'asistencia:quitar' marca.pk %}" style="display:inline">
+              {% csrf_token %}
+              <button type="submit" class="boton-secundario">Quitar</button>
+            </form>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if alumno.estado == "activo" %}
+    <form method="post" action="{% url 'asistencia:registrar' alumno.pk %}">
+      {% csrf_token %}
+      {% include 'partials/campo_form.html' with campo=asistencia_form.fecha %}
+      <button type="submit" class="boton">Registrar asistencia</button>
+    </form>
+  {% endif %}
+</div>
